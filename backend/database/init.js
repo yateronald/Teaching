@@ -1,0 +1,151 @@
+const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs');
+const path = require('path');
+
+class Database {
+    constructor() {
+        this.db = null;
+    }
+
+    async initialize() {
+        return new Promise((resolve, reject) => {
+            // Create database directory if it doesn't exist
+            const dbDir = path.join(__dirname);
+            if (!fs.existsSync(dbDir)) {
+                fs.mkdirSync(dbDir, { recursive: true });
+            }
+
+            // Initialize SQLite database
+            const dbPath = path.join(__dirname, 'french_teaching.db');
+            this.db = new sqlite3.Database(dbPath, (err) => {
+                if (err) {
+                    console.error('Error opening database:', err.message);
+                    reject(err);
+                } else {
+                    console.log('Connected to SQLite database.');
+                    this.createTables()
+                        .then(() => resolve())
+                        .catch(reject);
+                }
+            });
+        });
+    }
+
+    async createTables() {
+        return new Promise((resolve, reject) => {
+            const schemaPath = path.join(__dirname, 'schema.sql');
+            const schema = fs.readFileSync(schemaPath, 'utf8');
+            
+            // Split schema into table creation and index creation statements
+            const allStatements = schema.split(';').filter(stmt => stmt.trim().length > 0);
+            const tableStatements = allStatements.filter(stmt => 
+                stmt.trim().toUpperCase().startsWith('CREATE TABLE')
+            );
+            const indexStatements = allStatements.filter(stmt => 
+                stmt.trim().toUpperCase().startsWith('CREATE INDEX')
+            );
+            
+            // First create all tables
+            this.executeStatements(tableStatements)
+                .then(() => {
+                    // Then create all indexes
+                    return this.executeStatements(indexStatements);
+                })
+                .then(() => {
+                    console.log('Database tables and indexes created successfully.');
+                    resolve();
+                })
+                .catch(reject);
+        });
+    }
+
+    async executeStatements(statements) {
+        return new Promise((resolve, reject) => {
+            if (statements.length === 0) {
+                resolve();
+                return;
+            }
+            
+            let completed = 0;
+            const total = statements.length;
+            
+            statements.forEach((statement, index) => {
+                this.db.run(statement.trim(), (err) => {
+                    if (err && !err.message.includes('already exists')) {
+                        console.error(`Error executing statement ${index + 1}:`, err.message);
+                        console.error('Statement:', statement.trim());
+                        reject(err);
+                        return;
+                    }
+                    
+                    completed++;
+                    if (completed === total) {
+                        resolve();
+                    }
+                });
+            });
+        });
+    }
+
+    getDatabase() {
+        return this.db;
+    }
+
+    async close() {
+        return new Promise((resolve) => {
+            if (this.db) {
+                this.db.close((err) => {
+                    if (err) {
+                        console.error('Error closing database:', err.message);
+                    } else {
+                        console.log('Database connection closed.');
+                    }
+                    resolve();
+                });
+            } else {
+                resolve();
+            }
+        });
+    }
+
+    // Helper method to run queries with promises
+    async run(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.run(sql, params, function(err) {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve({ id: this.lastID, changes: this.changes });
+                }
+            });
+        });
+    }
+
+    // Helper method to get single row
+    async get(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.get(sql, params, (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(row);
+                }
+            });
+        });
+    }
+
+    // Helper method to get all rows
+    async all(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (err, rows) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows);
+                }
+            });
+        });
+    }
+}
+
+module.exports = Database;
