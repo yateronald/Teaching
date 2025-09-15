@@ -195,6 +195,19 @@ const BatchManagement: React.FC = () => {
         }
     };
 
+    // Helper to format duration as days only
+    const formatDaysOnly = (startISO: string, endISO: string) => {
+        const start = new Date(startISO);
+        const end = new Date(endISO);
+        const startTime = start.getTime();
+        const endTime = end.getTime();
+        const diff = endTime - startTime;
+        if (Number.isNaN(startTime) || Number.isNaN(endTime) || diff < 0) return '—';
+        const dayMs = 24 * 60 * 60 * 1000;
+        const days = Math.floor(diff / dayMs);
+        return `${days} day${days !== 1 ? 's' : ''}`;
+    };
+
     const columns: ColumnsType<Batch> = [
         {
             title: 'Name',
@@ -230,9 +243,7 @@ const BatchManagement: React.FC = () => {
             key: 'duration',
             width: 220,
             render: (_, record) => (
-                <span>
-                    {dayjs(record.start_date).format('MMM DD, YYYY HH:mm')} - {dayjs(record.end_date).format('MMM DD, YYYY HH:mm')}
-                </span>
+                <span>{formatDaysOnly(record.start_date, record.end_date)}</span>
             ),
         },
         {

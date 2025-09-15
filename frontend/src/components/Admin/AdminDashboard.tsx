@@ -46,13 +46,15 @@ interface User {
 interface Batch {
     id: number;
     name: string;
-    description: string;
+    // Align with backend fields
     teacher_id: number;
-    teacher_name?: string;
+    teacher_first_name?: string;
+    teacher_last_name?: string;
     start_date: string;
     end_date: string;
-    max_students: number;
-    current_students: number;
+    // Backend provides aggregated student_count
+    student_count?: number;
+    french_level?: string;
     created_at: string;
 }
 
@@ -101,30 +103,39 @@ const AdminDashboard: React.FC = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
+            // Use apiCall like the rest of the app: Response + json(), and correct endpoints (no duplicate /api)
             const [usersRes, batchesRes] = await Promise.all([
-                apiCall('/api/users'),
-                apiCall('/api/batches')
+                apiCall('/users'),
+                apiCall('/batches')
             ]);
 
-            if (usersRes.success) {
-                setUsers(usersRes.data);
-                const teacherList = usersRes.data.filter((user: User) => user.role === 'teacher');
+            if (usersRes.ok) {
+                const usersData: User[] = await usersRes.json();
+                setUsers(Array.isArray(usersData) ? usersData : []);
+                const teacherList = usersData.filter((user: User) => user.role === 'teacher');
                 setTeachers(teacherList);
-                
                 setStats(prev => ({
                     ...prev,
-                    totalUsers: usersRes.data.length,
+                    totalUsers: usersData.length,
                     totalTeachers: teacherList.length,
-                    totalStudents: usersRes.data.filter((user: User) => user.role === 'student').length
+                    totalStudents: usersData.filter((user: User) => user.role === 'student').length
                 }));
+            } else {
+                const errData = await usersRes.json().catch(() => ({}));
+                message.error(errData.error || errData.message || 'Failed to fetch users');
             }
 
-            if (batchesRes.success) {
-                setBatches(batchesRes.data);
+            if (batchesRes.ok) {
+                const batchesData: any = await batchesRes.json();
+                const list: Batch[] = Array.isArray(batchesData) ? batchesData : (batchesData.batches || []);
+                setBatches(list);
                 setStats(prev => ({
                     ...prev,
-                    totalBatches: batchesRes.data.length
+                    totalBatches: list.length
                 }));
+            } else {
+                const errData = await batchesRes.json().catch(() => ({}));
+                message.error(errData.error || errData.message || 'Failed to fetch batches');
             }
         } catch (error) {
             message.error('Failed to fetch data');
@@ -177,13 +188,16 @@ const AdminDashboard: React.FC = () => {
 
     const handleDeleteUser = async (userId: number) => {
         try {
-            const response = await apiCall(`/api/users/${userId}`, {
+            const response = await apiCall(`/users/${userId}`, {
                 method: 'DELETE'
             });
 
-            if (response.success) {
+            if ((response as Response).ok) {
                 message.success('User deleted successfully');
                 fetchData();
+            } else {
+                const err = await (response as Response).json().catch(() => ({}));
+                message.error(err.error || err.message || 'Failed to delete user');
             }
         } catch (error) {
             message.error('Failed to delete user');
@@ -192,13 +206,16 @@ const AdminDashboard: React.FC = () => {
 
     const handleDeleteBatch = async (batchId: number) => {
         try {
-            const response = await apiCall(`/api/batches/${batchId}`, {
+            const response = await apiCall(`/batches/${batchId}`, {
                 method: 'DELETE'
             });
 
-            if (response.success) {
+            if ((response as Response).ok) {
                 message.success('Batch deleted successfully');
                 fetchData();
+            } else {
+                const err = await (response as Response).json().catch(() => ({}));
+                message.error(err.error || err.message || 'Failed to delete batch');
             }
         } catch (error) {
             message.error('Failed to delete batch');
@@ -281,16 +298,18 @@ const AdminDashboard: React.FC = () => {
         },
         {
             title: 'Teacher',
-            dataIndex: 'teacher_name',
             key: 'teacher_name',
             width: 180,
-            ellipsis: true
+            ellipsis: true,
+            render: (_, record) => (
+                `${record.teacher_first_name ?? ''} ${record.teacher_last_name ?? ''}`.trim() || '—'
+            )
         },
         {
             title: 'Students',
             key: 'students',
             width: 120,
-            render: (_, record) => `${record.current_students}/${record.max_students}`
+            render: (_, record) => `${record.student_count ?? 0}`
         },
         {
             title: 'Duration',
@@ -349,7 +368,6 @@ const AdminDashboard: React.FC = () => {
                             title="Total Users"
                             value={stats.totalUsers}
                             prefix={<UserOutlined />}
-                            valueStyle={{ color: '#1890ff' }}
                         />
                     </Card>
                 </Col>
@@ -358,8 +376,7 @@ const AdminDashboard: React.FC = () => {
                         <Statistic
                             title="Teachers"
                             value={stats.totalTeachers}
-                            prefix={<BookOutlined />}
-                            valueStyle={{ color: '#52c41a' }}
+                            prefix={<TeamOutlined />}
                         />
                     </Card>
                 </Col>
@@ -368,8 +385,7 @@ const AdminDashboard: React.FC = () => {
                         <Statistic
                             title="Students"
                             value={stats.totalStudents}
-                            prefix={<TeamOutlined />}
-                            valueStyle={{ color: '#722ed1' }}
+                            prefix={<UserOutlined />}
                         />
                     </Card>
                 </Col>
@@ -378,8 +394,7 @@ const AdminDashboard: React.FC = () => {
                         <Statistic
                             title="Batches"
                             value={stats.totalBatches}
-                            prefix={<FileTextOutlined />}
-                            valueStyle={{ color: '#fa8c16' }}
+                            prefix={<BookOutlined />}
                         />
                     </Card>
                 </Col>
