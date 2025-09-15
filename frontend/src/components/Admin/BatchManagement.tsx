@@ -31,18 +31,17 @@ const { RangePicker } = DatePicker;
 interface Batch {
     id: number;
     name: string;
-    description: string;
+    french_level: string;
     teacher_id: number;
-    teacher_name?: string;
+    teacher_first_name?: string;
+    teacher_last_name?: string;
     start_date: string;
     end_date: string;
-    max_students: number;
-    current_students: number;
-    status: 'active' | 'inactive' | 'completed';
+    student_count: number;
     created_at: string;
 }
 
-interface Teacher {
+interface Person {
     id: number;
     first_name: string;
     last_name: string;
@@ -51,7 +50,8 @@ interface Teacher {
 
 const BatchManagement: React.FC = () => {
     const [batches, setBatches] = useState<Batch[]>([]);
-    const [teachers, setTeachers] = useState<Teacher[]>([]);
+    const [teachers, setTeachers] = useState<Person[]>([]);
+    const [students, setStudents] = useState<Person[]>([]);
     const [loading, setLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
@@ -61,6 +61,7 @@ const BatchManagement: React.FC = () => {
     useEffect(() => {
         fetchBatches();
         fetchTeachers();
+        fetchStudents();
     }, []);
 
     const fetchBatches = async () => {
@@ -69,7 +70,8 @@ const BatchManagement: React.FC = () => {
             const response = await apiCall('/batches');
             if (response.ok) {
                 const data = await response.json();
-                setBatches(data.batches || []);
+                // Backend returns an array directly
+                setBatches(Array.isArray(data) ? data : (data.batches || []));
             } else {
                 message.error('Failed to fetch batches');
             }
@@ -82,34 +84,54 @@ const BatchManagement: React.FC = () => {
 
     const fetchTeachers = async () => {
         try {
-            const response = await apiCall('/users?role=teacher');
+            // Use dedicated teachers endpoint and handle array response
+            const response = await apiCall('/users/role/teachers');
             if (response.ok) {
                 const data = await response.json();
-                setTeachers(data.users || []);
+                setTeachers(Array.isArray(data) ? data : (data.users || []));
             }
         } catch (error) {
             console.error('Error fetching teachers:', error);
         }
     };
 
+    const fetchStudents = async () => {
+        try {
+            const response = await apiCall('/users/role/students');
+            if (response.ok) {
+                const data = await response.json();
+                setStudents(Array.isArray(data) ? data : (data.users || []));
+            }
+        } catch (error) {
+            console.error('Error fetching students:', error);
+        }
+    };
+
     const handleSubmit = async (values: any) => {
         try {
-            const formData = {
-                ...values,
-                start_date: values.dateRange[0].format('YYYY-MM-DD'),
-                end_date: values.dateRange[1].format('YYYY-MM-DD'),
+            const baseData: any = {
+                name: values.name,
+                teacher_id: values.teacher_id,
+                french_level: values.french_level,
+                // Send ISO8601 strings to match backend validator
+                start_date: values.dateRange[0].toDate().toISOString(),
+                end_date: values.dateRange[1].toDate().toISOString(),
             };
-            delete formData.dateRange;
 
             const endpoint = editingBatch ? `/batches/${editingBatch.id}` : '/batches';
             const method = editingBatch ? 'PUT' : 'POST';
+
+            // On create, backend requires student_ids array (min 1)
+            const body = editingBatch
+                ? baseData
+                : { ...baseData, student_ids: values.student_ids };
             
             const response = await apiCall(endpoint, {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(formData),
+                body: JSON.stringify(body),
             });
 
             if (response.ok) {
@@ -120,7 +142,7 @@ const BatchManagement: React.FC = () => {
                 fetchBatches();
             } else {
                 const errorData = await response.json();
-                message.error(errorData.message || 'Operation failed');
+                message.error(errorData.error || errorData.message || 'Operation failed');
             }
         } catch (error) {
             message.error('Error saving batch');
@@ -148,10 +170,8 @@ const BatchManagement: React.FC = () => {
         setEditingBatch(batch);
         form.setFieldsValue({
             name: batch.name,
-            description: batch.description,
+            french_level: batch.french_level,
             teacher_id: batch.teacher_id,
-            max_students: batch.max_students,
-            status: batch.status,
             dateRange: [
                 dayjs(batch.start_date),
                 dayjs(batch.end_date)
@@ -185,19 +205,22 @@ const BatchManagement: React.FC = () => {
             ellipsis: true,
         },
         {
-            title: 'Description',
-            dataIndex: 'description',
-            key: 'description',
+            title: 'French Level',
+            dataIndex: 'french_level',
+            key: 'french_level',
             width: 200,
             ellipsis: true,
         },
         {
             title: 'Teacher',
-            dataIndex: 'teacher_name',
+            dataIndex: 'teacher_id',
             key: 'teacher_name',
-            width: 150,
+            width: 180,
             ellipsis: true,
             render: (_, record) => {
+                if (record.teacher_first_name || record.teacher_last_name) {
+                    return `${record.teacher_first_name || ''} ${record.teacher_last_name || ''}`.trim();
+                }
                 const teacher = teachers.find(t => t.id === record.teacher_id);
                 return teacher ? `${teacher.first_name} ${teacher.last_name}` : 'N/A';
             },
@@ -208,31 +231,18 @@ const BatchManagement: React.FC = () => {
             width: 220,
             render: (_, record) => (
                 <span>
-                    {dayjs(record.start_date).format('MMM DD, YYYY')} - {dayjs(record.end_date).format('MMM DD, YYYY')}
+                    {dayjs(record.start_date).format('MMM DD, YYYY HH:mm')} - {dayjs(record.end_date).format('MMM DD, YYYY HH:mm')}
                 </span>
             ),
         },
         {
             title: 'Students',
+            dataIndex: 'student_count',
             key: 'students',
-            width: 100,
-            render: (_, record) => (
-                <span>
-                    {record.current_students || 0} / {record.max_students}
-                </span>
-            ),
+            width: 120,
         },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            width: 100,
-            render: (status: string) => (
-                <Tag color={getStatusColor(status)}>
-                    {status.toUpperCase()}
-                </Tag>
-            ),
-        },
+        // Keeping Status column colors utility in case it's used later
+        // but not displayed since backend doesn't provide status
         {
             title: 'Actions',
             key: 'actions',
@@ -288,7 +298,7 @@ const BatchManagement: React.FC = () => {
                 dataSource={batches}
                 rowKey="id"
                 loading={loading}
-                scroll={{ x: 1100, y: 400 }}
+                scroll={{ x: 1000, y: 400 }}
                 pagination={{
                     pageSize: 10,
                     showSizeChanger: true,
@@ -322,11 +332,18 @@ const BatchManagement: React.FC = () => {
                     </Form.Item>
 
                     <Form.Item
-                        name="description"
-                        label="Description"
-                        rules={[{ required: true, message: 'Please input description!' }]}
+                        name="french_level"
+                        label="French Level"
+                        rules={[{ required: true, message: 'Please select French level!' }]}
                     >
-                        <Input.TextArea rows={3} placeholder="Enter batch description" />
+                        <Select placeholder="Select French level">
+                            <Option value="A1">A1</Option>
+                            <Option value="A2">A2</Option>
+                            <Option value="B1">B1</Option>
+                            <Option value="B2">B2</Option>
+                            <Option value="C1">C1</Option>
+                            <Option value="C2">C2</Option>
+                        </Select>
                     </Form.Item>
 
                     <Form.Item
@@ -334,7 +351,11 @@ const BatchManagement: React.FC = () => {
                         label="Teacher"
                         rules={[{ required: true, message: 'Please select a teacher!' }]}
                     >
-                        <Select placeholder="Select teacher">
+                        <Select
+                            placeholder="Select teacher"
+                            showSearch
+                            optionFilterProp="children"
+                        >
                             {teachers.map(teacher => (
                                 <Option key={teacher.id} value={teacher.id}>
                                     {teacher.first_name} {teacher.last_name} ({teacher.email})
@@ -346,33 +367,35 @@ const BatchManagement: React.FC = () => {
                     <Form.Item
                         name="dateRange"
                         label="Duration"
-                        rules={[{ required: true, message: 'Please select start and end dates!' }]}
+                        rules={[{ required: true, message: 'Please select start and end date and time!' }]}
                     >
-                        <RangePicker style={{ width: '100%' }} />
+                        <RangePicker
+                            style={{ width: '100%' }}
+                            showTime={{ format: 'HH:mm' }}
+                            format="YYYY-MM-DD HH:mm"
+                        />
                     </Form.Item>
 
-                    <Form.Item
-                        name="max_students"
-                        label="Maximum Students"
-                        rules={[
-                            { required: true, message: 'Please input maximum students!' },
-                            { type: 'number', min: 1, message: 'Must be at least 1!' }
-                        ]}
-                    >
-                        <Input type="number" placeholder="Enter maximum students" />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="status"
-                        label="Status"
-                        rules={[{ required: true, message: 'Please select status!' }]}
-                    >
-                        <Select placeholder="Select status">
-                            <Option value="active">Active</Option>
-                            <Option value="inactive">Inactive</Option>
-                            <Option value="completed">Completed</Option>
-                        </Select>
-                    </Form.Item>
+                    {!editingBatch && (
+                        <Form.Item
+                            name="student_ids"
+                            label="Students"
+                            rules={[{ required: true, message: 'Please select at least one student!' }]}
+                        >
+                            <Select
+                                mode="multiple"
+                                placeholder="Select students"
+                                showSearch
+                                optionFilterProp="children"
+                            >
+                                {students.map(s => (
+                                    <Option key={s.id} value={s.id}>
+                                        {s.first_name} {s.last_name} ({s.email})
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                    )}
 
                     <Form.Item>
                         <Space>
