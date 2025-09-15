@@ -1,650 +1,420 @@
-import React, { useState, useEffect } from 'react';
-import { 
-    Row, 
-    Col, 
-    Card, 
-    Statistic, 
-    Table, 
-    Button, 
-    Modal, 
-    Form, 
-    Input, 
-    Select, 
-    message, 
-    Space,
-    Typography,
-    Tag,
-    Popconfirm,
-    DatePicker
-} from 'antd';
-import {
-    UserOutlined,
-    TeamOutlined,
-    BookOutlined,
-    PlusOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    FileTextOutlined
-} from '@ant-design/icons';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Row, Col, Card, Statistic, Typography, message, Select, Button, Space } from 'antd';
+import { UserOutlined, TeamOutlined, BookOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
-const { RangePicker } = DatePicker;
+// Chart.js / react-chartjs-2
+import {
+  Chart as ChartJS,
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+} from 'chart.js';
+import { Doughnut, Bar } from 'react-chartjs-2';
 
+ChartJS.register(
+  ArcElement,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+  PointElement,
+  LineElement,
+);
+
+const { Title, Text } = Typography;
+
+// Types
 interface User {
-    id: number;
-    email: string;
-    first_name: string;
-    last_name: string;
-    role: 'admin' | 'teacher' | 'student';
-    created_at: string;
+  id: number;
+  email: string;
+  first_name: string;
+  last_name: string;
+  role: 'admin' | 'teacher' | 'student';
+  created_at: string;
 }
 
 interface Batch {
-    id: number;
-    name: string;
-    // Align with backend fields
-    teacher_id: number;
-    teacher_first_name?: string;
-    teacher_last_name?: string;
-    start_date: string;
-    end_date: string;
-    // Backend provides aggregated student_count
-    student_count?: number;
-    french_level?: string;
-    created_at: string;
+  id: number;
+  name: string;
+  teacher_id: number;
+  teacher_first_name?: string;
+  teacher_last_name?: string;
+  start_date: string;
+  end_date: string;
+  student_count?: number;
+  french_level?: string;
+  created_at: string;
 }
 
-interface CreateUserForm {
-    email: string;
-    password: string;
-    first_name: string;
-    last_name: string;
-    role: 'admin' | 'teacher' | 'student';
+interface Quiz {
+  id: number;
+  title: string;
+  status: 'draft' | 'published' | 'archived' | string;
+  created_at: string;
+  updated_at?: string;
 }
 
-interface CreateBatchForm {
-    name: string;
-    description: string;
-    teacher_id: number;
-    start_date: dayjs.Dayjs;
-    end_date: dayjs.Dayjs;
-    max_students: number;
+interface ScheduleItem {
+  id: number;
+  title: string;
+  type: 'class' | 'assignment' | 'quiz' | 'exam' | 'meeting' | 'other' | string;
+  start_time: string;
+  end_time: string;
+  created_at: string;
 }
 
 const AdminDashboard: React.FC = () => {
-    const [users, setUsers] = useState<User[]>([]);
-    const [batches, setBatches] = useState<Batch[]>([]);
-    const [teachers, setTeachers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [userModalVisible, setUserModalVisible] = useState(false);
-    const [batchModalVisible, setBatchModalVisible] = useState(false);
-    const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [editingBatch, setBatch] = useState<Batch | null>(null);
-    const [userForm] = Form.useForm();
-    const [batchForm] = Form.useForm();
-    const { apiCall } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { apiCall } = useAuth();
 
-    const [stats, setStats] = useState({
-        totalUsers: 0,
-        totalTeachers: 0,
-        totalStudents: 0,
-        totalBatches: 0,
-        totalQuizzes: 0
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalTeachers: 0,
+    totalStudents: 0,
+    totalBatches: 0,
+  });
+
+  // Controls
+  const [monthsRange, setMonthsRange] = useState<number>(6);
+
+  // Chart refs for export
+  const roleChartRef = useRef<ChartJS<'doughnut'> | null>(null);
+  const signupChartRef = useRef<ChartJS<'bar'> | null>(null);
+  const batchesChartRef = useRef<ChartJS<'bar'> | null>(null);
+  const quizStatusChartRef = useRef<ChartJS<'bar'> | null>(null);
+  const scheduleTypeChartRef = useRef<ChartJS<'doughnut'> | null>(null);
+
+  useEffect(() => {
+    fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const [usersRes, batchesRes, quizzesRes, schedulesRes] = await Promise.all([
+        apiCall('/users'),
+        apiCall('/batches'),
+        apiCall('/quizzes'),
+        apiCall('/schedules'),
+      ]);
+
+      // Users
+      if (usersRes.ok) {
+        const usersData: User[] = await usersRes.json();
+        setUsers(Array.isArray(usersData) ? usersData : []);
+        const teachers = usersData.filter(u => u.role === 'teacher').length;
+        const students = usersData.filter(u => u.role === 'student').length;
+        setStats(prev => ({ ...prev, totalUsers: usersData.length, totalTeachers: teachers, totalStudents: students }));
+      } else {
+        const err = await usersRes.json().catch(() => ({}));
+        message.error(err.error || err.message || 'Failed to fetch users');
+      }
+
+      // Batches
+      if (batchesRes.ok) {
+        const batchesData: any = await batchesRes.json();
+        const list: Batch[] = Array.isArray(batchesData) ? batchesData : (batchesData.batches || []);
+        setBatches(list);
+        setStats(prev => ({ ...prev, totalBatches: list.length }));
+      } else {
+        const err = await batchesRes.json().catch(() => ({}));
+        message.error(err.error || err.message || 'Failed to fetch batches');
+      }
+
+      // Quizzes
+      if (quizzesRes.ok) {
+        const quizData: Quiz[] = await quizzesRes.json();
+        setQuizzes(Array.isArray(quizData) ? quizData : []);
+      } else {
+        const err = await quizzesRes.json().catch(() => ({}));
+        message.error(err.error || err.message || 'Failed to fetch quizzes');
+      }
+
+      // Schedules
+      if (schedulesRes.ok) {
+        const scheduleData: ScheduleItem[] = await schedulesRes.json();
+        setSchedules(Array.isArray(scheduleData) ? scheduleData : []);
+      } else {
+        const err = await schedulesRes.json().catch(() => ({}));
+        message.error(err.error || err.message || 'Failed to fetch schedules');
+      }
+    } catch (e) {
+      message.error('Failed to fetch data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Derived datasets for charts
+  const roleChartData = useMemo(() => {
+    const admins = users.filter(u => u.role === 'admin').length;
+    const teachers = users.filter(u => u.role === 'teacher').length;
+    const students = users.filter(u => u.role === 'student').length;
+    return {
+      labels: ['Admins', 'Teachers', 'Students'],
+      datasets: [
+        {
+          data: [admins, teachers, students],
+          backgroundColor: ['#ff4d4f', '#1677ff', '#52c41a'],
+        },
+      ],
+    };
+  }, [users]);
+
+  const monthlySignupChart = useMemo(() => {
+    const months = Array.from({ length: monthsRange }, (_, i) => dayjs().subtract(monthsRange - 1 - i, 'month').startOf('month'));
+    const labels = months.map(m => m.format('MMM'));
+    const bucket = new Map<string, number>();
+    months.forEach(m => bucket.set(m.format('YYYY-MM'), 0));
+    users.forEach(u => {
+      const key = dayjs(u.created_at).startOf('month').format('YYYY-MM');
+      if (bucket.has(key)) bucket.set(key, (bucket.get(key) || 0) + 1);
     });
-
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    const fetchData = async () => {
-        setLoading(true);
-        try {
-            // Use apiCall like the rest of the app: Response + json(), and correct endpoints (no duplicate /api)
-            const [usersRes, batchesRes] = await Promise.all([
-                apiCall('/users'),
-                apiCall('/batches')
-            ]);
-
-            if (usersRes.ok) {
-                const usersData: User[] = await usersRes.json();
-                setUsers(Array.isArray(usersData) ? usersData : []);
-                const teacherList = usersData.filter((user: User) => user.role === 'teacher');
-                setTeachers(teacherList);
-                setStats(prev => ({
-                    ...prev,
-                    totalUsers: usersData.length,
-                    totalTeachers: teacherList.length,
-                    totalStudents: usersData.filter((user: User) => user.role === 'student').length
-                }));
-            } else {
-                const errData = await usersRes.json().catch(() => ({}));
-                message.error(errData.error || errData.message || 'Failed to fetch users');
-            }
-
-            if (batchesRes.ok) {
-                const batchesData: any = await batchesRes.json();
-                const list: Batch[] = Array.isArray(batchesData) ? batchesData : (batchesData.batches || []);
-                setBatches(list);
-                setStats(prev => ({
-                    ...prev,
-                    totalBatches: list.length
-                }));
-            } else {
-                const errData = await batchesRes.json().catch(() => ({}));
-                message.error(errData.error || errData.message || 'Failed to fetch batches');
-            }
-        } catch (error) {
-            message.error('Failed to fetch data');
-        } finally {
-            setLoading(false);
-        }
+    const values = months.map(m => bucket.get(m.format('YYYY-MM')) || 0);
+    return {
+      labels,
+      datasets: [
+        {
+          label: 'Signups',
+          data: values,
+          backgroundColor: '#722ed1',
+          borderRadius: 6,
+        },
+      ],
     };
+  }, [users, monthsRange]);
 
-    const handleCreateUser = async (values: CreateUserForm) => {
-        try {
-            const response = await apiCall('/api/auth/register', {
-                method: 'POST',
-                body: JSON.stringify(values)
-            });
-
-            if (response.success) {
-                message.success('User created successfully');
-                setUserModalVisible(false);
-                userForm.resetFields();
-                fetchData();
-            }
-        } catch (error) {
-            message.error('Failed to create user');
-        }
+  const topBatchesChart = useMemo(() => {
+    const sorted = [...batches]
+      .sort((a, b) => (b.student_count || 0) - (a.student_count || 0))
+      .slice(0, 5);
+    return {
+      labels: sorted.map(b => b.name),
+      datasets: [
+        {
+          label: 'Students',
+          data: sorted.map(b => b.student_count || 0),
+          backgroundColor: '#13c2c2',
+          borderRadius: 6,
+        },
+      ],
     };
+  }, [batches]);
 
-    const handleCreateBatch = async (values: CreateBatchForm) => {
-        try {
-            const batchData = {
-                ...values,
-                start_date: values.start_date.format('YYYY-MM-DD'),
-                end_date: values.end_date.format('YYYY-MM-DD')
-            };
-
-            const response = await apiCall('/api/batches', {
-                method: 'POST',
-                body: JSON.stringify(batchData)
-            });
-
-            if (response.success) {
-                message.success('Batch created successfully');
-                setBatchModalVisible(false);
-                batchForm.resetFields();
-                fetchData();
-            }
-        } catch (error) {
-            message.error('Failed to create batch');
-        }
+  const quizStatusChart = useMemo(() => {
+    const statuses = ['draft', 'published', 'archived'];
+    const counts = statuses.map(s => quizzes.filter(q => (q.status || '').toLowerCase() === s).length);
+    return {
+      labels: ['Draft', 'Published', 'Archived'],
+      datasets: [
+        {
+          label: 'Quizzes',
+          data: counts,
+          backgroundColor: ['#faad14', '#52c41a', '#8c8c8c'],
+          borderRadius: 6,
+        },
+      ],
     };
+  }, [quizzes]);
 
-    const handleDeleteUser = async (userId: number) => {
-        try {
-            const response = await apiCall(`/users/${userId}`, {
-                method: 'DELETE'
-            });
-
-            if ((response as Response).ok) {
-                message.success('User deleted successfully');
-                fetchData();
-            } else {
-                const err = await (response as Response).json().catch(() => ({}));
-                message.error(err.error || err.message || 'Failed to delete user');
-            }
-        } catch (error) {
-            message.error('Failed to delete user');
-        }
+  const scheduleTypeChartData = useMemo(() => {
+    const types = ['class', 'assignment', 'quiz', 'exam', 'meeting', 'other'];
+    const labels = ['Class', 'Assignment', 'Quiz', 'Exam', 'Meeting', 'Other'];
+    const colors = ['#1677ff', '#722ed1', '#faad14', '#ff4d4f', '#13c2c2', '#bfbfbf'];
+    const counts = types.map(t => schedules.filter(s => (s.type || '').toLowerCase() === t).length);
+    return {
+      labels,
+      datasets: [
+        {
+          data: counts,
+          backgroundColor: colors,
+        },
+      ],
     };
+  }, [schedules]);
 
-    const handleDeleteBatch = async (batchId: number) => {
-        try {
-            const response = await apiCall(`/batches/${batchId}`, {
-                method: 'DELETE'
-            });
+  const barOptions: any = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { enabled: true },
+    },
+    scales: {
+      x: { grid: { display: false } },
+      y: { beginAtZero: true, ticks: { precision: 0 } },
+    },
+  };
 
-            if ((response as Response).ok) {
-                message.success('Batch deleted successfully');
-                fetchData();
-            } else {
-                const err = await (response as Response).json().catch(() => ({}));
-                message.error(err.error || err.message || 'Failed to delete batch');
+  const doughnutOptions: any = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom' as const },
+      tooltip: { enabled: true },
+    },
+  };
+
+  const downloadChart = (ref: React.MutableRefObject<ChartJS | null>, filename: string) => {
+    const url = ref.current?.toBase64Image();
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+  };
+
+  return (
+    <div>
+      <Title level={2}>Admin Dashboard</Title>
+
+      {/* KPI cards */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+        <Col xs={24} sm={12} md={6}>
+          <Card loading={loading}><Statistic title="Total Users" value={stats.totalUsers} prefix={<UserOutlined />} /></Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card loading={loading}><Statistic title="Teachers" value={stats.totalTeachers} prefix={<TeamOutlined />} /></Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card loading={loading}><Statistic title="Students" value={stats.totalStudents} prefix={<UserOutlined />} /></Card>
+        </Col>
+        <Col xs={24} sm={12} md={6}>
+          <Card loading={loading}><Statistic title="Batches" value={stats.totalBatches} prefix={<BookOutlined />} /></Card>
+        </Col>
+      </Row>
+
+      {/* Analytics Row 1 */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={12}>
+          <Card
+            title="Users by Role"
+            extra={
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(roleChartRef as any, 'users-by-role.png')}>
+                Download
+              </Button>
             }
-        } catch (error) {
-            message.error('Failed to delete batch');
-        }
-    };
+          >
+            <div style={{ height: 280 }}>
+              {users.length === 0 ? (
+                <Text type="secondary">No user data available</Text>
+              ) : (
+                <Doughnut ref={roleChartRef} data={roleChartData} options={doughnutOptions} />
+              )}
+            </div>
+          </Card>
+        </Col>
 
-    const userColumns: ColumnsType<User> = [
-        {
-            title: 'Name',
-            key: 'name',
-            width: 200,
-            fixed: 'left',
-            render: (_, record) => `${record.first_name} ${record.last_name}`
-        },
-        {
-            title: 'Email',
-            dataIndex: 'email',
-            key: 'email',
-            width: 250,
-            ellipsis: true
-        },
-        {
-            title: 'Role',
-            dataIndex: 'role',
-            key: 'role',
-            width: 120,
-            render: (role: string) => {
-                const color = role === 'admin' ? 'red' : role === 'teacher' ? 'blue' : 'green';
-                return <Tag color={color}>{role.toUpperCase()}</Tag>;
-            }
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            width: 150,
-            render: (date: string) => dayjs(date).format('MMM DD, YYYY')
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            width: 150,
-            fixed: 'right',
-            render: (_, record) => (
-                <Space>
-                    <Button 
-                        type="link" 
-                        icon={<EditOutlined />}
-                        onClick={() => {
-                            setEditingUser(record);
-                            setUserModalVisible(true);
-                            userForm.setFieldsValue(record);
-                        }}
-                    >
-                        Edit
-                    </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this user?"
-                        onConfirm={() => handleDeleteUser(record.id)}
-                        okText="Yes"
-                        cancelText="No"
-                    >
-                        <Button type="link" danger icon={<DeleteOutlined />}>
-                            Delete
-                        </Button>
-                    </Popconfirm>
-                </Space>
-            )
-        }
-    ];
-
-    const batchColumns: ColumnsType<Batch> = [
-        {
-            title: 'Batch Name',
-            dataIndex: 'name',
-            key: 'name',
-            width: 200,
-            fixed: 'left',
-            ellipsis: true
-        },
-        {
-            title: 'Teacher',
-            key: 'teacher_name',
-            width: 180,
-            ellipsis: true,
-            render: (_, record) => (
-                `${record.teacher_first_name ?? ''} ${record.teacher_last_name ?? ''}`.trim() || '—'
-            )
-        },
-        {
-            title: 'Students',
-            key: 'students',
-            width: 120,
-            render: (_, record) => `${record.student_count ?? 0}`
-        },
-        {
-            title: 'Duration',
-            key: 'duration',
-            width: 250,
-            render: (_, record) => (
-                `${dayjs(record.start_date).format('MMM DD')} - ${dayjs(record.end_date).format('MMM DD, YYYY')}`
-            )
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            width: 150,
-            fixed: 'right',
-            render: (_, record) => (
-                <Space>
-                    <Button 
-                        type="link" 
-                        icon={<EditOutlined />}
-                        onClick={() => {
-                            setBatch(record);
-                            setBatchModalVisible(true);
-                            batchForm.setFieldsValue({
-                                ...record,
-                                start_date: dayjs(record.start_date),
-                                end_date: dayjs(record.end_date)
-                            });
-                        }}
-                    >
-                        Edit
-                    </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this batch?"
-                        onConfirm={() => handleDeleteBatch(record.id)}
-                        okText="Yes"
-                        cancelText="No"
-                    >
-                        <Button type="link" danger icon={<DeleteOutlined />}>
-                            Delete
-                        </Button>
-                    </Popconfirm>
-                </Space>
-            )
-        }
-    ];
-
-    return (
-        <div>
-            <Title level={2}>Admin Dashboard</Title>
-            
-            {/* Statistics Cards */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-                <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Total Users"
-                            value={stats.totalUsers}
-                            prefix={<UserOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Teachers"
-                            value={stats.totalTeachers}
-                            prefix={<TeamOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Students"
-                            value={stats.totalStudents}
-                            prefix={<UserOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Batches"
-                            value={stats.totalBatches}
-                            prefix={<BookOutlined />}
-                        />
-                    </Card>
-                </Col>
-            </Row>
-
-            {/* Users Management */}
-            <Card 
-                title="User Management" 
-                extra={
-                    <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => {
-                            setEditingUser(null);
-                            setUserModalVisible(true);
-                            userForm.resetFields();
-                        }}
-                    >
-                        Add User
-                    </Button>
-                }
-                style={{ marginBottom: 24 }}
-            >
-                <Table
-                    columns={userColumns}
-                    dataSource={users}
-                    rowKey="id"
-                    loading={loading}
-                    scroll={{ x: 870, y: 400 }}
-                    pagination={{
-                        pageSize: 10,
-                        showSizeChanger: true,
-                        showQuickJumper: true,
-                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`
-                    }}
+        <Col xs={24} md={12}>
+          <Card
+            title="User Signups"
+            extra={
+              <Space size={8}>
+                <Select
+                  size="small"
+                  value={monthsRange}
+                  onChange={setMonthsRange}
+                  style={{ width: 120 }}
+                  options={[
+                    { value: 3, label: 'Last 3 months' },
+                    { value: 6, label: 'Last 6 months' },
+                    { value: 12, label: 'Last 12 months' },
+                  ]}
                 />
-            </Card>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(signupChartRef as any, 'user-signups.png')}>
+                  Download
+                </Button>
+              </Space>
+            }
+          >
+            <div style={{ height: 280 }}>
+              {monthlySignupChart.datasets[0].data.every((v: number) => v === 0) ? (
+                <Text type="secondary">No signup activity in the selected period</Text>
+              ) : (
+                <Bar ref={signupChartRef} data={monthlySignupChart as any} options={barOptions} />
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
 
-            {/* Batch Management */}
-            <Card 
-                title="Batch Management" 
-                extra={
-                    <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => {
-                            setBatch(null);
-                            setBatchModalVisible(true);
-                            batchForm.resetFields();
-                        }}
-                    >
-                        Create Batch
-                    </Button>
-                }
-            >
-                <Table
-                    columns={batchColumns}
-                    dataSource={batches}
-                    rowKey="id"
-                    loading={loading}
-                    scroll={{ x: 900, y: 400 }}
-                    pagination={{
-                        pageSize: 10,
-                        showSizeChanger: true,
-                        showQuickJumper: true,
-                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} batches`
-                    }}
-                />
-            </Card>
+      {/* Analytics Row 2 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} md={12}>
+          <Card
+            title="Top Batches by Students"
+            extra={
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(batchesChartRef as any, 'top-batches.png')}>
+                Download
+              </Button>
+            }
+          >
+            <div style={{ height: 280 }}>
+              {batches.length === 0 ? (
+                <Text type="secondary">No batch data available</Text>
+              ) : (
+                <Bar ref={batchesChartRef} data={topBatchesChart as any} options={barOptions} />
+              )}
+            </div>
+          </Card>
+        </Col>
 
-            {/* User Modal */}
-            <Modal
-                title={editingUser ? 'Edit User' : 'Create New User'}
-                open={userModalVisible}
-                onCancel={() => {
-                    setUserModalVisible(false);
-                    setEditingUser(null);
-                    userForm.resetFields();
-                }}
-                footer={null}
-                width={600}
-            >
-                <Form
-                    form={userForm}
-                    layout="vertical"
-                    onFinish={handleCreateUser}
-                >
-                    <Row gutter={16}>
-                        <Col span={12}>
-                            <Form.Item
-                                name="first_name"
-                                label="First Name"
-                                rules={[{ required: true, message: 'Please enter first name' }]}
-                            >
-                                <Input placeholder="Enter first name" />
-                            </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                            <Form.Item
-                                name="last_name"
-                                label="Last Name"
-                                rules={[{ required: true, message: 'Please enter last name' }]}
-                            >
-                                <Input placeholder="Enter last name" />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-                    
-                    <Form.Item
-                        name="email"
-                        label="Email"
-                        rules={[
-                            { required: true, message: 'Please enter email' },
-                            { type: 'email', message: 'Please enter valid email' }
-                        ]}
-                    >
-                        <Input placeholder="Enter email address" />
-                    </Form.Item>
-                    
-                    {!editingUser && (
-                        <Form.Item
-                            name="password"
-                            label="Password"
-                            rules={[
-                                { required: true, message: 'Please enter password' },
-                                { min: 6, message: 'Password must be at least 6 characters' }
-                            ]}
-                        >
-                            <Input.Password placeholder="Enter password" />
-                        </Form.Item>
-                    )}
-                    
-                    <Form.Item
-                        name="role"
-                        label="Role"
-                        rules={[{ required: true, message: 'Please select role' }]}
-                    >
-                        <Select placeholder="Select user role">
-                            <Option value="admin">Administrator</Option>
-                            <Option value="teacher">Teacher</Option>
-                            <Option value="student">Student</Option>
-                        </Select>
-                    </Form.Item>
-                    
-                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                        <Space>
-                            <Button onClick={() => setUserModalVisible(false)}>
-                                Cancel
-                            </Button>
-                            <Button type="primary" htmlType="submit">
-                                {editingUser ? 'Update' : 'Create'} User
-                            </Button>
-                        </Space>
-                    </Form.Item>
-                </Form>
-            </Modal>
+        <Col xs={24} md={12}>
+          <Card
+            title="Quiz Status Distribution"
+            extra={
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(quizStatusChartRef as any, 'quiz-status.png')}>
+                Download
+              </Button>
+            }
+          >
+            <div style={{ height: 280 }}>
+              {quizzes.length === 0 ? (
+                <Text type="secondary">No quizzes found</Text>
+              ) : (
+                <Bar ref={quizStatusChartRef} data={quizStatusChart as any} options={barOptions} />
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
 
-            {/* Batch Modal */}
-            <Modal
-                title={editingBatch ? 'Edit Batch' : 'Create New Batch'}
-                open={batchModalVisible}
-                onCancel={() => {
-                    setBatchModalVisible(false);
-                    setBatch(null);
-                    batchForm.resetFields();
-                }}
-                footer={null}
-                width={600}
-            >
-                <Form
-                    form={batchForm}
-                    layout="vertical"
-                    onFinish={handleCreateBatch}
-                >
-                    <Form.Item
-                        name="name"
-                        label="Batch Name"
-                        rules={[{ required: true, message: 'Please enter batch name' }]}
-                    >
-                        <Input placeholder="Enter batch name" />
-                    </Form.Item>
-                    
-                    <Form.Item
-                        name="description"
-                        label="Description"
-                        rules={[{ required: true, message: 'Please enter description' }]}
-                    >
-                        <Input.TextArea rows={3} placeholder="Enter batch description" />
-                    </Form.Item>
-                    
-                    <Form.Item
-                        name="teacher_id"
-                        label="Assign Teacher"
-                        rules={[{ required: true, message: 'Please select a teacher' }]}
-                    >
-                        <Select placeholder="Select teacher">
-                            {teachers.map(teacher => (
-                                <Option key={teacher.id} value={teacher.id}>
-                                    {teacher.first_name} {teacher.last_name} ({teacher.email})
-                                </Option>
-                            ))}
-                        </Select>
-                    </Form.Item>
-                    
-                    <Row gutter={16}>
-                        <Col span={12}>
-                            <Form.Item
-                                name="start_date"
-                                label="Start Date"
-                                rules={[{ required: true, message: 'Please select start date' }]}
-                            >
-                                <DatePicker style={{ width: '100%' }} />
-                            </Form.Item>
-                        </Col>
-                        <Col span={12}>
-                            <Form.Item
-                                name="end_date"
-                                label="End Date"
-                                rules={[{ required: true, message: 'Please select end date' }]}
-                            >
-                                <DatePicker style={{ width: '100%' }} />
-                            </Form.Item>
-                        </Col>
-                    </Row>
-                    
-                    <Form.Item
-                        name="max_students"
-                        label="Maximum Students"
-                        rules={[
-                            { required: true, message: 'Please enter maximum students' },
-                            { type: 'number', min: 1, message: 'Must be at least 1' }
-                        ]}
-                    >
-                        <Input type="number" placeholder="Enter maximum number of students" />
-                    </Form.Item>
-                    
-                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                        <Space>
-                            <Button onClick={() => setBatchModalVisible(false)}>
-                                Cancel
-                            </Button>
-                            <Button type="primary" htmlType="submit">
-                                {editingBatch ? 'Update' : 'Create'} Batch
-                            </Button>
-                        </Space>
-                    </Form.Item>
-                </Form>
-            </Modal>
-        </div>
-    );
+      {/* Analytics Row 3 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} md={12}>
+          <Card
+            title="Schedule Types"
+            extra={
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(scheduleTypeChartRef as any, 'schedule-types.png')}>
+                Download
+              </Button>
+            }
+          >
+            <div style={{ height: 280 }}>
+              {schedules.length === 0 ? (
+                <Text type="secondary">No schedules available</Text>
+              ) : (
+                <Doughnut ref={scheduleTypeChartRef} data={scheduleTypeChartData} options={doughnutOptions} />
+              )}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+    </div>
+  );
 };
 
 export default AdminDashboard;
