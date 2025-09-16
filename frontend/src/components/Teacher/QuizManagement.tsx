@@ -17,7 +17,8 @@ import {
     Switch,
     Tabs,
     List,
-    Progress
+    Progress,
+    Dropdown
 } from 'antd';
 import {
     PlusOutlined,
@@ -25,7 +26,8 @@ import {
     DeleteOutlined,
     FileTextOutlined,
     EyeOutlined,
-    BarChartOutlined
+    BarChartOutlined,
+    MoreOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizBuilder from '../Quiz/QuizBuilder';
@@ -211,21 +213,21 @@ const QuizManagement: React.FC = () => {
             title: 'Title',
             dataIndex: 'title',
             key: 'title',
-            width: 200,
+            width: 180,
             fixed: 'left',
             ellipsis: true,
         },
         {
             title: 'Batch',
             key: 'batch',
-            width: 180,
+            width: 120,
             ellipsis: true,
             render: (_, record) => record.batch_names || 'N/A',
         },
         {
-            title: 'French Level',
+            title: 'Level',
             key: 'french_level',
-            width: 140,
+            width: 80,
             ellipsis: true,
             render: (_, record) => record.french_levels || '—',
         },
@@ -233,20 +235,23 @@ const QuizManagement: React.FC = () => {
             title: 'Questions',
             dataIndex: 'total_questions',
             key: 'total_questions',
-            width: 110,
+            width: 90,
+            align: 'center',
             render: (count: number) => (typeof count === 'number' ? count : 0),
         },
         {
             title: 'Duration',
             dataIndex: 'duration_minutes',
             key: 'duration_minutes',
-            width: 100,
+            width: 80,
+            align: 'center',
             render: (minutes: number) => `${minutes} min`,
         },
         {
             title: 'Attempts',
             key: 'attempts',
-            width: 150,
+            width: 100,
+            align: 'center',
             render: (_, record) => (
                 <span>
                     {(record.submitted_students ?? 0)} / {(record.total_students ?? 0)}
@@ -257,7 +262,8 @@ const QuizManagement: React.FC = () => {
             title: 'Avg Score',
             dataIndex: 'avg_score',
             key: 'avg_score',
-            width: 120,
+            width: 100,
+            align: 'center',
             render: (score: number) => (
                 <Progress 
                     percent={score || 0} 
@@ -269,7 +275,8 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Status',
             key: 'status',
-            width: 100,
+            width: 90,
+            align: 'center',
             render: (_, record) => (
                 <Tag color={getStatusColor(record.status, record.start_date, record.end_date)}>
                     {getStatusText(record.status, record.start_date, record.end_date)}
@@ -279,60 +286,70 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Actions',
             key: 'actions',
-            width: 280,
+            width: 80,
             fixed: 'right',
-            render: (_, record) => (
-                <Space>
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => {
+            align: 'center',
+            render: (_, record) => {
+                const menuItems = [
+                    {
+                        key: 'view',
+                        label: 'View Quiz',
+                        icon: <EyeOutlined />,
+                        onClick: () => {
                             setSelectedQuizId(record.id);
                             setQuizBuilderVisible(true);
-                        }}
-                    >
-                        View
-                    </Button>
-                    <Button
-                        type="default"
-                        size="small"
-                        icon={<BarChartOutlined />}
-                        onClick={() => {
+                        }
+                    },
+                    {
+                        key: 'results',
+                        label: 'View Results',
+                        icon: <BarChartOutlined />,
+                        onClick: () => {
                             setSelectedQuizId(record.id);
                             setQuizResultsVisible(true);
-                        }}
-                    >
-                        Results
-                    </Button>
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => {
+                        }
+                    },
+                    {
+                        key: 'edit',
+                        label: 'Edit Quiz',
+                        icon: <EditOutlined />,
+                        onClick: () => {
                             setSelectedQuizId(record.id);
                             setQuizBuilderVisible(true);
-                        }}
-                    >
-                        Edit
-                    </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this quiz?"
-                        onConfirm={() => handleDelete(record.id)}
-                        okText="Yes"
-                        cancelText="No"
+                        }
+                    },
+                    {
+                        key: 'delete',
+                        label: (
+                            <Popconfirm
+                                title="Are you sure you want to delete this quiz?"
+                                onConfirm={() => handleDelete(record.id)}
+                                okText="Yes"
+                                cancelText="No"
+                            >
+                                Delete Quiz
+                            </Popconfirm>
+                        ),
+                        icon: <DeleteOutlined />,
+                        danger: true
+                    }
+                ];
+            
+                return (
+                    <Dropdown
+                        menu={{ items: menuItems }}
+                        trigger={['click']}
+                        placement="bottomRight"
                     >
                         <Button
-                            type="primary"
-                            danger
+                            type="text"
                             size="small"
-                            icon={<DeleteOutlined />}
-                        >
-                            Delete
-                        </Button>
-                    </Popconfirm>
-                </Space>
-            ),
+                            icon={<MoreOutlined />}
+                            style={{ padding: '4px 8px' }}
+                        />
+                    </Dropdown>
+                );
+            },
         },
     ];
 
@@ -378,7 +395,7 @@ const QuizManagement: React.FC = () => {
                             dataSource={quizzes}
                             rowKey="id"
                             loading={loading}
-                            scroll={{ x: 1150, y: 400 }}
+                            scroll={{ x: 1000, y: 400 }}
                             pagination={{
                                 pageSize: 10,
                                 showSizeChanger: true,
@@ -393,7 +410,7 @@ const QuizManagement: React.FC = () => {
                             dataSource={activeQuizzes}
                             rowKey="id"
                             loading={loading}
-                            scroll={{ x: 1150, y: 400 }}
+                            scroll={{ x: 1000, y: 400 }}
                             pagination={{
                                 pageSize: 10,
                                 showSizeChanger: true,
@@ -408,7 +425,7 @@ const QuizManagement: React.FC = () => {
                             dataSource={scheduledQuizzes}
                             rowKey="id"
                             loading={loading}
-                            scroll={{ x: 1150, y: 400 }}
+                            scroll={{ x: 1000, y: 400 }}
                             pagination={{
                                 pageSize: 10,
                                 showSizeChanger: true,
@@ -423,7 +440,7 @@ const QuizManagement: React.FC = () => {
                             dataSource={endedQuizzes}
                             rowKey="id"
                             loading={loading}
-                            scroll={{ x: 1150, y: 400 }}
+                            scroll={{ x: 1000, y: 400 }}
                             pagination={{
                                 pageSize: 10,
                                 showSizeChanger: true,
