@@ -44,7 +44,7 @@ interface QuizResult {
     percentage: number;
     time_taken: number;
     submitted_at: string;
-    status: 'submitted' | 'auto_submitted';
+    status: 'submitted' | 'auto_submitted' | 'graded';
     total_questions: number;
     correct_answers: number;
     teacher_feedback?: string;

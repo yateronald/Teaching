@@ -43,40 +43,42 @@ const { TabPane } = Tabs;
 interface Batch {
     id: number;
     name: string;
-    description: string;
-    teacher_name: string;
-    start_date: string;
-    end_date: string;
-    current_students: number;
-    max_students: number;
+    description?: string;
+    teacher_name?: string;
+    start_date?: string;
+    end_date?: string;
+    current_students?: number;
+    max_students?: number;
 }
 
 interface Quiz {
     id: number;
     title: string;
     description: string;
-    batch_name: string;
     total_questions: number;
-    time_limit: number;
-    is_active: boolean;
-    created_at: string;
+    duration_minutes: number;
+    total_marks?: number;
+    status?: string; // draft | published
+    start_date?: string | null;
+    end_date?: string | null;
+    batch_names?: string; // comma-separated
+    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted';
     submission?: {
-        id: number;
-        score: number;
-        max_score: number;
-        submitted_at: string;
-        time_taken: number;
-    };
+        total_score?: number;
+        max_score?: number;
+        percentage?: number;
+        status?: string;
+    } | null;
 }
 
 interface Resource {
     id: number;
     title: string;
     description: string;
-    file_path: string;
-    file_type: string;
+    file_name: string;
+    file_type: string; // MIME type
     batch_name: string;
-    uploaded_at: string;
+    created_at: string;
 }
 
 interface Schedule {
@@ -84,9 +86,9 @@ interface Schedule {
     title: string;
     description: string;
     batch_name: string;
-    scheduled_time: string;
-    duration: number;
-    type: 'class' | 'exam' | 'assignment';
+    start_time: string;
+    end_time: string;
+    type: string; // 'class' | 'exam' | 'assignment' | ...
 }
 
 const StudentDashboard: React.FC = () => {
@@ -116,61 +118,78 @@ const StudentDashboard: React.FC = () => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [batchesRes, quizzesRes, resourcesRes, schedulesRes] = await Promise.all([
-                apiCall(`/api/batches/student/${user?.id}`),
-                apiCall(`/api/quizzes/student/${user?.id}`),
-                apiCall(`/api/resources/student/${user?.id}`),
-                apiCall(`/api/schedules/student/${user?.id}`)
+            const [quizzesRes, resultsRes, resourcesRes, schedulesRes, batchesRes] = await Promise.all([
+                apiCall('/quizzes'),
+                apiCall('/quizzes/student/results'),
+                apiCall('/resources'),
+                apiCall('/schedules/upcoming/me?limit=20'),
+                apiCall('/quizzes/student/dashboard')
             ]);
 
-            if (batchesRes.success) {
-                setBatches(batchesRes.data);
-                setStats(prev => ({
-                    ...prev,
-                    totalBatches: batchesRes.data.length
-                }));
-            }
+            // Quizzes
+            if (quizzesRes && quizzesRes.ok) {
+                const data = await quizzesRes.json();
+                const quizzesData: Quiz[] = Array.isArray(data) ? data : (data.quizzes || []);
+                setQuizzes(quizzesData);
 
-            if (quizzesRes.success) {
-                setQuizzes(quizzesRes.data);
-                const completedQuizzes = quizzesRes.data.filter((quiz: Quiz) => quiz.submission).length;
-                const pendingQuizzes = quizzesRes.data.filter((quiz: Quiz) => !quiz.submission && quiz.is_active).length;
-                
-                const totalScore = quizzesRes.data
-                    .filter((quiz: Quiz) => quiz.submission)
-                    .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.score || 0), 0);
-                const totalMaxScore = quizzesRes.data
-                    .filter((quiz: Quiz) => quiz.submission)
-                    .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.max_score || 0), 0);
-                
-                const averageScore = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
-                
+                // Stats: completed & pending based on submission_status and availability
+                const completedQuizzes = quizzesData.filter(q => q.submission_status === 'submitted' || q.submission_status === 'auto_submitted').length;
+
+                const now = dayjs();
+                const isActive = (q: Quiz) => {
+                    if (q.status !== 'published') return false;
+                    const start = q.start_date ? dayjs(q.start_date) : null;
+                    const end = q.end_date ? dayjs(q.end_date) : null;
+                    if (start && now.isBefore(start)) return false;
+                    if (end && now.isAfter(end)) return false;
+                    return true;
+                };
+                const pendingQuizzes = quizzesData.filter(q => (q.submission_status === 'not_started' || q.submission_status === 'in_progress' || !q.submission_status) && isActive(q)).length;
+
                 setStats(prev => ({
                     ...prev,
                     completedQuizzes,
-                    pendingQuizzes,
-                    averageScore
+                    pendingQuizzes
                 }));
             }
 
-            if (resourcesRes.success) {
-                setResources(resourcesRes.data);
-                setStats(prev => ({
-                    ...prev,
-                    totalResources: resourcesRes.data.length
-                }));
+            // Results for average score
+            if (resultsRes && resultsRes.ok) {
+                const data = await resultsRes.json();
+                const results = (data?.results || []) as any[];
+                const scores = results.map(r => Number(r.percentage ?? 0)).filter((n: number) => !isNaN(n));
+                const averageScore = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length)) : 0;
+                setStats(prev => ({ ...prev, averageScore }));
             }
 
-            if (schedulesRes.success) {
-                setSchedules(schedulesRes.data);
-                const upcomingClasses = schedulesRes.data.filter((schedule: Schedule) => 
-                    dayjs(schedule.scheduled_time).isAfter(dayjs())
-                ).length;
-                
-                setStats(prev => ({
-                    ...prev,
-                    upcomingClasses
+            // Resources
+            if (resourcesRes && resourcesRes.ok) {
+                const data = await resourcesRes.json();
+                const resourcesData: Resource[] = Array.isArray(data) ? data : (data.resources || []);
+                setResources(resourcesData);
+                setStats(prev => ({ ...prev, totalResources: resourcesData.length }));
+            }
+
+            // Schedules (upcoming)
+            if (schedulesRes && schedulesRes.ok) {
+                const data = await schedulesRes.json();
+                const schedulesData: Schedule[] = Array.isArray(data) ? data : (data.schedules || []);
+                setSchedules(schedulesData);
+                const upcomingClasses = schedulesData.filter((s: Schedule) => dayjs(s.start_time).isAfter(dayjs())).length;
+                setStats(prev => ({ ...prev, upcomingClasses }));
+            }
+
+            // Batches via quizzes student dashboard
+            if (batchesRes && batchesRes.ok) {
+                const data = await batchesRes.json();
+                const batchesData = Array.isArray(data?.batches) ? data.batches : [];
+                const mappedBatches: Batch[] = batchesData.map((b: any) => ({
+                    id: b.id,
+                    name: b.name,
+                    description: b.description
                 }));
+                setBatches(mappedBatches);
+                setStats(prev => ({ ...prev, totalBatches: mappedBatches.length }));
             }
         } catch (error) {
             message.error('Failed to fetch data');
@@ -186,15 +205,19 @@ const StudentDashboard: React.FC = () => {
 
     const handleDownloadResource = async (resource: Resource) => {
         try {
-            const response = await apiCall(`/api/resources/${resource.id}/download`);
-            if (response.success) {
-                // Create download link
+            const response = await apiCall(`/resources/${resource.id}/download`);
+            if (response && response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
                 const link = document.createElement('a');
-                link.href = response.data.download_url;
-                link.download = resource.title;
+                link.href = url;
+                link.download = resource.file_name || resource.title;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                window.URL.revokeObjectURL(url);
+            } else {
+                message.error('Failed to download resource');
             }
         } catch (error) {
             message.error('Failed to download resource');
@@ -209,8 +232,8 @@ const StudentDashboard: React.FC = () => {
         },
         {
             title: 'Batch',
-            dataIndex: 'batch_name',
-            key: 'batch_name'
+            key: 'batch_name',
+            render: (_, record) => record.batch_names || '—'
         },
         {
             title: 'Questions',
@@ -219,27 +242,29 @@ const StudentDashboard: React.FC = () => {
         },
         {
             title: 'Time Limit',
-            dataIndex: 'time_limit',
-            key: 'time_limit',
+            dataIndex: 'duration_minutes',
+            key: 'duration_minutes',
             render: (time: number) => `${time} min`
         },
         {
             title: 'Status',
             key: 'status',
             render: (_, record) => {
-                if (record.submission) {
-                    const percentage = Math.round((record.submission.score / record.submission.max_score) * 100);
+                if (record.submission_status === 'submitted' || record.submission_status === 'auto_submitted') {
+                    const percentage = Math.round(Number(record.submission?.percentage ?? ((Number(record.submission?.total_score || 0) / Number(record.submission?.max_score || 0)) * 100)) || 0);
                     return (
                         <div>
                             <Tag color="green">Completed</Tag>
                             <br />
-                            <Text type="secondary">{percentage}% ({record.submission.score}/{record.submission.max_score})</Text>
+                            <Text type="secondary">{percentage}% ({record.submission?.total_score ?? '—'}/{record.submission?.max_score ?? '—'})</Text>
                         </div>
                     );
-                } else if (record.is_active) {
-                    return <Tag color="blue">Available</Tag>;
                 } else {
-                    return <Tag color="default">Inactive</Tag>;
+                    const now = dayjs();
+                    const start = record.start_date ? dayjs(record.start_date) : null;
+                    const end = record.end_date ? dayjs(record.end_date) : null;
+                    const isActive = (record.status === 'published') && (!start || !now.isBefore(start)) && (!end || !now.isAfter(end));
+                    return isActive ? <Tag color="blue">Available</Tag> : <Tag color="default">Inactive</Tag>;
                 }
             }
         },
@@ -247,23 +272,28 @@ const StudentDashboard: React.FC = () => {
             title: 'Actions',
             key: 'actions',
             render: (_, record) => {
-                if (record.submission) {
+                if (record.submission_status === 'submitted' || record.submission_status === 'auto_submitted') {
                     return (
                         <Button type="link" disabled>
                             <CheckCircleOutlined /> Completed
                         </Button>
                     );
-                } else if (record.is_active) {
-                    return (
-                        <Button 
-                            type="primary" 
-                            icon={<PlayCircleOutlined />}
-                            onClick={() => handleStartQuiz(record)}
-                        >
-                            Start Quiz
-                        </Button>
-                    );
                 } else {
+                    const now = dayjs();
+                    const start = record.start_date ? dayjs(record.start_date) : null;
+                    const end = record.end_date ? dayjs(record.end_date) : null;
+                    const isActive = (record.status === 'published') && (!start || !now.isBefore(start)) && (!end || !now.isAfter(end));
+                    if (isActive) {
+                        return (
+                            <Button 
+                                type="primary" 
+                                icon={<PlayCircleOutlined />}
+                                onClick={() => handleStartQuiz(record)}
+                            >
+                                Start Quiz
+                            </Button>
+                        );
+                    }
                     return (
                         <Button type="link" disabled>
                             <ClockCircleOutlined /> Not Available
@@ -293,17 +323,20 @@ const StudentDashboard: React.FC = () => {
         },
         {
             title: 'Type',
-            dataIndex: 'file_type',
             key: 'file_type',
-            render: (type: string) => {
-                const color = type === 'pdf' ? 'red' : type === 'doc' ? 'blue' : 'green';
-                return <Tag color={color}>{type.toUpperCase()}</Tag>;
+            render: (_, record) => {
+                const ext = (record.file_name?.split('.').pop() || '').toLowerCase();
+                let color = 'green';
+                if (ext === 'pdf') color = 'red';
+                else if (ext === 'doc' || ext === 'docx') color = 'blue';
+                else if (ext === 'ppt' || ext === 'pptx') color = 'orange';
+                return <Tag color={color}>{ext ? ext.toUpperCase() : (record.file_type || 'FILE')}</Tag>;
             }
         },
         {
             title: 'Uploaded',
-            dataIndex: 'uploaded_at',
-            key: 'uploaded_at',
+            dataIndex: 'created_at',
+            key: 'created_at',
             render: (date: string) => dayjs(date).format('MMM DD, YYYY')
         },
         {
@@ -330,8 +363,8 @@ const StudentDashboard: React.FC = () => {
 
     const getUpcomingSchedules = () => {
         return schedules
-            .filter(schedule => dayjs(schedule.scheduled_time).isAfter(dayjs()))
-            .sort((a, b) => dayjs(a.scheduled_time).diff(dayjs(b.scheduled_time)))
+            .filter(schedule => dayjs(schedule.start_time).isAfter(dayjs()))
+            .sort((a, b) => dayjs(a.start_time).diff(dayjs(b.start_time)))
             .slice(0, 5);
     };
 
@@ -426,8 +459,9 @@ const StudentDashboard: React.FC = () => {
                                     dataSource={batches}
                                     loading={loading}
                                     renderItem={(batch) => {
-                                        const isActive = dayjs().isBetween(dayjs(batch.start_date), dayjs(batch.end_date));
-                                        const isUpcoming = dayjs().isBefore(dayjs(batch.start_date));
+                                        const hasDates = !!(batch.start_date && batch.end_date);
+                                        const isActive = hasDates ? dayjs().isBetween(dayjs(batch.start_date), dayjs(batch.end_date)) : false;
+                                        const isUpcoming = hasDates ? dayjs().isBefore(dayjs(batch.start_date)) : false;
                                         
                                         return (
                                             <List.Item>
@@ -435,7 +469,7 @@ const StudentDashboard: React.FC = () => {
                                                     avatar={
                                                         <Avatar 
                                                             style={{ 
-                                                                backgroundColor: isActive ? '#52c41a' : isUpcoming ? '#1890ff' : '#d9d9d9' 
+                                                                backgroundColor: hasDates ? (isActive ? '#52c41a' : isUpcoming ? '#1890ff' : '#d9d9d9') : '#1890ff' 
                                                             }}
                                                             icon={<BookOutlined />}
                                                         />
@@ -443,24 +477,36 @@ const StudentDashboard: React.FC = () => {
                                                     title={batch.name}
                                                     description={
                                                         <div>
-                                                            <Text type="secondary">{batch.description}</Text>
-                                                            <br />
-                                                            <Text type="secondary">Teacher: {batch.teacher_name}</Text>
-                                                            <br />
-                                                            <Text type="secondary">
-                                                                {dayjs(batch.start_date).format('MMM DD')} - {dayjs(batch.end_date).format('MMM DD, YYYY')}
-                                                            </Text>
+                                                            {batch.description && (
+                                                                <>
+                                                                    <Text type="secondary">{batch.description}</Text>
+                                                                    <br />
+                                                                </>
+                                                            )}
+                                                            {batch.teacher_name && (
+                                                                <>
+                                                                    <Text type="secondary">Teacher: {batch.teacher_name}</Text>
+                                                                    <br />
+                                                                </>
+                                                            )}
+                                                            {hasDates && (
+                                                                <Text type="secondary">
+                                                                    {dayjs(batch.start_date).format('MMM DD')} - {dayjs(batch.end_date).format('MMM DD, YYYY')}
+                                                                </Text>
+                                                            )}
                                                         </div>
                                                     }
                                                 />
                                                 <div style={{ textAlign: 'right' }}>
-                                                    <Tag color={isActive ? 'green' : isUpcoming ? 'blue' : 'default'}>
-                                                        {isActive ? 'Active' : isUpcoming ? 'Upcoming' : 'Completed'}
+                                                    <Tag color={hasDates ? (isActive ? 'green' : isUpcoming ? 'blue' : 'default') : 'blue'}>
+                                                        {hasDates ? (isActive ? 'Active' : isUpcoming ? 'Upcoming' : 'Completed') : 'Enrolled'}
                                                     </Tag>
                                                     <br />
-                                                    <Text type="secondary">
-                                                        {batch.current_students}/{batch.max_students} students
-                                                    </Text>
+                                                    {(batch.current_students !== undefined && batch.max_students !== undefined) && (
+                                                        <Text type="secondary">
+                                                            {batch.current_students}/{batch.max_students} students
+                                                        </Text>
+                                                    )}
                                                 </div>
                                             </List.Item>
                                         );
@@ -486,7 +532,7 @@ const StudentDashboard: React.FC = () => {
                                             <Text type="secondary">{schedule.batch_name}</Text>
                                             <br />
                                             <Text type="secondary">
-                                                {dayjs(schedule.scheduled_time).format('MMM DD, YYYY HH:mm')}
+                                                {dayjs(schedule.start_time).format('MMM DD, YYYY HH:mm')}
                                             </Text>
                                             <br />
                                             <Tag color={timeColor} size="small">
@@ -522,7 +568,7 @@ const StudentDashboard: React.FC = () => {
                                 .sort((a, b) => dayjs(b.submission?.submitted_at).diff(dayjs(a.submission?.submitted_at)))
                                 .slice(0, 5)
                                 .map((quiz) => {
-                                    const percentage = Math.round((quiz.submission!.score / quiz.submission!.max_score) * 100);
+                                    const percentage = Math.round(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)) || 0);
                                     return (
                                         <div key={quiz.id} style={{ marginBottom: 12 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -589,7 +635,7 @@ const StudentDashboard: React.FC = () => {
                             <Col span={12}>
                                 <Statistic
                                     title="Time Limit"
-                                    value={selectedQuiz.time_limit}
+                                    value={selectedQuiz.duration_minutes}
                                     suffix="minutes"
                                     prefix={<ClockCircleOutlined />}
                                 />

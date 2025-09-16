@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { 
     Card, 
     Button, 
@@ -64,10 +64,16 @@ interface QuizTakingProps {
     onComplete?: () => void;
 }
 
-const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete }) => {
+export interface QuizTakingHandle {
+    submitNow: (auto?: boolean) => Promise<boolean>;
+    isStarted: () => boolean;
+}
+
+const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingProps, ref: React.Ref<QuizTakingHandle> ) => {
     const { quizId: paramQuizId } = useParams<{ quizId: string }>();
     const navigate = useNavigate();
-    const { apiCall, user } = useAuth();
+    const { apiCall } = useAuth();
+    const [messageApi, contextHolder] = message.useMessage();
     
     const quizId = propQuizId || paramQuizId;
     
@@ -83,6 +89,11 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
     const [quizResults, setQuizResults] = useState<QuizResults | null>(null);
     const [totalTimeSeconds, setTotalTimeSeconds] = useState<number>(0);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+    // Server sync polling interval
+    const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    // Track visited questions for nav coloring
+    const [visitedQuestions, setVisitedQuestions] = useState<Set<number>>(() => new Set());
     const [form] = Form.useForm();
 
     useEffect(() => {
@@ -111,6 +122,103 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
         };
     }, [timeLeft, quizStarted]);
 
+    // Server UTC status polling to avoid drift and trigger auto-submit server-side
+    useEffect(() => {
+        if (!quizStarted || !quizId) return;
+
+        const poll = async () => {
+            try {
+                const resp = await apiCall(`/quizzes/${quizId}/status`);
+                if (!resp.ok) return;
+                const data = await resp.json();
+
+                if (data?.status === 'in_progress') {
+                    // Restore saved answers on resume (only if we don't already have local answers)
+                    if (Array.isArray(data.answers)) {
+                        setAnswers(prev => {
+                            if (prev && prev.length > 0) return prev; // don't override ongoing edits
+                            return data.answers.map((a: any) => ({
+                                question_id: Number(a.question_id),
+                                answer_text: a.answer_text ?? undefined,
+                                selected_options: Array.isArray(a.selected_options)
+                                    ? a.selected_options.map((n: any) => Number(n))
+                                    : (a.selected_options ? JSON.parse(a.selected_options) : undefined)
+                            }));
+                        });
+                    }
+
+                    if (typeof data.time_left_seconds === 'number') {
+                        setTimeLeft(prev => {
+                            // Adjust if drift is greater than 2 seconds
+                            return Math.abs(prev - data.time_left_seconds) > 2 ? data.time_left_seconds : prev;
+                        });
+                    }
+                    if (!totalTimeSeconds && typeof data.duration_minutes === 'number') {
+                        setTotalTimeSeconds(data.duration_minutes * 60);
+                    }
+                } else if (data?.status === 'auto_submitted' || data?.status === 'submitted') {
+                    // Server forced submission (e.g., time expired)
+                    if (timerRef.current) {
+                        clearTimeout(timerRef.current);
+                    }
+                    if (syncIntervalRef.current) {
+                        clearInterval(syncIntervalRef.current);
+                        syncIntervalRef.current = null;
+                    }
+                    setQuizCompleted(true);
+                    const r = data.results;
+                    if (r) {
+                        setQuizResults({
+                            totalScore: r.totalScore,
+                            maxScore: r.maxScore,
+                            percentage: r.percentage,
+                            time_taken_minutes: data.time_taken_minutes ?? r.time_taken_minutes ?? 0
+                        });
+                    }
+                    messageApi.warning(data?.message || 'Time expired, quiz auto-submitted');
+                    if (onComplete) setTimeout(() => onComplete(), 1500);
+                }
+            } catch {
+                // ignore transient errors
+            }
+        };
+
+        // Initial poll then interval
+        void poll();
+        syncIntervalRef.current = setInterval(poll, 2000);
+
+        return () => {
+            if (syncIntervalRef.current) {
+                clearInterval(syncIntervalRef.current);
+                syncIntervalRef.current = null;
+            }
+        };
+    }, [quizStarted, quizId]);
+
+    // Track visited questions when current changes
+    useEffect(() => {
+        if (!quizStarted || !quiz?.questions?.length) return;
+        const q = quiz.questions[currentQuestion];
+        if (!q) return;
+        setVisitedQuestions(prev => {
+            const next = new Set(prev);
+            next.add(q.id);
+            return next;
+        });
+    }, [quizStarted, quiz, currentQuestion]);
+
+    // Warn before closing the tab/window if quiz is in progress
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (quizStarted && !quizCompleted) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [quizStarted, quizCompleted]);
+
     const fetchQuiz = async () => {
         try {
             const response = await apiCall(`/quizzes/${quizId}`);
@@ -119,25 +227,38 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                 const normalized: Quiz = data?.quiz
                     ? { ...(data.quiz as Quiz), questions: data.questions ?? data.quiz?.questions ?? [] }
                     : (data as Quiz);
+                // Normalize points if backend uses `marks`
+                if (Array.isArray(normalized.questions)) {
+                    normalized.questions = normalized.questions.map((q: any) => ({
+                        ...q,
+                        points: q.points ?? q.marks ?? 0,
+                    }));
+                }
                 setQuiz(normalized);
             } else {
-                message.error('Failed to load quiz');
+                const err = await safeJson(response);
+                messageApi.error(err?.error || 'Failed to load quiz');
                 navigate('/student-dashboard');
             }
         } catch (error) {
-            message.error('Error loading quiz');
+            messageApi.error('Error loading quiz');
             navigate('/student-dashboard');
         } finally {
             setLoading(false);
         }
     };
 
+    const safeJson = async (resp: Response) => {
+        try { return await resp.json(); } catch { return null; }
+    };
+
     const startQuiz = async () => {
         try {
             const response = await apiCall(`/quizzes/${quizId}/start`, { method: 'POST' });
             if (!response.ok) {
-                const errText = await response.text();
-                message.error(errText || 'Failed to start quiz');
+                const errJson = await safeJson(response);
+                const errText = errJson?.error || (await response.text());
+                messageApi.error(errText || 'Failed to start quiz');
                 return;
             }
             const data = await response.json();
@@ -147,9 +268,18 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
             setTimeLeft(seconds);
             setQuizStarted(true);
             setQuiz(prev => (prev ? { ...prev, duration_minutes: duration } : prev));
-            message.success('Quiz started! Good luck!');
+            // Mark the first question as visited
+            const firstQ = (data?.quiz?.questions ?? quiz?.questions)?.[0] || quiz?.questions?.[0];
+            if (firstQ?.id) {
+                setVisitedQuestions(prev => {
+                    const next = new Set(prev);
+                    next.add(firstQ.id);
+                    return next;
+                });
+            }
+            messageApi.success('Quiz started! Good luck!');
         } catch (e) {
-            message.error('Failed to start quiz');
+            messageApi.error('Failed to start quiz');
         }
     };
 
@@ -172,11 +302,18 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
         });
     };
 
-    const getCurrentAnswer = (questionId: number): string => {
-    // Deprecated in favor of getAnswerForQuestion
-    const answer = answers.find(a => a.question_id === questionId);
-    return (answer?.answer_text as string) || '';
-    };
+    // Debounced auto-save on answers change
+    useEffect(() => {
+        if (!quizStarted || quizCompleted) return;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = setTimeout(() => {
+            void autoSave();
+        }, 1500);
+        return () => {
+            if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        };
+    }, [answers, quizStarted, quizCompleted]);
+
     const getAnswerForQuestion = (question: Question): any => {
         const a = answers.find(ans => ans.question_id === question.id);
         switch (question.question_type) {
@@ -191,36 +328,68 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
         }
     };
 
-    const nextQuestion = () => {
+    const payloadFromAnswers = () => answers.map(a => ({
+        question_id: a.question_id,
+        answer_text: a.answer_text ?? null,
+        selected_options: a.selected_options ?? null
+    }));
+
+    const nextQuestion = async () => {
+        // Save immediately on Next click
+        try {
+            await apiCall(`/quizzes/${quizId}/auto-save`, {
+                method: 'POST',
+                body: JSON.stringify({ answers: payloadFromAnswers() })
+            });
+        } catch {}
         if (currentQuestion < ((quiz?.questions?.length || 0) - 1)) {
             setCurrentQuestion(prev => prev + 1);
         }
     };
 
-    const previousQuestion = () => {
+    const previousQuestion = async () => {
+        // Save on Previous as well
+        try {
+            await apiCall(`/quizzes/${quizId}/auto-save`, {
+                method: 'POST',
+                body: JSON.stringify({ answers: payloadFromAnswers() })
+            });
+        } catch {}
         if (currentQuestion > 0) {
             setCurrentQuestion(prev => prev - 1);
         }
     };
 
     const handleAutoSubmit = async () => {
-        message.warning('Time is up! Submitting quiz automatically...');
+        messageApi.warning('Time is up! Submitting quiz automatically...');
         await submitQuiz(true);
     };
 
-    const submitQuiz = async (isAuto: boolean = false) => {
+    const autoSave = async () => {
+        try {
+            const response = await apiCall(`/quizzes/${quizId}/auto-save`, {
+                method: 'POST',
+                body: JSON.stringify({ answers: payloadFromAnswers() })
+            });
+            // Do not spam messages; optionally, one-time success toast could be added
+            if (!response.ok) {
+                const err = await safeJson(response);
+                // Silent fail; optionally log
+                console.warn('Auto-save failed', err?.error || response.statusText);
+            }
+        } catch (e) {
+            console.warn('Auto-save exception', e);
+        }
+    };
+
+    const submitQuiz = async (isAuto: boolean = false): Promise<boolean> => {
+        if (submitting) return false;
         setSubmitting(true);
         try {
-            const payloadAnswers = answers.map(a => ({
-                question_id: a.question_id,
-                answer_text: a.answer_text ?? null,
-                selected_options: a.selected_options ?? null
-            }));
-
             const response = await apiCall(`/quizzes/${quizId}/submit`, {
                 method: 'POST',
                 body: JSON.stringify({
-                    answers: payloadAnswers,
+                    answers: payloadFromAnswers(),
                     is_auto_submit: isAuto
                 })
             });
@@ -236,9 +405,9 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                         percentage: data.results.percentage,
                         time_taken_minutes: data.time_taken_minutes
                     });
-                    message.success('Quiz submitted and graded automatically!');
+                    messageApi.success('Quiz submitted and graded automatically!');
                 } else {
-                    message.success('Quiz submitted!');
+                    messageApi.success('Quiz submitted!');
                 }
 
                 if (timerRef.current) {
@@ -246,18 +415,31 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                 }
 
                 if (onComplete) {
-                    setTimeout(() => onComplete(), 5000);
+                    setTimeout(() => onComplete(), 1500);
                 }
+                return true;
             } else {
-                message.error('Failed to submit quiz');
+                const err = await safeJson(response);
+                messageApi.error(err?.error || 'Failed to submit quiz');
+                return false;
             }
         } catch (error) {
-            message.error('Error submitting quiz');
+            messageApi.error('Error submitting quiz');
+            return false;
         } finally {
             setSubmitting(false);
             setShowConfirmModal(false);
         }
     };
+
+    useImperativeHandle(ref, () => ({
+        submitNow: async (auto?: boolean) => {
+            // Avoid duplicate submits
+            if (!quizStarted || quizCompleted) return false;
+            return await submitQuiz(!!auto);
+        },
+        isStarted: () => quizStarted,
+    }), [quizStarted, quizCompleted, answers]);
 
     const formatTime = (seconds: number): string => {
         const hours = Math.floor(seconds / 3600);
@@ -278,6 +460,13 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
         if (percentage > 25) return '#fa8c16';
         return '#f5222d';
     };
+
+    // Compute answered set for nav panel coloring
+    const answeredSet = new Set(
+        answers
+            .filter(a => (a.answer_text && a.answer_text !== '') || (Array.isArray(a.selected_options) && a.selected_options.length > 0))
+            .map(a => a.question_id)
+    );
 
     const renderQuestion = (question: Question) => {
         const currentAnswer = getAnswerForQuestion(question);
@@ -346,6 +535,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                 alignItems: 'center', 
                 height: '100vh' 
             }}>
+                {contextHolder}
                 <Spin size="large" />
             </div>
         );
@@ -354,6 +544,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
     if (!quiz) {
         return (
             <div style={{ textAlign: 'center', padding: '50px' }}>
+                {contextHolder}
                 <Title level={3}>Quiz not found</Title>
                 <Button type="primary" onClick={() => navigate('/student-dashboard')}>Go Back</Button>
             </div>
@@ -369,6 +560,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                 height: '100vh',
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
             }}>
+                {contextHolder}
                 <Card style={{ width: 500, textAlign: 'center' }}>
                     <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a', marginBottom: 16 }} />
                     <Title level={2}>Quiz Completed!</Title>
@@ -390,6 +582,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                 height: '100vh',
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
             }}>
+                {contextHolder}
                 <Card style={{ width: 600 }}>
                     <div style={{ textAlign: 'center', marginBottom: 24 }}>
                         <QuestionCircleOutlined style={{ fontSize: 64, color: '#1890ff', marginBottom: 16 }} />
@@ -416,7 +609,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                         <Col span={8}>
                             <Statistic
                                 title="Total Points"
-                                value={Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + q.points, 0) : 0}
+                                value={Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0}
                                 prefix={<CheckCircleOutlined />}
                             />
                         </Col>
@@ -460,6 +653,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
     if (!currentQ) {
         return (
             <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
+                {contextHolder}
                 <Alert message="No questions available for this quiz." type="warning" showIcon />
                 <div style={{ marginTop: 16 }}>
                     <Button onClick={() => navigate('/student-dashboard')}>Back to Dashboard</Button>
@@ -470,6 +664,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
 
     return (
         <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
+            {contextHolder}
             {/* Header with timer and progress */}
             <Card style={{ marginBottom: 20 }}>
                 <Row justify="space-between" align="middle">
@@ -495,6 +690,41 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                     style={{ marginTop: 16 }}
                 />
                 
+                {/* Question navigation panel */}
+                {questionsLength > 0 && (
+                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {quiz.questions.map((q, idx) => {
+                            const isCurrent = idx === currentQuestion;
+                            const isAnswered = answeredSet.has(q.id);
+                            const isVisited = visitedQuestions.has(q.id);
+                            let bg = '#d9d9d9'; // gray for unvisited (default)
+                            let color = '#000';
+                            if (isCurrent) { bg = '#fa8c16'; color = '#fff'; } // orange current
+                            else if (isAnswered) { bg = '#52c41a'; color = '#fff'; } // green saved
+                            else if (!isVisited) { bg = '#d9d9d9'; color = '#000'; } // gray unvisited
+                            
+                            return (
+                                <Button
+                                    key={q.id}
+                                    size="small"
+                                    style={{
+                                        width: 32,
+                                        height: 32,
+                                        padding: 0,
+                                        backgroundColor: bg,
+                                        color,
+                                        border: isCurrent ? '2px solid #d46b08' : '1px solid #ccc',
+                                    }}
+                                    onClick={() => setCurrentQuestion(idx)}
+                                    disabled={submitting || quizCompleted}
+                                >
+                                    {idx + 1}
+                                </Button>
+                            );
+                        })}
+                    </div>
+                )}
+                
                 <div style={{ marginTop: 8, textAlign: 'center' }}>
                     <Text type="secondary">
                         {answeredQuestions} of {questionsLength} questions answered
@@ -510,7 +740,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
                             Question {currentQuestion + 1}
                         </Title>
                         <Text strong style={{ color: '#1890ff' }}>
-                            {currentQ.points} {currentQ.points === 1 ? 'point' : 'points'}
+                            {currentQ.points ?? 0} {(currentQ.points ?? 0) === 1 ? 'point' : 'points'}
                         </Text>
                     </div>
                     
@@ -678,7 +908,7 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
             <Modal
                 title="Submit Quiz"
                 open={showConfirmModal}
-                onOk={submitQuiz}
+                onOk={() => submitQuiz(false)}
                 onCancel={() => setShowConfirmModal(false)}
                 okText="Submit"
                 cancelText="Cancel"
@@ -701,6 +931,6 @@ const QuizTaking: React.FC<QuizTakingProps> = ({ quizId: propQuizId, onComplete 
             </Modal>
         </div>
     );
-};
+});
 
 export default QuizTaking;

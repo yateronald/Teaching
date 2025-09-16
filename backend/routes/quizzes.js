@@ -33,75 +33,83 @@ const isQuizAccessible = async (db, quizId, studentId) => {
 
 // Helper function to calculate quiz results
 const calculateQuizResults = async (db, submissionId) => {
+    // Ensure we compute max score from ALL questions in the quiz, not only answered ones
+    const submission = await db.get(
+        'SELECT id, quiz_id FROM quiz_submissions WHERE id = ?',
+        [submissionId]
+    );
+    if (!submission) {
+        return { totalScore: 0, maxScore: 0, percentage: 0 };
+    }
+
+    // Total marks across all questions in this quiz
+    const maxScoreRow = await db.get(
+        'SELECT COALESCE(SUM(marks), 0) AS max_score FROM questions WHERE quiz_id = ?',
+        [submission.quiz_id]
+    );
+    const maxScore = maxScoreRow && typeof maxScoreRow.max_score === 'number' ? maxScoreRow.max_score : (maxScoreRow?.max_score || 0);
+
+    // Grade only the answers that exist; unanswered implicitly earn 0
     const answers = await db.all(`
         SELECT sa.*, q.marks, q.question_type, q.correct_answer
         FROM student_answers sa
         JOIN questions q ON sa.question_id = q.id
         WHERE sa.submission_id = ?
     `, [submissionId]);
-    
+
     let totalScore = 0;
-    let maxScore = 0;
-    
+
     for (const answer of answers) {
-        maxScore += answer.marks;
         let isCorrect = false;
         let marksAwarded = 0;
-        
+
         if (answer.question_type === 'yes_no') {
             isCorrect = answer.answer_text === answer.correct_answer;
             marksAwarded = isCorrect ? answer.marks : 0;
         } else if (answer.question_type === 'mcq_single' || answer.question_type === 'mcq_multiple') {
-            const selectedOptions = JSON.parse(answer.selected_options || '[]');
-            const correctOptions = await db.all(`
-                SELECT id FROM question_options 
-                WHERE question_id = ? AND is_correct = 1
-            `, [answer.question_id]);
-            
+            let selectedOptions = [];
+            try { selectedOptions = JSON.parse(answer.selected_options || '[]') || []; } catch {}
+
+            const correctOptions = await db.all(
+                'SELECT id FROM question_options WHERE question_id = ? AND is_correct = 1',
+                [answer.question_id]
+            );
             const correctIds = correctOptions.map(opt => opt.id);
-            
+
             if (answer.question_type === 'mcq_single') {
                 isCorrect = selectedOptions.length === 1 && correctIds.includes(selectedOptions[0]);
                 marksAwarded = isCorrect ? answer.marks : 0;
             } else {
-                // Multiple-answer MCQ (MCMA) grading:
-                // Positive scoring proportional to correct selections; penalty for wrong selections.
+                // Multiple-answer MCQ grading with proportional scoring and penalty for wrong picks
                 const totalCorrect = correctIds.length || 1; // avoid divide-by-zero
                 const correctSelected = selectedOptions.filter(id => correctIds.includes(id)).length; // S
                 const incorrectSelected = selectedOptions.filter(id => !correctIds.includes(id)).length; // W
 
-                // Calculate raw score based on user's formula
                 const positive = (correctSelected / totalCorrect) * answer.marks; // (S/C) * marks
                 const negative = (incorrectSelected / totalCorrect) * answer.marks; // (W/C) * marks
                 const rawScore = positive - negative;
 
-                // Clamp to [0, full marks] without rounding to support fractional scoring
+                // Clamp to [0, full marks]
                 marksAwarded = Math.max(0, Math.min(answer.marks, rawScore));
-
-                // Fully correct only if all correct chosen and none wrong
                 isCorrect = correctSelected === totalCorrect && incorrectSelected === 0;
             }
         }
-        
-        // Update answer with calculated marks
-        await db.run(`
-            UPDATE student_answers 
-            SET marks_awarded = ?, is_correct = ?
-            WHERE id = ?
-        `, [marksAwarded, isCorrect, answer.id]);
-        
+
+        await db.run(
+            'UPDATE student_answers SET marks_awarded = ?, is_correct = ? WHERE id = ?',
+            [marksAwarded, isCorrect, answer.id]
+        );
+
         totalScore += marksAwarded;
     }
-    
+
     const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
-    
-    // Update submission with calculated results
-    await db.run(`
-        UPDATE quiz_submissions 
-        SET total_score = ?, max_score = ?, percentage = ?, status = 'graded'
-        WHERE id = ?
-    `, [totalScore, maxScore, percentage, submissionId]);
-    
+
+    await db.run(
+        "UPDATE quiz_submissions SET total_score = ?, max_score = ?, percentage = ?, status = 'graded' WHERE id = ?",
+        [totalScore, maxScore, percentage, submissionId]
+    );
+
     return { totalScore, maxScore, percentage };
 };
 
@@ -786,6 +794,114 @@ router.post('/:id/submit', [
     } catch (error) {
         console.error('Submit quiz error:', error);
         res.status(500).json({ error: 'Failed to submit quiz' });
+    }
+});
+
+// Get server-synced quiz session status (students)
+router.get('/:id/status', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (req.user.role !== 'student') {
+            return res.status(403).json({ error: 'Only students can access quiz status' });
+        }
+
+        // Validate accessibility
+        const accessCheck = await isQuizAccessible(req.db, id, req.user.id);
+        if (!accessCheck.quiz) {
+            return res.status(404).json({ error: 'Quiz not found or not accessible' });
+        }
+
+        const quiz = accessCheck.quiz;
+        const now = new Date();
+
+        // Fetch student's submission if any
+        const submission = await req.db.get(
+            'SELECT * FROM quiz_submissions WHERE quiz_id = ? AND student_id = ?',
+            [id, req.user.id]
+        );
+
+        if (!submission || submission.status === 'not_started') {
+            return res.json({
+                status: 'not_started',
+                can_start: !!accessCheck.accessible,
+                reason: accessCheck.reason || null,
+                duration_minutes: quiz.duration_minutes,
+                now_utc: now.toISOString(),
+                time_left_seconds: null
+            });
+        }
+
+        if (['submitted', 'auto_submitted', 'graded', 'published'].includes(submission.status)) {
+            return res.json({
+                status: submission.status,
+                now_utc: now.toISOString(),
+                started_at: submission.started_at,
+                submitted_at: submission.submitted_at,
+                time_left_seconds: 0,
+                duration_minutes: quiz.duration_minutes
+            });
+        }
+
+        // In progress
+        const startMs = new Date(submission.started_at).getTime();
+        const nominalEndMs = startMs + (Number(quiz.duration_minutes || 0) * 60 * 1000);
+        const hardEndMs = quiz.end_date ? Math.min(nominalEndMs, new Date(quiz.end_date).getTime()) : nominalEndMs;
+        const nowMs = now.getTime();
+        const remainingSeconds = Math.max(0, Math.floor((hardEndMs - nowMs) / 1000));
+
+        if (remainingSeconds <= 0) {
+            let answers = [];
+            try { answers = submission.auto_saved_data ? JSON.parse(submission.auto_saved_data) : []; } catch { answers = []; }
+
+            for (const answer of answers) {
+                await req.db.run(
+                    'INSERT OR REPLACE INTO student_answers (submission_id, question_id, answer_text, selected_options) VALUES (?, ?, ?, ?)',
+                    [submission.id, answer.question_id, answer.answer_text || null, answer.selected_options ? JSON.stringify(answer.selected_options) : null]
+                );
+            }
+
+            const timeTakenMin = Math.max(0, Math.round((hardEndMs - startMs) / (1000 * 60)));
+
+            await req.db.run(
+                "UPDATE quiz_submissions SET status = 'auto_submitted', submitted_at = CURRENT_TIMESTAMP, time_taken_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [timeTakenMin, submission.id]
+            );
+
+            const results = await calculateQuizResults(req.db, submission.id);
+
+            return res.json({
+                message: 'Time expired, quiz auto-submitted',
+                status: 'auto_submitted',
+                now_utc: new Date().toISOString(),
+                submitted_at: new Date().toISOString(),
+                time_left_seconds: 0,
+                time_taken_minutes: timeTakenMin,
+                results
+            });
+        }
+
+        // Parse saved answers from auto_saved_data to allow client to restore state on resume
+        let savedAnswers = [];
+        try {
+            savedAnswers = submission.auto_saved_data ? JSON.parse(submission.auto_saved_data) : [];
+        } catch {
+            savedAnswers = [];
+        }
+
+        return res.json({
+            status: 'in_progress',
+            now_utc: now.toISOString(),
+            started_at: submission.started_at,
+            ends_at: new Date(hardEndMs).toISOString(),
+            time_left_seconds: remainingSeconds,
+            duration_minutes: quiz.duration_minutes,
+            answers: savedAnswers
+        });
+
+    } catch (error) {
+        console.error('Status endpoint error:', error);
+        res.status(500).json({ error: 'Failed to get quiz status' });
     }
 });
 
@@ -1533,14 +1649,15 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
         
-        if (!submission || (submission.status !== 'submitted' && submission.status !== 'auto_submitted')) {
+        if (!submission || (submission.status !== 'submitted' && submission.status !== 'auto_submitted' && submission.status !== 'graded')) {
             return res.status(400).json({ error: 'Quiz not submitted yet' });
         }
         
         // Get detailed results
         const results = await req.db.all(`
             SELECT 
-                q.id, q.question_text, q.question_type, q.marks,
+                q.id, q.question_text, q.question_type, q.marks, q.correct_answer,
+                sa.answer_text, sa.selected_options, sa.is_correct,
                 sa.marks_awarded as score, sa.teacher_feedback
             FROM questions q
             LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = ?
@@ -1548,38 +1665,45 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             ORDER BY q.id
         `, [submission.id, id]);
         
-        // Get options for MCQ questions
+        // Get options for MCQ questions and compute derived fields
         for (let question of results) {
-            if (question.question_type.startsWith('mcq')) {
-                question.options = await req.db.all(`
+            if (question.question_type && (question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple')) {
+                const options = await req.db.all(`
                     SELECT id, option_text, is_correct
                     FROM question_options
                     WHERE question_id = ?
                     ORDER BY id
                 `, [question.id]);
-                
+                question.options = options;
+                let selectedIds = [];
                 if (question.selected_options) {
-                    try {
-                        question.selected_options = JSON.parse(question.selected_options);
-                    } catch (e) {
-                        question.selected_options = [];
-                    }
+                    try { selectedIds = JSON.parse(question.selected_options) || []; } catch (e) { selectedIds = []; }
                 }
+                const selectedTexts = options.filter(o => selectedIds.includes(o.id)).map(o => o.option_text);
+                const correctTexts = options.filter(o => o.is_correct).map(o => o.option_text);
+                question.student_answer = selectedTexts.join(', ');
+                question.correct_answer = correctTexts.join(', ');
+            } else if (question.question_type === 'yes_no') {
+                question.student_answer = question.answer_text || null;
             }
+            question.points = question.marks;
         }
+        
+        const computedPercentage = (submission.max_score && submission.max_score > 0)
+            ? Math.round((Number(submission.total_score || 0) / Number(submission.max_score)) * 100)
+            : 0;
         
         res.json({
             quiz: quiz,
             submission: {
                 id: submission.id,
                 status: submission.status,
-                score: submission.score,
-                total_marks: submission.total_marks,
-                percentage: submission.score && submission.total_marks ? 
-                    Math.round((submission.score / submission.total_marks) * 100) : null,
-                started_at: submission.started_at,
+                score: submission.total_score || 0,
+                max_score: submission.max_score || 0,
+                percentage: computedPercentage,
                 submitted_at: submission.submitted_at,
-                time_taken_minutes: submission.time_taken_minutes
+                time_taken: (submission.time_taken_minutes || 0) * 60,
+                teacher_feedback: submission.teacher_comments || null
             },
             questions: results
         });
@@ -1605,14 +1729,16 @@ router.get('/student/results', authenticateToken, async (req, res) => {
                 q.title as quiz_title,
                 q.description as quiz_description,
                 b.name as batch_name,
-                qs.score,
-                qs.total_marks as max_score,
-                ROUND((qs.score * 100.0 / qs.total_marks), 1) as percentage,
-                qs.time_taken_minutes as time_taken,
+                qs.total_score AS score,
+                qs.max_score AS max_score,
+                CASE WHEN qs.max_score > 0 THEN ROUND((qs.total_score * 100.0 / qs.max_score), 1) ELSE 0 END as percentage,
+                COALESCE(qs.time_taken_minutes, 0) * 60 as time_taken,
                 qs.submitted_at,
                 qs.status,
-                q.total_questions,
-                qs.teacher_feedback,
+                (
+                    SELECT COUNT(*) FROM questions qq WHERE qq.quiz_id = q.id
+                ) as total_questions,
+                qs.teacher_comments AS teacher_feedback,
                 (
                     SELECT COUNT(*) 
                     FROM student_answers sa 
@@ -1625,7 +1751,7 @@ router.get('/student/results', authenticateToken, async (req, res) => {
             JOIN batch_enrollments be ON b.id = be.batch_id
             WHERE qs.student_id = ? 
                 AND be.student_id = ?
-                AND (qs.status = 'submitted' OR qs.status = 'auto_submitted')
+                AND (qs.status = 'submitted' OR qs.status = 'auto_submitted' OR qs.status = 'graded')
                 AND q.status = 'published'
             ORDER BY qs.submitted_at DESC
         `, [req.user.id, req.user.id]);

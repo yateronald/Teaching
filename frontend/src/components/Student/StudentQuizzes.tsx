@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Table,
     Button,
@@ -29,36 +29,43 @@ import {
     CalendarOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import QuizTaking from '../Quiz/QuizTaking';
+import QuizTaking, { type QuizTakingHandle } from '../Quiz/QuizTaking';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
 
+// Updated to match backend quiz shape for students
 interface Quiz {
     id: number;
     title: string;
     description: string;
     total_questions: number;
     duration_minutes: number;
-    max_attempts: number;
-    passing_score: number;
-    is_active: boolean;
-    start_date: string;
-    end_date: string;
-    batch_name: string;
-    created_at: string;
+    // Backend fields
+    total_marks?: number;
+    status?: string; // draft | published
+    start_date?: string | null;
+    end_date?: string | null;
+    batch_names?: string; // comma-separated
+    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted';
+    submission?: {
+        total_score?: number;
+        max_score?: number;
+        percentage?: number;
+        status?: string;
+    } | null;
 }
 
 interface QuizAttempt {
     id: number;
     quiz_id: number;
     quiz_title: string;
-    score: number;
+    score: number; // percentage
     total_questions: number;
     correct_answers: number;
-    time_taken: number;
+    time_taken: number; // minutes
     completed_at: string;
     passed: boolean;
     attempt_number: number;
@@ -83,25 +90,43 @@ const StudentQuizzes: React.FC = () => {
     const [quizTakingVisible, setQuizTakingVisible] = useState(false);
     const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
     const { apiCall } = useAuth();
+    const [messageApi, contextHolder] = message.useMessage();
+
+    const quizTakingRef = useRef<QuizTakingHandle | null>(null);
 
     useEffect(() => {
         fetchQuizzes();
         fetchAttempts();
-        fetchStats();
     }, []);
+
+    // Recompute stats whenever data changes
+    useEffect(() => {
+        const computeStats = () => {
+            const total_quizzes = quizzes.length;
+            const completed_quizzes = quizzes.filter(q => (q.submission_status === 'submitted' || q.submission_status === 'auto_submitted')).length;
+            const scores = attempts.map(a => a.score).filter((s) => typeof s === 'number');
+            const average_score = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : 0;
+            const best_score = scores.length ? Math.max(...scores) : 0;
+            const total_attempts = attempts.length;
+            const passed_quizzes = attempts.filter(a => a.score >= 50).length; // Default pass mark 50%
+            setStats({ total_quizzes, completed_quizzes, average_score, best_score, total_attempts, passed_quizzes });
+        };
+        computeStats();
+    }, [quizzes, attempts]);
 
     const fetchQuizzes = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/quizzes/available');
+            // Backend returns quizzes for the current role at GET /quizzes
+            const response = await apiCall('/quizzes');
             if (response.ok) {
                 const data = await response.json();
-                setQuizzes(data.quizzes || []);
+                setQuizzes(Array.isArray(data) ? data : (data.quizzes || []));
             } else {
-                message.error('Failed to fetch quizzes');
+                messageApi.error('Failed to fetch quizzes');
             }
         } catch (error) {
-            message.error('Error fetching quizzes');
+            messageApi.error('Error fetching quizzes');
         } finally {
             setLoading(false);
         }
@@ -109,25 +134,27 @@ const StudentQuizzes: React.FC = () => {
 
     const fetchAttempts = async () => {
         try {
-            const response = await apiCall('/quiz-attempts/my-attempts');
+            // Map backend results to attempts list
+            const response = await apiCall('/quizzes/student/results');
             if (response.ok) {
                 const data = await response.json();
-                setAttempts(data.attempts || []);
+                const results = (data?.results || []) as any[];
+                const mapped: QuizAttempt[] = results.map((r, idx) => ({
+                    id: r.id ?? idx,
+                    quiz_id: r.quiz_id,
+                    quiz_title: r.quiz_title,
+                    score: Number(r.percentage ?? 0),
+                    total_questions: Number(r.total_questions ?? 0),
+                    correct_answers: Number(r.correct_answers ?? 0),
+                    time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),
+                    completed_at: r.submitted_at,
+                    passed: Number(r.percentage ?? 0) >= 50,
+                    attempt_number: 1,
+                }));
+                setAttempts(mapped);
             }
         } catch (error) {
             console.error('Error fetching attempts:', error);
-        }
-    };
-
-    const fetchStats = async () => {
-        try {
-            const response = await apiCall('/quiz-attempts/my-stats');
-            if (response.ok) {
-                const data = await response.json();
-                setStats(data.stats);
-            }
-        } catch (error) {
-            console.error('Error fetching stats:', error);
         }
     };
 
@@ -141,8 +168,8 @@ const StudentQuizzes: React.FC = () => {
         setSelectedQuizId(null);
         // Refresh data after quiz completion
         fetchAttempts();
-        fetchStats();
-        message.success('Quiz completed successfully!');
+        fetchQuizzes();
+        messageApi.success('Quiz completed successfully!');
     };
 
     const handleViewDetails = (quiz: Quiz) => {
@@ -152,29 +179,20 @@ const StudentQuizzes: React.FC = () => {
 
     const getQuizStatus = (quiz: Quiz) => {
         const now = dayjs();
-        const startDate = dayjs(quiz.start_date);
-        const endDate = dayjs(quiz.end_date);
-        
-        if (!quiz.is_active) return { status: 'inactive', color: 'default', text: 'Inactive' };
-        if (now.isBefore(startDate)) return { status: 'upcoming', color: 'blue', text: 'Upcoming' };
-        if (now.isAfter(endDate)) return { status: 'expired', color: 'red', text: 'Expired' };
-        return { status: 'active', color: 'green', text: 'Active' };
-    };
+        const startDate = quiz.start_date ? dayjs(quiz.start_date) : null;
+        const endDate = quiz.end_date ? dayjs(quiz.end_date) : null;
 
-    const getAttemptCount = (quizId: number) => {
-        return attempts.filter(attempt => attempt.quiz_id === quizId).length;
-    };
-
-    const getBestScore = (quizId: number) => {
-        const quizAttempts = attempts.filter(attempt => attempt.quiz_id === quizId);
-        if (quizAttempts.length === 0) return null;
-        return Math.max(...quizAttempts.map(attempt => attempt.score));
+        if (quiz.status !== 'published') return { status: 'inactive', color: 'default', text: 'Inactive' } as const;
+        if (startDate && now.isBefore(startDate)) return { status: 'upcoming', color: 'blue', text: 'Upcoming' } as const;
+        if (endDate && now.isAfter(endDate)) return { status: 'expired', color: 'red', text: 'Expired' } as const;
+        return { status: 'active', color: 'green', text: 'Active' } as const;
     };
 
     const canTakeQuiz = (quiz: Quiz) => {
         const status = getQuizStatus(quiz);
-        const attemptCount = getAttemptCount(quiz.id);
-        return status.status === 'active' && attemptCount < quiz.max_attempts;
+        const sub = quiz.submission_status;
+        const notSubmitted = sub === 'not_started' || sub === 'in_progress' || !sub;
+        return status.status === 'active' && notSubmitted;
     };
 
     const formatDuration = (minutes: number) => {
@@ -199,7 +217,7 @@ const StudentQuizzes: React.FC = () => {
                     </Text>
                     <br />
                     <Text type="secondary" style={{ fontSize: '11px' }}>
-                        Batch: {record.batch_name}
+                        Batch: {record.batch_names || '—'}
                     </Text>
                 </div>
             ),
@@ -212,7 +230,7 @@ const StudentQuizzes: React.FC = () => {
                 <div>
                     <div><BookOutlined /> {record.total_questions} questions</div>
                     <div><ClockCircleOutlined /> {formatDuration(record.duration_minutes)}</div>
-                    <div><TrophyOutlined /> {record.passing_score}% to pass</div>
+                    <div><TrophyOutlined /> Total Marks: {record.total_marks ?? '—'}</div>
                 </div>
             ),
         },
@@ -228,15 +246,15 @@ const StudentQuizzes: React.FC = () => {
         {
             title: 'Progress',
             key: 'progress',
-            width: 150,
+            width: 180,
             render: (_, record) => {
-                const attemptCount = getAttemptCount(record.id);
-                const bestScore = getBestScore(record.id);
+                const sub = record.submission_status;
+                const pct = record.submission?.percentage ?? (record.submission && record.submission.total_score && record.submission.max_score ? Math.round((record.submission.total_score / record.submission.max_score) * 100) : null);
                 return (
                     <div>
-                        <div>Attempts: {attemptCount}/{record.max_attempts}</div>
-                        {bestScore !== null && (
-                            <div>Best Score: {bestScore}%</div>
+                        <div>Status: {sub ? sub.replace('_', ' ') : 'not started'}</div>
+                        {pct !== null && (
+                            <div>Score: {Math.round(Number(pct))}%</div>
                         )}
                     </div>
                 );
@@ -263,7 +281,7 @@ const StudentQuizzes: React.FC = () => {
                             icon={<PlayCircleOutlined />}
                             onClick={() => handleStartQuiz(record.id)}
                         >
-                            Take Quiz
+                            {record.submission_status === 'in_progress' ? 'Resume' : 'Take Quiz'}
                         </Button>
                     )}
                 </Space>
@@ -330,10 +348,11 @@ const StudentQuizzes: React.FC = () => {
 
     const activeQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'active');
     const upcomingQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'upcoming');
-    const completedQuizzes = quizzes.filter(quiz => getAttemptCount(quiz.id) > 0);
+    const completedQuizzes = quizzes.filter(quiz => (quiz.submission_status === 'submitted' || quiz.submission_status === 'auto_submitted'));
 
     return (
         <div>
+            {contextHolder}
             <div style={{ marginBottom: 16 }}>
                 <Title level={2}>
                     <BookOutlined /> My Quizzes
@@ -485,7 +504,7 @@ const StudentQuizzes: React.FC = () => {
                                 setDetailsVisible(false);
                             }}
                         >
-                            Take Quiz
+                            {selectedQuiz.submission_status === 'in_progress' ? 'Resume' : 'Take Quiz'}
                         </Button>
                     ),
                 ]}
@@ -521,9 +540,8 @@ const StudentQuizzes: React.FC = () => {
                             <Col span={12}>
                                 <Card size="small">
                                     <Statistic
-                                        title="Passing Score"
-                                        value={selectedQuiz.passing_score}
-                                        suffix="%"
+                                        title="Total Marks"
+                                        value={selectedQuiz.total_marks ?? '—'}
                                         prefix={<TrophyOutlined />}
                                     />
                                 </Card>
@@ -531,9 +549,9 @@ const StudentQuizzes: React.FC = () => {
                             <Col span={12}>
                                 <Card size="small">
                                     <Statistic
-                                        title="Max Attempts"
-                                        value={selectedQuiz.max_attempts}
-                                        prefix={<PlayCircleOutlined />}
+                                        title="Status"
+                                        value={getQuizStatus(selectedQuiz).text}
+                                        prefix={<CheckCircleOutlined />}
                                     />
                                 </Card>
                             </Col>
@@ -542,15 +560,15 @@ const StudentQuizzes: React.FC = () => {
                         <div style={{ marginBottom: 16 }}>
                             <Text strong>Available Period:</Text>
                             <br />
-                            <CalendarOutlined /> {dayjs(selectedQuiz.start_date).format('MMM DD, YYYY')} - {dayjs(selectedQuiz.end_date).format('MMM DD, YYYY')}
+                            <CalendarOutlined /> {selectedQuiz.start_date ? dayjs(selectedQuiz.start_date).format('MMM DD, YYYY') : '—'} - {selectedQuiz.end_date ? dayjs(selectedQuiz.end_date).format('MMM DD, YYYY') : '—'}
                         </div>
                         
                         <div style={{ marginBottom: 16 }}>
                             <Text strong>Your Progress:</Text>
                             <br />
-                            Attempts: {getAttemptCount(selectedQuiz.id)}/{selectedQuiz.max_attempts}
-                            {getBestScore(selectedQuiz.id) !== null && (
-                                <span> | Best Score: {getBestScore(selectedQuiz.id)}%</span>
+                            Status: {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace('_', ' ') : 'not started'}
+                            {selectedQuiz.submission?.percentage != null && (
+                                <span> | Score: {Math.round(Number(selectedQuiz.submission.percentage))}%</span>
                             )}
                         </div>
                     </div>
@@ -561,7 +579,25 @@ const StudentQuizzes: React.FC = () => {
             <Modal
                 title="Take Quiz"
                 open={quizTakingVisible}
-                onCancel={() => {
+                onCancel={async () => {
+                    // If the quiz has started, confirm auto-submit before closing
+                    const started = quizTakingRef.current?.isStarted?.();
+                    if (started) {
+                        Modal.confirm({
+                            title: 'Submit before closing? ',
+                            content: 'You have a quiz in progress. Closing will submit your answers to prevent loss. Continue?',
+                            okText: 'Submit & Close',
+                            cancelText: 'Keep Taking',
+                            onOk: async () => {
+                                const ok = await quizTakingRef.current?.submitNow?.(true);
+                                if (ok) {
+                                    setQuizTakingVisible(false);
+                                    setSelectedQuizId(null);
+                                }
+                            },
+                        });
+                        return;
+                    }
                     setQuizTakingVisible(false);
                     setSelectedQuizId(null);
                 }}
@@ -572,6 +608,7 @@ const StudentQuizzes: React.FC = () => {
             >
                 {selectedQuizId && (
                     <QuizTaking 
+                        ref={quizTakingRef}
                         quizId={selectedQuizId.toString()}
                         onComplete={handleQuizComplete}
                     />
