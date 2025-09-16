@@ -984,6 +984,58 @@ router.patch('/:id/status', [
     }
 });
 
+// Get all quiz results for a student
+router.get('/student/results', authenticateToken, async (req, res) => {
+    try {
+        if (req.user.role !== 'student') {
+            return res.status(403).json({ error: 'Only students can access this endpoint' });
+        }
+
+        // Get all quiz results for the student
+        const results = await req.db.all(`
+            SELECT 
+                qs.id,
+                qs.quiz_id,
+                q.title as quiz_title,
+                q.description as quiz_description,
+                b.name as batch_name,
+                qs.total_score AS score,
+                qs.max_score AS max_score,
+                CASE WHEN qs.max_score > 0 THEN ROUND((qs.total_score * 100.0 / qs.max_score), 1) ELSE 0 END as percentage,
+                COALESCE(qs.time_taken_minutes, 0) * 60 as time_taken,
+                qs.submitted_at,
+                qs.status,
+                (
+                    SELECT COUNT(*) FROM questions qq WHERE qq.quiz_id = q.id
+                ) as total_questions,
+                NULL AS teacher_feedback,
+                (
+                    SELECT COUNT(*) 
+                    FROM student_answers sa 
+                    WHERE sa.submission_id = qs.id AND sa.is_correct = 1
+                ) as correct_answers
+            FROM quiz_submissions qs
+            JOIN quizzes q ON qs.quiz_id = q.id
+            JOIN quiz_batches qb ON q.id = qb.quiz_id
+            JOIN batches b ON qb.batch_id = b.id
+            JOIN batch_students bs ON b.id = bs.batch_id
+            WHERE qs.student_id = ? 
+                AND bs.student_id = ?
+                AND (qs.status = 'submitted' OR qs.status = 'auto_submitted' OR qs.status = 'graded')
+                AND q.status = 'published'
+            ORDER BY qs.submitted_at DESC
+        `, [req.user.id, req.user.id]);
+
+        res.json({
+            results: results
+        });
+
+    } catch (error) {
+        console.error('Get student results error:', error);
+        res.status(500).json({ error: 'Failed to get student results' });
+    }
+});
+
 // Get quiz results for teachers (batch performance)
 router.get('/:id/results', [
     authenticateToken,
@@ -1634,9 +1686,9 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
         const quiz = await req.db.get(`
             SELECT q.id, q.title, q.description, q.total_marks, q.duration_minutes
             FROM quizzes q
-            JOIN quiz_batch_assignments qba ON q.id = qba.quiz_id
-            JOIN batch_enrollments be ON qba.batch_id = be.batch_id
-            WHERE q.id = ? AND be.student_id = ? AND q.status = 'published'
+            JOIN quiz_batches qb ON q.id = qb.quiz_id
+            JOIN batch_students bs ON qb.batch_id = bs.batch_id
+            WHERE q.id = ? AND bs.student_id = ? AND q.status = 'published'
         `, [id, req.user.id]);
         
         if (!quiz) {
@@ -1658,7 +1710,7 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             SELECT 
                 q.id, q.question_text, q.question_type, q.marks, q.correct_answer,
                 sa.answer_text, sa.selected_options, sa.is_correct,
-                sa.marks_awarded as score, sa.teacher_feedback
+                sa.marks_awarded as score, NULL as teacher_feedback
             FROM questions q
             LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = ?
             WHERE q.quiz_id = ?
@@ -1714,57 +1766,7 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
     }
 });
 
-// Get all quiz results for a student
-router.get('/student/results', authenticateToken, async (req, res) => {
-    try {
-        if (req.user.role !== 'student') {
-            return res.status(403).json({ error: 'Only students can access this endpoint' });
-        }
 
-        // Get all quiz results for the student
-        const results = await req.db.all(`
-            SELECT 
-                qs.id,
-                qs.quiz_id,
-                q.title as quiz_title,
-                q.description as quiz_description,
-                b.name as batch_name,
-                qs.total_score AS score,
-                qs.max_score AS max_score,
-                CASE WHEN qs.max_score > 0 THEN ROUND((qs.total_score * 100.0 / qs.max_score), 1) ELSE 0 END as percentage,
-                COALESCE(qs.time_taken_minutes, 0) * 60 as time_taken,
-                qs.submitted_at,
-                qs.status,
-                (
-                    SELECT COUNT(*) FROM questions qq WHERE qq.quiz_id = q.id
-                ) as total_questions,
-                qs.teacher_comments AS teacher_feedback,
-                (
-                    SELECT COUNT(*) 
-                    FROM student_answers sa 
-                    WHERE sa.submission_id = qs.id AND sa.is_correct = 1
-                ) as correct_answers
-            FROM quiz_submissions qs
-            JOIN quizzes q ON qs.quiz_id = q.id
-            JOIN quiz_batch_assignments qba ON q.id = qba.quiz_id
-            JOIN batches b ON qba.batch_id = b.id
-            JOIN batch_enrollments be ON b.id = be.batch_id
-            WHERE qs.student_id = ? 
-                AND be.student_id = ?
-                AND (qs.status = 'submitted' OR qs.status = 'auto_submitted' OR qs.status = 'graded')
-                AND q.status = 'published'
-            ORDER BY qs.submitted_at DESC
-        `, [req.user.id, req.user.id]);
-
-        res.json({
-            results: results
-        });
-
-    } catch (error) {
-        console.error('Get student results error:', error);
-        res.status(500).json({ error: 'Failed to get student results' });
-    }
-});
 
 // Get quizzes for a specific teacher
 router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req, res) => {
