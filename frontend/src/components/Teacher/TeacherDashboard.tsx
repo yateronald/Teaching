@@ -34,6 +34,7 @@ import {
     ClockCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -96,6 +97,7 @@ const TeacherDashboard: React.FC = () => {
     const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
     const [quizForm] = Form.useForm();
     const { apiCall, user } = useAuth();
+    const navigate = useNavigate();
 
     const [stats, setStats] = useState({
         totalBatches: 0,
@@ -113,34 +115,42 @@ const TeacherDashboard: React.FC = () => {
         setLoading(true);
         try {
             const [batchesRes, quizzesRes, studentsRes] = await Promise.all([
-                apiCall(`/api/batches/teacher/${user?.id}`),
-                apiCall(`/api/quizzes/teacher/${user?.id}`),
-                apiCall(`/api/users/students/teacher/${user?.id}`)
+                apiCall(`/batches/teacher/${user?.id}`),
+                apiCall(`/quizzes/teacher/${user?.id}`),
+                apiCall(`/users/students/teacher/${user?.id}`)
             ]);
 
-            if (batchesRes.success) {
-                setBatches(batchesRes.data);
+            if (batchesRes.ok) {
+                const batchesData = await batchesRes.json();
+                const batches = batchesData.data || [];
+                setBatches(batches);
                 setStats(prev => ({
                     ...prev,
-                    totalBatches: batchesRes.data.length
+                    totalBatches: batches.length
                 }));
             }
 
-            if (quizzesRes.success) {
-                setQuizzes(quizzesRes.data);
-                const activeQuizzes = quizzesRes.data.filter((quiz: Quiz) => quiz.is_active).length;
+            if (quizzesRes.ok) {
+                const quizzesData = await quizzesRes.json();
+                const quizzes = quizzesData.data || [];
+                setQuizzes(quizzes);
+                const activeQuizzes = quizzes.filter((quiz: Quiz) => quiz.is_active).length;
                 setStats(prev => ({
                     ...prev,
-                    totalQuizzes: quizzesRes.data.length,
+                    totalQuizzes: quizzes.length,
                     activeQuizzes
                 }));
             }
 
-            if (studentsRes.success) {
-                setStudents(studentsRes.data);
-                const totalStudents = studentsRes.data.length;
-                const averageScore = studentsRes.data.reduce((acc: number, student: Student) => 
-                    acc + student.average_score, 0) / totalStudents || 0;
+            if (studentsRes.ok) {
+                const studentsData = await studentsRes.json();
+                const students = studentsData.data || [];
+                setStudents(students);
+                const totalStudents = students.length;
+                const averageScore = students.length > 0 
+                    ? students.reduce((acc: number, student: Student) => 
+                        acc + (student.average_score || 0), 0) / totalStudents 
+                    : 0;
                 
                 setStats(prev => ({
                     ...prev,
@@ -157,7 +167,7 @@ const TeacherDashboard: React.FC = () => {
 
     const handleCreateQuiz = async (values: CreateQuizForm) => {
         try {
-            const response = await apiCall('/api/quizzes', {
+            const response = await apiCall('/quizzes', {
                 method: 'POST',
                 body: JSON.stringify({
                     ...values,
@@ -165,7 +175,7 @@ const TeacherDashboard: React.FC = () => {
                 })
             });
 
-            if (response.success) {
+            if (response.ok) {
                 message.success('Quiz created successfully');
                 setQuizModalVisible(false);
                 quizForm.resetFields();
@@ -178,11 +188,11 @@ const TeacherDashboard: React.FC = () => {
 
     const handleDeleteQuiz = async (quizId: number) => {
         try {
-            const response = await apiCall(`/api/quizzes/${quizId}`, {
+            const response = await apiCall(`/quizzes/${quizId}`, {
                 method: 'DELETE'
             });
 
-            if (response.success) {
+            if (response.ok) {
                 message.success('Quiz deleted successfully');
                 fetchData();
             }
@@ -193,12 +203,12 @@ const TeacherDashboard: React.FC = () => {
 
     const toggleQuizStatus = async (quizId: number, isActive: boolean) => {
         try {
-            const response = await apiCall(`/api/quizzes/${quizId}/toggle`, {
+            const response = await apiCall(`/quizzes/${quizId}/toggle`, {
                 method: 'PUT',
                 body: JSON.stringify({ is_active: !isActive })
             });
 
-            if (response.success) {
+            if (response.ok) {
                 message.success(`Quiz ${!isActive ? 'activated' : 'deactivated'} successfully`);
                 fetchData();
             }
@@ -306,6 +316,12 @@ const TeacherDashboard: React.FC = () => {
                         }}
                     >
                         Edit
+                    </Button>
+                    <Button 
+                        type="link"
+                        onClick={() => navigate(`/teacher/quiz-results/${record.id}`)}
+                    >
+                        View Results
                     </Button>
                     <Button 
                         type="link"

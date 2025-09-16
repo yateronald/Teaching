@@ -9,7 +9,6 @@ import {
     Row,
     Col,
     Statistic,
-    Progress,
     Modal,
     List,
     Divider,
@@ -20,10 +19,6 @@ import {
 } from 'antd';
 import {
     EyeOutlined,
-    DownloadOutlined,
-    BarChartOutlined,
-    UserOutlined,
-    TrophyOutlined,
     ClockCircleOutlined
 } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
@@ -34,57 +29,73 @@ const { Title, Text } = Typography;
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 
-interface QuizResult {
-    id: number;
-    student_id: number;
-    student_name: string;
-    student_email: string;
-    score: number;
-    total_points: number;
-    percentage: number;
-    time_taken: number;
-    completed_at: string;
-    answers: Answer[];
-}
-
-interface Answer {
-    question_id: number;
-    question_text: string;
-    question_type: 'mcq' | 'text' | 'yes_no';
-    student_answer: string;
-    correct_answer: string;
-    is_correct: boolean;
-    points_earned: number;
-    max_points: number;
-}
-
 interface Quiz {
     id: number;
     title: string;
-    description: string;
-    time_limit: number;
-    total_questions: number;
-    total_points: number;
+    description?: string;
+    status?: string;
 }
 
-interface QuizStats {
-    total_attempts: number;
-    average_score: number;
-    highest_score: number;
-    lowest_score: number;
-    average_time: number;
-    completion_rate: number;
-    question_analytics: QuestionAnalytics[];
+interface StudentRow {
+    id: number; // student id
+    name: string;
+    email: string;
+    submission_id: number | null;
+    status: string;
+    score: number | null;
+    max_score: number | null;
+    percentage: number | null;
+    started_at: string | null;
+    submitted_at: string | null;
+    time_taken_minutes: number | null;
+    batch_id: number;
+    batch_name: string;
 }
 
-interface QuestionAnalytics {
-    question_id: number;
+interface BatchResult {
+    batch_id: number;
+    batch_name: string;
+    total_students: number;
+    submitted_count: number;
+    not_submitted_count: number;
+    average_score: number; // percent
+    students: StudentRow[];
+}
+
+interface QuestionOption {
+    id: number;
+    option_text: string;
+    is_correct?: number | boolean;
+}
+
+interface QuestionDetail {
+    id: number;
     question_text: string;
-    question_type: string;
-    correct_answers: number;
-    total_answers: number;
-    accuracy_rate: number;
-    average_time: number;
+    question_type: 'mcq' | 'mcq_single' | 'mcq_multiple' | 'text' | 'yes_no';
+    marks?: number | null;
+    correct_answer?: string | null;
+    answer_text?: string | null;
+    selected_options?: number[] | null;
+    marks_awarded?: number | null;
+    is_correct?: number | boolean | null;
+    options?: QuestionOption[];
+}
+
+interface SubmissionDetails {
+    submission: {
+        id: number;
+        student_id: number;
+        student_name: string;
+        email: string;
+        total_score?: number | null;
+        max_score?: number | null;
+        percentage?: number | null;
+        status?: string;
+        time_taken_minutes?: number | null;
+        submitted_at?: string | null;
+        started_at?: string | null;
+    };
+    questions: QuestionDetail[];
 }
 
 interface QuizResultsProps {
@@ -98,12 +109,13 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const quizId = propQuizId || paramQuizId;
     
     const [quiz, setQuiz] = useState<Quiz | null>(null);
-    const [results, setResults] = useState<QuizResult[]>([]);
-    const [stats, setStats] = useState<QuizStats | null>(null);
+    const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+    const [results, setResults] = useState<StudentRow[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedResult, setSelectedResult] = useState<QuizResult | null>(null);
+    const [selectedResult, setSelectedResult] = useState<StudentRow | null>(null);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
-    const [analyticsModalVisible, setAnalyticsModalVisible] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails | null>(null);
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [dateRange, setDateRange] = useState<any>(null);
 
@@ -111,15 +123,17 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
         if (quizId) {
             fetchQuizData();
             fetchResults();
-            fetchStats();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [quizId]);
 
     const fetchQuizData = async () => {
         try {
-            const response = await apiCall(`/api/quizzes/${quizId}`);
-            if (response.success) {
-                setQuiz(response.data);
+            const response = await apiCall(`/quizzes/${quizId}`);
+            if (response.ok) {
+                const data = await response.json();
+                // Backend returns { quiz, questions, batches }
+                setQuiz(data.quiz);
             }
         } catch (error) {
             message.error('Failed to fetch quiz data');
@@ -128,9 +142,30 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
 
     const fetchResults = async () => {
         try {
-            const response = await apiCall(`/api/quizzes/${quizId}/results`);
-            if (response.success) {
-                setResults(response.data);
+            const response = await apiCall(`/quizzes/${quizId}/results`);
+            if (response.ok) {
+                const data = await response.json();
+                const batches: BatchResult[] = (data.batch_results || []).map((b: any) => ({
+                    ...b,
+                    students: (b.students || []).map((s: any) => ({
+                        ...s,
+                        // ensure nullable numbers are handled
+                        score: s.score ?? null,
+                        max_score: s.max_score ?? null,
+                        percentage: s.percentage ?? null,
+                        started_at: s.started_at ?? null,
+                        submitted_at: s.submitted_at ?? null,
+                        time_taken_minutes: s.time_taken_minutes ?? null,
+                        batch_id: b.batch_id,
+                        batch_name: b.batch_name,
+                    }))
+                }));
+                setBatchResults(batches);
+                const flatStudents: StudentRow[] = batches.flatMap(b => b.students);
+                setResults(flatStudents);
+            } else {
+                const err = await response.json().catch(() => ({}));
+                message.error(err.error || 'Failed to fetch quiz results');
             }
         } catch (error) {
             message.error('Failed to fetch quiz results');
@@ -139,56 +174,79 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
         }
     };
 
-    const fetchStats = async () => {
+    const fetchSubmissionDetails = async (submissionId: number) => {
+        setDetailLoading(true);
+        setSubmissionDetails(null);
         try {
-            const response = await apiCall(`/api/quizzes/${quizId}/analytics`);
-            if (response.success) {
-                setStats(response.data);
+            const response = await apiCall(`/quizzes/${quizId}/submissions/${submissionId}`);
+            if (response.ok) {
+                const data = await response.json();
+                // Normalize selected_options from JSON string to number[] if needed
+                const normalizedQuestions: QuestionDetail[] = (data.questions || []).map((q: any) => {
+                    let selected = q.selected_options;
+                    if (typeof selected === 'string') {
+                        try { selected = JSON.parse(selected); } catch { selected = []; }
+                    }
+                    return {
+                        id: q.id,
+                        question_text: q.question_text,
+                        question_type: q.question_type,
+                        marks: q.marks ?? null,
+                        correct_answer: q.correct_answer ?? null,
+                        answer_text: q.answer_text ?? null,
+                        selected_options: selected ?? null,
+                        marks_awarded: q.marks_awarded ?? null,
+                        is_correct: q.is_correct ?? null,
+                        options: q.options || [],
+                    } as QuestionDetail;
+                });
+
+                setSubmissionDetails({
+                    submission: {
+                        id: data.submission.id,
+                        student_id: data.submission.student_id,
+                        student_name: data.submission.student_name,
+                        email: data.submission.email,
+                        total_score: data.submission.total_score ?? null,
+                        max_score: data.submission.max_score ?? null,
+                        percentage: data.submission.percentage ?? null,
+                        status: data.submission.status,
+                        time_taken_minutes: data.submission.time_taken_minutes ?? null,
+                        submitted_at: data.submission.submitted_at ?? null,
+                        started_at: data.submission.started_at ?? null,
+                    },
+                    questions: normalizedQuestions,
+                });
+            } else {
+                const err = await response.json().catch(() => ({}));
+                message.error(err.error || 'Failed to load submission details');
             }
         } catch (error) {
-            console.error('Failed to fetch quiz statistics');
+            message.error('Failed to load submission details');
+        } finally {
+            setDetailLoading(false);
         }
     };
 
-    const handleViewDetails = (result: QuizResult) => {
-        setSelectedResult(result);
+    const handleViewDetails = (row: StudentRow) => {
+        if (!row.submission_id) {
+            message.info('This student has not submitted the quiz yet.');
+            return;
+        }
+        setSelectedResult(row);
         setDetailModalVisible(true);
+        fetchSubmissionDetails(row.submission_id);
     };
 
-    const handleExportResults = async () => {
-        try {
-            const response = await apiCall(`/api/quizzes/${quizId}/export`, {
-                method: 'GET',
-                headers: {
-                    'Accept': 'text/csv'
-                }
-            });
-            
-            if (response.success) {
-                // Create and download CSV file
-                const blob = new Blob([response.data], { type: 'text/csv' });
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = `quiz-${quizId}-results.csv`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
-                message.success('Results exported successfully');
-            }
-        } catch (error) {
-            message.error('Failed to export results');
-        }
-    };
-
-    const getScoreColor = (percentage: number) => {
+    const getScoreColor = (percentage: number | null) => {
+        if (percentage === null || percentage === undefined) return 'default';
         if (percentage >= 80) return 'success';
         if (percentage >= 60) return 'warning';
         return 'error';
     };
 
-    const getGrade = (percentage: number) => {
+    const getGrade = (percentage: number | null) => {
+        if (percentage === null || percentage === undefined) return '-';
         if (percentage >= 90) return 'A+';
         if (percentage >= 80) return 'A';
         if (percentage >= 70) return 'B+';
@@ -197,114 +255,97 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
         return 'F';
     };
 
-    const formatTime = (seconds: number) => {
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        return `${minutes}m ${remainingSeconds}s`;
+    const formatMinutes = (minutes: number | null) => {
+        if (minutes === null || minutes === undefined) return '—';
+        const m = Math.floor(minutes);
+        return `${m}m`;
     };
 
-    const columns: ColumnsType<QuizResult> = [
+    const columns: ColumnsType<StudentRow> = [
         {
             title: 'Student',
-            dataIndex: 'student_name',
-            key: 'student_name',
-            render: (name: string, record: QuizResult) => (
+            dataIndex: 'name',
+            key: 'name',
+            render: (name: string, record: StudentRow) => (
                 <div>
                     <Text strong>{name}</Text>
                     <br />
                     <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.student_email}
+                        {record.email}
                     </Text>
                 </div>
+            ),
+        },
+        {
+            title: 'Batch',
+            dataIndex: 'batch_name',
+            key: 'batch_name',
+        },
+        {
+            title: 'Status',
+            dataIndex: 'status',
+            key: 'status',
+            render: (status: string) => (
+                <Tag color={status === 'graded' || status === 'submitted' || status === 'auto_submitted' ? 'blue' : 'default'}>
+                    {status.replace('_', ' ')}
+                </Tag>
             ),
         },
         {
             title: 'Score',
             dataIndex: 'score',
             key: 'score',
-            render: (score: number, record: QuizResult) => (
+            render: (_: number | null, record: StudentRow) => (
                 <div>
-                    <Text strong style={{ fontSize: '16px' }}>
-                        {score}/{record.total_points}
-                    </Text>
-                    <br />
-                    <Tag color={getScoreColor(record.percentage)}>
-                        {record.percentage.toFixed(1)}% ({getGrade(record.percentage)})
-                    </Tag>
+                    {record.percentage !== null ? (
+                        <>
+                            <Text strong style={{ fontSize: '16px' }}>
+                                {record.score}/{record.max_score}
+                            </Text>
+                            <br />
+                            <Tag color={getScoreColor(record.percentage)}>
+                                {record.percentage?.toFixed(1)}% ({getGrade(record.percentage)})
+                            </Tag>
+                        </>
+                    ) : (
+                        <Text type="secondary">Not submitted</Text>
+                    )}
                 </div>
             ),
-            sorter: (a, b) => a.percentage - b.percentage,
+            sorter: (a, b) => (a.percentage || 0) - (b.percentage || 0),
         },
         {
             title: 'Time Taken',
-            dataIndex: 'time_taken',
-            key: 'time_taken',
-            render: (time: number) => (
+            dataIndex: 'time_taken_minutes',
+            key: 'time_taken_minutes',
+            render: (time: number | null) => (
                 <Space>
                     <ClockCircleOutlined />
-                    <Text>{formatTime(time)}</Text>
+                    <Text>{formatMinutes(time)}</Text>
                 </Space>
             ),
-            sorter: (a, b) => a.time_taken - b.time_taken,
+            sorter: (a, b) => (a.time_taken_minutes || 0) - (b.time_taken_minutes || 0),
         },
         {
-            title: 'Completed At',
-            dataIndex: 'completed_at',
-            key: 'completed_at',
-            render: (date: string) => new Date(date).toLocaleString(),
-            sorter: (a, b) => new Date(a.completed_at).getTime() - new Date(b.completed_at).getTime(),
+            title: 'Submitted At',
+            dataIndex: 'submitted_at',
+            key: 'submitted_at',
+            render: (date: string | null) => (date ? new Date(date).toLocaleString() : '—'),
+            sorter: (a, b) => new Date(a.submitted_at || 0).getTime() - new Date(b.submitted_at || 0).getTime(),
         },
         {
             title: 'Actions',
             key: 'actions',
-            render: (_, record: QuizResult) => (
+            render: (_, record: StudentRow) => (
                 <Button
                     type="link"
                     icon={<EyeOutlined />}
                     onClick={() => handleViewDetails(record)}
+                    disabled={!record.submission_id}
                 >
                     View Details
                 </Button>
             ),
-        },
-    ];
-
-    const questionAnalyticsColumns: ColumnsType<QuestionAnalytics> = [
-        {
-            title: 'Question',
-            dataIndex: 'question_text',
-            key: 'question_text',
-            render: (text: string, record: QuestionAnalytics) => (
-                <div>
-                    <Text>{text.length > 100 ? `${text.substring(0, 100)}...` : text}</Text>
-                    <br />
-                    <Tag color="blue">{record.question_type.toUpperCase()}</Tag>
-                </div>
-            ),
-        },
-        {
-            title: 'Accuracy',
-            dataIndex: 'accuracy_rate',
-            key: 'accuracy_rate',
-            render: (rate: number, record: QuestionAnalytics) => (
-                <div>
-                    <Progress 
-                        percent={rate} 
-                        size="small" 
-                        status={rate >= 70 ? 'success' : rate >= 50 ? 'normal' : 'exception'}
-                    />
-                    <Text type="secondary">
-                        {record.correct_answers}/{record.total_answers} correct
-                    </Text>
-                </div>
-            ),
-            sorter: (a, b) => a.accuracy_rate - b.accuracy_rate,
-        },
-        {
-            title: 'Avg. Time',
-            dataIndex: 'average_time',
-            key: 'average_time',
-            render: (time: number) => formatTime(time),
         },
     ];
 
@@ -324,58 +365,26 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
         );
     }
 
+    const filteredResults = results.filter(result => {
+        if (filterStatus === 'passed') return (result.percentage || 0) >= 60;
+        if (filterStatus === 'failed') return (result.percentage || 0) < 60;
+        return true;
+    }).filter(result => {
+        if (!dateRange || dateRange.length !== 2) return true;
+        const [start, end] = dateRange;
+        if (!result.submitted_at) return false;
+        const startMs = start?.toDate ? start.toDate().getTime() : new Date(start).getTime();
+        const endMs = end?.toDate ? end.toDate().getTime() : new Date(end).getTime();
+        const t = new Date(result.submitted_at).getTime();
+        return t >= startMs && t <= endMs;
+    });
+
     return (
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
             <div style={{ marginBottom: 24 }}>
                 <Title level={2}>{quiz.title} - Results</Title>
-                <Text type="secondary">{quiz.description}</Text>
+                {quiz.description && <Text type="secondary">{quiz.description}</Text>}
             </div>
-
-            {/* Statistics Cards */}
-            {stats && (
-                <Row gutter={16} style={{ marginBottom: 24 }}>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Total Attempts"
-                                value={stats.total_attempts}
-                                prefix={<UserOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Average Score"
-                                value={stats.average_score}
-                                suffix="%"
-                                precision={1}
-                                prefix={<TrophyOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Highest Score"
-                                value={stats.highest_score}
-                                suffix="%"
-                                precision={1}
-                                valueStyle={{ color: '#3f8600' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Average Time"
-                                value={formatTime(stats.average_time)}
-                                prefix={<ClockCircleOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                </Row>
-            )}
 
             {/* Actions and Filters */}
             <Card style={{ marginBottom: 24 }}>
@@ -385,7 +394,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                             <Select
                                 value={filterStatus}
                                 onChange={setFilterStatus}
-                                style={{ width: 120 }}
+                                style={{ width: 160 }}
                             >
                                 <Option value="all">All Results</Option>
                                 <Option value="passed">Passed (≥60%)</Option>
@@ -398,29 +407,12 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                             />
                         </Space>
                     </Col>
-                    <Col>
-                        <Space>
-                            <Button
-                                icon={<BarChartOutlined />}
-                                onClick={() => setAnalyticsModalVisible(true)}
-                            >
-                                View Analytics
-                            </Button>
-                            <Button
-                                type="primary"
-                                icon={<DownloadOutlined />}
-                                onClick={handleExportResults}
-                            >
-                                Export Results
-                            </Button>
-                        </Space>
-                    </Col>
                 </Row>
             </Card>
 
             {/* Results Table */}
             <Card title="Student Results">
-                {results.length === 0 ? (
+                {filteredResults.length === 0 ? (
                     <Empty
                         description="No quiz attempts yet"
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -428,12 +420,8 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                 ) : (
                     <Table
                         columns={columns}
-                        dataSource={results.filter(result => {
-                            if (filterStatus === 'passed') return result.percentage >= 60;
-                            if (filterStatus === 'failed') return result.percentage < 60;
-                            return true;
-                        })}
-                        rowKey="id"
+                        dataSource={filteredResults}
+                        rowKey={(row) => `${row.batch_id}-${row.id}`}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,
@@ -447,33 +435,38 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
 
             {/* Result Detail Modal */}
             <Modal
-                title={`Quiz Results - ${selectedResult?.student_name}`}
+                title={`Quiz Results - ${selectedResult?.name || ''}`}
                 open={detailModalVisible}
-                onCancel={() => setDetailModalVisible(false)}
+                onCancel={() => { setDetailModalVisible(false); setSubmissionDetails(null); }}
                 footer={null}
-                width={800}
+                width={900}
             >
-                {selectedResult && (
+                {detailLoading && (
+                    <div style={{ textAlign: 'center', padding: '16px' }}>
+                        <Text>Loading details...</Text>
+                    </div>
+                )}
+                {!detailLoading && submissionDetails && (
                     <div>
                         {/* Summary */}
                         <Row gutter={16} style={{ marginBottom: 24 }}>
                             <Col span={8}>
                                 <Statistic
                                     title="Score"
-                                    value={`${selectedResult.score}/${selectedResult.total_points}`}
-                                    suffix={`(${selectedResult.percentage.toFixed(1)}%)`}
+                                    value={`${submissionDetails.submission.total_score ?? 0}/${submissionDetails.submission.max_score ?? 0}`}
+                                    suffix={`(${(submissionDetails.submission.percentage ?? 0).toFixed(1)}%)`}
                                 />
                             </Col>
                             <Col span={8}>
                                 <Statistic
                                     title="Grade"
-                                    value={getGrade(selectedResult.percentage)}
+                                    value={getGrade(submissionDetails.submission.percentage ?? null)}
                                 />
                             </Col>
                             <Col span={8}>
                                 <Statistic
                                     title="Time Taken"
-                                    value={formatTime(selectedResult.time_taken)}
+                                    value={formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
                                 />
                             </Col>
                         </Row>
@@ -483,81 +476,84 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                         {/* Answer Details */}
                         <List
                             itemLayout="vertical"
-                            dataSource={selectedResult.answers}
-                            renderItem={(answer, index) => (
-                                <List.Item
-                                    key={answer.question_id}
-                                    style={{
-                                        backgroundColor: answer.is_correct ? '#f6ffed' : '#fff2f0',
-                                        padding: '16px',
-                                        marginBottom: '8px',
-                                        borderRadius: '6px',
-                                        border: `1px solid ${answer.is_correct ? '#b7eb8f' : '#ffccc7'}`
-                                    }}
-                                >
-                                    <List.Item.Meta
-                                        title={
-                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                <Text strong>Question {index + 1}</Text>
-                                                <Space>
-                                                    <Tag color={answer.is_correct ? 'success' : 'error'}>
-                                                        {answer.is_correct ? 'Correct' : 'Incorrect'}
-                                                    </Tag>
-                                                    <Tag color="blue">
-                                                        {answer.points_earned}/{answer.max_points} pts
-                                                    </Tag>
-                                                </Space>
-                                            </div>
-                                        }
-                                        description={
-                                            <div>
-                                                <Text>{answer.question_text}</Text>
-                                                <div style={{ marginTop: 8 }}>
-                                                    <Text strong>Student Answer: </Text>
-                                                    <Text 
-                                                        type={answer.is_correct ? 'success' : 'danger'}
-                                                    >
-                                                        {answer.student_answer || 'No answer provided'}
-                                                    </Text>
-                                                </div>
-                                                {!answer.is_correct && (
-                                                    <div style={{ marginTop: 4 }}>
-                                                        <Text strong>Correct Answer: </Text>
-                                                        <Text type="success">{answer.correct_answer}</Text>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        }
-                                    />
-                                </List.Item>
-                            )}
-                        />
-                    </div>
-                )}
-            </Modal>
+                            dataSource={submissionDetails.questions}
+                            renderItem={(q, index) => {
+                                const isCorrect = typeof q.is_correct === 'boolean'
+                                    ? q.is_correct
+                                    : q.is_correct === 1;
+                                const pointsEarned = q.marks_awarded ?? 0;
+                                const maxPoints = q.marks ?? 0;
 
-            {/* Analytics Modal */}
-            <Modal
-                title="Quiz Analytics"
-                open={analyticsModalVisible}
-                onCancel={() => setAnalyticsModalVisible(false)}
-                footer={null}
-                width={1000}
-            >
-                {stats && (
-                    <div>
-                        <Title level={4}>Question Performance Analysis</Title>
-                        <Table
-                            columns={questionAnalyticsColumns}
-                            dataSource={stats.question_analytics}
-                            rowKey="question_id"
-                            pagination={false}
+                                const isMCQ = q.question_type === 'mcq' || q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+                                const selectedTexts = isMCQ
+                                    ? (q.selected_options || []).map((id) => q.options?.find(o => o.id === id)?.option_text || '').filter(Boolean)
+                                    : [];
+                                const correctTexts = isMCQ
+                                    ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1).map(o => o.option_text)
+                                    : [];
+
+                                return (
+                                    <List.Item
+                                        key={q.id}
+                                        style={{
+                                            backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
+                                            padding: '16px',
+                                            marginBottom: '8px',
+                                            borderRadius: '6px',
+                                            border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`
+                                        }}
+                                    >
+                                        <List.Item.Meta
+                                            title={
+                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <Text strong>Question {index + 1}</Text>
+                                                    <Space>
+                                                        <Tag color={isCorrect ? 'success' : 'error'}>
+                                                            {isCorrect ? 'Correct' : 'Incorrect'}
+                                                        </Tag>
+                                                        <Tag color="blue">
+                                                            {pointsEarned}/{maxPoints} pts
+                                                        </Tag>
+                                                    </Space>
+                                                </div>
+                                            }
+                                            description={
+                                                <div>
+                                                    <Text>{q.question_text}</Text>
+                                                    <div style={{ marginTop: 8 }}>
+                                                        <Text strong>Student Answer: </Text>
+                                                        {isMCQ ? (
+                                                            <Text type={isCorrect ? 'success' : 'danger'}>
+                                                                {selectedTexts.length ? selectedTexts.join(', ') : 'No answer provided'}
+                                                            </Text>
+                                                        ) : (
+                                                            <Text type={isCorrect ? 'success' : 'danger'}>
+                                                                {q.answer_text || 'No answer provided'}
+                                                            </Text>
+                                                        )}
+                                                    </div>
+                                                    {!isCorrect && (
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <Text strong>Correct Answer: </Text>
+                                                            {isMCQ ? (
+                                                                <Text type="success">{correctTexts.join(', ')}</Text>
+                                                            ) : (
+                                                                <Text type="success">{q.correct_answer}</Text>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            }
+                                        />
+                                    </List.Item>
+                                );
+                            }}
                         />
                     </div>
                 )}
             </Modal>
         </div>
     );
-};
+}
 
 export default QuizResults;

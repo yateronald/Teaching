@@ -44,6 +44,14 @@ CREATE TABLE quizzes (
     description TEXT,
     teacher_id INTEGER NOT NULL,
     status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'published')),
+    start_date DATETIME,
+    end_date DATETIME,
+    duration_minutes INTEGER,
+    total_marks REAL DEFAULT 0,
+    instructions TEXT,
+    randomize_questions BOOLEAN DEFAULT FALSE,
+    randomize_options BOOLEAN DEFAULT FALSE,
+    auto_submit BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE
@@ -65,9 +73,11 @@ CREATE TABLE questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quiz_id INTEGER NOT NULL,
     question_text TEXT NOT NULL,
-    question_type TEXT NOT NULL CHECK (question_type IN ('mcq', 'text', 'yes_no')),
+    question_type TEXT NOT NULL CHECK (question_type IN ('mcq_single', 'mcq_multiple', 'yes_no')),
     question_order INTEGER NOT NULL,
-    points INTEGER DEFAULT 1,
+    marks REAL DEFAULT 1,
+    correct_answer TEXT, -- For yes_no questions
+    explanation TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
 );
@@ -78,6 +88,7 @@ CREATE TABLE question_options (
     question_id INTEGER NOT NULL,
     option_text TEXT NOT NULL,
     option_order INTEGER NOT NULL,
+    is_correct BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (question_id) REFERENCES questions(id) ON DELETE CASCADE
 );
@@ -87,13 +98,14 @@ CREATE TABLE quiz_submissions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quiz_id INTEGER NOT NULL,
     student_id INTEGER NOT NULL,
-    status TEXT DEFAULT 'assigned' CHECK (status IN ('assigned', 'submitted', 'in_review', 'graded', 'published')),
+    status TEXT DEFAULT 'not_started' CHECK (status IN ('not_started', 'in_progress', 'submitted', 'auto_submitted', 'graded')),
+    started_at DATETIME,
     submitted_at DATETIME,
-    graded_at DATETIME,
-    published_at DATETIME,
-    total_score INTEGER DEFAULT 0,
-    max_score INTEGER DEFAULT 0,
-    teacher_comments TEXT,
+    time_taken_minutes INTEGER,
+    total_score REAL DEFAULT 0,
+    max_score REAL DEFAULT 0,
+    percentage DECIMAL(5,2) DEFAULT 0,
+    auto_saved_data TEXT, -- JSON for auto-save functionality
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
@@ -106,10 +118,10 @@ CREATE TABLE student_answers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     submission_id INTEGER NOT NULL,
     question_id INTEGER NOT NULL,
-    answer_text TEXT,
+    answer_text TEXT, -- For yes_no questions
     selected_options TEXT, -- JSON array for MCQ selections
-    score INTEGER DEFAULT 0,
-    teacher_feedback TEXT,
+    marks_awarded REAL DEFAULT 0,
+    is_correct BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (submission_id) REFERENCES quiz_submissions(id) ON DELETE CASCADE,

@@ -94,6 +94,11 @@ const Layout: React.FC = () => {
                     label: 'My Quizzes',
                 },
                 {
+                    key: '/my-results',
+                    icon: <BookOutlined />,
+                    label: 'My Results',
+                },
+                {
                     key: '/my-resources',
                     icon: <FolderOutlined />,
                     label: 'Resources',

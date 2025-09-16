@@ -33,6 +33,7 @@ import {
     FolderOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -97,6 +98,7 @@ const StudentDashboard: React.FC = () => {
     const [quizModalVisible, setQuizModalVisible] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
     const { apiCall, user } = useAuth();
+    const navigate = useNavigate();
 
     const [stats, setStats] = useState({
         totalBatches: 0,
@@ -121,23 +123,25 @@ const StudentDashboard: React.FC = () => {
                 apiCall(`/api/schedules/student/${user?.id}`)
             ]);
 
-            if (batchesRes.success) {
-                setBatches(batchesRes.data);
+            if (batchesRes.ok) {
+                const batchesData = await batchesRes.json();
+                setBatches(batchesData.data);
                 setStats(prev => ({
                     ...prev,
-                    totalBatches: batchesRes.data.length
+                    totalBatches: batchesData.data.length
                 }));
             }
 
-            if (quizzesRes.success) {
-                setQuizzes(quizzesRes.data);
-                const completedQuizzes = quizzesRes.data.filter((quiz: Quiz) => quiz.submission).length;
-                const pendingQuizzes = quizzesRes.data.filter((quiz: Quiz) => !quiz.submission && quiz.is_active).length;
+            if (quizzesRes.ok) {
+                const quizzesData = await quizzesRes.json();
+                setQuizzes(quizzesData.data);
+                const completedQuizzes = quizzesData.data.filter((quiz: Quiz) => quiz.submission).length;
+                const pendingQuizzes = quizzesData.data.filter((quiz: Quiz) => !quiz.submission && quiz.is_active).length;
                 
-                const totalScore = quizzesRes.data
+                const totalScore = quizzesData.data
                     .filter((quiz: Quiz) => quiz.submission)
                     .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.score || 0), 0);
-                const totalMaxScore = quizzesRes.data
+                const totalMaxScore = quizzesData.data
                     .filter((quiz: Quiz) => quiz.submission)
                     .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.max_score || 0), 0);
                 
@@ -151,17 +155,19 @@ const StudentDashboard: React.FC = () => {
                 }));
             }
 
-            if (resourcesRes.success) {
-                setResources(resourcesRes.data);
+            if (resourcesRes.ok) {
+                const resourcesData = await resourcesRes.json();
+                setResources(resourcesData.data);
                 setStats(prev => ({
                     ...prev,
-                    totalResources: resourcesRes.data.length
+                    totalResources: resourcesData.data.length
                 }));
             }
 
-            if (schedulesRes.success) {
-                setSchedules(schedulesRes.data);
-                const upcomingClasses = schedulesRes.data.filter((schedule: Schedule) => 
+            if (schedulesRes.ok) {
+                const schedulesData = await schedulesRes.json();
+                setSchedules(schedulesData.data);
+                const upcomingClasses = schedulesData.data.filter((schedule: Schedule) => 
                     dayjs(schedule.scheduled_time).isAfter(dayjs())
                 ).length;
                 
@@ -185,10 +191,11 @@ const StudentDashboard: React.FC = () => {
     const handleDownloadResource = async (resource: Resource) => {
         try {
             const response = await apiCall(`/api/resources/${resource.id}/download`);
-            if (response.success) {
+            if (response.ok) {
+                const data = await response.json();
                 // Create download link
                 const link = document.createElement('a');
-                link.href = response.data.download_url;
+                link.href = data.data.download_url;
                 link.download = resource.title;
                 document.body.appendChild(link);
                 link.click();
@@ -500,7 +507,20 @@ const StudentDashboard: React.FC = () => {
                         )}
                     </Card>
 
-                    <Card title="Recent Performance">
+                    <Card 
+                        title="Recent Performance"
+                        extra={
+                            quizzes.filter(quiz => quiz.submission).length > 0 && (
+                                <Button 
+                                    type="link" 
+                                    onClick={() => navigate('/my-results')}
+                                    icon={<TrophyOutlined />}
+                                >
+                                    View All Results
+                                </Button>
+                            )
+                        }
+                    >
                         <div>
                             {quizzes
                                 .filter(quiz => quiz.submission)

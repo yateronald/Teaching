@@ -54,6 +54,11 @@ interface Quiz {
     created_at: string;
     attempts_count?: number;
     avg_score?: number;
+    // Added fields from backend aggregate
+    batch_names?: string; // comma-separated batch names
+    french_levels?: string; // comma-separated french levels
+    submitted_students?: number;
+    total_students?: number;
 }
 
 interface Batch {
@@ -81,10 +86,10 @@ const QuizManagement: React.FC = () => {
     const fetchQuizzes = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/quizzes/my-quizzes');
+            const response = await apiCall('/quizzes');
             if (response.ok) {
                 const data = await response.json();
-                setQuizzes(data.quizzes || []);
+                setQuizzes(Array.isArray(data) ? data : (data.quizzes || []));
             } else {
                 message.error('Failed to fetch quizzes');
             }
@@ -97,10 +102,10 @@ const QuizManagement: React.FC = () => {
 
     const fetchBatches = async () => {
         try {
-            const response = await apiCall('/batches/my-batches');
+            const response = await apiCall('/batches');
             if (response.ok) {
                 const data = await response.json();
-                setBatches(data.batches || []);
+                setBatches(Array.isArray(data) ? data : (data.batches || []));
             }
         } catch (error) {
             console.error('Error fetching batches:', error);
@@ -216,19 +221,23 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Batch',
             key: 'batch',
-            width: 150,
+            width: 180,
             ellipsis: true,
-            render: (_, record) => {
-                const batch = batches.find(b => b.id === record.batch_id);
-                return batch ? batch.name : 'N/A';
-            },
+            render: (_, record) => record.batch_names || 'N/A',
+        },
+        {
+            title: 'French Level',
+            key: 'french_level',
+            width: 140,
+            ellipsis: true,
+            render: (_, record) => record.french_levels || '—',
         },
         {
             title: 'Questions',
             dataIndex: 'total_questions',
             key: 'total_questions',
-            width: 100,
-            render: (count: number) => count || 0,
+            width: 110,
+            render: (count: number) => (typeof count === 'number' ? count : 0),
         },
         {
             title: 'Duration',
@@ -240,10 +249,10 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Attempts',
             key: 'attempts',
-            width: 100,
+            width: 150,
             render: (_, record) => (
                 <span>
-                    {record.attempts_count || 0} / {record.max_attempts}
+                    {(record.submitted_students ?? 0)} / {(record.total_students ?? 0)}
                 </span>
             ),
         },

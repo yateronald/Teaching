@@ -11,11 +11,14 @@ import UserManagement from './components/Admin/UserManagement';
 import BatchManagement from './components/Admin/BatchManagement';
 import TeacherBatches from './components/Teacher/TeacherBatches';
 import QuizManagement from './components/Teacher/QuizManagement';
+import QuizResults from './components/Quiz/QuizResults';
 import ResourceManagement from './components/Teacher/ResourceManagement';
 import ScheduleManagement from './components/Teacher/ScheduleManagement';
 import StudentQuizzes from './components/Student/StudentQuizzes';
 import StudentResources from './components/Student/StudentResources';
 import StudentSchedule from './components/Student/StudentSchedule';
+import QuizTaking from './components/Quiz/QuizTaking';
+import StudentQuizResults from './components/Student/StudentQuizResults';
 import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
@@ -87,6 +90,11 @@ function App() {
                   <ScheduleManagement />
                 </ProtectedRoute>
               } />
+              <Route path="teacher/quiz-results/:quizId" element={
+                <ProtectedRoute requiredRole="teacher">
+                  <QuizResults />
+                </ProtectedRoute>
+              } />
               
               {/* Student Routes */}
               <Route path="student-dashboard" element={
@@ -99,6 +107,11 @@ function App() {
                   <StudentQuizzes />
                 </ProtectedRoute>
               } />
+              <Route path="my-results" element={
+                <ProtectedRoute requiredRole="student">
+                  <StudentQuizResults />
+                </ProtectedRoute>
+              } />
               <Route path="my-resources" element={
                 <ProtectedRoute requiredRole="student">
                   <StudentResources />
@@ -107,6 +120,11 @@ function App() {
               <Route path="my-schedule" element={
                 <ProtectedRoute requiredRole="student">
                   <StudentSchedule />
+                </ProtectedRoute>
+              } />
+              <Route path="quiz/:quizId" element={
+                <ProtectedRoute requiredRole="student">
+                  <QuizTaking />
                 </ProtectedRoute>
               } />
             </Route>

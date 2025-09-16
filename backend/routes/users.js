@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { hashPassword, authenticateToken, adminOnly } = require('../middleware/auth');
+const { hashPassword, authenticateToken, adminOnly, teacherOrAdmin } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -259,6 +259,63 @@ router.get('/role/students', authenticateToken, adminOnly, async (req, res) => {
     } catch (error) {
         console.error('Get students error:', error);
         res.status(500).json({ error: 'Failed to fetch students' });
+    }
+});
+
+// Get students for a specific teacher
+router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const { teacherId } = req.params;
+        
+        // Check if user can access this teacher's students
+        if (req.user.role === 'teacher' && parseInt(teacherId) !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        const students = await req.db.all(`
+            SELECT DISTINCT
+                u.id, u.first_name, u.last_name, u.email,
+                b.name as batch_name,
+                (
+                    SELECT AVG(
+                        CASE 
+                            WHEN qs.max_score > 0 THEN (qs.total_score * 100.0 / qs.max_score)
+                            ELSE 0
+                        END
+                    )
+                    FROM quiz_submissions qs
+                    JOIN quizzes q ON qs.quiz_id = q.id
+                    WHERE qs.student_id = u.id AND q.teacher_id = ? AND qs.status = 'graded'
+                ) as average_score
+            FROM users u
+            JOIN batch_students bs ON u.id = bs.student_id
+            JOIN batches b ON bs.batch_id = b.id
+            WHERE u.role = 'student' AND b.teacher_id = ?
+            ORDER BY u.first_name, u.last_name
+        `, [teacherId, teacherId]);
+        
+        // Get quiz scores for each student
+        for (let student of students) {
+            const quizScores = await req.db.all(`
+                SELECT 
+                    q.title as quiz_title,
+                    qs.total_score as score,
+                    qs.max_score,
+                    qs.submitted_at
+                FROM quiz_submissions qs
+                JOIN quizzes q ON qs.quiz_id = q.id
+                WHERE qs.student_id = ? AND q.teacher_id = ? AND qs.status = 'graded'
+                ORDER BY qs.submitted_at DESC
+            `, [student.id, teacherId]);
+            
+            student.quiz_scores = quizScores;
+            student.average_score = student.average_score || 0;
+        }
+        
+        res.json({ data: students });
+    } catch (error) {
+        console.error('Get teacher students error:', error);
+        res.status(500).json({ error: 'Failed to fetch teacher students' });
     }
 });
 

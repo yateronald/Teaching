@@ -394,4 +394,28 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
     }
 });
 
+// Get the authenticated teacher's batches
+router.get('/my-batches', authenticateToken, async (req, res) => {
+    try {
+        // Only teachers should use this route; it always scopes to the signed-in teacher
+        const sql = `
+            SELECT 
+                b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
+                u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                COUNT(bs.student_id) as student_count
+            FROM batches b
+            LEFT JOIN users u ON b.teacher_id = u.id
+            LEFT JOIN batch_students bs ON b.id = bs.batch_id
+            WHERE b.teacher_id = ?
+            GROUP BY b.id
+            ORDER BY b.created_at DESC
+        `;
+        const batches = await req.db.all(sql, [req.user.id]);
+        res.json(batches);
+    } catch (error) {
+        console.error('Get my-batches error:', error);
+        res.status(500).json({ error: 'Failed to fetch batches' });
+    }
+});
+
 module.exports = router;

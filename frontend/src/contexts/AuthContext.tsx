@@ -211,11 +211,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             },
         };
 
-        console.log('apiCall - Token:', token);
-        console.log('apiCall - Config:', config);
+        // Normalize endpoint to avoid double '/api' and ensure leading slash
+        let ep = String(endpoint || '');
+        // If absolute URL provided, use it directly
+        const isAbsolute = /^https?:\/\//i.test(ep);
+        if (!isAbsolute) {
+            if (ep.startsWith('/api/')) {
+                ep = ep.slice(4); // remove leading '/api'
+            }
+            if (!ep.startsWith('/')) {
+                ep = `/${ep}`;
+            }
+        }
 
         try {
-            const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+            const url = isAbsolute ? ep : `${API_BASE_URL}${ep}`;
+            const response = await fetch(url, config);
             return response;
         } catch (error) {
             throw error;

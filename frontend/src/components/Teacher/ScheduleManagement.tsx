@@ -96,10 +96,10 @@ const ScheduleManagement: React.FC = () => {
 
     const fetchBatches = async () => {
         try {
-            const response = await apiCall('/batches/my-batches');
+            const response = await apiCall('/batches');
             if (response.ok) {
                 const data = await response.json();
-                setBatches(data.batches || []);
+                setBatches(Array.isArray(data) ? data : (data.batches || []));
             }
         } catch (error) {
             console.error('Error fetching batches:', error);
