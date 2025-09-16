@@ -250,11 +250,21 @@ const StudentQuizzes: React.FC = () => {
             render: (_, record) => {
                 const sub = record.submission_status;
                 const pct = record.submission?.percentage ?? (record.submission && record.submission.total_score && record.submission.max_score ? Math.round((record.submission.total_score / record.submission.max_score) * 100) : null);
+                const isLocked = record.end_date ? dayjs(record.end_date).isAfter(dayjs()) : false;
                 return (
                     <div>
-                        <div>Status: {sub ? sub.replace('_', ' ') : 'not started'}</div>
-                        {pct !== null && (
-                            <div>Score: {Math.round(Number(pct))}%</div>
+                        {isLocked ? (
+                            <>
+                                <div><Tag color="gold">Locked</Tag></div>
+                                <div style={{ fontSize: 12, color: '#8c8c8c' }}>Progress will be displayed after {dayjs(record.end_date as string).format('MMM DD, YYYY HH:mm')}</div>
+                            </>
+                        ) : (
+                            <>
+                                <div>Status: {sub ? sub.replace('_', ' ') : 'not started'}</div>
+                                {pct !== null && (
+                                    <div>Score: {Math.round(Number(pct))}%</div>
+                                )}
+                            </>
                         )}
                     </div>
                 );
@@ -566,9 +576,19 @@ const StudentQuizzes: React.FC = () => {
                         <div style={{ marginBottom: 16 }}>
                             <Text strong>Your Progress:</Text>
                             <br />
-                            Status: {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace('_', ' ') : 'not started'}
-                            {selectedQuiz.submission?.percentage != null && (
-                                <span> | Score: {Math.round(Number(selectedQuiz.submission.percentage))}%</span>
+                            {selectedQuiz.end_date && dayjs(selectedQuiz.end_date).isAfter(dayjs()) ? (
+                                <>
+                                    <Tag color="gold">Locked</Tag>
+                                    <br />
+                                    <Text type="secondary">Progress will be displayed after {dayjs(selectedQuiz.end_date).format('MMM DD, YYYY HH:mm')}</Text>
+                                </>
+                            ) : (
+                                <>
+                                    Status: {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace('_', ' ') : 'not started'}
+                                    {selectedQuiz.submission?.percentage != null && (
+                                        <span> | Score: {Math.round(Number(selectedQuiz.submission.percentage))}%</span>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

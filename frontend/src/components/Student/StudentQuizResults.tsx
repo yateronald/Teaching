@@ -39,14 +39,17 @@ interface QuizResult {
     quiz_title: string;
     quiz_description: string;
     batch_name: string;
-    score: number;
-    max_score: number;
-    percentage: number;
+    // Add end_date and gating flag
+    end_date?: string | null;
+    results_locked?: boolean;
+    score: number | null;
+    max_score: number | null;
+    percentage: number | null;
     time_taken: number;
     submitted_at: string;
     status: 'submitted' | 'auto_submitted' | 'graded';
-    total_questions: number;
-    correct_answers: number;
+    total_questions: number | null;
+    correct_answers: number | null;
     teacher_feedback?: string;
 }
 
@@ -82,6 +85,7 @@ interface DetailedResult {
             option_text: string;
             is_correct: boolean;
         }>;
+        selected_options?: number[] | string; // may arrive as JSON string from backend
     }>;
 }
 
@@ -103,7 +107,7 @@ const StudentQuizResults: React.FC = () => {
 
             if (response.ok) {
                 const data = await response.json();
-                setResults(data.results || []);
+                setResults((data.results || []) as QuizResult[]);
             } else {
                 console.error('Failed to fetch quiz results');
             }
@@ -148,6 +152,34 @@ const StudentQuizResults: React.FC = () => {
         return 'F';
     };
 
+    // Color logic for individual question scores (multi-choice partial credit handling)
+    const getQuestionScoreColor = (score: number | undefined, points: number | undefined) => {
+        const s = Number(score || 0);
+        const p = Number(points || 0);
+        if (p <= 0) return '#d9d9d9';
+        if (s <= 0) return '#ff4d4f'; // red
+        const pct = (s / p) * 100;
+        if (pct >= 100) return '#52c41a'; // green
+        return '#faad14'; // orange for partial credit
+    };
+
+    const getQuestionStatus = (q: DetailedResult['questions'][number]) => {
+        const isMcq = q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+        if (isMcq) {
+            const color = getQuestionScoreColor(q.score, q.points);
+            const s = Number(q.score || 0);
+            const p = Number(q.points || 0);
+            let text = 'Incorrect';
+            if (p > 0) {
+                if (s <= 0) text = 'Incorrect';
+                else if (s >= p) text = 'Correct';
+                else text = 'Partially Correct';
+            }
+            return { color, text, correct: s >= p };
+        }
+        return { color: q.is_correct ? '#52c41a' : '#ff4d4f', text: q.is_correct ? 'Correct' : 'Incorrect', correct: !!q.is_correct };
+    };
+
     const calculateStats = () => {
         if (results.length === 0) {
             return {
@@ -158,13 +190,14 @@ const StudentQuizResults: React.FC = () => {
             };
         }
 
-        const totalScore = results.reduce((sum, result) => sum + result.percentage, 0);
-        const bestScore = Math.max(...results.map(result => result.percentage));
-        const totalTimeSpent = results.reduce((sum, result) => sum + result.time_taken, 0);
+        const unlocked = results.filter(r => !r.results_locked);
+        const totalScore = unlocked.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
+        const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
+        const totalTimeSpent = results.reduce((sum, r) => sum + Number(r.time_taken || 0), 0);
 
         return {
             totalQuizzes: results.length,
-            averageScore: Math.round(totalScore / results.length),
+            averageScore: unlocked.length > 0 ? Math.round(totalScore / unlocked.length) : 0,
             bestScore: Math.round(bestScore),
             totalTimeSpent: Math.round(totalTimeSpent)
         };
@@ -184,6 +217,11 @@ const StudentQuizResults: React.FC = () => {
                     <Text type="secondary" style={{ fontSize: '12px' }}>
                         {record.batch_name}
                     </Text>
+                    {record.results_locked && (
+                        <div style={{ marginTop: 6 }}>
+                            <Tag color="gold">Results locked until {record.end_date ? dayjs(record.end_date).format('MMM DD, YYYY HH:mm') : 'end'}</Tag>
+                        </div>
+                    )}
                 </div>
             ),
         },
@@ -192,13 +230,23 @@ const StudentQuizResults: React.FC = () => {
             key: 'score',
             render: (_, record: QuizResult) => (
                 <div>
-                    <Text strong style={{ color: getScoreColor(record.percentage) }}>
-                        {record.score}/{record.max_score}
-                    </Text>
-                    <br />
-                    <Tag color={getScoreColor(record.percentage)}>
-                        {record.percentage}% ({getGradeText(record.percentage)})
-                    </Tag>
+                    {record.results_locked ? (
+                        <>
+                            <Text type="secondary">Hidden until end</Text>
+                            <br />
+                            <Tag color="gold">Locked</Tag>
+                        </>
+                    ) : (
+                        <>
+                            <Text strong style={{ color: getScoreColor(Number(record.percentage || 0)) }}>
+                                {Number(record.score || 0) % 1 === 0 ? Number(record.score || 0) : Number(record.score || 0).toFixed(2)}/{Number(record.max_score || 0) % 1 === 0 ? Number(record.max_score || 0) : Number(record.max_score || 0).toFixed(2)}
+                            </Text>
+                            <br />
+                            <Tag color={getScoreColor(Number(record.percentage || 0))}>
+                                {Number(record.percentage || 0)}% ({getGradeText(Number(record.percentage || 0))})
+                            </Tag>
+                        </>
+                    )}
                 </div>
             ),
         },
@@ -207,15 +255,21 @@ const StudentQuizResults: React.FC = () => {
             key: 'performance',
             render: (_, record: QuizResult) => (
                 <div style={{ width: 120 }}>
-                    <Progress
-                        percent={record.percentage}
-                        size="small"
-                        strokeColor={getScoreColor(record.percentage)}
-                        format={(percent) => `${percent}%`}
-                    />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.correct_answers}/{record.total_questions} correct
-                    </Text>
+                    {record.results_locked ? (
+                        <Text type="secondary">Hidden</Text>
+                    ) : (
+                        <>
+                            <Progress
+                                percent={Number(record.percentage || 0)}
+                                size="small"
+                                strokeColor={getScoreColor(Number(record.percentage || 0))}
+                                format={(percent) => `${percent}%`}
+                            />
+                            <Text type="secondary" style={{ fontSize: '12px' }}>
+                                {Number(record.correct_answers || 0)}/{Number(record.total_questions || 0)} correct
+                            </Text>
+                        </>
+                    )}
                 </div>
             ),
         },
@@ -249,14 +303,17 @@ const StudentQuizResults: React.FC = () => {
             title: 'Actions',
             key: 'actions',
             render: (_, record: QuizResult) => (
-                <Button
-                    type="primary"
-                    icon={<EyeOutlined />}
-                    onClick={() => fetchDetailedResult(record.quiz_id)}
-                    loading={detailLoading}
-                >
-                    View Details
-                </Button>
+                <Tooltip title={record.results_locked ? 'Results will be available after the quiz ends' : 'View detailed results'}>
+                    <Button
+                        type="primary"
+                        icon={<EyeOutlined />}
+                        onClick={() => !record.results_locked && fetchDetailedResult(record.quiz_id)}
+                        loading={detailLoading}
+                        disabled={!!record.results_locked}
+                    >
+                        View Details
+                    </Button>
+                </Tooltip>
             ),
         },
     ];
@@ -413,18 +470,71 @@ const StudentQuizResults: React.FC = () => {
                                                 <Col span={18}>
                                                     <Text strong>Q{index + 1}. {question.question_text}</Text>
                                                     <br />
-                                                    {question.student_answer && (
-                                                        <div style={{ marginTop: 8 }}>
-                                                            <Text type="secondary">Your Answer: </Text>
-                                                            <Text>{question.student_answer}</Text>
-                                                        </div>
-                                                    )}
-                                                    {question.correct_answer && question.student_answer !== question.correct_answer && (
-                                                        <div style={{ marginTop: 4 }}>
-                                                            <Text type="secondary">Correct Answer: </Text>
-                                                            <Text style={{ color: '#52c41a' }}>{question.correct_answer}</Text>
-                                                        </div>
-                                                    )}
+                                                    {/* Your Answer (render per-type) */}
+                                                    {(() => {
+                                                        const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
+                                                        if (isMcq && question.options && question.options.length > 0) {
+                                                            let selectedIds: number[] = [];
+                                                            try {
+                                                                if (Array.isArray((question as any).selected_options)) {
+                                                                    selectedIds = (question as any).selected_options as number[];
+                                                                } else if ((question as any).selected_options) {
+                                                                    const parsed = JSON.parse((question as any).selected_options as string);
+                                                                    if (Array.isArray(parsed)) selectedIds = parsed as number[];
+                                                                }
+                                                            } catch (_) {
+                                                                selectedIds = [];
+                                                            }
+
+                                                            const selectedOptions = question.options.filter(o => selectedIds.includes(o.id));
+                                                            return (
+                                                                <div style={{ marginTop: 8 }}>
+                                                                    <Text type="secondary">Your Answer: </Text>
+                                                                    {selectedOptions.length > 0 ? (
+                                                                        <Space wrap>
+                                                                            {selectedOptions.map((opt) => (
+                                                                                <Tag key={opt.id} color={opt.is_correct ? 'green' : 'red'}>
+                                                                                    {opt.option_text}
+                                                                                </Tag>
+                                                                            ))}
+                                                                        </Space>
+                                                                    ) : (
+                                                                        <Text type="secondary">No answer</Text>
+                                                                    )}
+                                                                    {/* Always show the correct answers in green */}
+                                                                    {question.options.some(o => o.is_correct) && (
+                                                                        <div style={{ marginTop: 6 }}>
+                                                                            <Text type="secondary">Correct Answer: </Text>
+                                                                            <Space wrap>
+                                                                                {question.options.filter(o => o.is_correct).map((opt) => (
+                                                                                    <Tag key={`c-${opt.id}`} color="green">{opt.option_text}</Tag>
+                                                                                ))}
+                                                                            </Space>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        // Non-MCQ fallback (text/yes_no etc.)
+                                                        return (
+                                                            <>
+                                                                {question.student_answer && (
+                                                                    <div style={{ marginTop: 8 }}>
+                                                                        <Text type="secondary">Your Answer: </Text>
+                                                                        <Text>{question.student_answer}</Text>
+                                                                    </div>
+                                                                )}
+                                                                {question.correct_answer && question.student_answer !== question.correct_answer && (
+                                                                    <div style={{ marginTop: 4 }}>
+                                                                        <Text type="secondary">Correct Answer: </Text>
+                                                                        <Text style={{ color: '#52c41a' }}>{question.correct_answer}</Text>
+                                                                    </div>
+                                                                )}
+                                                            </>
+                                                        );
+                                                    })()}
+
                                                     {question.teacher_feedback && (
                                                         <div style={{ marginTop: 8 }}>
                                                             <Text type="secondary">Feedback: </Text>
@@ -433,20 +543,23 @@ const StudentQuizResults: React.FC = () => {
                                                     )}
                                                 </Col>
                                                 <Col span={6} style={{ textAlign: 'right' }}>
-                                                    <div>
-                                                        <Tag color={question.is_correct ? 'green' : 'red'}>
-                                                            {question.is_correct ? (
-                                                                <><CheckCircleOutlined /> Correct</>
-                                                            ) : (
-                                                                <>✗ Incorrect</>
-                                                            )}
-                                                        </Tag>
-                                                    </div>
-                                                    <div style={{ marginTop: 8 }}>
-                                                        <Text strong>
-                                                            {question.score || 0}/{question.points} pts
-                                                        </Text>
-                                                    </div>
+                                                    {(() => {
+                                                        const status = getQuestionStatus(question);
+                                                        return (
+                                                            <>
+                                                                <div>
+                                                                    <Tag color={status.color}>
+                                                                        {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
+                                                                    </Tag>
+                                                                </div>
+                                                                <div style={{ marginTop: 8 }}>
+                                                                    <Text strong style={{ color: getQuestionScoreColor(question.score, question.points) }}>
+                                                        {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
+                                                    </Text>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </Col>
                                             </Row>
                                         </div>

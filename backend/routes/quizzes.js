@@ -164,12 +164,22 @@ router.get('/', authenticateToken, async (req, res) => {
                     WHERE quiz_id = ? AND student_id = ?
                 `, [quiz.id, req.user.id]);
                 
-                quiz.submission_status = submission ? submission.status : 'not_started';
-                quiz.submission = submission;
+                const rawStatus = submission ? submission.status : 'not_started';
+                const computedStatus = ['submitted','auto_submitted','graded'].includes(rawStatus) ? 'completed' : rawStatus;
+                quiz.submission_status = computedStatus;
+                quiz.submission = submission || null;
                 
                 const now = new Date();
                 quiz.can_start = !quiz.start_date || new Date(quiz.start_date) <= now;
-                quiz.has_ended = quiz.end_date && new Date(quiz.end_date) < now;
+                quiz.has_ended = !!(quiz.end_date && new Date(quiz.end_date) < now);
+                
+                // Results visibility for students: hide until end_date has passed
+                quiz.can_view_results = !quiz.end_date || new Date(quiz.end_date) <= now;
+                if (!quiz.can_view_results && quiz.submission) {
+                    quiz.submission.percentage = null;
+                    quiz.submission.total_score = null;
+                    quiz.submission.max_score = null;
+                }
             }
         }
         
@@ -999,6 +1009,7 @@ router.get('/student/results', authenticateToken, async (req, res) => {
                 q.title as quiz_title,
                 q.description as quiz_description,
                 b.name as batch_name,
+                q.end_date as end_date,
                 qs.total_score AS score,
                 qs.max_score AS max_score,
                 CASE WHEN qs.max_score > 0 THEN ROUND((qs.total_score * 100.0 / qs.max_score), 1) ELSE 0 END as percentage,
@@ -1026,8 +1037,18 @@ router.get('/student/results', authenticateToken, async (req, res) => {
             ORDER BY qs.submitted_at DESC
         `, [req.user.id, req.user.id]);
 
+        // Map results: lock visibility until quiz end_date has passed
+        const now = new Date();
+        const mapped = results.map(r => {
+            const locked = r.end_date && new Date(r.end_date) > now;
+            if (locked) {
+                return { ...r, results_locked: true, percentage: null, score: null, max_score: null, correct_answers: null };
+            }
+            return { ...r, results_locked: false };
+        });
+
         res.json({
-            results: results
+            results: mapped
         });
 
     } catch (error) {
@@ -1684,7 +1705,7 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
         
         // Get quiz details
         const quiz = await req.db.get(`
-            SELECT q.id, q.title, q.description, q.total_marks, q.duration_minutes
+            SELECT q.id, q.title, q.description, q.total_marks, q.duration_minutes, q.end_date as end_date
             FROM quizzes q
             JOIN quiz_batches qb ON q.id = qb.quiz_id
             JOIN batch_students bs ON qb.batch_id = bs.batch_id
@@ -1693,6 +1714,12 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
         
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
+        }
+        
+        // Gate results until the quiz end_date has passed
+        const now = new Date();
+        if (quiz.end_date && new Date(quiz.end_date) > now) {
+            return res.status(403).json({ error: 'Results are locked until the quiz end date' });
         }
         
         // Get student's submission
