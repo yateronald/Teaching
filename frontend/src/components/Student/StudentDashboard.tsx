@@ -123,25 +123,23 @@ const StudentDashboard: React.FC = () => {
                 apiCall(`/api/schedules/student/${user?.id}`)
             ]);
 
-            if (batchesRes.ok) {
-                const batchesData = await batchesRes.json();
-                setBatches(batchesData.data);
+            if (batchesRes.success) {
+                setBatches(batchesRes.data);
                 setStats(prev => ({
                     ...prev,
-                    totalBatches: batchesData.data.length
+                    totalBatches: batchesRes.data.length
                 }));
             }
 
-            if (quizzesRes.ok) {
-                const quizzesData = await quizzesRes.json();
-                setQuizzes(quizzesData.data);
-                const completedQuizzes = quizzesData.data.filter((quiz: Quiz) => quiz.submission).length;
-                const pendingQuizzes = quizzesData.data.filter((quiz: Quiz) => !quiz.submission && quiz.is_active).length;
+            if (quizzesRes.success) {
+                setQuizzes(quizzesRes.data);
+                const completedQuizzes = quizzesRes.data.filter((quiz: Quiz) => quiz.submission).length;
+                const pendingQuizzes = quizzesRes.data.filter((quiz: Quiz) => !quiz.submission && quiz.is_active).length;
                 
-                const totalScore = quizzesData.data
+                const totalScore = quizzesRes.data
                     .filter((quiz: Quiz) => quiz.submission)
                     .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.score || 0), 0);
-                const totalMaxScore = quizzesData.data
+                const totalMaxScore = quizzesRes.data
                     .filter((quiz: Quiz) => quiz.submission)
                     .reduce((acc: number, quiz: Quiz) => acc + (quiz.submission?.max_score || 0), 0);
                 
@@ -155,19 +153,17 @@ const StudentDashboard: React.FC = () => {
                 }));
             }
 
-            if (resourcesRes.ok) {
-                const resourcesData = await resourcesRes.json();
-                setResources(resourcesData.data);
+            if (resourcesRes.success) {
+                setResources(resourcesRes.data);
                 setStats(prev => ({
                     ...prev,
-                    totalResources: resourcesData.data.length
+                    totalResources: resourcesRes.data.length
                 }));
             }
 
-            if (schedulesRes.ok) {
-                const schedulesData = await schedulesRes.json();
-                setSchedules(schedulesData.data);
-                const upcomingClasses = schedulesData.data.filter((schedule: Schedule) => 
+            if (schedulesRes.success) {
+                setSchedules(schedulesRes.data);
+                const upcomingClasses = schedulesRes.data.filter((schedule: Schedule) => 
                     dayjs(schedule.scheduled_time).isAfter(dayjs())
                 ).length;
                 
@@ -191,11 +187,10 @@ const StudentDashboard: React.FC = () => {
     const handleDownloadResource = async (resource: Resource) => {
         try {
             const response = await apiCall(`/api/resources/${resource.id}/download`);
-            if (response.ok) {
-                const data = await response.json();
+            if (response.success) {
                 // Create download link
                 const link = document.createElement('a');
-                link.href = data.data.download_url;
+                link.href = response.data.download_url;
                 link.download = resource.title;
                 document.body.appendChild(link);
                 link.click();

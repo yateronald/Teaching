@@ -25,13 +25,13 @@ import {
     EditOutlined,
     DeleteOutlined,
     FileTextOutlined,
-    EyeOutlined,
     BarChartOutlined,
     MoreOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizBuilder from '../Quiz/QuizBuilder';
 import QuizResults from '../Quiz/QuizResults';
+import QuizInsights from '../Quiz/QuizInsights';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
@@ -77,6 +77,7 @@ const QuizManagement: React.FC = () => {
     const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
     const [quizBuilderVisible, setQuizBuilderVisible] = useState(false);
     const [quizResultsVisible, setQuizResultsVisible] = useState(false);
+    const [quizInsightsVisible, setQuizInsightsVisible] = useState(false);
     const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
@@ -290,54 +291,44 @@ const QuizManagement: React.FC = () => {
             fixed: 'right',
             align: 'center',
             render: (_, record) => {
-                const menuItems = [
-                    {
-                        key: 'view',
-                        label: 'View Quiz',
-                        icon: <EyeOutlined />,
-                        onClick: () => {
+                const items = [
+                    { key: 'insights', label: 'Insights', icon: <BarChartOutlined /> },
+                    { key: 'results', label: 'Results', icon: <FileTextOutlined /> },
+                    { key: 'edit', label: 'Edit Quiz', icon: <EditOutlined /> },
+                    { key: 'delete', label: 'Delete Quiz', icon: <DeleteOutlined />, danger: true as any },
+                ];
+
+                const onMenuClick = ({ key }: { key: string }) => {
+                    switch (key) {
+                        case 'insights':
                             setSelectedQuizId(record.id);
-                            setQuizBuilderVisible(true);
-                        }
-                    },
-                    {
-                        key: 'results',
-                        label: 'View Results',
-                        icon: <BarChartOutlined />,
-                        onClick: () => {
+                            setQuizInsightsVisible(true);
+                            break;
+                        case 'results':
                             setSelectedQuizId(record.id);
                             setQuizResultsVisible(true);
-                        }
-                    },
-                    {
-                        key: 'edit',
-                        label: 'Edit Quiz',
-                        icon: <EditOutlined />,
-                        onClick: () => {
+                            break;
+                        case 'edit':
                             setSelectedQuizId(record.id);
                             setQuizBuilderVisible(true);
-                        }
-                    },
-                    {
-                        key: 'delete',
-                        label: (
-                            <Popconfirm
-                                title="Are you sure you want to delete this quiz?"
-                                onConfirm={() => handleDelete(record.id)}
-                                okText="Yes"
-                                cancelText="No"
-                            >
-                                Delete Quiz
-                            </Popconfirm>
-                        ),
-                        icon: <DeleteOutlined />,
-                        danger: true
+                            break;
+                        case 'delete':
+                            Modal.confirm({
+                                title: 'Delete this quiz?',
+                                content: 'This action cannot be undone.',
+                                okText: 'Delete',
+                                okType: 'danger',
+                                onOk: () => handleDelete(record.id),
+                            });
+                            break;
+                        default:
+                            break;
                     }
-                ];
-            
+                };
+
                 return (
                     <Dropdown
-                        menu={{ items: menuItems }}
+                        menu={{ items, onClick: onMenuClick }}
                         trigger={['click']}
                         placement="bottomRight"
                     >
@@ -601,6 +592,23 @@ const QuizManagement: React.FC = () => {
                 style={{ top: 20 }}
             >
                 {selectedQuizId && <QuizResults quizId={selectedQuizId.toString()} />}
+            </Modal>
+
+            {/* Quiz Insights Modal */}
+            <Modal
+                title="Quiz Insights"
+                open={quizInsightsVisible}
+                onCancel={() => {
+                    setQuizInsightsVisible(false);
+                    setSelectedQuizId(null);
+                }}
+                footer={null}
+                width={1200}
+                style={{ top: 20 }}
+            >
+                <QuizInsights
+                    quizId={selectedQuizId?.toString()}
+                />
             </Modal>
         </div>
     );
