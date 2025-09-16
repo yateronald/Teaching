@@ -48,9 +48,10 @@ interface Quiz {
     duration_minutes: number;
     max_attempts: number;
     passing_score: number;
-    is_active: boolean;
-    start_time: string;
-    end_time: string;
+    // Replace legacy flags with backend status fields
+    status: 'draft' | 'published';
+    start_date?: string;
+    end_date?: string;
     created_at: string;
     attempts_count?: number;
     avg_score?: number;
@@ -173,11 +174,8 @@ const QuizManagement: React.FC = () => {
             duration_minutes: quiz.duration_minutes,
             max_attempts: quiz.max_attempts,
             passing_score: quiz.passing_score,
-            is_active: quiz.is_active,
-            timeRange: [
-                dayjs(quiz.start_time),
-                dayjs(quiz.end_time)
-            ],
+            // status is controlled via publish action in builder; keep modal neutral
+            timeRange: quiz.start_date && quiz.end_date ? [dayjs(quiz.start_date), dayjs(quiz.end_date)] : undefined,
         });
         setModalVisible(true);
     };
@@ -187,25 +185,24 @@ const QuizManagement: React.FC = () => {
         setQuizBuilderVisible(true);
     };
 
-    const getStatusColor = (isActive: boolean, startTime: string, endTime: string) => {
-        if (!isActive) return 'red';
+    const getStatusColor = (status: 'draft' | 'published', start?: string, end?: string) => {
+        if (status !== 'published') return 'default'; // Draft
+        // Published quizzes: derive schedule status from dates
         const now = dayjs();
-        const start = dayjs(startTime);
-        const end = dayjs(endTime);
-        
-        if (now.isBefore(start)) return 'orange'; // Scheduled
-        if (now.isAfter(end)) return 'blue'; // Ended
+        const startAt = start ? dayjs(start) : null;
+        const endAt = end ? dayjs(end) : null;
+        if (startAt && now.isBefore(startAt)) return 'orange'; // Scheduled
+        if (endAt && now.isAfter(endAt)) return 'blue'; // Ended
         return 'green'; // Active
     };
 
-    const getStatusText = (isActive: boolean, startTime: string, endTime: string) => {
-        if (!isActive) return 'INACTIVE';
+    const getStatusText = (status: 'draft' | 'published', start?: string, end?: string) => {
+        if (status !== 'published') return 'DRAFT';
         const now = dayjs();
-        const start = dayjs(startTime);
-        const end = dayjs(endTime);
-        
-        if (now.isBefore(start)) return 'SCHEDULED';
-        if (now.isAfter(end)) return 'ENDED';
+        const startAt = start ? dayjs(start) : null;
+        const endAt = end ? dayjs(end) : null;
+        if (startAt && now.isBefore(startAt)) return 'SCHEDULED';
+        if (endAt && now.isAfter(endAt)) return 'ENDED';
         return 'ACTIVE';
     };
 
@@ -274,8 +271,8 @@ const QuizManagement: React.FC = () => {
             key: 'status',
             width: 100,
             render: (_, record) => (
-                <Tag color={getStatusColor(record.is_active, record.start_time, record.end_time)}>
-                    {getStatusText(record.is_active, record.start_time, record.end_time)}
+                <Tag color={getStatusColor(record.status, record.start_date, record.end_date)}>
+                    {getStatusText(record.status, record.start_date, record.end_date)}
                 </Tag>
             ),
         },
@@ -341,21 +338,21 @@ const QuizManagement: React.FC = () => {
 
     const activeQuizzes = quizzes.filter(quiz => {
         const now = dayjs();
-        const start = dayjs(quiz.start_time);
-        const end = dayjs(quiz.end_time);
-        return quiz.is_active && now.isAfter(start) && now.isBefore(end);
+        const start = quiz.start_date ? dayjs(quiz.start_date) : null;
+        const end = quiz.end_date ? dayjs(quiz.end_date) : null;
+        return quiz.status === 'published' && (!start || now.isAfter(start)) && (!end || now.isBefore(end));
     });
 
     const scheduledQuizzes = quizzes.filter(quiz => {
         const now = dayjs();
-        const start = dayjs(quiz.start_time);
-        return quiz.is_active && now.isBefore(start);
+        const start = quiz.start_date ? dayjs(quiz.start_date) : null;
+        return quiz.status === 'published' && !!start && now.isBefore(start);
     });
 
     const endedQuizzes = quizzes.filter(quiz => {
         const now = dayjs();
-        const end = dayjs(quiz.end_time);
-        return now.isAfter(end);
+        const end = quiz.end_date ? dayjs(quiz.end_date) : null;
+        return quiz.status === 'published' && !!end && now.isAfter(end);
     });
 
     return (

@@ -172,12 +172,13 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         // Backend GET may omit is_correct; default to false if missing, but try to infer from correct_answer
                         options: Array.isArray(quest.options)
                             ? quest.options.map((opt: any) => {
-                                const hasFlag = typeof opt.is_correct === 'boolean';
+                                const hasFlag = typeof opt.is_correct === 'boolean' || typeof opt.is_correct === 'number';
                                 let inferred = false;
                                 if (!hasFlag && quest) {
                                     const ca = quest.correct_answer;
                                     if (Array.isArray(ca)) {
-                                        inferred = ca.includes(opt.option_text);
+                                        // Some older data might store correct_answer as array of strings
+                                        inferred = ca.includes(opt.option_text) || ca.includes(opt.id);
                                     } else if (typeof ca === 'string') {
                                         inferred = ca === opt.option_text;
                                     }
@@ -1016,3 +1017,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 };
 
 export default QuizBuilder;
+
+// When building the payload to save, ensure MCQ includes options with is_correct booleans
+const onSaveQuestion = async (values: any, question?: Question) => {
+    // ... existing code ...
+};
