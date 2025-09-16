@@ -132,8 +132,9 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
             const response = await apiCall(`/quizzes/${quizId}`);
             if (response.ok) {
                 const data = await response.json();
-                // Backend returns { quiz, questions, batches }
-                setQuiz(data.quiz);
+                // Backend returns quiz fields at the top-level with { questions, batches } alongside
+                // or in some cases may return { quiz, questions, batches }
+                setQuiz(data?.quiz ?? data);
             }
         } catch (error) {
             message.error('Failed to fetch quiz data');
@@ -145,6 +146,10 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
             const response = await apiCall(`/quizzes/${quizId}/results`);
             if (response.ok) {
                 const data = await response.json();
+                // If API provides quiz in results payload, hydrate quiz state if not already
+                if (data?.quiz && !quiz) {
+                    setQuiz(prev => prev ?? data.quiz);
+                }
                 const batches: BatchResult[] = (data.batch_results || []).map((b: any) => ({
                     ...b,
                     students: (b.students || []).map((s: any) => ({
