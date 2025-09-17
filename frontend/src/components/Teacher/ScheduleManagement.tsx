@@ -14,12 +14,11 @@ import {
     Tag,
     Popconfirm,
     Card,
-    Calendar,
-    Badge,
     Tabs,
     Row,
     Col,
-    Statistic
+    Statistic,
+    Descriptions
 } from 'antd';
 import {
     PlusOutlined,
@@ -34,11 +33,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
 const { TabPane } = Tabs;
-const { RangePicker } = DatePicker;
 
 interface Schedule {
     id: number;
@@ -90,30 +92,34 @@ const ScheduleManagement: React.FC = () => {
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
 
+    // New: view-only modal state for event details
+    const [viewModalVisible, setViewModalVisible] = useState(false);
+    const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
+
     useEffect(() => {
         fetchSchedules();
         fetchBatches();
     }, []);
 
     const normalizeFromBackend = (items: BackendSchedule[]): Schedule[] => {
-        return (items || []).map((it) => {
-            const start = dayjs(it.start_time);
-            const end = dayjs(it.end_time);
+        return items.map(item => {
+            const date = dayjs(item.start_time);
+            const end = dayjs(item.end_time);
             return {
-                id: it.id,
-                title: it.title,
-                description: it.description || '',
-                batch_id: it.batch_id,
-                batch_name: it.batch_name,
-                date: start.isValid() ? start.format('YYYY-MM-DD') : '',
-                start_time: start.isValid() ? start.format('HH:mm') : '',
-                end_time: end.isValid() ? end.format('HH:mm') : '',
-                location: (it.location ?? '').toString(),
-                location_mode: (it.location_mode as any) || 'physical',
-                link: it.link ?? null,
-                type: (it.type as any) || 'class',
-                status: (it.status as any) || 'scheduled',
-                created_at: it.created_at,
+                id: item.id,
+                title: item.title,
+                description: item.description || '',
+                batch_id: item.batch_id,
+                batch_name: item.batch_name,
+                start_time: date.format('HH:mm'),
+                end_time: end.format('HH:mm'),
+                date: date.format('YYYY-MM-DD'),
+                location: item.location || '',
+                location_mode: item.location_mode || 'physical',
+                link: item.link || null,
+                type: (item.type as any) || 'class',
+                status: (item.status as any) || 'scheduled',
+                created_at: item.created_at,
             };
         });
     };
@@ -124,11 +130,9 @@ const ScheduleManagement: React.FC = () => {
             const response = await apiCall('/schedules');
             if (response.ok) {
                 const data = await response.json();
-                const raw: BackendSchedule[] = Array.isArray(data) ? data : (data.schedules || []);
-                setSchedules(normalizeFromBackend(raw));
+                setSchedules(normalizeFromBackend(data.schedules || data || []));
             } else {
-                const err = await response.json().catch(() => ({}));
-                message.error(err.error || err.message || 'Failed to fetch schedules');
+                message.error('Failed to fetch schedules');
             }
         } catch (error) {
             message.error('Error fetching schedules');
@@ -142,54 +146,67 @@ const ScheduleManagement: React.FC = () => {
             const response = await apiCall('/batches');
             if (response.ok) {
                 const data = await response.json();
-                setBatches(Array.isArray(data) ? data : (data.batches || []));
+                setBatches(data);
+            } else {
+                message.error('Failed to fetch batches');
             }
         } catch (error) {
-            console.error('Error fetching batches:', error);
+            message.error('Error fetching batches');
         }
     };
 
     const combineToISO = (date: Dayjs, time: Dayjs) => {
-        // Combine local date and time then convert to ISO 8601 string
-        const combined = dayjs(`${date.format('YYYY-MM-DD')} ${time.format('HH:mm')}`, 'YYYY-MM-DD HH:mm');
-        return combined.toISOString();
+        return dayjs(date)
+            .hour(time.hour())
+            .minute(time.minute())
+            .second(0)
+            .millisecond(0)
+            .toISOString();
     };
 
     const handleSubmit = async (values: any) => {
-        try {
-            const payload = {
-                title: values.title,
-                description: values.description || '',
-                batch_id: values.batch_id,
-                start_time: combineToISO(values.date, values.start_time),
-                end_time: combineToISO(values.date, values.end_time),
-                type: values.type,
-                status: values.status,
-                location_mode: values.location_mode,
-                location: values.location_mode === 'physical' ? values.location : undefined,
-                link: values.location_mode === 'online' ? values.link : undefined,
-            } as any;
+        const isEditing = !!editingSchedule;
+        const startISO = combineToISO(values.date, values.start_time);
+        const endISO = combineToISO(values.date, values.end_time);
 
-            const endpoint = editingSchedule ? `/schedules/${editingSchedule.id}` : '/schedules';
-            const method = editingSchedule ? 'PUT' : 'POST';
-            
-            const response = await apiCall(endpoint, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+        if (dayjs(endISO).isBefore(dayjs(startISO))) {
+            message.error('End time cannot be before start time');
+            return;
+        }
+
+        // Prevent creating schedules in the past
+        if (!isEditing && dayjs(startISO).isBefore(dayjs())) {
+            message.error('Cannot create schedules in the past');
+            return;
+        }
+
+        const payload: any = {
+            title: values.title,
+            description: values.description || '',
+            batch_id: values.batch_id,
+            start_time: startISO,
+            end_time: endISO,
+            type: values.type,
+            status: values.status,
+            location_mode: values.location_mode,
+            location: values.location_mode === 'physical' ? values.location : undefined,
+            link: values.location_mode === 'online' ? (values.link || '') : undefined,
+        };
+
+        try {
+            const resp = await apiCall(isEditing ? `/schedules/${editingSchedule?.id}` : '/schedules', {
+                method: isEditing ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
-
-            if (response.ok) {
-                message.success(`Schedule ${editingSchedule ? 'updated' : 'created'} successfully`);
+            if (!resp.ok) {
+                const er = await resp.json().catch(() => ({}));
+                message.error(er.error || er.message || 'Failed to save schedule');
+            } else {
+                message.success(`Schedule ${isEditing ? 'updated' : 'created'} successfully`);
                 setModalVisible(false);
                 form.resetFields();
-                setEditingSchedule(null);
                 fetchSchedules();
-            } else {
-                const errorData = await response.json().catch(() => ({}));
-                message.error(errorData.error || errorData.message || 'Operation failed');
             }
         } catch (error) {
             message.error('Error saving schedule');
@@ -201,10 +218,11 @@ const ScheduleManagement: React.FC = () => {
             const response = await apiCall(`/schedules/${scheduleId}`, {
                 method: 'DELETE',
             });
-
             if (response.ok) {
                 message.success('Schedule deleted successfully');
                 fetchSchedules();
+                setViewModalVisible(false);
+                setViewSchedule(null);
             } else {
                 message.error('Failed to delete schedule');
             }
@@ -219,14 +237,14 @@ const ScheduleManagement: React.FC = () => {
             title: schedule.title,
             description: schedule.description,
             batch_id: schedule.batch_id,
-            date: dayjs(schedule.date),
-            start_time: dayjs(schedule.start_time, 'HH:mm'),
-            end_time: dayjs(schedule.end_time, 'HH:mm'),
-            location_mode: schedule.location_mode || 'physical',
+            date: dayjs(schedule.date, 'YYYY-MM-DD'),
+            start_time: dayjs(`${schedule.date}T${schedule.start_time}`),
+            end_time: dayjs(`${schedule.date}T${schedule.end_time}`),
             location: schedule.location,
             link: schedule.link || undefined,
             type: schedule.type,
             status: schedule.status,
+            location_mode: schedule.location_mode || 'physical',
         });
         setModalVisible(true);
     };
@@ -234,8 +252,11 @@ const ScheduleManagement: React.FC = () => {
     const handleAdd = () => {
         setEditingSchedule(null);
         form.resetFields();
+        const now = dayjs().add(15, 'minute').second(0).millisecond(0);
         form.setFieldsValue({
-            date: selectedDate,
+            date: now,
+            start_time: now,
+            end_time: now.add(1, 'hour'),
             type: 'class',
             status: 'scheduled',
             location_mode: 'physical',
@@ -263,29 +284,131 @@ const ScheduleManagement: React.FC = () => {
         }
     };
 
-    const getListData = (value: Dayjs) => {
-        const dateStr = value.format('YYYY-MM-DD');
-        return schedules.filter(schedule => schedule.date === dateStr);
+    // FullCalendar color palette by type
+    const typeColors: Record<string, string> = {
+        class: '#1677ff',
+        exam: '#ff4d4f',
+        meeting: '#52c41a',
+        assignment: '#fa8c16',
+        quiz: '#722ed1',
+        other: '#6c757d',
     };
 
-    const dateCellRender = (value: Dayjs) => {
-        const listData = getListData(value);
-        return (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {listData.map(item => (
-                    <li key={item.id} style={{ marginBottom: 2 }}>
-                        <Badge
-                            status={getStatusColor(item.status) as any}
-                            text={
-                                <span style={{ fontSize: '11px' }}>
-                                    {item.start_time} - {item.title}
-                                </span>
-                            }
-                        />
-                    </li>
-                ))}
-            </ul>
-        );
+    // Convert schedules to FullCalendar events
+    const events = React.useMemo(() => {
+        return schedules.map((s) => {
+            const startD = dayjs(`${s.date}T${s.start_time}`);
+            let endD = dayjs(`${s.date}T${s.end_time}`);
+            if (!endD.isValid() || !endD.isAfter(startD)) {
+                endD = startD.add(1, 'hour');
+            }
+            const color = typeColors[s.type] || '#1677ff';
+            return {
+                id: String(s.id),
+                title: s.title,
+                start: startD.toDate(),
+                end: endD.toDate(),
+                allDay: false,
+                backgroundColor: color,
+                borderColor: color,
+                extendedProps: { schedule: s },
+            } as any;
+        });
+    }, [schedules]);
+
+    const handleEventClick = (clickInfo: any) => {
+        const sched: Schedule | undefined = clickInfo?.event?.extendedProps?.schedule;
+        if (sched) {
+            setViewSchedule(sched);
+            setViewModalVisible(true);
+        }
+    };
+
+    const handleSelect = (selectInfo: any) => {
+        const start = dayjs(selectInfo.startStr);
+        const end = dayjs(selectInfo.endStr);
+        const viewType = selectInfo?.view?.type;
+
+        setEditingSchedule(null);
+        form.resetFields();
+
+        if (viewType === 'dayGridMonth') {
+            const day = start.startOf('day');
+            const base = day.isSame(dayjs(), 'day') ? dayjs().add(15, 'minute') : day.hour(9);
+            const s = base.second(0).millisecond(0);
+            const e = s.add(1, 'hour');
+            form.setFieldsValue({
+                date: day,
+                start_time: s,
+                end_time: e,
+                type: 'class',
+                status: 'scheduled',
+                location_mode: 'physical',
+            });
+        } else {
+            const s = start.isBefore(dayjs()) ? dayjs().add(15, 'minute') : start;
+            const e = end.isValid() && end.isAfter(s) ? end : s.add(1, 'hour');
+            form.setFieldsValue({
+                date: s,
+                start_time: s,
+                end_time: e,
+                type: 'class',
+                status: 'scheduled',
+                location_mode: 'physical',
+            });
+        }
+        setModalVisible(true);
+    };
+
+    const updateScheduleTime = async (id: number, startISO: string, endISO: string) => {
+        const sched = schedules.find(s => s.id === id);
+        if (!sched) return;
+        try {
+            const payload: any = {
+                title: sched.title,
+                description: sched.description || '',
+                batch_id: sched.batch_id,
+                start_time: startISO,
+                end_time: endISO,
+                type: sched.type,
+                status: sched.status,
+                location_mode: sched.location_mode || 'physical',
+                location: (sched.location_mode === 'physical') ? sched.location : undefined,
+                link: (sched.location_mode === 'online') ? (sched.link || '') : undefined,
+            };
+            const resp = await apiCall(`/schedules/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!resp.ok) {
+                const er = await resp.json().catch(() => ({}));
+                message.error(er.error || er.message || 'Failed to update schedule');
+            } else {
+                message.success('Schedule updated');
+                fetchSchedules();
+            }
+        } catch (e) {
+            message.error('Error updating schedule');
+        }
+    };
+
+    const handleEventDrop = async (changeInfo: any) => {
+        const id = Number(changeInfo.event.id);
+        const startISO = changeInfo.event.start?.toISOString();
+        const endISO = changeInfo.event.end?.toISOString() || (startISO ? dayjs(startISO).add(1, 'hour').toISOString() : undefined);
+        if (startISO && endISO) {
+            await updateScheduleTime(id, startISO, endISO);
+        }
+    };
+
+    const handleEventResize = async (resizeInfo: any) => {
+        const id = Number(resizeInfo.event.id);
+        const startISO = resizeInfo.event.start?.toISOString();
+        const endISO = resizeInfo.event.end?.toISOString();
+        if (startISO && endISO) {
+            await updateScheduleTime(id, startISO, endISO);
+        }
     };
 
     const columns: ColumnsType<Schedule> = [
@@ -507,19 +630,48 @@ const ScheduleManagement: React.FC = () => {
                 </Card>
             ) : (
                 <Card>
-                    <Calendar
-                        dateCellRender={dateCellRender}
-                        onSelect={(date) => setSelectedDate(date)}
+                    <FullCalendar
+                        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                        initialView="timeGridWeek"
+                        headerToolbar={{
+                            left: 'prev,next today',
+                            center: 'title',
+                            right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                        }}
+                        height="auto"
+                        timeZone="local"
+                        displayEventEnd={true}
+                        selectable
+                        selectAllow={(arg: any) => {
+                            const start = dayjs(arg.start);
+                            const type = arg?.view?.type;
+                            if (type === 'dayGridMonth') {
+                                return start.isSame(dayjs(), 'day') || start.isAfter(dayjs(), 'day');
+                            }
+                            return start.isAfter(dayjs().subtract(1, 'minute'));
+                        }}
+                        selectMirror
+                        select={handleSelect}
+                        editable
+                        eventDrop={handleEventDrop}
+                        eventResize={handleEventResize}
+                        eventClick={handleEventClick}
+                        events={events}
+                        nowIndicator
+                        slotMinTime="00:00:00"
+                        slotMaxTime="24:00:00"
+                        allDaySlot={false}
+                        eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
                     />
                 </Card>
             )}
 
+            {/* Edit/Create Modal */}
             <Modal
                 title={editingSchedule ? 'Edit Schedule' : 'Add Schedule'}
                 open={modalVisible}
                 onCancel={() => {
                     setModalVisible(false);
-                    form.resetFields();
                     setEditingSchedule(null);
                 }}
                 footer={null}
@@ -610,17 +762,17 @@ const ScheduleManagement: React.FC = () => {
                                         <Form.Item
                                             name="link"
                                             label="Meeting Link"
-                                            rules={[{ required: true, message: 'Please input meeting link!' }]}
+                                            rules={[{ required: true, message: 'Please enter the meeting link!' }]}
                                         >
-                                            <Input placeholder="Enter meeting link (URL)" />
+                                            <Input placeholder="https://..." />
                                         </Form.Item>
                                     ) : (
                                         <Form.Item
                                             name="location"
                                             label="Location"
-                                            rules={[{ required: true, message: 'Please input location!' }]}
+                                            rules={[{ required: true, message: 'Please enter the location!' }]}
                                         >
-                                            <Input placeholder="Enter location" />
+                                            <Input placeholder="Room or address" />
                                         </Form.Item>
                                     );
                                 }}
@@ -661,20 +813,80 @@ const ScheduleManagement: React.FC = () => {
                     </Row>
 
                     <Form.Item>
-                        <Space>
+                        <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <Button onClick={() => setModalVisible(false)}>Cancel</Button>
                             <Button type="primary" htmlType="submit">
                                 {editingSchedule ? 'Update' : 'Create'}
-                            </Button>
-                            <Button onClick={() => {
-                                setModalVisible(false);
-                                form.resetFields();
-                                setEditingSchedule(null);
-                            }}>
-                                Cancel
                             </Button>
                         </Space>
                     </Form.Item>
                 </Form>
+            </Modal>
+
+            {/* View Details Modal for event click */}
+            <Modal
+                open={viewModalVisible}
+                title={viewSchedule ? viewSchedule.title : 'Schedule Details'}
+                onCancel={() => { setViewModalVisible(false); setViewSchedule(null); }}
+                footer={null}
+                width={640}
+            >
+                {viewSchedule && (
+                    <>
+                        <Descriptions bordered column={1} size="middle">
+                            <Descriptions.Item label="Batch">
+                                {batches.find(b => b.id === viewSchedule.batch_id)?.name || viewSchedule.batch_name || '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Date">
+                                {dayjs(viewSchedule.date).format('dddd, MMMM D, YYYY')}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Time">
+                                {`${viewSchedule.start_time} - ${viewSchedule.end_time}`}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Type">
+                                <Tag color={getTypeColor(viewSchedule.type)}>{viewSchedule.type.toUpperCase()}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Status">
+                                <Tag color={getStatusColor(viewSchedule.status)}>{viewSchedule.status.toUpperCase()}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Mode">
+                                {viewSchedule.location_mode === 'online' ? 'Online' : 'Physical'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label={viewSchedule.location_mode === 'online' ? 'Link' : 'Location'}>
+                                {viewSchedule.location_mode === 'online' ? (
+                                    viewSchedule.link ? <a href={viewSchedule.link} target="_blank" rel="noreferrer">Join</a> : '—'
+                                ) : (viewSchedule.location || '—')}
+                            </Descriptions.Item>
+                            {viewSchedule.description && (
+                                <Descriptions.Item label="Description">
+                                    {viewSchedule.description}
+                                </Descriptions.Item>
+                            )}
+                        </Descriptions>
+                        <Space style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+                            <Popconfirm
+                                title="Delete this schedule?"
+                                onConfirm={() => viewSchedule && handleDelete(viewSchedule.id)}
+                                okText="Yes"
+                                cancelText="No"
+                            >
+                                <Button danger icon={<DeleteOutlined />}>Delete</Button>
+                            </Popconfirm>
+                            <Button
+                                type="primary"
+                                icon={<EditOutlined />}
+                                onClick={() => {
+                                    if (viewSchedule) {
+                                        setViewModalVisible(false);
+                                        handleEdit(viewSchedule);
+                                    }
+                                }}
+                            >
+                                Edit
+                            </Button>
+                        </Space>
+                    </>
+                )}
             </Modal>
         </div>
     );
