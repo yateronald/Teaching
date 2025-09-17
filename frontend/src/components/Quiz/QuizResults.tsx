@@ -479,109 +479,83 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                         {/* Fixed Header Section */}
                         <div style={{ 
                             padding: '24px 24px 0 24px',
-                            borderBottom: '1px solid #f0f0f0',
-                            backgroundColor: '#fafafa',
-                            borderRadius: '8px 8px 0 0'
+                            borderBottom: '1px solid #e8e8e8',
+                            backgroundColor: '#fff'
                         }}>
-                            {/* Title */}
-                            <div style={{ marginBottom: '20px' }}>
-                                <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
-                                    Quiz Results - {selectedResult?.name || ''}
-                                </Title>
-                                <Text type="secondary" style={{ fontSize: '14px' }}>
-                                    {submissionDetails.submission.email}
-                                </Text>
-                            </div>
-
-                            {/* Summary Statistics */}
-                            <Row gutter={16} style={{ marginBottom: 20 }}>
+                            <Title level={3} style={{ margin: 0, marginBottom: '20px', color: '#1890ff' }}>
+                                Quiz Results - {selectedResult?.name || ''}
+                            </Title>
+                            <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginBottom: '20px' }}>
+                                {submissionDetails.submission.email}
+                            </Text>
+                            
+                            <Row gutter={24} style={{ marginBottom: '20px' }}>
                                 <Col span={8}>
-                                    <div style={{ 
-                                        textAlign: 'center', 
-                                        padding: '16px',
-                                        backgroundColor: '#fff',
-                                        borderRadius: '8px',
-                                        border: '1px solid #e8f4fd',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}>
-                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
+                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #e8f4fd' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#1890ff' }}>
                                             {formatNumber(submissionDetails.submission.total_score)}/{formatNumber(submissionDetails.submission.max_score)}
-                                        </div>
-                                        <div style={{ fontSize: '16px', color: '#52c41a', fontWeight: '500' }}>
+                                        </Title>
+                                        <Text style={{ color: '#52c41a', fontSize: '16px', fontWeight: 'bold' }}>
                                             ({(submissionDetails.submission.percentage ?? 0).toFixed(1)}%)
+                                        </Text>
+                                        <div style={{ marginTop: '4px' }}>
+                                            <Text type="secondary">Score</Text>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
-                                            Score
-                                        </div>
-                                    </div>
+                                    </Card>
                                 </Col>
                                 <Col span={8}>
-                                    <div style={{ 
-                                        textAlign: 'center', 
-                                        padding: '16px',
-                                        backgroundColor: '#fff',
-                                        borderRadius: '8px',
-                                        border: '1px solid #e8f4fd',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}>
-                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#722ed1' }}>
+                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #f6ffed' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#722ed1' }}>
                                             {getGrade(submissionDetails.submission.percentage ?? null)}
+                                        </Title>
+                                        <div style={{ marginTop: '8px' }}>
+                                            <Text type="secondary">Grade</Text>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '8px' }}>
-                                            Grade
-                                        </div>
-                                    </div>
+                                    </Card>
                                 </Col>
                                 <Col span={8}>
-                                    <div style={{ 
-                                        textAlign: 'center', 
-                                        padding: '16px',
-                                        backgroundColor: '#fff',
-                                        borderRadius: '8px',
-                                        border: '1px solid #e8f4fd',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}>
-                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fa8c16' }}>
+                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #fff7e6' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#fa8c16' }}>
                                             {formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
+                                        </Title>
+                                        <div style={{ marginTop: '8px' }}>
+                                            <Text type="secondary">Time Taken</Text>
                                         </div>
-                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '8px' }}>
-                                            Time Taken
-                                        </div>
-                                    </div>
+                                    </Card>
                                 </Col>
                             </Row>
+
+                            {/* Answer Details Title - Fixed in Header */}
+                            <div style={{ 
+                                padding: '16px 0',
+                                borderBottom: '2px solid #1890ff',
+                                marginBottom: '0'
+                            }}>
+                                <Title level={4} style={{ 
+                                    margin: 0, 
+                                    textAlign: 'center',
+                                    color: '#1890ff',
+                                    fontSize: '18px'
+                                }}>
+                                    Answer Details
+                                </Title>
+                            </div>
                         </div>
 
                         {/* Scrollable Content Section */}
                         <div style={{ 
                             flex: 1,
                             overflow: 'auto',
-                            padding: '0 24px 24px 24px'
+                            padding: '20px 24px 32px 24px',
+                            backgroundColor: '#f8f9fa'
                         }}>
-                            <div style={{ 
-                                padding: '20px 0 16px 0',
-                                borderBottom: '2px solid #1890ff',
-                                marginBottom: '20px'
-                            }}>
-                                <Title level={5} style={{ 
-                                    margin: 0, 
-                                    color: '#1890ff',
-                                    textAlign: 'center',
-                                    fontSize: '16px',
-                                    fontWeight: '600'
-                                }}>
-                                    Answer Details
-                                </Title>
-                            </div>
 
                             {/* Answer Details */}
                             <List
                                 itemLayout="vertical"
                                 dataSource={submissionDetails.questions}
                                 style={{ 
-                                    backgroundColor: '#fff',
-                                    borderRadius: '8px',
-                                    padding: '16px'
+                                    backgroundColor: '#fff'
                                 }}
                                 renderItem={(q, index) => {
                                 const isCorrect = typeof q.is_correct === 'boolean'
@@ -626,13 +600,13 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                     <List.Item
                                         key={q.id}
                                         style={{
-                                            backgroundColor: cardStyles.bg,
-                                            padding: '20px',
-                                            marginBottom: '16px',
-                                            borderRadius: '12px',
-                                            border: `2px solid ${cardStyles.border}`,
-                                            boxShadow: '0 4px 8px rgba(0,0,0,0.06)',
-                                            transition: 'all 0.3s ease'
+                                            backgroundColor: '#fafafa',
+                                            padding: '16px',
+                                            marginBottom: '12px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #e8e8e8',
+                                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
+                                            transition: 'all 0.2s ease'
                                         }}
                                     >
                                         <List.Item.Meta
@@ -644,20 +618,21 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                     marginBottom: '12px'
                                                 }}>
                                                     <Text strong style={{ 
-                                                        fontSize: '16px', 
-                                                        color: '#1890ff',
+                                                        fontSize: '15px', 
+                                                        color: '#262626',
                                                         fontWeight: '600'
                                                     }}>
                                                         Question {index + 1}
                                                     </Text>
-                                                    <Space size="middle">
+                                                    <Space size="small">
                                                         <Tag 
                                                             color={statusTag.color}
                                                             style={{ 
-                                                                fontSize: '12px',
+                                                                fontSize: '11px',
                                                                 fontWeight: '500',
-                                                                padding: '4px 12px',
-                                                                borderRadius: '16px'
+                                                                padding: '2px 8px',
+                                                                borderRadius: '4px',
+                                                                margin: 0
                                                             }}
                                                         >
                                                             {statusTag.text}
@@ -665,10 +640,11 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                         <Tag 
                                                             color={isFullyCorrect ? 'green' : isPartial ? 'orange' : 'blue'}
                                                             style={{ 
-                                                                fontSize: '12px',
+                                                                fontSize: '11px',
                                                                 fontWeight: '500',
-                                                                padding: '4px 12px',
-                                                                borderRadius: '16px'
+                                                                padding: '2px 8px',
+                                                                borderRadius: '4px',
+                                                                margin: 0
                                                             }}
                                                         >
                                                             {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
@@ -679,22 +655,27 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                             description={
                                                 <div>
                                                     <div style={{ 
-                                                        marginBottom: '16px',
-                                                        padding: '12px',
+                                                        marginBottom: '12px',
+                                                        padding: '10px 12px',
                                                         backgroundColor: '#f8f9fa',
-                                                        borderRadius: '8px',
-                                                        borderLeft: '4px solid #1890ff'
+                                                        borderRadius: '6px',
+                                                        borderLeft: '3px solid #1890ff'
                                                     }}>
-                                                        <Text style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                                                        <Text style={{ fontSize: '13px', lineHeight: '1.5' }}>
                                                             {q.question_text}
                                                         </Text>
                                                     </div>
                                                     
-                                                    <div style={{ marginBottom: '12px' }}>
-                                                        <Text strong style={{ color: '#595959', fontSize: '13px' }}>
+                                                    <div style={{ marginBottom: '10px' }}>
+                                                        <Text strong style={{ 
+                                                            fontSize: '12px', 
+                                                            color: '#8c8c8c',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.5px'
+                                                        }}>
                                                             Student Answer:
                                                         </Text>
-                                                        <div style={{ marginTop: '8px' }}>
+                                                        <div style={{ marginTop: '4px' }}>
                                                             {isMCQ ? (
                                                                  <Space size={[8, 8]} wrap>
                                                                      {selectedOptionObjs.map((opt) => {
@@ -721,13 +702,13 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                                  </Space>
                                                              ) : (
                                                                  <div style={{ 
-                                                                     padding: '8px 12px',
+                                                                     padding: '6px 10px',
                                                                      backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
-                                                                     borderRadius: '6px',
+                                                                     borderRadius: '4px',
                                                                      border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`
                                                                  }}>
                                                                      <Text style={{ 
-                                                                         fontSize: '13px',
+                                                                         fontSize: '12px',
                                                                          color: isCorrect ? '#52c41a' : '#ff4d4f'
                                                                      }}>
                                                                          {q.answer_text || 'No answer provided'}
@@ -740,10 +721,15 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                     {/* Show correct answers when not fully correct */}
                                                     {!isFullyCorrect && (
                                                         <div>
-                                                            <Text strong style={{ color: '#52c41a', fontSize: '13px' }}>
+                                                            <Text strong style={{ 
+                                                                fontSize: '12px', 
+                                                                color: '#8c8c8c',
+                                                                textTransform: 'uppercase',
+                                                                letterSpacing: '0.5px'
+                                                            }}>
                                                                 Correct Answer:
                                                             </Text>
-                                                            <div style={{ marginTop: '8px' }}>
+                                                            <div style={{ marginTop: '4px' }}>
                                                                 {isMCQ ? (
                                                                     <Space size={[8, 8]} wrap>
                                                                         {correctOptionObjs.map((opt) => (
@@ -762,12 +748,12 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                                     </Space>
                                                                 ) : (
                                                                     <div style={{ 
-                                                                        padding: '8px 12px',
+                                                                        padding: '6px 10px',
                                                                         backgroundColor: '#f6ffed',
-                                                                        borderRadius: '6px',
+                                                                        borderRadius: '4px',
                                                                         border: '1px solid #b7eb8f'
                                                                     }}>
-                                                                        <Text style={{ color: '#52c41a', fontSize: '13px' }}>
+                                                                        <Text style={{ color: '#52c41a', fontSize: '12px' }}>
                                                                             {q.correct_answer}
                                                                         </Text>
                                                                     </div>
