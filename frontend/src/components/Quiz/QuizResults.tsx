@@ -19,7 +19,9 @@ import {
 } from 'antd';
 import {
     EyeOutlined,
-    ClockCircleOutlined
+    ClockCircleOutlined,
+    DownOutlined,
+    RightOutlined
 } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -131,6 +133,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails | null>(null);
     const [filterStatus, setFilterStatus] = useState<string>('all');
     const [dateRange, setDateRange] = useState<any>(null);
+    const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set());
 
     useEffect(() => {
         if (quizId) {
@@ -190,6 +193,18 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const toggleQuestionExpansion = (questionId: number) => {
+        setExpandedQuestions(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(questionId)) {
+                newSet.delete(questionId);
+            } else {
+                newSet.add(questionId);
+            }
+            return newSet;
+        });
     };
 
     const fetchSubmissionDetails = async (submissionId: number) => {
@@ -596,55 +611,114 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                         ? { color: 'orange' as const, text: 'Partially Correct' }
                                         : { color: 'error' as const, text: 'Incorrect' };
 
+                                const isExpanded = expandedQuestions.has(q.id);
+
                                 return (
                                     <List.Item
                                         key={q.id}
                                         style={{
-                                            backgroundColor: '#fafafa',
-                                            padding: '16px',
-                                            marginBottom: '12px',
-                                            borderRadius: '8px',
+                                            backgroundColor: '#ffffff',
+                                            padding: '0',
+                                            marginBottom: '16px',
+                                            borderRadius: '12px',
                                             border: '1px solid #e8e8e8',
-                                            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)',
-                                            transition: 'all 0.2s ease'
+                                            boxShadow: isExpanded 
+                                                ? '0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08)' 
+                                                : '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04)',
+                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            overflow: 'hidden',
+                                            position: 'relative' as const
                                         }}
                                     >
                                         <List.Item.Meta
                                             title={
-                                                <div style={{ 
-                                                    display: 'flex', 
-                                                    justifyContent: 'space-between',
-                                                    alignItems: 'center',
-                                                    marginBottom: '12px'
-                                                }}>
-                                                    <Text strong style={{ 
-                                                        fontSize: '15px', 
-                                                        color: '#262626',
-                                                        fontWeight: '600'
-                                                    }}>
-                                                        Question {index + 1}
-                                                    </Text>
-                                                    <Space size="small">
+                                                <div 
+                                                    style={{ 
+                                                        display: 'flex', 
+                                                        justifyContent: 'space-between',
+                                                        alignItems: 'center',
+                                                        padding: '20px 24px',
+                                                        margin: '0',
+                                                        cursor: 'pointer',
+                                                        backgroundColor: isExpanded ? '#f8faff' : '#ffffff',
+                                                        borderBottom: isExpanded ? '1px solid #e8f4fd' : 'none',
+                                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                        borderRadius: isExpanded ? '12px 12px 0 0' : '12px',
+                                                        position: 'relative' as const
+                                                    }}
+                                                    onClick={() => toggleQuestionExpansion(q.id)}
+                                                    onMouseEnter={(e) => {
+                                                        if (!isExpanded) {
+                                                            e.currentTarget.style.backgroundColor = '#f8faff';
+                                                        }
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        if (!isExpanded) {
+                                                            e.currentTarget.style.backgroundColor = '#ffffff';
+                                                        }
+                                                    }}
+                                                >
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                                        <div style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            width: '24px',
+                                                            height: '24px',
+                                                            borderRadius: '6px',
+                                                            backgroundColor: isExpanded ? '#1890ff' : '#f0f0f0',
+                                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                            transform: isExpanded ? 'rotate(0deg)' : 'rotate(0deg)'
+                                                        }}>
+                                                            {isExpanded ? 
+                                                                <DownOutlined style={{ 
+                                                                    fontSize: '12px', 
+                                                                    color: '#ffffff',
+                                                                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                                                }} /> : 
+                                                                <RightOutlined style={{ 
+                                                                    fontSize: '12px', 
+                                                                    color: '#8c8c8c',
+                                                                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
+                                                                }} />
+                                                            }
+                                                        </div>
+                                                        <Text strong style={{ 
+                                                            fontSize: '16px', 
+                                                            color: '#1a1a1a',
+                                                            fontWeight: '600',
+                                                            letterSpacing: '-0.01em'
+                                                        }}>
+                                                            Question {index + 1}
+                                                        </Text>
+                                                    </div>
+                                                    <Space size="medium">
                                                         <Tag 
                                                             color={statusTag.color}
                                                             style={{ 
-                                                                fontSize: '11px',
-                                                                fontWeight: '500',
-                                                                padding: '2px 8px',
-                                                                borderRadius: '4px',
-                                                                margin: 0
+                                                                fontSize: '12px',
+                                                                fontWeight: '600',
+                                                                padding: '4px 12px',
+                                                                borderRadius: '20px',
+                                                                margin: 0,
+                                                                border: 'none',
+                                                                textTransform: 'uppercase' as const,
+                                                                letterSpacing: '0.5px'
                                                             }}
                                                         >
                                                             {statusTag.text}
                                                         </Tag>
                                                         <Tag 
-                                                            color={isFullyCorrect ? 'green' : isPartial ? 'orange' : 'blue'}
                                                             style={{ 
-                                                                fontSize: '11px',
-                                                                fontWeight: '500',
-                                                                padding: '2px 8px',
-                                                                borderRadius: '4px',
-                                                                margin: 0
+                                                                fontSize: '12px',
+                                                                fontWeight: '600',
+                                                                padding: '4px 12px',
+                                                                borderRadius: '20px',
+                                                                margin: 0,
+                                                                backgroundColor: isFullyCorrect ? '#f6ffed' : isPartial ? '#fff7e6' : '#e6f7ff',
+                                                                color: isFullyCorrect ? '#52c41a' : isPartial ? '#fa8c16' : '#1890ff',
+                                                                border: `1px solid ${isFullyCorrect ? '#b7eb8f' : isPartial ? '#ffd591' : '#91d5ff'}`,
+                                                                letterSpacing: '0.3px'
                                                             }}
                                                         >
                                                             {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
@@ -653,115 +727,224 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                 </div>
                                             }
                                             description={
-                                                <div>
-                                                    <div style={{ 
-                                                        marginBottom: '12px',
-                                                        padding: '10px 12px',
-                                                        backgroundColor: '#f8f9fa',
-                                                        borderRadius: '6px',
-                                                        borderLeft: '3px solid #1890ff'
+                                                isExpanded ? (
+                                                    <div style={{
+                                                        padding: '24px',
+                                                        backgroundColor: '#ffffff',
+                                                        borderRadius: '0 0 12px 12px',
+                                                        borderTop: '1px solid #e8f4fd'
                                                     }}>
-                                                        <Text style={{ fontSize: '13px', lineHeight: '1.5' }}>
-                                                            {q.question_text}
-                                                        </Text>
-                                                    </div>
-                                                    
-                                                    <div style={{ marginBottom: '10px' }}>
-                                                        <Text strong style={{ 
-                                                            fontSize: '12px', 
-                                                            color: '#8c8c8c',
-                                                            textTransform: 'uppercase',
-                                                            letterSpacing: '0.5px'
+                                                        <div style={{ 
+                                                            marginBottom: '24px',
+                                                            padding: '20px 24px',
+                                                            backgroundColor: '#f8faff',
+                                                            borderRadius: '12px',
+                                                            border: '1px solid #e8f4fd',
+                                                            position: 'relative' as const
                                                         }}>
-                                                            Student Answer:
-                                                        </Text>
-                                                        <div style={{ marginTop: '4px' }}>
-                                                            {isMCQ ? (
-                                                                 <Space size={[8, 8]} wrap>
-                                                                     {selectedOptionObjs.map((opt) => {
-                                                                         const isOptionCorrect = opt!.is_correct === true || opt!.is_correct === 1;
-                                                                         return (
-                                                                             <Tag 
-                                                                                 key={opt!.id} 
-                                                                                 color={isOptionCorrect ? "green" : "red"}
-                                                                                 style={{ 
-                                                                                     borderRadius: '12px',
-                                                                                     padding: '4px 12px',
-                                                                                     fontSize: '12px'
-                                                                                 }}
-                                                                             >
-                                                                                 {opt!.option_text}
-                                                                             </Tag>
-                                                                         );
-                                                                     })}
-                                                                     {selectedOptionObjs.length === 0 && (
-                                                                         <Text type="secondary" style={{ fontStyle: 'italic' }}>
-                                                                             No answer selected
-                                                                         </Text>
-                                                                     )}
-                                                                 </Space>
-                                                             ) : (
-                                                                 <div style={{ 
-                                                                     padding: '6px 10px',
-                                                                     backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
-                                                                     borderRadius: '4px',
-                                                                     border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`
-                                                                 }}>
-                                                                     <Text style={{ 
-                                                                         fontSize: '12px',
-                                                                         color: isCorrect ? '#52c41a' : '#ff4d4f'
-                                                                     }}>
-                                                                         {q.answer_text || 'No answer provided'}
-                                                                     </Text>
-                                                                 </div>
-                                                             )}
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    {/* Show correct answers when not fully correct */}
-                                                    {!isFullyCorrect && (
-                                                        <div>
-                                                            <Text strong style={{ 
-                                                                fontSize: '12px', 
-                                                                color: '#8c8c8c',
-                                                                textTransform: 'uppercase',
-                                                                letterSpacing: '0.5px'
+                                                            <div style={{
+                                                                position: 'absolute' as const,
+                                                                top: '0',
+                                                                left: '0',
+                                                                width: '4px',
+                                                                height: '100%',
+                                                                backgroundColor: '#1890ff',
+                                                                borderRadius: '2px 0 0 2px'
+                                                            }}></div>
+                                                            <Text style={{ 
+                                                                fontSize: '14px', 
+                                                                lineHeight: '1.6',
+                                                                color: '#1a1a1a',
+                                                                fontWeight: '400'
                                                             }}>
-                                                                Correct Answer:
+                                                                {q.question_text}
                                                             </Text>
-                                                            <div style={{ marginTop: '4px' }}>
+                                                        </div>
+                                                        
+                                                        <div style={{ marginBottom: '20px' }}>
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                marginBottom: '12px',
+                                                                gap: '8px'
+                                                            }}>
+                                                                <div style={{
+                                                                    width: '6px',
+                                                                    height: '6px',
+                                                                    borderRadius: '50%',
+                                                                    backgroundColor: '#8c8c8c'
+                                                                }}></div>
+                                                                <Text strong style={{ 
+                                                                    fontSize: '13px', 
+                                                                    color: '#595959',
+                                                                    textTransform: 'uppercase',
+                                                                    letterSpacing: '0.8px',
+                                                                    fontWeight: '600'
+                                                                }}>
+                                                                    Student Answer
+                                                                </Text>
+                                                            </div>
+                                                            <div style={{ marginTop: '8px' }}>
                                                                 {isMCQ ? (
-                                                                    <Space size={[8, 8]} wrap>
-                                                                        {correctOptionObjs.map((opt) => (
-                                                                            <Tag 
-                                                                                key={opt.id} 
-                                                                                color="green"
-                                                                                style={{ 
-                                                                                    borderRadius: '12px',
-                                                                                    padding: '4px 12px',
-                                                                                    fontSize: '12px'
-                                                                                }}
-                                                                            >
-                                                                                {opt.option_text}
-                                                                            </Tag>
-                                                                        ))}
-                                                                    </Space>
-                                                                ) : (
-                                                                    <div style={{ 
-                                                                        padding: '6px 10px',
-                                                                        backgroundColor: '#f6ffed',
-                                                                        borderRadius: '4px',
-                                                                        border: '1px solid #b7eb8f'
-                                                                    }}>
-                                                                        <Text style={{ color: '#52c41a', fontSize: '12px' }}>
-                                                                            {q.correct_answer}
-                                                                        </Text>
-                                                                    </div>
-                                                                )}
+                                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                         {selectedOptionObjs.map((opt) => {
+                                                                             const isOptionCorrect = opt!.is_correct === true || opt!.is_correct === 1;
+                                                                             return (
+                                                                                 <div
+                                                                                     key={opt!.id}
+                                                                                     style={{ 
+                                                                                         padding: '8px 16px',
+                                                                                         borderRadius: '20px',
+                                                                                         fontSize: '13px',
+                                                                                         fontWeight: '500',
+                                                                                         backgroundColor: isOptionCorrect ? '#f6ffed' : '#fff2f0',
+                                                                                         color: isOptionCorrect ? '#52c41a' : '#ff4d4f',
+                                                                                         border: `1px solid ${isOptionCorrect ? '#b7eb8f' : '#ffccc7'}`,
+                                                                                         display: 'flex',
+                                                                                         alignItems: 'center',
+                                                                                         gap: '6px'
+                                                                                     }}
+                                                                                 >
+                                                                                     <div style={{
+                                                                                         width: '6px',
+                                                                                         height: '6px',
+                                                                                         borderRadius: '50%',
+                                                                                         backgroundColor: isOptionCorrect ? '#52c41a' : '#ff4d4f'
+                                                                                     }}></div>
+                                                                                     {opt!.option_text}
+                                                                                 </div>
+                                                                             );
+                                                                         })}
+                                                                         {selectedOptionObjs.length === 0 && (
+                                                                             <div style={{
+                                                                                 padding: '12px 20px',
+                                                                                 backgroundColor: '#f5f5f5',
+                                                                                 borderRadius: '20px',
+                                                                                 border: '1px solid #d9d9d9',
+                                                                                 fontStyle: 'italic',
+                                                                                 color: '#8c8c8c',
+                                                                                 fontSize: '13px'
+                                                                             }}>
+                                                                                 No answer selected
+                                                                             </div>
+                                                                         )}
+                                                                     </div>
+                                                                 ) : (
+                                                                     <div style={{ 
+                                                                         padding: '16px 20px',
+                                                                         backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
+                                                                         borderRadius: '12px',
+                                                                         border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`,
+                                                                         position: 'relative' as const
+                                                                     }}>
+                                                                         <div style={{
+                                                                             position: 'absolute' as const,
+                                                                             top: '0',
+                                                                             left: '0',
+                                                                             width: '4px',
+                                                                             height: '100%',
+                                                                             backgroundColor: isCorrect ? '#52c41a' : '#ff4d4f',
+                                                                             borderRadius: '2px 0 0 2px'
+                                                                         }}></div>
+                                                                         <Text style={{ 
+                                                                             fontSize: '13px',
+                                                                             color: isCorrect ? '#52c41a' : '#ff4d4f',
+                                                                             lineHeight: '1.5',
+                                                                             fontWeight: '500'
+                                                                         }}>
+                                                                             {q.answer_text || 'No answer provided'}
+                                                                         </Text>
+                                                                     </div>
+                                                                 )}
                                                             </div>
                                                         </div>
-                                                    )}
-                                                </div>
+                                                        
+                                                        {/* Show correct answers when not fully correct */}
+                                                        {!isFullyCorrect && (
+                                                            <div style={{ marginTop: '24px' }}>
+                                                                <div style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    marginBottom: '12px',
+                                                                    gap: '8px'
+                                                                }}>
+                                                                    <div style={{
+                                                                        width: '6px',
+                                                                        height: '6px',
+                                                                        borderRadius: '50%',
+                                                                        backgroundColor: '#52c41a'
+                                                                    }}></div>
+                                                                    <Text strong style={{ 
+                                                                        fontSize: '13px', 
+                                                                        color: '#52c41a',
+                                                                        textTransform: 'uppercase',
+                                                                        letterSpacing: '0.8px',
+                                                                        fontWeight: '600'
+                                                                    }}>
+                                                                        Correct Answer
+                                                                    </Text>
+                                                                </div>
+                                                                <div style={{ marginTop: '8px' }}>
+                                                                    {isMCQ ? (
+                                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                                                            {correctOptionObjs.map((opt) => (
+                                                                                <div
+                                                                                    key={opt.id}
+                                                                                    style={{ 
+                                                                                        padding: '8px 16px',
+                                                                                        borderRadius: '20px',
+                                                                                        fontSize: '13px',
+                                                                                        fontWeight: '500',
+                                                                                        backgroundColor: '#f6ffed',
+                                                                                        color: '#52c41a',
+                                                                                        border: '1px solid #b7eb8f',
+                                                                                        display: 'flex',
+                                                                                        alignItems: 'center',
+                                                                                        gap: '6px'
+                                                                                    }}
+                                                                                >
+                                                                                    <div style={{
+                                                                                        width: '6px',
+                                                                                        height: '6px',
+                                                                                        borderRadius: '50%',
+                                                                                        backgroundColor: '#52c41a'
+                                                                                    }}></div>
+                                                                                    {opt.option_text}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div style={{ 
+                                                                            padding: '16px 20px',
+                                                                            backgroundColor: '#f6ffed',
+                                                                            borderRadius: '12px',
+                                                                            border: '1px solid #b7eb8f',
+                                                                            position: 'relative' as const
+                                                                        }}>
+                                                                            <div style={{
+                                                                                position: 'absolute' as const,
+                                                                                top: '0',
+                                                                                left: '0',
+                                                                                width: '4px',
+                                                                                height: '100%',
+                                                                                backgroundColor: '#52c41a',
+                                                                                borderRadius: '2px 0 0 2px'
+                                                                            }}></div>
+                                                                            <Text style={{ 
+                                                                                color: '#52c41a', 
+                                                                                fontSize: '13px',
+                                                                                lineHeight: '1.5',
+                                                                                fontWeight: '500'
+                                                                            }}>
+                                                                                {q.correct_answer}
+                                                                            </Text>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : null
                                             }
                                         />
                                     </List.Item>
