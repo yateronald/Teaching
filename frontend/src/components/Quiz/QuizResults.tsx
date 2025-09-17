@@ -107,6 +107,19 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const { apiCall } = useAuth();
     
     const quizId = propQuizId || paramQuizId;
+
+    // Helper function to format numbers
+    const formatNumber = (num: number | null | undefined): string => {
+        if (num === null || num === undefined) return '0';
+        
+        // If it's a whole number, return as is
+        if (Number.isInteger(num)) {
+            return num.toString();
+        }
+        
+        // For decimals, format to 2 decimal places and remove trailing zeros
+        return parseFloat(num.toFixed(2)).toString();
+    };
     
     const [quiz, setQuiz] = useState<Quiz | null>(null);
     const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
@@ -305,7 +318,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                     {record.percentage !== null ? (
                         <>
                             <Text strong style={{ fontSize: '16px' }}>
-                                {record.score}/{record.max_score}
+                                {formatNumber(record.score)}/{formatNumber(record.max_score)}
                             </Text>
                             <br />
                             <Tag color={getScoreColor(record.percentage)}>
@@ -440,49 +453,137 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
 
             {/* Result Detail Modal */}
             <Modal
-                title={`Quiz Results - ${selectedResult?.name || ''}`}
+                title={null}
                 open={detailModalVisible}
                 onCancel={() => { setDetailModalVisible(false); setSubmissionDetails(null); }}
                 footer={null}
-                width={900}
+                width={1000}
+                centered
+                style={{ top: 20 }}
+                styles={{
+                    body: { 
+                        padding: 0,
+                        height: '80vh',
+                        display: 'flex',
+                        flexDirection: 'column'
+                    }
+                }}
             >
                 {detailLoading && (
-                    <div style={{ textAlign: 'center', padding: '16px' }}>
+                    <div style={{ textAlign: 'center', padding: '40px' }}>
                         <Text>Loading details...</Text>
                     </div>
                 )}
                 {!detailLoading && submissionDetails && (
-                    <div>
-                        {/* Summary */}
-                        <Row gutter={16} style={{ marginBottom: 24 }}>
-                            <Col span={8}>
-                                <Statistic
-                                    title="Score"
-                                    value={`${submissionDetails.submission.total_score ?? 0}/${submissionDetails.submission.max_score ?? 0}`}
-                                    suffix={`(${(submissionDetails.submission.percentage ?? 0).toFixed(1)}%)`}
-                                />
-                            </Col>
-                            <Col span={8}>
-                                <Statistic
-                                    title="Grade"
-                                    value={getGrade(submissionDetails.submission.percentage ?? null)}
-                                />
-                            </Col>
-                            <Col span={8}>
-                                <Statistic
-                                    title="Time Taken"
-                                    value={formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
-                                />
-                            </Col>
-                        </Row>
+                    <>
+                        {/* Fixed Header Section */}
+                        <div style={{ 
+                            padding: '24px 24px 0 24px',
+                            borderBottom: '1px solid #f0f0f0',
+                            backgroundColor: '#fafafa',
+                            borderRadius: '8px 8px 0 0'
+                        }}>
+                            {/* Title */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <Title level={4} style={{ margin: 0, color: '#1890ff' }}>
+                                    Quiz Results - {selectedResult?.name || ''}
+                                </Title>
+                                <Text type="secondary" style={{ fontSize: '14px' }}>
+                                    {submissionDetails.submission.email}
+                                </Text>
+                            </div>
 
-                        <Divider>Answer Details</Divider>
+                            {/* Summary Statistics */}
+                            <Row gutter={16} style={{ marginBottom: 20 }}>
+                                <Col span={8}>
+                                    <div style={{ 
+                                        textAlign: 'center', 
+                                        padding: '16px',
+                                        backgroundColor: '#fff',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e8f4fd',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                    }}>
+                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
+                                            {formatNumber(submissionDetails.submission.total_score)}/{formatNumber(submissionDetails.submission.max_score)}
+                                        </div>
+                                        <div style={{ fontSize: '16px', color: '#52c41a', fontWeight: '500' }}>
+                                            ({(submissionDetails.submission.percentage ?? 0).toFixed(1)}%)
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
+                                            Score
+                                        </div>
+                                    </div>
+                                </Col>
+                                <Col span={8}>
+                                    <div style={{ 
+                                        textAlign: 'center', 
+                                        padding: '16px',
+                                        backgroundColor: '#fff',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e8f4fd',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                    }}>
+                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#722ed1' }}>
+                                            {getGrade(submissionDetails.submission.percentage ?? null)}
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '8px' }}>
+                                            Grade
+                                        </div>
+                                    </div>
+                                </Col>
+                                <Col span={8}>
+                                    <div style={{ 
+                                        textAlign: 'center', 
+                                        padding: '16px',
+                                        backgroundColor: '#fff',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e8f4fd',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                    }}>
+                                        <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fa8c16' }}>
+                                            {formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '8px' }}>
+                                            Time Taken
+                                        </div>
+                                    </div>
+                                </Col>
+                            </Row>
+                        </div>
 
-                        {/* Answer Details */}
-                        <List
-                            itemLayout="vertical"
-                            dataSource={submissionDetails.questions}
-                            renderItem={(q, index) => {
+                        {/* Scrollable Content Section */}
+                        <div style={{ 
+                            flex: 1,
+                            overflow: 'auto',
+                            padding: '0 24px 24px 24px'
+                        }}>
+                            <div style={{ 
+                                padding: '20px 0 16px 0',
+                                borderBottom: '2px solid #1890ff',
+                                marginBottom: '20px'
+                            }}>
+                                <Title level={5} style={{ 
+                                    margin: 0, 
+                                    color: '#1890ff',
+                                    textAlign: 'center',
+                                    fontSize: '16px',
+                                    fontWeight: '600'
+                                }}>
+                                    Answer Details
+                                </Title>
+                            </div>
+
+                            {/* Answer Details */}
+                            <List
+                                itemLayout="vertical"
+                                dataSource={submissionDetails.questions}
+                                style={{ 
+                                    backgroundColor: '#fff',
+                                    borderRadius: '8px',
+                                    padding: '16px'
+                                }}
+                                renderItem={(q, index) => {
                                 const isCorrect = typeof q.is_correct === 'boolean'
                                     ? q.is_correct
                                     : q.is_correct === 1;
@@ -490,61 +591,188 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                 const maxPoints = q.marks ?? 0;
 
                                 const isMCQ = q.question_type === 'mcq' || q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+                                const selectedOptionObjs = isMCQ
+                                    ? (q.selected_options || []).map((id) => (q.options || []).find(o => o.id === id)).filter(Boolean)
+                                    : [];
+                                const correctOptionObjs = isMCQ
+                                    ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1)
+                                    : [];
                                 const selectedTexts = isMCQ
-                                    ? (q.selected_options || []).map((id) => q.options?.find(o => o.id === id)?.option_text || '').filter(Boolean)
+                                    ? selectedOptionObjs.map(o => o!.option_text)
                                     : [];
                                 const correctTexts = isMCQ
-                                    ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1).map(o => o.option_text)
+                                    ? correctOptionObjs.map(o => o.option_text)
                                     : [];
+
+                                // Determine status based on points for better UX on partial credit
+                                const percent = maxPoints > 0 ? pointsEarned / maxPoints : 0;
+                                const isFullyCorrect = percent >= 1;
+                                const isZero = percent <= 0;
+                                const isPartial = !isZero && !isFullyCorrect;
+
+                                const cardStyles = isFullyCorrect
+                                    ? { bg: '#f6ffed', border: '#b7eb8f' } // green
+                                    : isPartial
+                                        ? { bg: '#fff7e6', border: '#ffd591' } // orange
+                                        : { bg: '#fff2f0', border: '#ffccc7' }; // red
+
+                                const statusTag = isFullyCorrect
+                                    ? { color: 'success' as const, text: 'Correct' }
+                                    : isPartial
+                                        ? { color: 'orange' as const, text: 'Partially Correct' }
+                                        : { color: 'error' as const, text: 'Incorrect' };
 
                                 return (
                                     <List.Item
                                         key={q.id}
                                         style={{
-                                            backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
-                                            padding: '16px',
-                                            marginBottom: '8px',
-                                            borderRadius: '6px',
-                                            border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`
+                                            backgroundColor: cardStyles.bg,
+                                            padding: '20px',
+                                            marginBottom: '16px',
+                                            borderRadius: '12px',
+                                            border: `2px solid ${cardStyles.border}`,
+                                            boxShadow: '0 4px 8px rgba(0,0,0,0.06)',
+                                            transition: 'all 0.3s ease'
                                         }}
                                     >
                                         <List.Item.Meta
                                             title={
-                                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                    <Text strong>Question {index + 1}</Text>
-                                                    <Space>
-                                                        <Tag color={isCorrect ? 'success' : 'error'}>
-                                                            {isCorrect ? 'Correct' : 'Incorrect'}
+                                                <div style={{ 
+                                                    display: 'flex', 
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    marginBottom: '12px'
+                                                }}>
+                                                    <Text strong style={{ 
+                                                        fontSize: '16px', 
+                                                        color: '#1890ff',
+                                                        fontWeight: '600'
+                                                    }}>
+                                                        Question {index + 1}
+                                                    </Text>
+                                                    <Space size="middle">
+                                                        <Tag 
+                                                            color={statusTag.color}
+                                                            style={{ 
+                                                                fontSize: '12px',
+                                                                fontWeight: '500',
+                                                                padding: '4px 12px',
+                                                                borderRadius: '16px'
+                                                            }}
+                                                        >
+                                                            {statusTag.text}
                                                         </Tag>
-                                                        <Tag color="blue">
-                                                            {pointsEarned}/{maxPoints} pts
+                                                        <Tag 
+                                                            color={isFullyCorrect ? 'green' : isPartial ? 'orange' : 'blue'}
+                                                            style={{ 
+                                                                fontSize: '12px',
+                                                                fontWeight: '500',
+                                                                padding: '4px 12px',
+                                                                borderRadius: '16px'
+                                                            }}
+                                                        >
+                                                            {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
                                                         </Tag>
                                                     </Space>
                                                 </div>
                                             }
                                             description={
                                                 <div>
-                                                    <Text>{q.question_text}</Text>
-                                                    <div style={{ marginTop: 8 }}>
-                                                        <Text strong>Student Answer: </Text>
-                                                        {isMCQ ? (
-                                                            <Text type={isCorrect ? 'success' : 'danger'}>
-                                                                {selectedTexts.length ? selectedTexts.join(', ') : 'No answer provided'}
-                                                            </Text>
-                                                        ) : (
-                                                            <Text type={isCorrect ? 'success' : 'danger'}>
-                                                                {q.answer_text || 'No answer provided'}
-                                                            </Text>
-                                                        )}
+                                                    <div style={{ 
+                                                        marginBottom: '16px',
+                                                        padding: '12px',
+                                                        backgroundColor: '#f8f9fa',
+                                                        borderRadius: '8px',
+                                                        borderLeft: '4px solid #1890ff'
+                                                    }}>
+                                                        <Text style={{ fontSize: '14px', lineHeight: '1.6' }}>
+                                                            {q.question_text}
+                                                        </Text>
                                                     </div>
-                                                    {!isCorrect && (
-                                                        <div style={{ marginTop: 4 }}>
-                                                            <Text strong>Correct Answer: </Text>
+                                                    
+                                                    <div style={{ marginBottom: '12px' }}>
+                                                        <Text strong style={{ color: '#595959', fontSize: '13px' }}>
+                                                            Student Answer:
+                                                        </Text>
+                                                        <div style={{ marginTop: '8px' }}>
                                                             {isMCQ ? (
-                                                                <Text type="success">{correctTexts.join(', ')}</Text>
-                                                            ) : (
-                                                                <Text type="success">{q.correct_answer}</Text>
-                                                            )}
+                                                                 <Space size={[8, 8]} wrap>
+                                                                     {selectedOptionObjs.map((opt) => {
+                                                                         const isOptionCorrect = opt!.is_correct === true || opt!.is_correct === 1;
+                                                                         return (
+                                                                             <Tag 
+                                                                                 key={opt!.id} 
+                                                                                 color={isOptionCorrect ? "green" : "red"}
+                                                                                 style={{ 
+                                                                                     borderRadius: '12px',
+                                                                                     padding: '4px 12px',
+                                                                                     fontSize: '12px'
+                                                                                 }}
+                                                                             >
+                                                                                 {opt!.option_text}
+                                                                             </Tag>
+                                                                         );
+                                                                     })}
+                                                                     {selectedOptionObjs.length === 0 && (
+                                                                         <Text type="secondary" style={{ fontStyle: 'italic' }}>
+                                                                             No answer selected
+                                                                         </Text>
+                                                                     )}
+                                                                 </Space>
+                                                             ) : (
+                                                                 <div style={{ 
+                                                                     padding: '8px 12px',
+                                                                     backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
+                                                                     borderRadius: '6px',
+                                                                     border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`
+                                                                 }}>
+                                                                     <Text style={{ 
+                                                                         fontSize: '13px',
+                                                                         color: isCorrect ? '#52c41a' : '#ff4d4f'
+                                                                     }}>
+                                                                         {q.answer_text || 'No answer provided'}
+                                                                     </Text>
+                                                                 </div>
+                                                             )}
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Show correct answers when not fully correct */}
+                                                    {!isFullyCorrect && (
+                                                        <div>
+                                                            <Text strong style={{ color: '#52c41a', fontSize: '13px' }}>
+                                                                Correct Answer:
+                                                            </Text>
+                                                            <div style={{ marginTop: '8px' }}>
+                                                                {isMCQ ? (
+                                                                    <Space size={[8, 8]} wrap>
+                                                                        {correctOptionObjs.map((opt) => (
+                                                                            <Tag 
+                                                                                key={opt.id} 
+                                                                                color="green"
+                                                                                style={{ 
+                                                                                    borderRadius: '12px',
+                                                                                    padding: '4px 12px',
+                                                                                    fontSize: '12px'
+                                                                                }}
+                                                                            >
+                                                                                {opt.option_text}
+                                                                            </Tag>
+                                                                        ))}
+                                                                    </Space>
+                                                                ) : (
+                                                                    <div style={{ 
+                                                                        padding: '8px 12px',
+                                                                        backgroundColor: '#f6ffed',
+                                                                        borderRadius: '6px',
+                                                                        border: '1px solid #b7eb8f'
+                                                                    }}>
+                                                                        <Text style={{ color: '#52c41a', fontSize: '13px' }}>
+                                                                            {q.correct_answer}
+                                                                        </Text>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -554,7 +782,8 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                 );
                             }}
                         />
-                    </div>
+                        </div>
+                    </>
                 )}
             </Modal>
         </div>

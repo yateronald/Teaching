@@ -44,6 +44,16 @@ const { Option } = Select;
 const { TabPane } = Tabs;
 const { RangePicker } = DatePicker;
 
+// Number formatting function
+const formatNumber = (num: number): string => {
+    // If the number is a whole number, return it as is
+    if (num % 1 === 0) {
+        return num.toString();
+    }
+    // Otherwise, format to 2 decimal places and remove trailing zeros
+    return parseFloat(num.toFixed(2)).toString();
+};
+
 interface QuizSubmission {
     id: number;
     student_id: number;
@@ -221,7 +231,7 @@ const QuizResults: React.FC = () => {
             render: (_, record) => (
                 <div style={{ textAlign: 'center' }}>
                     <Text strong style={{ color: getScoreColor(record.percentage), fontSize: 16 }}>
-                        {record.score}/{record.max_score}
+                        {formatNumber(record.score)}/{formatNumber(record.max_score)}
                     </Text>
                     <br />
                     <Text type="secondary">({record.percentage.toFixed(1)}%)</Text>
@@ -450,7 +460,7 @@ const QuizResults: React.FC = () => {
                             </Descriptions.Item>
                             <Descriptions.Item label="Score">
                                 <Text strong style={{ color: getScoreColor(selectedSubmission.percentage) }}>
-                                    {selectedSubmission.score}/{selectedSubmission.max_score} ({selectedSubmission.percentage.toFixed(1)}%)
+                                    {formatNumber(selectedSubmission.score)}/{formatNumber(selectedSubmission.max_score)} ({selectedSubmission.percentage.toFixed(1)}%)
                                 </Text>
                             </Descriptions.Item>
                             <Descriptions.Item label="Time Taken">
@@ -495,7 +505,7 @@ const QuizResults: React.FC = () => {
                                                 )}
                                             </div>
                                             <Text strong>
-                                                {answer.points_earned}/{answer.max_points} points
+                                                {formatNumber(answer.points_earned)}/{formatNumber(answer.max_points)} points
                                             </Text>
                                         </div>
                                         
