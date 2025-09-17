@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { authenticateToken, adminOnly, teacherOrAdmin } = require('../middleware/auth');
+const { authenticateToken, adminOnly, teacherOrAdmin, authorizeRoles } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -33,6 +33,177 @@ router.get('/', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch batches' });
     }
 });
+
+// >>> Batch Insights (aggregate across quizzes in a batch)
+router.get('/:id/insights', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Get batch meta and teacher id for access control
+        const batch = await req.db.get(
+            `SELECT id, name, french_level, start_date, end_date, teacher_id FROM batches WHERE id = ?`,
+            [id]
+        );
+        if (!batch) return res.status(404).json({ error: 'Batch not found' });
+        if (req.user.role === 'teacher' && batch.teacher_id !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        // Students in batch
+        const students = await req.db.all(
+            `SELECT u.id, u.first_name, u.last_name, u.email
+             FROM batch_students bs
+             JOIN users u ON u.id = bs.student_id
+             WHERE bs.batch_id = ?
+             ORDER BY u.first_name, u.last_name`,
+            [id]
+        );
+
+        // Quizzes assigned to this batch
+        const quizzes = await req.db.all(
+            `SELECT q.id AS quiz_id, q.title AS quiz_title
+             FROM quiz_batches qb
+             JOIN quizzes q ON q.id = qb.quiz_id
+             WHERE qb.batch_id = ?
+             ORDER BY q.id ASC`,
+            [id]
+        );
+
+        // If no students or quizzes, return empty aggregates safely
+        if (!students.length || !quizzes.length) {
+            return res.json({
+                batch: { id: batch.id, name: batch.name, french_level: batch.french_level, start_date: batch.start_date, end_date: batch.end_date },
+                kpis: {
+                    total_students: students.length,
+                    total_quizzes: quizzes.length,
+                    submissions_count: 0,
+                    completion_rate: 0,
+                    avg_percentage: 0,
+                    best_quiz: null,
+                    hardest_quiz: null,
+                    top_student: null
+                },
+                quizzes: quizzes.map(q => ({ quiz_id: q.quiz_id, quiz_title: q.quiz_title, submitted_count: 0, avg_percentage: null, min_percentage: null, max_percentage: null })),
+                students: students.map(s => ({ id: s.id, first_name: s.first_name, last_name: s.last_name, email: s.email, submitted_count: 0, avg_percentage: null, breakdown: [] }))
+            });
+        }
+
+        // Submissions for this batch across assigned quizzes
+        const submissions = await req.db.all(
+            `SELECT s.quiz_id, s.student_id, s.total_score, s.max_score, s.percentage, s.submitted_at
+             FROM quiz_submissions s
+             WHERE s.quiz_id IN (SELECT qb.quiz_id FROM quiz_batches qb WHERE qb.batch_id = ?)
+               AND s.student_id IN (SELECT bs.student_id FROM batch_students bs WHERE bs.batch_id = ?)
+               AND s.status IN ('submitted', 'auto_submitted', 'graded')`,
+            [id, id]
+        );
+
+        // Aggregate per-quiz
+        const quizMap = new Map(quizzes.map(q => [q.quiz_id, q.quiz_title]));
+        const aggByQuiz = new Map();
+        for (const sub of submissions) {
+            const arr = aggByQuiz.get(sub.quiz_id) || [];
+            arr.push(sub);
+            aggByQuiz.set(sub.quiz_id, arr);
+        }
+        const quizzesAgg = quizzes.map(q => {
+            const arr = aggByQuiz.get(q.quiz_id) || [];
+            const vals = arr.map(a => a.percentage).filter(v => typeof v === 'number');
+            const avg = vals.length ? vals.reduce((a,c)=>a + c, 0) / vals.length : null;
+            const min = vals.length ? Math.min(...vals) : null;
+            const max = vals.length ? Math.max(...vals) : null;
+            return {
+                quiz_id: q.quiz_id,
+                quiz_title: q.quiz_title,
+                submitted_count: arr.length,
+                avg_percentage: avg != null ? Number(avg.toFixed(2)) : null,
+                min_percentage: min,
+                max_percentage: max
+            };
+        });
+
+        // Per-student breakdown
+        const subsByStudent = new Map();
+        for (const sub of submissions) {
+            const arr = subsByStudent.get(sub.student_id) || [];
+            arr.push(sub);
+            subsByStudent.set(sub.student_id, arr);
+        }
+        const studentsWithMetrics = students.map(s => {
+            const arr = subsByStudent.get(s.id) || [];
+            const vals = arr.map(a => a.percentage).filter(v => typeof v === 'number');
+            const avg = vals.length ? Number((vals.reduce((a,c)=>a + c, 0) / vals.length).toFixed(2)) : null;
+            const breakdown = arr.map(a => ({
+                quiz_id: a.quiz_id,
+                quiz_title: quizMap.get(a.quiz_id) || `Quiz ${a.quiz_id}`,
+                total_score: a.total_score,
+                max_score: a.max_score,
+                percentage: a.percentage,
+                submitted_at: a.submitted_at
+            }));
+            return {
+                id: s.id,
+                first_name: s.first_name,
+                last_name: s.last_name,
+                email: s.email,
+                submitted_count: arr.length,
+                avg_percentage: avg,
+                breakdown
+            };
+        });
+
+        // KPIs
+        const totalStudents = students.length;
+        const totalQuizzes = quizzes.length;
+        const submissionsCount = submissions.length;
+        const completionRate = totalStudents * totalQuizzes > 0 ? Math.round((submissionsCount / (totalStudents * totalQuizzes)) * 100) : 0;
+        const allPercentages = submissions.map(s => s.percentage).filter(v => typeof v === 'number');
+        const avgPercentage = allPercentages.length ? Math.round(allPercentages.reduce((a,c)=>a + c, 0) / allPercentages.length) : 0;
+
+        // best and hardest quiz
+        const quizzesWithAvg = quizzesAgg.filter(q => q.avg_percentage != null);
+        let best_quiz = null;
+        let hardest_quiz = null;
+        if (quizzesWithAvg.length) {
+            best_quiz = quizzesWithAvg.reduce((acc, cur) => (acc.avg_percentage > cur.avg_percentage ? acc : cur));
+            hardest_quiz = quizzesWithAvg.reduce((acc, cur) => (acc.avg_percentage < cur.avg_percentage ? acc : cur));
+        }
+
+        // top student
+        const studentsWithAvg = studentsWithMetrics.filter(s => s.avg_percentage != null);
+        let top_student = null;
+        if (studentsWithAvg.length) {
+            const top = studentsWithAvg.reduce((acc, cur) => (acc.avg_percentage > cur.avg_percentage ? acc : cur));
+            top_student = {
+                student_id: top.id,
+                first_name: top.first_name,
+                last_name: top.last_name,
+                email: top.email,
+                avg_percentage: top.avg_percentage
+            };
+        }
+
+        res.json({
+            batch: { id: batch.id, name: batch.name, french_level: batch.french_level, start_date: batch.start_date, end_date: batch.end_date },
+            kpis: {
+                total_students: totalStudents,
+                total_quizzes: totalQuizzes,
+                submissions_count: submissionsCount,
+                completion_rate: completionRate,
+                avg_percentage: avgPercentage,
+                best_quiz,
+                hardest_quiz,
+                top_student
+            },
+            quizzes: quizzesAgg,
+            students: studentsWithMetrics
+        });
+    } catch (error) {
+        console.error('Batch insights error:', error);
+        res.status(500).json({ error: 'Failed to compute batch insights' });
+    }
+});
+// <<< Batch Insights
 
 // Get batch by ID with students
 router.get('/:id', authenticateToken, async (req, res) => {
@@ -415,6 +586,29 @@ router.get('/my-batches', authenticateToken, async (req, res) => {
     } catch (error) {
         console.error('Get my-batches error:', error);
         res.status(500).json({ error: 'Failed to fetch batches' });
+    }
+});
+
+// Get the authenticated student's batches
+router.get('/student/my-batches', authenticateToken, authorizeRoles('student'), async (req, res) => {
+    try {
+        const sql = `
+            SELECT 
+                b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
+                u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                COUNT(bs2.student_id) as student_count
+            FROM batches b
+            JOIN batch_students bs ON b.id = bs.batch_id AND bs.student_id = ?
+            LEFT JOIN users u ON b.teacher_id = u.id
+            LEFT JOIN batch_students bs2 ON b.id = bs2.batch_id
+            GROUP BY b.id
+            ORDER BY b.created_at DESC
+        `;
+        const batches = await req.db.all(sql, [req.user.id]);
+        res.json(batches);
+    } catch (error) {
+        console.error('Get student my-batches error:', error);
+        res.status(500).json({ error: 'Failed to fetch student batches' });
     }
 });
 

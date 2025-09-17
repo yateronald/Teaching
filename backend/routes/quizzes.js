@@ -126,7 +126,8 @@ router.get('/', authenticateToken, async (req, res) => {
                 COUNT(DISTINCT bs.student_id) as total_students,
                 (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as total_questions,
                 GROUP_CONCAT(DISTINCT b.name) as batch_names,
-                GROUP_CONCAT(DISTINCT b.french_level) as french_levels
+                GROUP_CONCAT(DISTINCT b.french_level) as french_levels,
+                ROUND(AVG(CASE WHEN qs.status IN ('submitted','auto_submitted','graded') AND qs.percentage IS NOT NULL THEN qs.percentage END), 1) as avg_score
             FROM quizzes q
             LEFT JOIN users u ON q.teacher_id = u.id
             LEFT JOIN quiz_batches qb ON q.id = qb.quiz_id
@@ -1612,7 +1613,7 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
             return res.status(403).json({ error: 'Only students can access this endpoint' });
         }
         
-        // Get student's batches with quizzes
+        // Get student's batches with optional quizzes (include batches even if no quizzes)
         const batchesWithQuizzes = await req.db.all(`
             SELECT DISTINCT
                 b.id as batch_id, b.name as batch_name, b.description,
@@ -1622,11 +1623,11 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
                 qs.id as submission_id, qs.status as submission_status,
                 qs.score, qs.submitted_at, qs.time_taken_minutes
             FROM batches b
-            JOIN batch_enrollments be ON b.id = be.batch_id
-            LEFT JOIN quiz_batch_assignments qba ON b.id = qba.batch_id
-            LEFT JOIN quizzes q ON qba.quiz_id = q.id
+            JOIN batch_students bs ON b.id = bs.batch_id
+            LEFT JOIN quiz_batches qb ON b.id = qb.batch_id
+            LEFT JOIN quizzes q ON qb.quiz_id = q.id AND q.status = 'published'
             LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id AND qs.student_id = ?
-            WHERE be.student_id = ? AND q.status = 'published'
+            WHERE bs.student_id = ?
             ORDER BY b.name, q.created_at DESC
         `, [req.user.id, req.user.id]);
         

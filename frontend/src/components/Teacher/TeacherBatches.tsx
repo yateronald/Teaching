@@ -18,18 +18,21 @@ import {
     Descriptions,
     Badge,
     Divider,
-    Tooltip
+    Tooltip,
+    Drawer
 } from 'antd';
 import {
     TeamOutlined,
     UserOutlined,
     EyeOutlined,
     CalendarOutlined,
-    BookOutlined
+    BookOutlined,
+    BarChartOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import BatchInsights from './BatchInsights';
 // Removed duplicate antd import (consolidated above)
 
 const { Title, Text } = Typography;
@@ -64,6 +67,8 @@ const TeacherBatches: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [studentsLoading, setStudentsLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
+    const [insightsVisible, setInsightsVisible] = useState(false);
+    const [insightsBatchId, setInsightsBatchId] = useState<number | null>(null);
     const { apiCall } = useAuth();
 
     useEffect(() => {
@@ -137,6 +142,11 @@ const TeacherBatches: React.FC = () => {
         fetchBatchStudents(batch.id);
     };
 
+    const handleOpenInsights = (batch: Batch) => {
+        setInsightsBatchId(batch.id);
+        setInsightsVisible(true);
+    };
+
     const columns: ColumnsType<Batch> = [
         {
             title: 'Batch Name',
@@ -174,13 +184,21 @@ const TeacherBatches: React.FC = () => {
             title: 'Actions',
             key: 'actions',
             render: (_, record) => (
-                <Button
-                    type="primary"
-                    icon={<EyeOutlined />}
-                    onClick={() => handleViewStudents(record)}
-                >
-                    View Details
-                </Button>
+                <Space>
+                    <Button
+                        icon={<EyeOutlined />}
+                        onClick={() => handleViewStudents(record)}
+                    >
+                        View Students
+                    </Button>
+                    <Button
+                        type="primary"
+                        icon={<BarChartOutlined />}
+                        onClick={() => handleOpenInsights(record)}
+                    >
+                        Insights
+                    </Button>
+                </Space>
             ),
         },
     ];
@@ -391,6 +409,19 @@ const TeacherBatches: React.FC = () => {
                     }}
                 />
              </Modal>
+
+             <Drawer
+                title="Batch Insights"
+                placement="right"
+                width={980}
+                open={insightsVisible}
+                onClose={() => setInsightsVisible(false)}
+                destroyOnClose
+                >
+                    {insightsVisible && insightsBatchId !== null && (
+                        <BatchInsights batchId={String(insightsBatchId)} />
+                    )}
+                </Drawer>
         </div>
     );
 };

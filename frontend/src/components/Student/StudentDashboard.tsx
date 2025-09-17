@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Row, 
     Col, 
@@ -9,30 +9,48 @@ import {
     Typography,
     Tag,
     Progress,
-    Timeline
+    Timeline,
+    Modal,
+    List,
+    Tooltip,
+    Empty,
+    Input,
+    Segmented,
+    Select,
+    Space,
+    Divider
 } from 'antd';
 import {
     BookOutlined,
     TrophyOutlined,
     CheckCircleOutlined,
-    ClockCircleOutlined
+    ClockCircleOutlined,
+    UserOutlined, 
+    CalendarOutlined, 
+    FieldTimeOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
 import { BarChart, LineChart, PieChart } from '@mui/x-charts';
 
 const { Title, Text } = Typography;
+
+// Initialize dayjs UTC plugin
+dayjs.extend(utc);
 
 interface Batch {
     id: number;
     name: string;
     description?: string;
     teacher_name?: string;
+    french_level?: string;
     start_date?: string;
     end_date?: string;
     current_students?: number;
     max_students?: number;
+    quizzes_count?: number;
 }
 
 interface Quiz {
@@ -85,6 +103,11 @@ const StudentDashboard: React.FC = () => {
     const { apiCall, user } = useAuth();
     const navigate = useNavigate();
 
+    const [batchModalOpen, setBatchModalOpen] = useState(false);
+    const [batchFilter, setBatchFilter] = useState<'all' | 'active' | 'upcoming' | 'completed'>('all');
+    const [batchSort, setBatchSort] = useState<'name' | 'start' | 'end' | 'level' | 'remaining'>('start');
+    const [batchSearch, setBatchSearch] = useState('');
+
     const [stats, setStats] = useState({
         totalBatches: 0,
         completedQuizzes: 0,
@@ -106,34 +129,21 @@ const StudentDashboard: React.FC = () => {
                 apiCall('/quizzes/student/results'),
                 apiCall('/resources'),
                 apiCall('/schedules/upcoming/me?limit=20'),
-                apiCall('/quizzes/student/dashboard')
+                apiCall('/batches/student/my-batches')
             ]);
-
+    
+            // Removed quizzesDataLocal fallback; we now rely on dedicated student batches endpoint
+    
             // Quizzes
             if (quizzesRes && quizzesRes.ok) {
                 const data = await quizzesRes.json();
                 const quizzesData: Quiz[] = Array.isArray(data) ? data : (data.quizzes || []);
                 setQuizzes(quizzesData);
-
+    
                 // Stats: completed & pending based on submission_status and availability
                 const completedQuizzes = quizzesData.filter(q => q.submission_status === 'completed').length;
-
-                const now = dayjs();
-                const isActive = (q: Quiz) => {
-                    if (q.status !== 'published') return false;
-                    const start = q.start_date ? dayjs(q.start_date) : null;
-                    const end = q.end_date ? dayjs(q.end_date) : null;
-                    if (start && now.isBefore(start)) return false;
-                    if (end && now.isAfter(end)) return false;
-                    return true;
-                };
-                const pendingQuizzes = quizzesData.filter(q => (q.submission_status === 'not_started' || q.submission_status === 'in_progress' || !q.submission_status) && isActive(q)).length;
-
-                setStats(prev => ({
-                    ...prev,
-                    completedQuizzes,
-                    pendingQuizzes
-                }));
+                const pendingQuizzes = quizzesData.filter(q => q.submission_status !== 'completed').length;
+                setStats(prev => ({ ...prev, completedQuizzes, pendingQuizzes }));
             }
 
             // Results for average score
@@ -169,18 +179,29 @@ const StudentDashboard: React.FC = () => {
                 setStats(prev => ({ ...prev, upcomingClasses }));
             }
 
-            // Batches via quizzes student dashboard
+            // Batches via quizzes student dashboard (with robust fallback)
+            let mappedBatches: Batch[] = [];
             if (batchesRes && batchesRes.ok) {
                 const data = await batchesRes.json();
-                const batchesData = Array.isArray(data?.batches) ? data.batches : [];
-                const mappedBatches: Batch[] = batchesData.map((b: any) => ({
-                    id: b.id,
-                    name: b.name,
-                    description: b.description
+                const batchesData = Array.isArray(data)
+                    ? data
+                    : (Array.isArray((data as any)?.batches) ? (data as any).batches : ((data as any)?.data || []));
+                mappedBatches = (batchesData || []).map((b: any) => ({
+                    id: b.id ?? b.batch_id ?? b.batchId ?? 0,
+                    name: b.name ?? b.batch_name ?? b.batchName ?? 'Unnamed Batch',
+                    french_level: b.french_level ?? b.level ?? b.frenchLevel,
+                    start_date: b.start_date ?? b.startDate,
+                    end_date: b.end_date ?? b.endDate,
+                    teacher_name: (b.teacher_first_name || b.teacher_last_name)
+                        ? `${b.teacher_first_name || ''} ${b.teacher_last_name || ''}`.trim()
+                        : (b.teacher_name ?? undefined),
+                    current_students: b.student_count ?? b.current_students ?? b.students_count ?? undefined,
                 }));
-                setBatches(mappedBatches);
-                setStats(prev => ({ ...prev, totalBatches: mappedBatches.length }));
             }
+
+
+            setBatches(mappedBatches);
+            setStats(prev => ({ ...prev, totalBatches: mappedBatches.length }));
         } catch (error) {
             message.error('Failed to fetch data');
         } finally {
@@ -206,6 +227,51 @@ const StudentDashboard: React.FC = () => {
             .slice(0, 5);
     };
 
+    const getBatchStatus = (batch: Batch) => {
+        const now = dayjs();
+        const start = batch.start_date ? dayjs(batch.start_date) : null;
+        const end = batch.end_date ? dayjs(batch.end_date) : null;
+        if (start && now.isBefore(start)) return 'upcoming';
+        if (end && now.isAfter(end)) return 'completed';
+        return 'active';
+    };
+
+    const displayedBatches = useMemo(() => {
+        const q = batchSearch.trim().toLowerCase();
+        const filtered = batches.filter(b => {
+            if (batchFilter !== 'all' && getBatchStatus(b) !== batchFilter) return false;
+            if (q) {
+                const bucket = [b.name, b.french_level, b.teacher_name].filter(Boolean).join(' ').toLowerCase();
+                if (!bucket.includes(q)) return false;
+            }
+            return true;
+        });
+
+        const safeDay = (d?: string) => (d ? dayjs(d).valueOf() : 0);
+        const remainingDays = (b: Batch) => {
+            if (!b.end_date) return Number.POSITIVE_INFINITY;
+            const diff = dayjs(b.end_date).endOf('day').diff(dayjs().startOf('day'), 'day');
+            return diff;
+        };
+
+        return filtered.sort((a, b) => {
+            switch (batchSort) {
+                case 'name':
+                    return (a.name || '').localeCompare(b.name || '');
+                case 'start':
+                    return safeDay(a.start_date) - safeDay(b.start_date);
+                case 'end':
+                    return safeDay(a.end_date) - safeDay(b.end_date);
+                case 'level':
+                    return (a.french_level || '').localeCompare(b.french_level || '');
+                case 'remaining':
+                    return remainingDays(a) - remainingDays(b);
+                default:
+                    return 0;
+            }
+        });
+    }, [batches, batchFilter, batchSort, batchSearch]);
+
     return (
         <div>
             <Title level={2}>Student Dashboard</Title>
@@ -213,14 +279,16 @@ const StudentDashboard: React.FC = () => {
             {/* Statistics Cards */}
             <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="My Batches"
-                            value={stats.totalBatches}
-                            prefix={<BookOutlined />}
-                            valueStyle={{ color: '#1890ff' }}
-                        />
-                    </Card>
+                    <Tooltip title="View my batches">
+                        <Card hoverable onClick={() => setBatchModalOpen(true)} style={{ cursor: 'pointer' }}>
+                            <Statistic
+                                title="My Batches"
+                                value={stats.totalBatches}
+                                prefix={<BookOutlined />}
+                                valueStyle={{ color: '#1890ff' }}
+                            />
+                        </Card>
+                    </Tooltip>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
                     <Card>
@@ -254,6 +322,212 @@ const StudentDashboard: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
+
+            {/* Batches Modal */}
+
+            
+            <Modal
+                open={batchModalOpen}
+                onCancel={() => setBatchModalOpen(false)}
+                footer={null}
+                width={900}
+                title={
+                    <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        paddingRight: 8
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <BookOutlined style={{ color: '#1677ff', fontSize: 18 }} />
+                            <span style={{ fontSize: 16, fontWeight: 500 }}>My Batches</span>
+                        </div>
+                        <Tag 
+                            color="blue" 
+                            style={{ 
+                                fontSize: 12,
+                                fontWeight: 500,
+                                borderRadius: 12,
+                                padding: '2px 8px',
+                                marginRight: 24
+                            }}
+                        >
+                            {batches.length}
+                        </Tag>
+                    </div>
+                }
+            >
+                {/* Toolbar: search, filter, sort */}
+                <div style={{ marginBottom: 12 }}>
+                    <Row gutter={[8,8]}>
+                        <Col xs={24} md={10}>
+                            <Input.Search
+                                allowClear
+                                placeholder="Search by name, level, or teacher"
+                                value={batchSearch}
+                                onChange={(e) => setBatchSearch(e.target.value)}
+                            />
+                        </Col>
+                        <Col xs={24} sm={12} md={8}>
+                            <Segmented
+                                options={[{ label: 'All', value: 'all' }, { label: 'Active', value: 'active' }, { label: 'Upcoming', value: 'upcoming' }, { label: 'Completed', value: 'completed' }]}
+                                value={batchFilter}
+                                onChange={(val) => setBatchFilter(val as 'all' | 'active' | 'upcoming' | 'completed')}
+                            />
+                        </Col>
+                        <Col xs={24} sm={12} md={6}>
+                            <Select
+                                style={{ width: '100%' }}
+                                value={batchSort}
+                                onChange={(v) => setBatchSort(v)}
+                                options={[
+                                    { value: 'start', label: 'Sort by Start Date' },
+                                    { value: 'end', label: 'Sort by End Date' },
+                                    { value: 'name', label: 'Sort by Name' },
+                                    { value: 'level', label: 'Sort by Level' },
+                                    { value: 'remaining', label: 'Sort by Remaining Days' },
+                                ]}
+                            />
+                        </Col>
+                    </Row>
+                </div>
+            
+                {displayedBatches.length === 0 ? (
+                    <Empty description="No matching batches" />
+                ) : (
+                    <List
+                        grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3 }}
+                        dataSource={displayedBatches}
+                        renderItem={(batch) => (
+                            <List.Item key={batch.name}>
+                                <Card hoverable bodyStyle={{ padding: 16 }} style={{ borderRadius: 12, borderLeft: `4px solid ${getBatchStatus(batch) === 'active' ? '#52c41a' : getBatchStatus(batch) === 'upcoming' ? '#1677ff' : '#d9d9d9'}` }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                                        <BookOutlined style={{ color: '#1677ff' }} />
+                                        <Text strong style={{ fontSize: 16 }}>{batch.name}</Text>
+                                        {batch.french_level && (
+                                            <Tag color="cyan" style={{ marginLeft: 8 }}>{batch.french_level}</Tag>
+                                        )}
+                                        <Tag color={
+                                            getBatchStatus(batch) === 'active' ? 'green' :
+                                            getBatchStatus(batch) === 'completed' ? 'default' : 'blue'
+                                        } style={{ marginLeft: 'auto' }}>
+                                            {getBatchStatus(batch).toUpperCase()}
+                                        </Tag>
+                                    </div>
+                                
+                                    {batch.teacher_name && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                                            <UserOutlined style={{ color: '#8c8c8c' }} />
+                                            <Text type="secondary">Teacher:</Text>
+                                            <Text>{batch.teacher_name}</Text>
+                                        </div>
+                                    )}
+                                
+                                    {(batch.start_date || batch.end_date) && (() => {
+                                        const start = batch.start_date ? dayjs.utc(batch.start_date).startOf('day') : null;
+                                        const end = batch.end_date ? dayjs.utc(batch.end_date).startOf('day') : null;
+                                        const now = dayjs.utc().startOf('day');
+                                        const durationDays = start && end ? end.diff(start, 'day') + 1 : null;
+                                        const remaining = end ? end.diff(now, 'day') : null;
+                                        const totalMs = start && end ? end.valueOf() - start.valueOf() : null;
+                                        const elapsedMs = start ? Math.max(0, Math.min((dayjs.utc().valueOf() - start.valueOf()), totalMs ?? 0)) : null;
+                                        const percent = totalMs && totalMs > 0 && elapsedMs !== null ? Math.round((elapsedMs / totalMs) * 100) : 0;
+                                        return (
+                                            <div style={{ marginBottom: 8 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                                    {start && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <CalendarOutlined style={{ color: '#8c8c8c' }} />
+                                                            <Text type="secondary">Start (UTC):</Text>
+                                                            <Text>{start.format('DD MMM YYYY')}</Text>
+                                                        </div>
+                                                    )}
+                                                    {end && (
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            <FieldTimeOutlined style={{ color: '#8c8c8c' }} />
+                                                            <Text type="secondary">End (UTC):</Text>
+                                                            <Text>{end.format('DD MMM YYYY')}</Text>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {durationDays !== null && (
+                                                    <div style={{ marginTop: 8 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                <FieldTimeOutlined style={{ color: '#8c8c8c' }} />
+                                                                <Text type="secondary">Duration:</Text>
+                                                                <Tag color="purple">{durationDays} days</Tag>
+                                                            </div>
+                                                            {remaining !== null && (
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <ClockCircleOutlined style={{ color: remaining > 0 ? '#52c41a' : '#fa541c' }} />
+                                                                    <Text type="secondary">Remaining:</Text>
+                                                                    <Tag color={remaining > 5 ? 'green' : remaining > 0 ? 'orange' : 'default'}>{Math.max(0, remaining)} days</Tag>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        {start && end && (
+                                                            <div style={{ marginTop: 6 }}>
+                                                                <Progress percent={percent} size="small" status={getBatchStatus(batch) === 'completed' ? 'normal' : 'active'} showInfo />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
+                                
+                                    {/* Capacity & Next class */}
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+                                        <div style={{ minWidth: 0 }}>
+                                            {(typeof batch.current_students === 'number' && typeof batch.max_students === 'number') ? (
+                                                <div>
+                                                    <Text type="secondary">Students:</Text>{' '}
+                                                    <Text strong>{batch.current_students}/{batch.max_students}</Text>
+                                                    <Progress percent={Math.round((batch.current_students / Math.max(1, batch.max_students)) * 100)} size="small" showInfo={false} style={{ marginTop: 4, width: 180 }} />
+                                                </div>
+                                            ) : (
+                                                (typeof batch.current_students === 'number') && (
+                                                    <Tag color="blue">{batch.current_students} {batch.current_students === 1 ? 'student' : 'students'}</Tag>
+                                                )
+                                            )}
+                                        </div>
+                                
+                                        {/* Next class (if any) */}
+                                        {(() => {
+                                            const next = schedules
+                                                .filter(s => s.batch_name === batch.name && dayjs(s.start_time).isAfter(dayjs()))
+                                                .sort((a, b) => dayjs(a.start_time).diff(dayjs(b.start_time)))[0];
+                                            return next ? (
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <CalendarOutlined style={{ color: '#52c41a' }} />
+                                                    <Text type="secondary">Next class:</Text>
+                                                    <Text>{dayjs(next.start_time).format('DD MMM, HH:mm')}</Text>
+                                                </div>
+                                            ) : null;
+                                        })()}
+                                    </div>
+                                
+                                    <Divider style={{ margin: '12px 0' }} />
+                                
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div>
+                                            {(batch.quizzes_count ?? 0) > 0 && (
+                                                <Tag color="magenta">{batch.quizzes_count} quizzes</Tag>
+                                            )}
+                                        </div>
+                                        <Space size={8} wrap>
+                                            <Button type="link" onClick={() => navigate('/my-quizzes')}>Quizzes</Button>
+                                            <Button type="link" onClick={() => navigate('/my-resources')}>Resources</Button>
+                                            <Button type="link" onClick={() => navigate('/my-schedule')}>Schedule</Button>
+                                        </Space>
+                                    </div>
+                                </Card>
+                            </List.Item>
+                        )}
+                    />
+                )}
+            </Modal>
 
             <Row gutter={[16, 16]}>
                 <Col xs={24} lg={16}>

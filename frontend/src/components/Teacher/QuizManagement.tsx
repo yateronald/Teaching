@@ -34,6 +34,10 @@ import QuizResults from '../Quiz/QuizResults';
 import QuizInsights from '../Quiz/QuizInsights';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import duration from 'dayjs/plugin/duration';
+
+// Extend dayjs with duration plugin
+dayjs.extend(duration);
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -209,6 +213,41 @@ const QuizManagement: React.FC = () => {
         return 'ACTIVE';
     };
 
+    const formatRemainingTime = (endDate?: string) => {
+        if (!endDate) return '—';
+        
+        const now = dayjs();
+        const end = dayjs(endDate);
+        const diff = end.diff(now);
+        
+        if (diff <= 0) return 'Time is up';
+        
+        const duration = dayjs.duration(diff);
+        const days = duration.days();
+        const hours = duration.hours();
+        const minutes = duration.minutes();
+        const months = Math.floor(days / 30);
+        
+        // More than 30 days: show months and days
+        if (days > 30) {
+            const remainingDays = days % 30;
+            return `${months}mo ${remainingDays}d`;
+        }
+        
+        // Less than a month but more than a day: show days and hours
+        if (days >= 1) {
+            return `${days}d ${hours}h`;
+        }
+        
+        // Less than a day but more than an hour: show hours and minutes
+        if (hours >= 1) {
+            return `${hours}h ${minutes}m`;
+        }
+        
+        // Less than an hour: show only minutes
+        return `${minutes}m`;
+    };
+
     const columns: ColumnsType<Quiz> = [
         {
             title: 'Title',
@@ -272,6 +311,25 @@ const QuizManagement: React.FC = () => {
                     format={(percent) => `${percent}%`}
                 />
             ),
+        },
+        {
+            title: 'Remaining Time',
+            key: 'remaining_time',
+            width: 120,
+            align: 'center',
+            render: (_, record) => {
+                const remainingTime = formatRemainingTime(record.end_date);
+                const isTimeUp = remainingTime === 'Time is up';
+                return (
+                    <span style={{ 
+                        color: isTimeUp ? '#ff4d4f' : 
+                               remainingTime.includes('m') && !remainingTime.includes('h') && !remainingTime.includes('d') ? '#faad14' : 
+                               '#52c41a' 
+                    }}>
+                        {remainingTime}
+                    </span>
+                );
+            },
         },
         {
             title: 'Status',

@@ -23,9 +23,17 @@ class Database {
                     reject(err);
                 } else {
                     console.log('Connected to SQLite database.');
-                    this.createTables()
-                        .then(() => resolve())
-                        .catch(reject);
+                    // Ensure foreign keys (and cascading deletes) are enforced for this connection
+                    this.db.run('PRAGMA foreign_keys = ON', (pragmaErr) => {
+                        if (pragmaErr) {
+                            console.warn('Warning: could not enable SQLite foreign_keys:', pragmaErr.message);
+                        } else {
+                            console.log('SQLite foreign_keys PRAGMA enabled.');
+                        }
+                        this.createTables()
+                            .then(() => resolve())
+                            .catch(reject);
+                    });
                 }
             });
         });
