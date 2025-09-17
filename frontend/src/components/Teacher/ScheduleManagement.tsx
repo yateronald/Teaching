@@ -46,12 +46,30 @@ interface Schedule {
     description: string;
     batch_id: number;
     batch_name?: string;
-    start_time: string;
-    end_time: string;
-    date: string;
+    start_time: string; // HH:mm for UI
+    end_time: string;   // HH:mm for UI
+    date: string;       // YYYY-MM-DD for UI
     location: string;
-    type: 'class' | 'exam' | 'meeting' | 'other';
+    location_mode?: 'online' | 'physical';
+    link?: string | null;
+    type: 'class' | 'exam' | 'meeting' | 'other' | 'assignment' | 'quiz';
     status: 'scheduled' | 'completed' | 'cancelled';
+    created_at: string;
+}
+
+interface BackendSchedule {
+    id: number;
+    title: string;
+    description: string | null;
+    batch_id: number;
+    batch_name?: string;
+    start_time: string; // ISO
+    end_time: string;   // ISO
+    location?: string | null;
+    location_mode?: 'online' | 'physical';
+    link?: string | null;
+    type: string;
+    status: string;
     created_at: string;
 }
 
@@ -77,15 +95,40 @@ const ScheduleManagement: React.FC = () => {
         fetchBatches();
     }, []);
 
+    const normalizeFromBackend = (items: BackendSchedule[]): Schedule[] => {
+        return (items || []).map((it) => {
+            const start = dayjs(it.start_time);
+            const end = dayjs(it.end_time);
+            return {
+                id: it.id,
+                title: it.title,
+                description: it.description || '',
+                batch_id: it.batch_id,
+                batch_name: it.batch_name,
+                date: start.isValid() ? start.format('YYYY-MM-DD') : '',
+                start_time: start.isValid() ? start.format('HH:mm') : '',
+                end_time: end.isValid() ? end.format('HH:mm') : '',
+                location: (it.location ?? '').toString(),
+                location_mode: (it.location_mode as any) || 'physical',
+                link: it.link ?? null,
+                type: (it.type as any) || 'class',
+                status: (it.status as any) || 'scheduled',
+                created_at: it.created_at,
+            };
+        });
+    };
+
     const fetchSchedules = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/schedules/my-schedules');
+            const response = await apiCall('/schedules');
             if (response.ok) {
                 const data = await response.json();
-                setSchedules(data.schedules || []);
+                const raw: BackendSchedule[] = Array.isArray(data) ? data : (data.schedules || []);
+                setSchedules(normalizeFromBackend(raw));
             } else {
-                message.error('Failed to fetch schedules');
+                const err = await response.json().catch(() => ({}));
+                message.error(err.error || err.message || 'Failed to fetch schedules');
             }
         } catch (error) {
             message.error('Error fetching schedules');
@@ -106,14 +149,26 @@ const ScheduleManagement: React.FC = () => {
         }
     };
 
+    const combineToISO = (date: Dayjs, time: Dayjs) => {
+        // Combine local date and time then convert to ISO 8601 string
+        const combined = dayjs(`${date.format('YYYY-MM-DD')} ${time.format('HH:mm')}`, 'YYYY-MM-DD HH:mm');
+        return combined.toISOString();
+    };
+
     const handleSubmit = async (values: any) => {
         try {
-            const scheduleData = {
-                ...values,
-                date: values.date.format('YYYY-MM-DD'),
-                start_time: values.start_time.format('HH:mm'),
-                end_time: values.end_time.format('HH:mm'),
-            };
+            const payload = {
+                title: values.title,
+                description: values.description || '',
+                batch_id: values.batch_id,
+                start_time: combineToISO(values.date, values.start_time),
+                end_time: combineToISO(values.date, values.end_time),
+                type: values.type,
+                status: values.status,
+                location_mode: values.location_mode,
+                location: values.location_mode === 'physical' ? values.location : undefined,
+                link: values.location_mode === 'online' ? values.link : undefined,
+            } as any;
 
             const endpoint = editingSchedule ? `/schedules/${editingSchedule.id}` : '/schedules';
             const method = editingSchedule ? 'PUT' : 'POST';
@@ -123,7 +178,7 @@ const ScheduleManagement: React.FC = () => {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(scheduleData),
+                body: JSON.stringify(payload),
             });
 
             if (response.ok) {
@@ -133,8 +188,8 @@ const ScheduleManagement: React.FC = () => {
                 setEditingSchedule(null);
                 fetchSchedules();
             } else {
-                const errorData = await response.json();
-                message.error(errorData.message || 'Operation failed');
+                const errorData = await response.json().catch(() => ({}));
+                message.error(errorData.error || errorData.message || 'Operation failed');
             }
         } catch (error) {
             message.error('Error saving schedule');
@@ -167,7 +222,9 @@ const ScheduleManagement: React.FC = () => {
             date: dayjs(schedule.date),
             start_time: dayjs(schedule.start_time, 'HH:mm'),
             end_time: dayjs(schedule.end_time, 'HH:mm'),
+            location_mode: schedule.location_mode || 'physical',
             location: schedule.location,
+            link: schedule.link || undefined,
             type: schedule.type,
             status: schedule.status,
         });
@@ -181,6 +238,7 @@ const ScheduleManagement: React.FC = () => {
             date: selectedDate,
             type: 'class',
             status: 'scheduled',
+            location_mode: 'physical',
         });
         setModalVisible(true);
     };
@@ -190,6 +248,8 @@ const ScheduleManagement: React.FC = () => {
             case 'class': return 'blue';
             case 'exam': return 'red';
             case 'meeting': return 'green';
+            case 'assignment': return 'orange';
+            case 'quiz': return 'purple';
             default: return 'default';
         }
     };
@@ -248,7 +308,7 @@ const ScheduleManagement: React.FC = () => {
             key: 'batch',
             render: (_, record) => {
                 const batch = batches.find(b => b.id === record.batch_id);
-                return batch ? batch.name : 'Unknown Batch';
+                return batch ? batch.name : (record.batch_name || 'Unknown Batch');
             },
         },
         {
@@ -267,8 +327,14 @@ const ScheduleManagement: React.FC = () => {
         },
         {
             title: 'Location',
-            dataIndex: 'location',
             key: 'location',
+            render: (_, record) => (
+                record.location_mode === 'online' ? (
+                    record.link ? <a href={record.link} target="_blank" rel="noreferrer">Join Link</a> : 'Online'
+                ) : (
+                    record.location || '--'
+                )
+            ),
         },
         {
             title: 'Type',
@@ -457,7 +523,7 @@ const ScheduleManagement: React.FC = () => {
                     setEditingSchedule(null);
                 }}
                 footer={null}
-                width={600}
+                width={650}
             >
                 <Form
                     form={form}
@@ -523,13 +589,44 @@ const ScheduleManagement: React.FC = () => {
                         </Col>
                     </Row>
 
-                    <Form.Item
-                        name="location"
-                        label="Location"
-                        rules={[{ required: true, message: 'Please input location!' }]}
-                    >
-                        <Input placeholder="Enter location" />
-                    </Form.Item>
+                    <Row gutter={16}>
+                        <Col span={12}>
+                            <Form.Item
+                                name="location_mode"
+                                label="Session Type"
+                                rules={[{ required: true, message: 'Please select session type!' }]}
+                            >
+                                <Select>
+                                    <Option value="physical">Physical</Option>
+                                    <Option value="online">Online</Option>
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                            <Form.Item shouldUpdate={(prev, next) => prev.location_mode !== next.location_mode} noStyle>
+                                {() => {
+                                    const mode = form.getFieldValue('location_mode');
+                                    return mode === 'online' ? (
+                                        <Form.Item
+                                            name="link"
+                                            label="Meeting Link"
+                                            rules={[{ required: true, message: 'Please input meeting link!' }]}
+                                        >
+                                            <Input placeholder="Enter meeting link (URL)" />
+                                        </Form.Item>
+                                    ) : (
+                                        <Form.Item
+                                            name="location"
+                                            label="Location"
+                                            rules={[{ required: true, message: 'Please input location!' }]}
+                                        >
+                                            <Input placeholder="Enter location" />
+                                        </Form.Item>
+                                    );
+                                }}
+                            </Form.Item>
+                        </Col>
+                    </Row>
 
                     <Row gutter={16}>
                         <Col span={12}>
@@ -541,6 +638,8 @@ const ScheduleManagement: React.FC = () => {
                                 <Select>
                                     <Option value="class">Class</Option>
                                     <Option value="exam">Exam</Option>
+                                    <Option value="assignment">Assignment</Option>
+                                    <Option value="quiz">Quiz</Option>
                                     <Option value="meeting">Meeting</Option>
                                     <Option value="other">Other</Option>
                                 </Select>

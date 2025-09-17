@@ -31,6 +31,7 @@ class Database {
                             console.log('SQLite foreign_keys PRAGMA enabled.');
                         }
                         this.createTables()
+                            .then(() => this.ensureSchemaUpdates())
                             .then(() => resolve())
                             .catch(reject);
                     });
@@ -65,6 +66,40 @@ class Database {
                 })
                 .catch(reject);
         });
+    }
+
+    async ensureSchemaUpdates() {
+        // Add new columns to schedules table if they don't exist
+        const getColumns = (table) => new Promise((resolve, reject) => {
+            this.db.all(`PRAGMA table_info(${table})`, [], (err, rows) => {
+                if (err) return reject(err);
+                resolve(rows.map(r => r.name));
+            });
+        });
+
+        const columns = await getColumns('schedules');
+        const missing = (name) => !columns.includes(name);
+
+        const statements = [];
+        if (missing('location_mode')) {
+            statements.push("ALTER TABLE schedules ADD COLUMN location_mode TEXT DEFAULT 'physical' NOT NULL");
+        }
+        if (missing('location')) {
+            statements.push('ALTER TABLE schedules ADD COLUMN location TEXT');
+        }
+        if (missing('link')) {
+            statements.push('ALTER TABLE schedules ADD COLUMN link TEXT');
+        }
+        if (missing('status')) {
+            statements.push("ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT 'scheduled' NOT NULL");
+        }
+
+        if (statements.length > 0) {
+            console.log('Applying schema updates to schedules table:', statements);
+            await this.executeStatements(statements);
+        } else {
+            console.log('No schema updates needed for schedules table.');
+        }
     }
 
     async executeStatements(statements) {

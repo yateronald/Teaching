@@ -12,6 +12,7 @@ router.get('/', authenticateToken, async (req, res) => {
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                s.batch_id, s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -72,6 +73,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                s.batch_id, s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -114,7 +116,11 @@ router.post('/', [
     body('start_time').isISO8601(),
     body('end_time').isISO8601(),
     body('type').isIn(['class', 'assignment', 'quiz', 'exam', 'meeting', 'other']),
-    body('batch_id').isInt({ min: 1 })
+    body('batch_id').isInt({ min: 1 }),
+    body('location_mode').isIn(['online', 'physical']),
+    body('location').optional({ nullable: true }).isLength({ max: 255 }).trim(),
+    body('link').optional({ nullable: true }).isURL().isLength({ max: 1000 }),
+    body('status').optional().isIn(['scheduled', 'completed', 'cancelled'])
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -125,11 +131,27 @@ router.post('/', [
             });
         }
 
-        const { title, description, start_time, end_time, type, batch_id } = req.body;
+        const { title, description, start_time, end_time, type, batch_id, location_mode, location, link, status } = req.body;
 
         // Validate time range
         if (new Date(start_time) >= new Date(end_time)) {
             return res.status(400).json({ error: 'Start time must be before end time' });
+        }
+
+        // When online, link is required and location should be '--'
+        let finalLocation = location;
+        let finalLink = link;
+        if (location_mode === 'online') {
+            if (!link) {
+                return res.status(400).json({ error: 'Meeting link is required for online sessions' });
+            }
+            finalLocation = '--';
+        } else {
+            // physical mode: link is optional and may be null
+            if (!finalLocation) {
+                return res.status(400).json({ error: 'Location is required for physical sessions' });
+            }
+            finalLink = link || null;
         }
 
         // Validate batch access
@@ -169,14 +191,15 @@ router.post('/', [
 
         // Create schedule
         const result = await req.db.run(`
-            INSERT INTO schedules (title, description, start_time, end_time, type, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `, [title, description || null, start_time, end_time, type, batch_id]);
+            INSERT INTO schedules (title, description, start_time, end_time, type, batch_id, location_mode, location, link, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [title, description || null, start_time, end_time, type, batch_id, location_mode, finalLocation || null, finalLink || null, status || 'scheduled']);
 
         // Get created schedule with batch info
         const newSchedule = await req.db.get(`
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -205,7 +228,11 @@ router.put('/:id', [
     body('start_time').optional().isISO8601(),
     body('end_time').optional().isISO8601(),
     body('type').optional().isIn(['class', 'assignment', 'quiz', 'exam', 'meeting', 'other']),
-    body('batch_id').optional().isInt({ min: 1 })
+    body('batch_id').optional().isInt({ min: 1 }),
+    body('location_mode').optional().isIn(['online', 'physical']),
+    body('location').optional({ nullable: true }).isLength({ max: 255 }).trim(),
+    body('link').optional({ nullable: true }).isURL().isLength({ max: 1000 }),
+    body('status').optional().isIn(['scheduled', 'completed', 'cancelled'])
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -217,7 +244,7 @@ router.put('/:id', [
         }
 
         const { id } = req.params;
-        const { title, description, start_time, end_time, type, batch_id } = req.body;
+        const { title, description, start_time, end_time, type, batch_id, location_mode, location, link, status } = req.body;
 
         // Check if schedule exists and user has access
         let schedule;
@@ -283,30 +310,16 @@ router.put('/:id', [
         const updates = [];
         const params = [];
         
-        if (title !== undefined) {
-            updates.push('title = ?');
-            params.push(title);
-        }
-        if (description !== undefined) {
-            updates.push('description = ?');
-            params.push(description);
-        }
-        if (start_time !== undefined) {
-            updates.push('start_time = ?');
-            params.push(start_time);
-        }
-        if (end_time !== undefined) {
-            updates.push('end_time = ?');
-            params.push(end_time);
-        }
-        if (type !== undefined) {
-            updates.push('type = ?');
-            params.push(type);
-        }
-        if (batch_id !== undefined) {
-            updates.push('batch_id = ?');
-            params.push(batch_id);
-        }
+        if (title !== undefined) { updates.push('title = ?'); params.push(title); }
+        if (description !== undefined) { updates.push('description = ?'); params.push(description); }
+        if (start_time !== undefined) { updates.push('start_time = ?'); params.push(start_time); }
+        if (end_time !== undefined) { updates.push('end_time = ?'); params.push(end_time); }
+        if (type !== undefined) { updates.push('type = ?'); params.push(type); }
+        if (batch_id !== undefined) { updates.push('batch_id = ?'); params.push(batch_id); }
+        if (location_mode !== undefined) { updates.push('location_mode = ?'); params.push(location_mode); }
+        if (location !== undefined) { updates.push('location = ?'); params.push(location); }
+        if (link !== undefined) { updates.push('link = ?'); params.push(link); }
+        if (status !== undefined) { updates.push('status = ?'); params.push(status); }
         
         if (updates.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
@@ -323,6 +336,7 @@ router.put('/:id', [
         const updatedSchedule = await req.db.get(`
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -405,6 +419,7 @@ router.get('/batch/:batchId', authenticateToken, authenticated, async (req, res)
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                s.batch_id, s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -447,6 +462,7 @@ router.get('/upcoming/me', authenticateToken, async (req, res) => {
             sql = `
                 SELECT 
                     s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                    s.batch_id, s.location_mode, s.location, s.link, s.status,
                     b.name as batch_name, b.french_level
                 FROM schedules s
                 JOIN batches b ON s.batch_id = b.id
@@ -459,6 +475,7 @@ router.get('/upcoming/me', authenticateToken, async (req, res) => {
             sql = `
                 SELECT 
                     s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                    s.batch_id, s.location_mode, s.location, s.link, s.status,
                     b.name as batch_name, b.french_level,
                     u.first_name as teacher_first_name, u.last_name as teacher_last_name
                 FROM schedules s
@@ -475,6 +492,7 @@ router.get('/upcoming/me', authenticateToken, async (req, res) => {
             sql = `
                 SELECT 
                     s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                    s.batch_id, s.location_mode, s.location, s.link, s.status,
                     b.name as batch_name, b.french_level,
                     u.first_name as teacher_first_name, u.last_name as teacher_last_name
                 FROM schedules s

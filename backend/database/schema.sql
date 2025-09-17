@@ -154,6 +154,11 @@ CREATE TABLE schedules (
     end_time DATETIME NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('class', 'assignment', 'quiz', 'exam', 'meeting', 'other')),
     batch_id INTEGER NOT NULL,
+    -- New columns for delivery mode and meeting link
+    location_mode TEXT NOT NULL CHECK (location_mode IN ('online', 'physical')) DEFAULT 'physical',
+    location TEXT,
+    link TEXT,
+    status TEXT NOT NULL CHECK (status IN ('scheduled', 'completed', 'cancelled')) DEFAULT 'scheduled',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
 );
