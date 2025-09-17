@@ -47,6 +47,8 @@ interface Schedule {
     end_time: string;
     date: string;
     location: string;
+    location_mode?: 'online' | 'physical';
+    link?: string | null;
     type: 'class' | 'exam' | 'meeting' | 'other';
     status: 'scheduled' | 'completed' | 'cancelled';
     created_at: string;
@@ -192,6 +194,49 @@ const StudentSchedule: React.FC = () => {
     });
 
     const nextClass = upcomingSchedules[0];
+
+    // Helper function to check if user can join the meeting (5 minutes before start time)
+    const canJoinMeeting = (date: string, startTime: string): boolean => {
+        const meetingDateTime = dayjs(`${date} ${startTime}`);
+        const now = dayjs();
+        const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
+        
+        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingDateTime.add(2, 'hour'));
+    };
+
+    // Helper function to get secure meeting link (only when authorized)
+    const getSecureMeetingLink = (schedule: Schedule): string | null => {
+        if (!schedule.link || !canJoinMeeting(schedule.date, schedule.start_time)) {
+            return null;
+        }
+        return schedule.link;
+    };
+
+    // Component to render the join meeting button
+    const renderJoinMeetingButton = (schedule: Schedule) => {
+        const canJoin = canJoinMeeting(schedule.date, schedule.start_time);
+        const meetingLink = getSecureMeetingLink(schedule);
+        
+        return (
+            <Button
+                type="primary"
+                style={{
+                    backgroundColor: canJoin ? '#52c41a' : '#d9d9d9',
+                    borderColor: canJoin ? '#52c41a' : '#d9d9d9',
+                    color: canJoin ? 'white' : '#999',
+                    cursor: canJoin ? 'pointer' : 'not-allowed'
+                }}
+                disabled={!canJoin}
+                onClick={() => {
+                    if (meetingLink) {
+                        window.open(meetingLink, '_blank');
+                    }
+                }}
+            >
+                Join Meeting
+            </Button>
+        );
+    };
 
     return (
         <div>
@@ -512,7 +557,7 @@ const StudentSchedule: React.FC = () => {
                         <Divider />
                         
                         <Row gutter={16}>
-                            <Col span={12}>
+                            <Col span={8}>
                                 <div>
                                     <Text strong>Type:</Text>
                                     <br />
@@ -521,7 +566,7 @@ const StudentSchedule: React.FC = () => {
                                     </Tag>
                                 </div>
                             </Col>
-                            <Col span={12}>
+                            <Col span={8}>
                                 <div>
                                     <Text strong>Status:</Text>
                                     <br />
@@ -529,6 +574,15 @@ const StudentSchedule: React.FC = () => {
                                         {getStatusIcon(selectedSchedule.status)} {selectedSchedule.status.toUpperCase()}
                                     </Tag>
                                 </div>
+                            </Col>
+                            <Col span={8}>
+                                {selectedSchedule.link && (
+                                    <div>
+                                        <Text strong>Meeting:</Text>
+                                        <br />
+                                        {renderJoinMeetingButton(selectedSchedule)}
+                                    </div>
+                                )}
                             </Col>
                         </Row>
                     </div>

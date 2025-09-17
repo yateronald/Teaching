@@ -453,7 +453,7 @@ const ScheduleManagement: React.FC = () => {
             key: 'location',
             render: (_, record) => (
                 record.location_mode === 'online' ? (
-                    record.link ? <a href={record.link} target="_blank" rel="noreferrer">Join Link</a> : 'Online'
+                    renderJoinMeetingButton(record)
                 ) : (
                     record.location || '--'
                 )
@@ -511,6 +511,56 @@ const ScheduleManagement: React.FC = () => {
             ),
         },
     ];
+
+    // Helper function to check if join button should be enabled (20 minutes before meeting for teachers)
+    const canJoinMeeting = (schedule: Schedule): boolean => {
+        const now = dayjs();
+        const meetingStart = dayjs(`${schedule.date} ${schedule.start_time}`);
+        const twentyMinutesBefore = meetingStart.subtract(20, 'minutes');
+        const meetingEnd = dayjs(`${schedule.date} ${schedule.end_time}`);
+        
+        // Enable if current time is between 20 minutes before start and meeting end
+        return now.isAfter(twentyMinutesBefore) && now.isBefore(meetingEnd);
+    };
+
+    // Secure function to get meeting link only when authorized
+    const getSecureMeetingLink = (schedule: Schedule): string | null => {
+        if (!schedule.link || !canJoinMeeting(schedule)) {
+            return null; // Don't expose link in source when not authorized
+        }
+        return schedule.link;
+    };
+
+    // Render Join Meeting button
+    const renderJoinMeetingButton = (schedule: Schedule) => {
+        const canJoin = canJoinMeeting(schedule);
+        const secureLink = getSecureMeetingLink(schedule);
+        
+        if (!schedule.link) {
+            return 'Online';
+        }
+
+        return (
+            <Button
+                type="primary"
+                size="small"
+                disabled={!canJoin}
+                style={{
+                    backgroundColor: canJoin ? '#52c41a' : '#d9d9d9',
+                    borderColor: canJoin ? '#52c41a' : '#d9d9d9',
+                    color: canJoin ? '#fff' : '#00000040'
+                }}
+                onClick={() => {
+                    if (secureLink) {
+                        window.open(secureLink, '_blank', 'noopener,noreferrer');
+                    }
+                }}
+                title={canJoin ? 'Click to join the meeting' : 'Meeting will be available 20 minutes before start time'}
+            >
+                Join Meeting
+            </Button>
+        );
+    };
 
     const todaySchedules = schedules.filter(schedule => 
         schedule.date === dayjs().format('YYYY-MM-DD')
