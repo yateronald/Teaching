@@ -4,8 +4,9 @@ import {
     message,
     Typography,
     Tag,
-    Calendar,
     Badge,
+    // Calendar,  // removed in favor of FullCalendar
+    // Badge,
     Tabs,
     Row,
     Col,
@@ -17,7 +18,8 @@ import {
     Button,
     Modal,
     Space,
-    Divider
+    Divider,
+    Descriptions
 } from 'antd';
 import {
     CalendarOutlined,
@@ -27,11 +29,20 @@ import {
     EnvironmentOutlined,
     InfoCircleOutlined,
     CheckCircleOutlined,
-    ExclamationCircleOutlined
+    ExclamationCircleOutlined,
+    VideoCameraOutlined,
+    GlobalOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
+import FullCalendar from '@fullcalendar/react';
+import dayGridPlugin from '@fullcalendar/daygrid';
+import timeGridPlugin from '@fullcalendar/timegrid';
+import interactionPlugin from '@fullcalendar/interaction';
+// FullCalendar styles removed to avoid Vite import-analysis errors in this environment
+// import '@fullcalendar/daygrid/index.css';
+// import '@fullcalendar/timegrid/index.css';
 
 const { Title, Text, Paragraph } = Typography;
 const { TabPane } = Tabs;
@@ -43,6 +54,7 @@ interface Schedule {
     batch_id: number;
     batch_name: string;
     teacher_name: string;
+    french_level?: string;
     start_time: string;
     end_time: string;
     date: string;
@@ -66,27 +78,100 @@ const StudentSchedule: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [stats, setStats] = useState<ScheduleStats | null>(null);
     const [loading, setLoading] = useState(false);
-    const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs());
+    // const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs()); // no longer needed with FullCalendar
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
     const { apiCall } = useAuth();
 
+    // Track joined meetings locally to show a "JOINED" badge after user joins
+    const [joinedMap, setJoinedMap] = useState<Record<number, string>>(() => {
+        try {
+            const raw = localStorage.getItem('joinedSchedules');
+            return raw ? JSON.parse(raw) : {};
+        } catch {
+            return {};
+        }
+    });
+
+    const hasJoined = (id: number) => Boolean(joinedMap[id]);
+    
+    const markJoined = (id: number) => {
+        const next = { ...joinedMap, [id]: dayjs().toISOString() };
+        setJoinedMap(next);
+        try { 
+            localStorage.setItem('joinedSchedules', JSON.stringify(next)); 
+        } catch {}
+    };
+
+    // Compute stats locally from schedules
+    const computeStats = (items: Schedule[]): ScheduleStats => {
+        const now = dayjs();
+        const total = items.length;
+        const upcoming = items.filter((s) => dayjs(`${s.date} ${s.start_time}`).isAfter(now)).length;
+        const completed = items.filter((s) => s.status === 'completed').length;
+        const startOfWeek = now.startOf('week');
+        const endOfWeek = now.endOf('week');
+        const thisWeek = items.filter((s) => {
+            const d = dayjs(s.date);
+            return d.isBetween(startOfWeek, endOfWeek, 'day', '[]');
+        }).length;
+        const next = items
+            .filter((s) => dayjs(`${s.date} ${s.start_time}`).isAfter(now))
+            .sort((a, b) => dayjs(`${a.date} ${a.start_time}`).valueOf() - dayjs(`${b.date} ${b.start_time}`).valueOf())[0];
+        return {
+            total_classes: total,
+            upcoming_classes: upcoming,
+            completed_classes: completed,
+            this_week_classes: thisWeek,
+            next_class: next,
+        };
+    };
+
     useEffect(() => {
         fetchSchedules();
-        fetchStats();
+        // fetchStats(); // replaced by local computation after fetching schedules
     }, []);
 
     const fetchSchedules = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/schedules/my-schedule');
+            // Use backend list endpoint with role-based filtering
+            const response = await apiCall('/schedules');
             if (response.ok) {
-                const data = await response.json();
-                setSchedules(data.schedules || []);
+                const raw = await response.json();
+                const list = Array.isArray(raw) ? raw : (raw.schedules || []);
+                const normalized: Schedule[] = list.map((s: any) => {
+                    const start = dayjs(s.start_time);
+                    const end = dayjs(s.end_time);
+                    const teacherName = [s.teacher_first_name, s.teacher_last_name].filter(Boolean).join(' ').trim();
+                    // Map unknown types to 'other' to satisfy union type
+                    const allowedTypes = new Set(['class', 'exam', 'meeting', 'other']);
+                    const mappedType = allowedTypes.has(s.type) ? s.type : 'other';
+                    return {
+                        id: s.id,
+                        title: s.title,
+                        description: s.description || '',
+                        batch_id: s.batch_id,
+                        batch_name: s.batch_name || '',
+                        teacher_name: teacherName || '',
+                        start_time: start.isValid() ? start.format('HH:mm') : '00:00',
+                        end_time: end.isValid() ? end.format('HH:mm') : start.isValid() ? start.add(1, 'hour').format('HH:mm') : '01:00',
+                        date: start.isValid() ? start.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+                        location: s.location || '',
+                        location_mode: s.location_mode || 'physical',
+                        link: s.link || null,
+                        type: mappedType as 'class' | 'exam' | 'meeting' | 'other',
+                        status: (s.status as 'scheduled' | 'completed' | 'cancelled') || 'scheduled',
+                        created_at: s.created_at || start.toISOString(),
+                    };
+                });
+                setSchedules(normalized);
+                setStats(computeStats(normalized));
             } else {
                 message.error('Failed to fetch schedule');
             }
         } catch (error) {
+            console.error('Error fetching schedule:', error);
             message.error('Error fetching schedule');
         } finally {
             setLoading(false);
@@ -119,8 +204,24 @@ const StudentSchedule: React.FC = () => {
             case 'scheduled': return 'processing';
             case 'completed': return 'success';
             case 'cancelled': return 'error';
+            case 'ended': return 'default';
             default: return 'default';
         }
+    };
+
+    // Helper function to check if schedule has ended
+    const isScheduleEnded = (schedule: Schedule): boolean => {
+        const now = dayjs();
+        const scheduleEnd = dayjs(`${schedule.date} ${schedule.end_time}`);
+        return now.isAfter(scheduleEnd);
+    };
+
+    // Helper function to get effective status (returns 'ended' for active schedules that have passed their end time)
+    const getEffectiveStatus = (schedule: Schedule): string => {
+        if (schedule.status === 'scheduled' && isScheduleEnded(schedule)) {
+            return 'ended';
+        }
+        return schedule.status;
     };
 
     const getStatusIcon = (status: string) => {
@@ -128,7 +229,46 @@ const StudentSchedule: React.FC = () => {
             case 'scheduled': return <ClockCircleOutlined />;
             case 'completed': return <CheckCircleOutlined />;
             case 'cancelled': return <ExclamationCircleOutlined />;
+            case 'ended': return <CheckCircleOutlined />;
             default: return <InfoCircleOutlined />;
+        }
+    };
+
+    // FullCalendar color palette by type (aligned with teacher view)
+    const typeColors: Record<string, string> = {
+        class: '#1677ff',
+        exam: '#ff4d4f',
+        meeting: '#52c41a',
+        other: '#6c757d',
+    };
+
+    // Convert schedules to FullCalendar events
+    const events = React.useMemo(() => {
+        return schedules.map((s) => {
+            const startD = dayjs(`${s.date}T${s.start_time}`);
+            let endD = dayjs(`${s.date}T${s.end_time}`);
+            if (!endD.isValid() || !endD.isAfter(startD)) {
+                endD = startD.add(1, 'hour');
+            }
+            const color = typeColors[s.type] || '#1677ff';
+            return {
+                id: String(s.id),
+                title: s.title,
+                start: startD.toDate(),
+                end: endD.toDate(),
+                allDay: false,
+                backgroundColor: color,
+                borderColor: color,
+                extendedProps: { schedule: s },
+            } as any;
+        });
+    }, [schedules]);
+
+    const handleEventClick = (clickInfo: any) => {
+        const sched: Schedule | undefined = clickInfo?.event?.extendedProps?.schedule;
+        if (sched) {
+            setSelectedSchedule(sched);
+            setDetailsVisible(true);
         }
     };
 
@@ -144,7 +284,7 @@ const StudentSchedule: React.FC = () => {
                 {listData.map(item => (
                     <li key={item.id} style={{ marginBottom: 2 }}>
                         <Badge
-                            status={getStatusColor(item.status) as any}
+                            status={getStatusColor(getEffectiveStatus(item)) as any}
                             text={
                                 <span 
                                     style={{ fontSize: '11px', cursor: 'pointer' }}
@@ -195,18 +335,29 @@ const StudentSchedule: React.FC = () => {
 
     const nextClass = upcomingSchedules[0];
 
-    // Helper function to check if user can join the meeting (5 minutes before start time)
+    // Helper function to check if user can join the meeting (5 minutes before start time and not ended)
     const canJoinMeeting = (date: string, startTime: string): boolean => {
         const meetingDateTime = dayjs(`${date} ${startTime}`);
+        const meetingEndTime = dayjs(`${date} ${startTime}`).add(2, 'hour'); // Assuming 2 hour default duration
         const now = dayjs();
         const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
         
-        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingDateTime.add(2, 'hour'));
+        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime);
+    };
+
+    // Enhanced canJoinMeeting that uses schedule object
+    const canJoinMeetingSchedule = (schedule: Schedule): boolean => {
+        const meetingDateTime = dayjs(`${schedule.date} ${schedule.start_time}`);
+        const meetingEndTime = dayjs(`${schedule.date} ${schedule.end_time}`);
+        const now = dayjs();
+        const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
+        
+        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime) && !isScheduleEnded(schedule);
     };
 
     // Helper function to get secure meeting link (only when authorized)
     const getSecureMeetingLink = (schedule: Schedule): string | null => {
-        if (!schedule.link || !canJoinMeeting(schedule.date, schedule.start_time)) {
+        if (!schedule.link || !canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)) {
             return null;
         }
         return schedule.link;
@@ -214,26 +365,27 @@ const StudentSchedule: React.FC = () => {
 
     // Component to render the join meeting button
     const renderJoinMeetingButton = (schedule: Schedule) => {
-        const canJoin = canJoinMeeting(schedule.date, schedule.start_time);
+        const canJoin = canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule);
         const meetingLink = getSecureMeetingLink(schedule);
+        const hasEnded = isScheduleEnded(schedule);
         
         return (
             <Button
                 type="primary"
                 style={{
-                    backgroundColor: canJoin ? '#52c41a' : '#d9d9d9',
-                    borderColor: canJoin ? '#52c41a' : '#d9d9d9',
-                    color: canJoin ? 'white' : '#999',
+                    backgroundColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
+                    borderColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
+                    color: hasEnded ? '#00000040' : (canJoin ? 'white' : '#999'),
                     cursor: canJoin ? 'pointer' : 'not-allowed'
                 }}
-                disabled={!canJoin}
+                disabled={!canJoin || hasEnded}
                 onClick={() => {
-                    if (meetingLink) {
+                    if (meetingLink && !hasEnded) {
                         window.open(meetingLink, '_blank');
                     }
                 }}
             >
-                Join Meeting
+                {hasEnded ? 'Ended' : 'Join Meeting'}
             </Button>
         );
     };
@@ -307,29 +459,69 @@ const StudentSchedule: React.FC = () => {
                                 </Text>
                                 <br />
                                 <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
-                                    <EnvironmentOutlined /> {nextClass.location} • <TeamOutlined /> {nextClass.teacher_name}
+                                    {nextClass.location_mode === 'online' ? (
+                                        <><VideoCameraOutlined /> Online • <TeamOutlined /> {nextClass.teacher_name}</>
+                                    ) : (
+                                        <><EnvironmentOutlined /> {nextClass.location} • <TeamOutlined /> {nextClass.teacher_name}</>
+                                    )}
                                 </Text>
                             </div>
                         </Col>
                         <Col span={6} style={{ textAlign: 'right' }}>
-                            <Button 
-                                type="primary" 
-                                ghost
-                                onClick={() => handleViewDetails(nextClass)}
-                            >
-                                View Details
-                            </Button>
+                            <Space>
+                                {nextClass.link ? (
+                                    <Button
+                                        type="primary"
+                                        onClick={(e) => {
+                                            (e as any).stopPropagation?.();
+                                            if (canJoinMeetingSchedule(nextClass) && !isScheduleEnded(nextClass)) {
+                                                markJoined(nextClass.id);
+                                                window.open(nextClass.link as string, '_blank');
+                                            }
+                                        }}
+                                        disabled={!canJoinMeetingSchedule(nextClass) || isScheduleEnded(nextClass)}
+                                        style={{
+                                            backgroundColor: isScheduleEnded(nextClass) ? '#d9d9d9' : (canJoinMeetingSchedule(nextClass) ? '#1890ff' : '#d9d9d9'),
+                                            borderColor: isScheduleEnded(nextClass) ? '#d9d9d9' : (canJoinMeetingSchedule(nextClass) ? '#1890ff' : '#d9d9d9'),
+                                            color: isScheduleEnded(nextClass) ? '#00000040' : '#fff'
+                                        }}
+                                    >
+                                        {isScheduleEnded(nextClass) ? 'Ended' : (canJoinMeetingSchedule(nextClass) ? 'Join Now' : 'Join soon')}
+                                    </Button>
+                                ) : null}
+                                <Button 
+                                    ghost
+                                    onClick={() => handleViewDetails(nextClass)}
+                                >
+                                    Details
+                                </Button>
+                                {hasJoined(nextClass.id) ? <Tag color="success">JOINED</Tag> : null}
+                            </Space>
                         </Col>
                     </Row>
                 </Card>
             )}
 
+            {/* FullCalendar (read-only) */}
             <Row gutter={16}>
                 <Col span={16}>
                     <Card title="Calendar View">
-                        <Calendar
-                            dateCellRender={dateCellRender}
-                            onSelect={(date) => setSelectedDate(date)}
+                        <FullCalendar
+                            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                            initialView="dayGridMonth"
+                            headerToolbar={{
+                                left: 'prev,next today',
+                                center: 'title',
+                                right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                            }}
+                            height={720}
+                            events={events}
+                            editable={false}
+                            selectable={false}
+                            selectMirror={false}
+                            dayMaxEvents={true}
+                            eventClick={handleEventClick}
+                            eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true }}
                         />
                     </Card>
                 </Col>
@@ -344,8 +536,8 @@ const StudentSchedule: React.FC = () => {
                                             .map(schedule => (
                                                 <Timeline.Item
                                                     key={schedule.id}
-                                                    dot={getStatusIcon(schedule.status)}
-                                                    color={getStatusColor(schedule.status)}
+                                                    dot={getStatusIcon(getEffectiveStatus(schedule))}
+                                                    color={getStatusColor(getEffectiveStatus(schedule))}
                                                 >
                                                     <div 
                                                         style={{ cursor: 'pointer' }}
@@ -355,13 +547,38 @@ const StudentSchedule: React.FC = () => {
                                                         <br />
                                                         <Text>{schedule.title}</Text>
                                                         <br />
-                                                        <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                            <EnvironmentOutlined /> {schedule.location}
-                                                        </Text>
-                                                        <br />
-                                                        <Tag color={getTypeColor(schedule.type)} size="small">
-                                                            {schedule.type.toUpperCase()}
-                                                        </Tag>
+                                                        <Space size="small" wrap>
+                                                            {schedule.location_mode === 'online' ? (
+                                                                <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
+                                                            ) : (
+                                                                <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
+                                                            )}
+                                                            <Tag color={getTypeColor(schedule.type)} size="small">
+                                                                {schedule.type.toUpperCase()}
+                                                            </Tag>
+                                                            {hasJoined(schedule.id) ? <Tag color="success">JOINED</Tag> : null}
+                                                            {schedule.link ? (
+                                                                <Button
+                                                                    size="small"
+                                                                    type="primary"
+                                                                    disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
+                                                                    style={{
+                                                                        backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                        borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                        color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
+                                                                    }}
+                                                                    onClick={(e) => {
+                                                                        (e as any).stopPropagation();
+                                                                        if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
+                                                                            markJoined(schedule.id);
+                                                                            window.open(schedule.link as string, '_blank');
+                                                                        }
+                                                                    }}
+                                                                >
+                                                                    {isScheduleEnded(schedule) ? 'Ended' : 'Join'}
+                                                                </Button>
+                                                            ) : null}
+                                                        </Space>
                                                     </div>
                                                 </Timeline.Item>
                                             ))
@@ -386,6 +603,31 @@ const StudentSchedule: React.FC = () => {
                                             <List.Item 
                                                 style={{ cursor: 'pointer' }}
                                                 onClick={() => handleViewDetails(schedule)}
+                                                actions={[
+                                                    hasJoined(schedule.id) ? (<Tag color="success" key="joined">JOINED</Tag>) : null,
+                                                    schedule.link ? (
+                                                        <Button
+                                                            key="join"
+                                                            size="small"
+                                                            type="primary"
+                                                            disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
+                                                            style={{
+                                                                backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
+                                                            }}
+                                                            onClick={(e) => {
+                                                                (e as any).stopPropagation();
+                                                                if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
+                                                                    markJoined(schedule.id);
+                                                                    window.open(schedule.link as string, '_blank');
+                                                                }
+                                                            }}
+                                                        >
+                                                            {isScheduleEnded(schedule) ? 'Ended' : 'Join'}
+                                                        </Button>
+                                                    ) : null
+                                                ].filter(Boolean) as any}
                                             >
                                                 <List.Item.Meta
                                                     avatar={
@@ -408,9 +650,13 @@ const StudentSchedule: React.FC = () => {
                                                                 {dayjs(schedule.date).format('MMM DD')} • {formatTime(schedule.start_time)}
                                                             </Text>
                                                             <br />
-                                                            <Text type="secondary" style={{ fontSize: '11px' }}>
-                                                                <EnvironmentOutlined /> {schedule.location}
-                                                            </Text>
+                                                            <Space size="small">
+                                                                {schedule.location_mode === 'online' ? (
+                                                                    <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
+                                                                ) : (
+                                                                    <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
+                                                                )}
+                                                            </Space>
                                                         </div>
                                                     }
                                                 />
@@ -446,15 +692,15 @@ const StudentSchedule: React.FC = () => {
                                                 <List.Item.Meta
                                                     avatar={
                                                         <Avatar 
-                                                            style={{ backgroundColor: getStatusColor(schedule.status) }}
-                                                            icon={getStatusIcon(schedule.status)}
+                                                            style={{ backgroundColor: getStatusColor(getEffectiveStatus(schedule)) }}
+                                                            icon={getStatusIcon(getEffectiveStatus(schedule))}
                                                         />
                                                     }
                                                     title={
                                                         <Space>
                                                             <Text strong>{schedule.title}</Text>
-                                                            <Tag color={getStatusColor(schedule.status)} size="small">
-                                                                {schedule.status.toUpperCase()}
+                                                            <Tag color={getStatusColor(getEffectiveStatus(schedule))} size="small">
+                                                                {getEffectiveStatus(schedule).toUpperCase()}
                                                             </Tag>
                                                         </Space>
                                                     }
@@ -485,107 +731,79 @@ const StudentSchedule: React.FC = () => {
                 </Col>
             </Row>
 
+            {/* Redesigned Details Modal to match backend style */}
             <Modal
-                title="Class Details"
+                title={selectedSchedule ? selectedSchedule.title : 'Class Details'}
                 open={detailsVisible}
                 onCancel={() => setDetailsVisible(false)}
                 footer={[
-                    <Button key="close" onClick={() => setDetailsVisible(false)}>
-                        Close
-                    </Button>
-                ]}
-                width={600}
+                    selectedSchedule?.link ? (
+                        <Button
+                            key="join"
+                            type="primary"
+                            disabled={!canJoinMeetingSchedule(selectedSchedule) || isScheduleEnded(selectedSchedule)}
+                            style={{
+                                backgroundColor: isScheduleEnded(selectedSchedule) ? '#d9d9d9' : (canJoinMeetingSchedule(selectedSchedule) ? '#52c41a' : '#d9d9d9'),
+                                borderColor: isScheduleEnded(selectedSchedule) ? '#d9d9d9' : (canJoinMeetingSchedule(selectedSchedule) ? '#52c41a' : '#d9d9d9'),
+                                color: isScheduleEnded(selectedSchedule) ? '#00000040' : (canJoinMeetingSchedule(selectedSchedule) ? '#fff' : '#00000040')
+                            }}
+                            onClick={() => {
+                                const meetingLink = getSecureMeetingLink(selectedSchedule);
+                                if (meetingLink && !isScheduleEnded(selectedSchedule)) {
+                                    markJoined(selectedSchedule.id);
+                                    window.open(meetingLink, '_blank');
+                                }
+                            }}
+                        >
+                            {isScheduleEnded(selectedSchedule) ? 'Meeting Ended' : (canJoinMeetingSchedule(selectedSchedule) ? 'Join Meeting' : 'Join available 5 minutes before')}
+                        </Button>
+                    ) : null,
+                    <Button key="close" onClick={() => setDetailsVisible(false)}>Close</Button>
+                ].filter(Boolean) as any}
+                width={700}
             >
                 {selectedSchedule && (
-                    <div>
-                        <Title level={4}>{selectedSchedule.title}</Title>
-                        
-                        <Row gutter={16} style={{ marginBottom: 16 }}>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Date"
-                                        value={dayjs(selectedSchedule.date).format('dddd, MMMM DD, YYYY')}
-                                        prefix={<CalendarOutlined />}
-                                    />
-                                </Card>
-                            </Col>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Time"
-                                        value={`${formatTime(selectedSchedule.start_time)} - ${formatTime(selectedSchedule.end_time)}`}
-                                        prefix={<ClockCircleOutlined />}
-                                    />
-                                </Card>
-                            </Col>
-                        </Row>
-                        
-                        <Divider />
-                        
-                        <div style={{ marginBottom: 16 }}>
-                            <Text strong>Description:</Text>
-                            <Paragraph style={{ marginTop: 8 }}>
-                                {selectedSchedule.description || 'No description provided.'}
-                            </Paragraph>
-                        </div>
-                        
-                        <Row gutter={16}>
-                            <Col span={8}>
-                                <div>
-                                    <Text strong>Teacher:</Text>
-                                    <br />
-                                    <Text><TeamOutlined /> {selectedSchedule.teacher_name}</Text>
-                                </div>
-                            </Col>
-                            <Col span={8}>
-                                <div>
-                                    <Text strong>Location:</Text>
-                                    <br />
-                                    <Text><EnvironmentOutlined /> {selectedSchedule.location}</Text>
-                                </div>
-                            </Col>
-                            <Col span={8}>
-                                <div>
-                                    <Text strong>Batch:</Text>
-                                    <br />
-                                    <Text><BookOutlined /> {selectedSchedule.batch_name}</Text>
-                                </div>
-                            </Col>
-                        </Row>
-                        
-                        <Divider />
-                        
-                        <Row gutter={16}>
-                            <Col span={8}>
-                                <div>
-                                    <Text strong>Type:</Text>
-                                    <br />
-                                    <Tag color={getTypeColor(selectedSchedule.type)}>
-                                        {selectedSchedule.type.toUpperCase()}
-                                    </Tag>
-                                </div>
-                            </Col>
-                            <Col span={8}>
-                                <div>
-                                    <Text strong>Status:</Text>
-                                    <br />
-                                    <Tag color={getStatusColor(selectedSchedule.status)}>
-                                        {getStatusIcon(selectedSchedule.status)} {selectedSchedule.status.toUpperCase()}
-                                    </Tag>
-                                </div>
-                            </Col>
-                            <Col span={8}>
-                                {selectedSchedule.link && (
-                                    <div>
-                                        <Text strong>Meeting:</Text>
-                                        <br />
-                                        {renderJoinMeetingButton(selectedSchedule)}
-                                    </div>
+                    <>
+                        <Descriptions bordered column={2} size="middle">
+                            <Descriptions.Item label="Date" span={1}>
+                                {dayjs(selectedSchedule.date).format('dddd, MMMM D, YYYY')}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Time" span={1}>
+                                {`${formatTime(selectedSchedule.start_time)} - ${formatTime(selectedSchedule.end_time)}`}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Type" span={1}>
+                                <Tag color={getTypeColor(selectedSchedule.type)}>{selectedSchedule.type.toUpperCase()}</Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Status" span={1}>
+                                <Tag color={getStatusColor(getEffectiveStatus(selectedSchedule))}>
+                                    {getEffectiveStatus(selectedSchedule).toUpperCase()}
+                                </Tag>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Teacher" span={1}>
+                                <Space><TeamOutlined /> {selectedSchedule.teacher_name}</Space>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Batch" span={1}>
+                                <Space>
+                                    <BookOutlined /> {selectedSchedule.batch_name}
+                                    {selectedSchedule.french_level && (
+                                        <Tag color="blue" style={{ marginLeft: 8, fontSize: '11px', fontWeight: 'bold' }}>
+                                            <GlobalOutlined /> {selectedSchedule.french_level}
+                                        </Tag>
+                                    )}
+                                </Space>
+                            </Descriptions.Item>
+                            <Descriptions.Item label={selectedSchedule.location_mode === 'online' ? 'Meeting' : 'Location'} span={2}>
+                                {selectedSchedule.location_mode === 'online' ? (
+                                    selectedSchedule.link ? 'Online Meeting' : '—'
+                                ) : (
+                                    <Space><EnvironmentOutlined /> {selectedSchedule.location}</Space>
                                 )}
-                            </Col>
-                        </Row>
-                    </div>
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Description" span={2}>
+                                {selectedSchedule.description || 'No description provided.'}
+                            </Descriptions.Item>
+                        </Descriptions>
+                    </>
                 )}
             </Modal>
         </div>

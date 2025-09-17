@@ -280,8 +280,24 @@ const ScheduleManagement: React.FC = () => {
             case 'scheduled': return 'processing';
             case 'completed': return 'success';
             case 'cancelled': return 'error';
+            case 'ended': return 'default';
             default: return 'default';
         }
+    };
+
+    // Helper function to check if schedule has ended
+    const isScheduleEnded = (schedule: Schedule) => {
+        const now = dayjs();
+        const scheduleEnd = dayjs(`${schedule.date}T${schedule.end_time}`);
+        return now.isAfter(scheduleEnd);
+    };
+
+    // Helper function to get effective status (including ended)
+    const getEffectiveStatus = (schedule: Schedule) => {
+        if (schedule.status === 'completed' || schedule.status === 'cancelled') {
+            return schedule.status;
+        }
+        return isScheduleEnded(schedule) ? 'ended' : schedule.status;
     };
 
     // FullCalendar color palette by type
@@ -473,9 +489,9 @@ const ScheduleManagement: React.FC = () => {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            render: (status: string) => (
-                <Tag color={getStatusColor(status)}>
-                    {status.toUpperCase()}
+            render: (status: string, record: Schedule) => (
+                <Tag color={getStatusColor(getEffectiveStatus(record))}>
+                    {getEffectiveStatus(record).toUpperCase()}
                 </Tag>
             ),
         },
@@ -535,6 +551,7 @@ const ScheduleManagement: React.FC = () => {
     const renderJoinMeetingButton = (schedule: Schedule) => {
         const canJoin = canJoinMeeting(schedule);
         const secureLink = getSecureMeetingLink(schedule);
+        const hasEnded = isScheduleEnded(schedule);
         
         if (!schedule.link) {
             return 'Online';
@@ -544,20 +561,20 @@ const ScheduleManagement: React.FC = () => {
             <Button
                 type="primary"
                 size="small"
-                disabled={!canJoin}
+                disabled={!canJoin || hasEnded}
                 style={{
-                    backgroundColor: canJoin ? '#52c41a' : '#d9d9d9',
-                    borderColor: canJoin ? '#52c41a' : '#d9d9d9',
-                    color: canJoin ? '#fff' : '#00000040'
+                    backgroundColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
+                    borderColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
+                    color: hasEnded ? '#00000040' : (canJoin ? '#fff' : '#00000040')
                 }}
                 onClick={() => {
-                    if (secureLink) {
+                    if (secureLink && !hasEnded) {
                         window.open(secureLink, '_blank', 'noopener,noreferrer');
                     }
                 }}
-                title={canJoin ? 'Click to join the meeting' : 'Meeting will be available 20 minutes before start time'}
+                title={hasEnded ? 'Meeting has ended' : (canJoin ? 'Click to join the meeting' : 'Meeting will be available 20 minutes before start time')}
             >
-                Join Meeting
+                {hasEnded ? 'Meeting Ended' : 'Join Meeting'}
             </Button>
         );
     };
@@ -897,14 +914,29 @@ const ScheduleManagement: React.FC = () => {
                                 <Tag color={getTypeColor(viewSchedule.type)}>{viewSchedule.type.toUpperCase()}</Tag>
                             </Descriptions.Item>
                             <Descriptions.Item label="Status">
-                                <Tag color={getStatusColor(viewSchedule.status)}>{viewSchedule.status.toUpperCase()}</Tag>
+                                <Tag color={getStatusColor(getEffectiveStatus(viewSchedule))}>
+                                    {getEffectiveStatus(viewSchedule).toUpperCase()}
+                                </Tag>
                             </Descriptions.Item>
                             <Descriptions.Item label="Mode">
                                 {viewSchedule.location_mode === 'online' ? 'Online' : 'Physical'}
                             </Descriptions.Item>
                             <Descriptions.Item label={viewSchedule.location_mode === 'online' ? 'Link' : 'Location'}>
                                 {viewSchedule.location_mode === 'online' ? (
-                                    viewSchedule.link ? <a href={viewSchedule.link} target="_blank" rel="noreferrer">Join</a> : '—'
+                                    viewSchedule.link ? (
+                                        <Button 
+                                            type="primary" 
+                                            size="small"
+                                            disabled={isScheduleEnded(viewSchedule)}
+                                            onClick={() => window.open(viewSchedule.link!, '_blank')}
+                                            style={{ 
+                                                opacity: isScheduleEnded(viewSchedule) ? 0.5 : 1,
+                                                cursor: isScheduleEnded(viewSchedule) ? 'not-allowed' : 'pointer'
+                                            }}
+                                        >
+                                            {isScheduleEnded(viewSchedule) ? 'Meeting Ended' : 'Join Meeting'}
+                                        </Button>
+                                    ) : '—'
                                 ) : (viewSchedule.location || '—')}
                             </Descriptions.Item>
                             {viewSchedule.description && (

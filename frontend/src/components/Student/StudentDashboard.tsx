@@ -27,7 +27,10 @@ import {
     ClockCircleOutlined,
     UserOutlined, 
     CalendarOutlined, 
-    FieldTimeOutlined
+    FieldTimeOutlined,
+    VideoCameraOutlined,
+    EnvironmentOutlined,
+    GlobalOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -39,6 +42,66 @@ const { Title, Text } = Typography;
 
 // Initialize dayjs UTC plugin
 dayjs.extend(utc);
+
+// CSS Animation Styles for Join Button
+const joinButtonStyles = `
+@keyframes joinButtonPulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 2px 6px rgba(82, 196, 26, 0.3);
+        background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+    }
+    25% {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(82, 196, 26, 0.6);
+        background: linear-gradient(135deg, #73d13d 0%, #52c41a 100%);
+    }
+    50% {
+        transform: scale(1.08);
+        box-shadow: 0 6px 16px rgba(82, 196, 26, 0.8);
+        background: linear-gradient(135deg, #95de64 0%, #73d13d 100%);
+    }
+    75% {
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(82, 196, 26, 0.6);
+        background: linear-gradient(135deg, #73d13d 0%, #52c41a 100%);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 2px 6px rgba(82, 196, 26, 0.3);
+        background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+    }
+}
+
+@keyframes joinButtonGlow {
+    0%, 100% {
+        box-shadow: 0 2px 6px rgba(82, 196, 26, 0.3), 0 0 0 0 rgba(82, 196, 26, 0.7);
+    }
+    50% {
+        box-shadow: 0 2px 6px rgba(82, 196, 26, 0.3), 0 0 0 8px rgba(82, 196, 26, 0);
+    }
+}
+
+.join-button-animated {
+    animation: joinButtonPulse 2s ease-in-out infinite, joinButtonGlow 2s ease-in-out infinite !important;
+}
+
+.join-button-animated:hover {
+    animation-play-state: paused !important;
+    transform: scale(1.1) !important;
+    box-shadow: 0 8px 20px rgba(82, 196, 26, 0.9) !important;
+}
+`;
+
+// Inject styles into document head
+if (typeof document !== 'undefined') {
+    const styleElement = document.createElement('style');
+    styleElement.textContent = joinButtonStyles;
+    if (!document.head.querySelector('style[data-join-button-styles]')) {
+        styleElement.setAttribute('data-join-button-styles', 'true');
+        document.head.appendChild(styleElement);
+    }
+}
 
 interface Batch {
     id: number;
@@ -88,9 +151,16 @@ interface Schedule {
     title: string;
     description: string;
     batch_name: string;
+    french_level?: string;
     start_time: string;
     end_time: string;
     type: string; // 'class' | 'exam' | 'assignment' | ...
+    teacher_first_name?: string;
+    teacher_last_name?: string;
+    location_mode?: 'online' | 'physical';
+    location?: string;
+    link?: string;
+    status?: string;
 }
 
 const StudentDashboard: React.FC = () => {
@@ -607,33 +677,210 @@ const StudentDashboard: React.FC = () => {
                 </Col>
 
                 <Col xs={24} lg={8}>
-                    <Card title="Upcoming Schedule" style={{ marginBottom: 16 }}>
-                        <Timeline>
-                            {getUpcomingSchedules().map((schedule) => {
-                                const timeColor = schedule.type === 'exam' ? 'red' : 
-                                                schedule.type === 'assignment' ? 'orange' : 'blue';
-                                
-                                return (
-                                    <Timeline.Item key={schedule.id} color={timeColor}>
-                                        <div>
-                                            <Text strong>{schedule.title}</Text>
-                                            <br />
-                                            <Text type="secondary">{schedule.batch_name}</Text>
-                                            <br />
-                                            <Text type="secondary">
-                                                {dayjs(schedule.start_time).format('MMM DD, YYYY HH:mm')}
-                                            </Text>
-                                            <br />
-                                            <Tag color={timeColor} size="small">
-                                                {schedule.type.toUpperCase()}
-                                            </Tag>
-                                        </div>
-                                    </Timeline.Item>
-                                );
-                            })}
-                        </Timeline>
-                        {getUpcomingSchedules().length === 0 && (
-                            <Text type="secondary">No upcoming events</Text>
+                    <Card 
+                        title="Upcoming Schedule" 
+                        style={{ 
+                            marginBottom: 16,
+                            background: '#ffffff',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                        }}
+                    >
+                        {getUpcomingSchedules().length === 0 ? (
+                            <Empty 
+                                description="No upcoming events"
+                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                style={{ margin: '20px 0' }}
+                            />
+                        ) : (
+                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                {getUpcomingSchedules().map((schedule) => {
+                                    const timeColor = schedule.type === 'exam' ? 'red' : 
+                                                    schedule.type === 'assignment' ? 'orange' : 'blue';
+                                    const startTime = dayjs(schedule.start_time);
+                                    const now = dayjs();
+                                    const minutesUntilStart = startTime.diff(now, 'minute');
+                                    const canJoin = schedule.location_mode === 'online' && 
+                                                   schedule.link && 
+                                                   minutesUntilStart <= 5 && 
+                                                   minutesUntilStart >= -30; // Can join 5 min before to 30 min after start
+                                    
+                                    const teacherName = schedule.teacher_first_name && schedule.teacher_last_name 
+                                        ? `${schedule.teacher_first_name} ${schedule.teacher_last_name}`
+                                        : 'Teacher TBA';
+                                    
+                                    return (
+                                        <Card 
+                                            key={schedule.id} 
+                                            size="small" 
+                                            style={{ 
+                                                marginBottom: 12,
+                                                background: '#ffffff',
+                                                border: `2px solid ${timeColor === 'red' ? '#ff4d4f' : timeColor === 'orange' ? '#fa8c16' : '#1890ff'}`,
+                                                borderRadius: 12,
+                                                boxShadow: '0 4px 8px rgba(0,0,0,0.12)',
+                                                transition: 'all 0.3s ease'
+                                            }}
+                                            hoverable
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                                                        <Text strong style={{ 
+                                                            fontSize: '15px', 
+                                                            color: '#000000',
+                                                            fontWeight: 600
+                                                        }}>
+                                                            {schedule.title}
+                                                        </Text>
+                                                        <Tag 
+                                                            color={timeColor} 
+                                                            size="small" 
+                                                            style={{ 
+                                                                marginLeft: 8, 
+                                                                fontSize: '10px',
+                                                                fontWeight: 'bold',
+                                                                border: 'none'
+                                                            }}
+                                                        >
+                                                            {schedule.type.toUpperCase()}
+                                                        </Tag>
+                                                    </div>
+                                                    
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ 
+                                                            fontSize: '13px',
+                                                            color: '#434343',
+                                                            fontWeight: 500
+                                                        }}>
+                                                            <UserOutlined style={{ 
+                                                                marginRight: 6,
+                                                                color: '#1890ff'
+                                                            }} />
+                                                            {teacherName}
+                                                        </Text>
+                                                    </div>
+                                                    
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ 
+                                                            fontSize: '13px',
+                                                            color: '#434343',
+                                                            fontWeight: 500
+                                                        }}>
+                                                            <CalendarOutlined style={{ 
+                                                                marginRight: 6,
+                                                                color: '#52c41a'
+                                                            }} />
+                                                            {schedule.batch_name}
+                                                            {schedule.french_level && (
+                                                                <Tag 
+                                                                    color="blue" 
+                                                                    size="small" 
+                                                                    style={{ 
+                                                                        marginLeft: 8,
+                                                                        fontSize: '10px',
+                                                                        fontWeight: 'bold'
+                                                                    }}
+                                                                >
+                                                                    <GlobalOutlined style={{ marginRight: 4 }} />
+                                                                    {schedule.french_level.toUpperCase()}
+                                                                </Tag>
+                                                            )}
+                                                        </Text>
+                                                    </div>
+                                                    
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ 
+                                                            fontSize: '13px',
+                                                            color: '#434343',
+                                                            fontWeight: 500
+                                                        }}>
+                                                            <ClockCircleOutlined style={{ 
+                                                                marginRight: 6,
+                                                                color: '#fa8c16'
+                                                            }} />
+                                                            {startTime.format('MMM DD, YYYY HH:mm')}
+                                                        </Text>
+                                                    </div>
+                                                    
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ 
+                                                            fontSize: '13px',
+                                                            color: '#434343',
+                                                            fontWeight: 500
+                                                        }}>
+                                                            {schedule.location_mode === 'online' ? (
+                                                                <>
+                                                                    <VideoCameraOutlined style={{ 
+                                                                        marginRight: 6,
+                                                                        color: '#722ed1'
+                                                                    }} />
+                                                                    Online Class
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <EnvironmentOutlined style={{ 
+                                                                        marginRight: 6,
+                                                                        color: '#eb2f96'
+                                                                    }} />
+                                                                    {schedule.location || 'Physical Location'}
+                                                                </>
+                                                            )}
+                                                        </Text>
+                                                    </div>
+                                                    
+                                                    {minutesUntilStart > 0 && minutesUntilStart <= 60 && (
+                                                        <div style={{ marginTop: 10 }}>
+                                                            <Tag 
+                                                                color="green" 
+                                                                size="small"
+                                                                style={{
+                                                                    background: '#f6ffed',
+                                                                    border: '1px solid #52c41a',
+                                                                    color: '#389e0d',
+                                                                    fontWeight: 'bold'
+                                                                }}
+                                                            >
+                                                                Starts in {minutesUntilStart} min{minutesUntilStart !== 1 ? 's' : ''}
+                                                            </Tag>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                
+                                                {canJoin && (
+                                                    <div style={{ marginLeft: 16 }}>
+                                                        <Button
+                                                            type="primary"
+                                                            size="small"
+                                                            icon={<VideoCameraOutlined />}
+                                                            onClick={() => {
+                                                                if (schedule.link) {
+                                                                    window.open(schedule.link, '_blank');
+                                                                    message.success('Joining the meeting...');
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
+                                                                borderColor: '#52c41a',
+                                                                fontWeight: 'bold',
+                                                                fontSize: '12px',
+                                                                height: '32px',
+                                                                boxShadow: '0 2px 6px rgba(82, 196, 26, 0.3)',
+                                                                border: 'none',
+                                                                animation: 'joinButtonPulse 2s infinite',
+                                                                position: 'relative',
+                                                                overflow: 'hidden'
+                                                            }}
+                                                            className="join-button-animated"
+                                                        >
+                                                            JOIN
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </Card>
+                                    );
+                                })}
+                            </div>
                         )}
                     </Card>
 
