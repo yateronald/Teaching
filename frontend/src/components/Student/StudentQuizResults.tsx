@@ -16,7 +16,7 @@ import {
     Spin,
     Empty,
     Tooltip,
-    List
+    Collapse
 } from 'antd';
 import {
     TrophyOutlined,
@@ -190,19 +190,14 @@ const StudentQuizResults: React.FC = () => {
             };
         }
 
-        const now = dayjs();
-        // Only include expired results for score metrics
-        const expired = results.filter(r => {
-            const end = r.end_date ? dayjs(r.end_date) : null;
-            return end ? now.isAfter(end) : r.results_locked === false;
-        });
-        const totalScore = expired.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
-        const bestScore = expired.length > 0 ? Math.max(...expired.map(r => Number(r.percentage || 0))) : 0;
+        const unlocked = results.filter(r => !r.results_locked);
+        const totalScore = unlocked.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
+        const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
         const totalTimeSpent = results.reduce((sum, r) => sum + Number(r.time_taken || 0), 0);
 
         return {
             totalQuizzes: results.length,
-            averageScore: expired.length > 0 ? Math.round(totalScore / expired.length) : 0,
+            averageScore: unlocked.length > 0 ? Math.round(totalScore / unlocked.length) : 0,
             bestScore: Math.round(bestScore),
             totalTimeSpent: Math.round(totalTimeSpent)
         };
@@ -401,8 +396,6 @@ const StudentQuizResults: React.FC = () => {
                         columns={columns}
                         dataSource={results}
                         rowKey="id"
-                        sticky
-                        scroll={{ y: 440 }}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,
@@ -468,111 +461,100 @@ const StudentQuizResults: React.FC = () => {
 
                         {/* Question-wise Results */}
                         <Card title="Question-wise Performance" size="small">
-                            <List
-                                dataSource={selectedResult.questions}
-                                renderItem={(question, index) => (
-                                    <List.Item>
-                                        <div style={{ width: '100%' }}>
-                                            <Row gutter={16}>
-                                                <Col span={18}>
-                                                    <Text strong>Q{index + 1}. {question.question_text}</Text>
-                                                    <br />
-                                                    {/* Your Answer (render per-type) */}
-                                                    {(() => {
-                                                        const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
-                                                        if (isMcq && question.options && question.options.length > 0) {
-                                                            let selectedIds: number[] = [];
-                                                            try {
-                                                                if (Array.isArray((question as any).selected_options)) {
-                                                                    selectedIds = (question as any).selected_options as number[];
-                                                                } else if ((question as any).selected_options) {
-                                                                    const parsed = JSON.parse((question as any).selected_options as string);
-                                                                    if (Array.isArray(parsed)) selectedIds = parsed as number[];
-                                                                }
-                                                            } catch (_) {
-                                                                selectedIds = [];
-                                                            }
-
-                                                            const selectedOptions = question.options.filter(o => selectedIds.includes(o.id));
-                                                            return (
-                                                                <div style={{ marginTop: 8 }}>
-                                                                    <Text type="secondary">Your Answer: </Text>
-                                                                    {selectedOptions.length > 0 ? (
-                                                                        <Space wrap>
-                                                                            {selectedOptions.map((opt) => (
-                                                                                <Tag key={opt.id} color={opt.is_correct ? 'green' : 'red'}>
-                                                                                    {opt.option_text}
-                                                                                </Tag>
-                                                                            ))}
-                                                                        </Space>
-                                                                    ) : (
-                                                                        <Text type="secondary">No answer</Text>
-                                                                    )}
-                                                                    {/* Always show the correct answers in green */}
-                                                                    {question.options.some(o => o.is_correct) && (
-                                                                        <div style={{ marginTop: 6 }}>
-                                                                            <Text type="secondary">Correct Answer: </Text>
-                                                                            <Space wrap>
-                                                                                {question.options.filter(o => o.is_correct).map((opt) => (
-                                                                                    <Tag key={`c-${opt.id}`} color="green">{opt.option_text}</Tag>
-                                                                                ))}
-                                                                            </Space>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        }
-
-                                                        // Non-MCQ fallback (text/yes_no etc.)
-                                                        return (
-                                                            <>
-                                                                {question.student_answer && (
-                                                                    <div style={{ marginTop: 8 }}>
-                                                                        <Text type="secondary">Your Answer: </Text>
-                                                                        <Text>{question.student_answer}</Text>
-                                                                    </div>
-                                                                )}
-                                                                {question.correct_answer && question.student_answer !== question.correct_answer && (
-                                                                    <div style={{ marginTop: 4 }}>
-                                                                        <Text type="secondary">Correct Answer: </Text>
-                                                                        <Text style={{ color: '#52c41a' }}>{question.correct_answer}</Text>
-                                                                    </div>
-                                                                )}
-                                                            </>
-                                                        );
-                                                    })()}
-
-                                                    {question.teacher_feedback && (
-                                                        <div style={{ marginTop: 8 }}>
-                                                            <Text type="secondary">Feedback: </Text>
-                                                            <Text italic>{question.teacher_feedback}</Text>
-                                                        </div>
-                                                    )}
-                                                </Col>
-                                                <Col span={6} style={{ textAlign: 'right' }}>
-                                                    {(() => {
-                                                        const status = getQuestionStatus(question);
-                                                        return (
-                                                            <>
-                                                                <div>
-                                                                    <Tag color={status.color}>
-                                                                        {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
-                                                                    </Tag>
-                                                                </div>
-                                                                <div style={{ marginTop: 8 }}>
-                                                                    <Text strong style={{ color: getQuestionScoreColor(question.score, question.points) }}>
-                                                        {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
-                                                    </Text>
-                                                                </div>
-                                                            </>
-                                                        );
-                                                    })()}
-                                                </Col>
-                                            </Row>
+                            <Collapse accordion bordered={false} style={{ background: '#fafafa' }}>
+                                {selectedResult.questions.map((question, index) => {
+                                    const status = getQuestionStatus(question);
+                                    const header = (
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                            <span>Q{index + 1}. {question.question_text}</span>
+                                            <div>
+                                                <Tag color={status.color} style={{ marginRight: 8 }}>
+                                                    {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
+                                                </Tag>
+                                                <Tag color={getQuestionScoreColor(question.score, question.points)}>
+                                                    {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
+                                                </Tag>
+                                            </div>
                                         </div>
-                                    </List.Item>
-                                )}
-                            />
+                                    );
+
+                                    return (
+                                        <Collapse.Panel header={header} key={question.id.toString()}>
+                                            {/* Render answer details */}
+                                            {(() => {
+                                                const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
+                                                if (isMcq && question.options && question.options.length > 0) {
+                                                    let selectedIds: number[] = [];
+                                                    try {
+                                                        if (Array.isArray((question as any).selected_options)) {
+                                                            selectedIds = (question as any).selected_options as number[];
+                                                        } else if ((question as any).selected_options) {
+                                                            const parsed = JSON.parse((question as any).selected_options as string);
+                                                            if (Array.isArray(parsed)) selectedIds = parsed as number[];
+                                                        }
+                                                    } catch (_) {
+                                                        selectedIds = [];
+                                                    }
+
+                                                    const selectedOptions = question.options.filter(o => selectedIds.includes(o.id));
+                                                    return (
+                                                        <div>
+                                                            <Text type="secondary">Your Answer: </Text>
+                                                            {selectedOptions.length > 0 ? (
+                                                                <Space wrap>
+                                                                    {selectedOptions.map((opt) => (
+                                                                        <Tag key={opt.id} color={opt.is_correct ? 'green' : 'red'}>
+                                                                            {opt.option_text}
+                                                                        </Tag>
+                                                                    ))}
+                                                                </Space>
+                                                            ) : (
+                                                                <Text type="secondary">No answer</Text>
+                                                            )}
+                                                            {/* Always show the correct answers in green */}
+                                                            {question.options.some(o => o.is_correct) && (
+                                                                <div style={{ marginTop: 6 }}>
+                                                                    <Text type="secondary">Correct Answer: </Text>
+                                                                    <Space wrap>
+                                                                        {question.options.filter(o => o.is_correct).map((opt) => (
+                                                                            <Tag key={`c-${opt.id}`} color="green">{opt.option_text}</Tag>
+                                                                        ))}
+                                                                    </Space>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                }
+
+                                                // Non-MCQ fallback (text/yes_no etc.)
+                                                return (
+                                                    <>
+                                                        {question.student_answer && (
+                                                            <div style={{ marginBottom: 8 }}>
+                                                                <Text type="secondary">Your Answer: </Text>
+                                                                <Text>{question.student_answer}</Text>
+                                                            </div>
+                                                        )}
+                                                        {question.correct_answer && question.student_answer !== question.correct_answer && (
+                                                            <div style={{ marginBottom: 8 }}>
+                                                                <Text type="secondary">Correct Answer: </Text>
+                                                                <Text style={{ color: '#52c41a' }}>{question.correct_answer}</Text>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                );
+                                            })()}
+
+                                            {question.teacher_feedback && (
+                                                <div style={{ marginTop: 8 }}>
+                                                    <Text type="secondary">Feedback: </Text>
+                                                    <Text italic>{question.teacher_feedback}</Text>
+                                                </div>
+                                            )}
+                                        </Collapse.Panel>
+                                    );
+                                })}
+                            </Collapse>
                         </Card>
                     </div>
                 )}
