@@ -4,18 +4,12 @@ import {
     Col, 
     Card, 
     Statistic, 
-    Table, 
     Button, 
     Modal, 
-    Form, 
-    Input, 
-    Select, 
     message, 
-    Space,
     Typography,
     Tag,
     Progress,
-    Tabs,
     List,
     Avatar,
     Timeline,
@@ -36,9 +30,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { BarChart, LineChart, PieChart } from '@mui/x-charts';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 interface Batch {
     id: number;
@@ -62,7 +56,7 @@ interface Quiz {
     start_date?: string | null;
     end_date?: string | null;
     batch_names?: string; // comma-separated
-    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted';
+    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted' | 'completed';
     submission?: {
         total_score?: number;
         max_score?: number;
@@ -96,6 +90,7 @@ const StudentDashboard: React.FC = () => {
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [resources, setResources] = useState<Resource[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [quizModalVisible, setQuizModalVisible] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
@@ -133,7 +128,7 @@ const StudentDashboard: React.FC = () => {
                 setQuizzes(quizzesData);
 
                 // Stats: completed & pending based on submission_status and availability
-                const completedQuizzes = quizzesData.filter(q => q.submission_status === 'submitted' || q.submission_status === 'auto_submitted').length;
+                const completedQuizzes = quizzesData.filter(q => q.submission_status === 'completed').length;
 
                 const now = dayjs();
                 const isActive = (q: Quiz) => {
@@ -156,8 +151,15 @@ const StudentDashboard: React.FC = () => {
             // Results for average score
             if (resultsRes && resultsRes.ok) {
                 const data = await resultsRes.json();
-                const results = (data?.results || []) as any[];
-                const scores = results.map(r => Number(r.percentage ?? 0)).filter((n: number) => !isNaN(n));
+                const allResults = (data?.results || []) as any[];
+                const now = dayjs();
+                // Expired results only: end_date has passed; fallback to unlocked when end_date missing
+                const expired = allResults.filter((r: any) => {
+                    const end = r?.end_date ? dayjs(r.end_date) : null;
+                    return end ? now.isAfter(end) : r?.results_locked === false;
+                });
+                setResults(expired);
+                const scores = expired.map(r => Number(r.percentage ?? 0)).filter((n: number) => !isNaN(n));
                 const averageScore = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length)) : 0;
                 setStats(prev => ({ ...prev, averageScore }));
             }
@@ -250,7 +252,7 @@ const StudentDashboard: React.FC = () => {
             title: 'Status',
             key: 'status',
             render: (_, record) => {
-                if (record.submission_status === 'submitted' || record.submission_status === 'auto_submitted') {
+                if (record.submission_status === 'completed') {
                     const percentage = Math.round(Number(record.submission?.percentage ?? ((Number(record.submission?.total_score || 0) / Number(record.submission?.max_score || 0)) * 100)) || 0);
                     return (
                         <div>
@@ -272,7 +274,7 @@ const StudentDashboard: React.FC = () => {
             title: 'Actions',
             key: 'actions',
             render: (_, record) => {
-                if (record.submission_status === 'submitted' || record.submission_status === 'auto_submitted') {
+                if (record.submission_status === 'completed') {
                     return (
                         <Button type="link" disabled>
                             <CheckCircleOutlined /> Completed
@@ -419,102 +421,79 @@ const StudentDashboard: React.FC = () => {
 
             <Row gutter={[16, 16]}>
                 <Col xs={24} lg={16}>
-                    <Tabs defaultActiveKey="quizzes">
-                        <TabPane tab="My Quizzes" key="quizzes">
-                            <Card title="Available Quizzes">
-                                {stats.pendingQuizzes > 0 && (
-                                    <Alert
-                                        message={`You have ${stats.pendingQuizzes} pending quiz${stats.pendingQuizzes > 1 ? 'es' : ''} to complete`}
-                                        type="info"
-                                        showIcon
-                                        style={{ marginBottom: 16 }}
-                                    />
+                    <Row gutter={[16, 16]}>
+                        <Col xs={24} md={12}>
+                            <Card title="Score Over Time">
+                                {results.length === 0 ? (
+                                    <Text type="secondary">No expired quiz results yet</Text>
+                                ) : (
+                                    <div style={{ height: 280 }}>
+                                        <LineChart
+                                            xAxis={[{ scaleType: 'point', data: results
+                                                .slice()
+                                                .sort((a: any, b: any) => dayjs(a.submitted_at).diff(dayjs(b.submitted_at)))
+                                                .map((r: any) => dayjs(r.submitted_at).format('MMM DD')) }]}
+                                            series={[{ data: results
+                                                .slice()
+                                                .sort((a: any, b: any) => dayjs(a.submitted_at).diff(dayjs(b.submitted_at)))
+                                                .map((r: any) => Math.round(Number(r.percentage ?? 0))) , label: 'Score %' }]}
+                                            height={260}
+                                        />
+                                    </div>
                                 )}
-                                <Table
-                                    columns={quizColumns}
-                                    dataSource={quizzes}
-                                    rowKey="id"
-                                    loading={loading}
-                                    pagination={{ pageSize: 10 }}
-                                />
                             </Card>
-                        </TabPane>
-
-                        <TabPane tab="Resources" key="resources">
-                            <Card title="Learning Resources">
-                                <Table
-                                    columns={resourceColumns}
-                                    dataSource={resources}
-                                    rowKey="id"
-                                    loading={loading}
-                                    pagination={{ pageSize: 10 }}
-                                />
+                        </Col>
+                        <Col xs={24} md={12}>
+                            <Card title="Scores by Quiz (Top 10)">
+                                {results.length === 0 ? (
+                                    <Text type="secondary">No expired quiz results yet</Text>
+                                ) : (
+                                    <div style={{ height: 280 }}>
+                                        <BarChart
+                                            xAxis={[{ scaleType: 'band', data: results
+                                                .slice(-10)
+                                                .map((r: any) => (r.quiz_title?.length > 10 ? r.quiz_title.slice(0, 10) + '…' : r.quiz_title)) }]}
+                                            series={[{ data: results.slice(-10).map((r: any) => Math.round(Number(r.percentage ?? 0))) }]}
+                                            height={260}
+                                        />
+                                    </div>
+                                )}
                             </Card>
-                        </TabPane>
-
-                        <TabPane tab="My Batches" key="batches">
-                            <Card title="Enrolled Batches">
-                                <List
-                                    itemLayout="horizontal"
-                                    dataSource={batches}
-                                    loading={loading}
-                                    renderItem={(batch) => {
-                                        const hasDates = !!(batch.start_date && batch.end_date);
-                                        const isActive = hasDates ? dayjs().isBetween(dayjs(batch.start_date), dayjs(batch.end_date)) : false;
-                                        const isUpcoming = hasDates ? dayjs().isBefore(dayjs(batch.start_date)) : false;
-                                        
-                                        return (
-                                            <List.Item>
-                                                <List.Item.Meta
-                                                    avatar={
-                                                        <Avatar 
-                                                            style={{ 
-                                                                backgroundColor: hasDates ? (isActive ? '#52c41a' : isUpcoming ? '#1890ff' : '#d9d9d9') : '#1890ff' 
-                                                            }}
-                                                            icon={<BookOutlined />}
-                                                        />
-                                                    }
-                                                    title={batch.name}
-                                                    description={
-                                                        <div>
-                                                            {batch.description && (
-                                                                <>
-                                                                    <Text type="secondary">{batch.description}</Text>
-                                                                    <br />
-                                                                </>
-                                                            )}
-                                                            {batch.teacher_name && (
-                                                                <>
-                                                                    <Text type="secondary">Teacher: {batch.teacher_name}</Text>
-                                                                    <br />
-                                                                </>
-                                                            )}
-                                                            {hasDates && (
-                                                                <Text type="secondary">
-                                                                    {dayjs(batch.start_date).format('MMM DD')} - {dayjs(batch.end_date).format('MMM DD, YYYY')}
-                                                                </Text>
-                                                            )}
-                                                        </div>
-                                                    }
-                                                />
-                                                <div style={{ textAlign: 'right' }}>
-                                                    <Tag color={hasDates ? (isActive ? 'green' : isUpcoming ? 'blue' : 'default') : 'blue'}>
-                                                        {hasDates ? (isActive ? 'Active' : isUpcoming ? 'Upcoming' : 'Completed') : 'Enrolled'}
-                                                    </Tag>
-                                                    <br />
-                                                    {(batch.current_students !== undefined && batch.max_students !== undefined) && (
-                                                        <Text type="secondary">
-                                                            {batch.current_students}/{batch.max_students} students
-                                                        </Text>
-                                                    )}
-                                                </div>
-                                            </List.Item>
-                                        );
-                                    }}
-                                />
+                        </Col>
+                    </Row>
+                    <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                        <Col xs={24}>
+                            <Card title="Quiz Availability Status">
+                                {quizzes.length === 0 ? (
+                                    <Text type="secondary">No quizzes found</Text>
+                                ) : (
+                                    <div style={{ display: 'flex', justifyContent: 'center', height: 300 }}>
+                                        <PieChart
+                                            series={[{
+                                                data: (() => {
+                                                    const now = dayjs();
+                                                    const counts = { upcoming: 0, active: 0, expired: 0 };
+                                                    quizzes.forEach(q => {
+                                                        const start = q.start_date ? dayjs(q.start_date) : null;
+                                                        const end = q.end_date ? dayjs(q.end_date) : null;
+                                                        if (start && now.isBefore(start)) counts.upcoming++;
+                                                        else if (end && now.isAfter(end)) counts.expired++;
+                                                        else counts.active++;
+                                                    });
+                                                    return [
+                                                        { id: 0, value: counts.upcoming, label: 'Upcoming' },
+                                                        { id: 1, value: counts.active, label: 'Active' },
+                                                        { id: 2, value: counts.expired, label: 'Expired' },
+                                                    ];
+                                                })()
+                                            }]}
+                                            height={280}
+                                        />
+                                    </div>
+                                )}
                             </Card>
-                        </TabPane>
-                    </Tabs>
+                        </Col>
+                    </Row>
                 </Col>
 
                 <Col xs={24} lg={8}>

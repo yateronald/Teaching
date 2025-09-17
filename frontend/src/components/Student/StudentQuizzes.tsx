@@ -49,7 +49,7 @@ interface Quiz {
     start_date?: string | null;
     end_date?: string | null;
     batch_names?: string; // comma-separated
-    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted';
+    submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted' | 'completed';
     submission?: {
         total_score?: number;
         max_score?: number;
@@ -103,7 +103,7 @@ const StudentQuizzes: React.FC = () => {
     useEffect(() => {
         const computeStats = () => {
             const total_quizzes = quizzes.length;
-            const completed_quizzes = quizzes.filter(q => (q.submission_status === 'submitted' || q.submission_status === 'auto_submitted')).length;
+            const completed_quizzes = quizzes.filter(q => q.submission_status === 'completed').length;
             const scores = attempts.map(a => a.score).filter((s) => typeof s === 'number');
             const average_score = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : 0;
             const best_score = scores.length ? Math.max(...scores) : 0;
@@ -139,18 +139,21 @@ const StudentQuizzes: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 const results = (data?.results || []) as any[];
-                const mapped: QuizAttempt[] = results.map((r, idx) => ({
-                    id: r.id ?? idx,
-                    quiz_id: r.quiz_id,
-                    quiz_title: r.quiz_title,
-                    score: Number(r.percentage ?? 0),
-                    total_questions: Number(r.total_questions ?? 0),
-                    correct_answers: Number(r.correct_answers ?? 0),
-                    time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),
-                    completed_at: r.submitted_at,
-                    passed: Number(r.percentage ?? 0) >= 50,
-                    attempt_number: 1,
-                }));
+                const mapped: QuizAttempt[] = results
+                    // Only include expired/unlocked results (average should apply only to expired status)
+                    .filter((r: any) => r && r.results_locked === false)
+                    .map((r, idx) => ({
+                        id: r.id ?? idx,
+                        quiz_id: r.quiz_id,
+                        quiz_title: r.quiz_title,
+                        score: Number(r.percentage ?? 0),
+                        total_questions: Number(r.total_questions ?? 0),
+                        correct_answers: Number(r.correct_answers ?? 0),
+                        time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),
+                        completed_at: r.submitted_at,
+                        passed: Number(r.percentage ?? 0) >= 50,
+                        attempt_number: 1,
+                    }));
                 setAttempts(mapped);
             }
         } catch (error) {
@@ -358,7 +361,7 @@ const StudentQuizzes: React.FC = () => {
 
     const activeQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'active');
     const upcomingQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'upcoming');
-    const completedQuizzes = quizzes.filter(quiz => (quiz.submission_status === 'submitted' || quiz.submission_status === 'auto_submitted'));
+    const completedQuizzes = quizzes.filter(quiz => quiz.submission_status === 'completed');
 
     return (
         <div>
@@ -421,6 +424,7 @@ const StudentQuizzes: React.FC = () => {
                                 dataSource={activeQuizzes}
                                 rowKey="id"
                                 loading={loading}
+                                sticky
                                 scroll={{ x: 880, y: 400 }}
                                 pagination={{
                                     pageSize: 10,
@@ -441,6 +445,7 @@ const StudentQuizzes: React.FC = () => {
                                 dataSource={upcomingQuizzes}
                                 rowKey="id"
                                 loading={loading}
+                                sticky
                                 scroll={{ x: 880, y: 400 }}
                                 pagination={{
                                     pageSize: 10,
@@ -461,6 +466,7 @@ const StudentQuizzes: React.FC = () => {
                                 dataSource={completedQuizzes}
                                 rowKey="id"
                                 loading={loading}
+                                sticky
                                 scroll={{ x: 880, y: 400 }}
                                 pagination={{
                                     pageSize: 10,
@@ -481,6 +487,7 @@ const StudentQuizzes: React.FC = () => {
                                 dataSource={attempts}
                                 rowKey="id"
                                 loading={loading}
+                                sticky
                                 scroll={{ x: 850, y: 400 }}
                                 pagination={{
                                     pageSize: 10,

@@ -190,14 +190,19 @@ const StudentQuizResults: React.FC = () => {
             };
         }
 
-        const unlocked = results.filter(r => !r.results_locked);
-        const totalScore = unlocked.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
-        const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
+        const now = dayjs();
+        // Only include expired results for score metrics
+        const expired = results.filter(r => {
+            const end = r.end_date ? dayjs(r.end_date) : null;
+            return end ? now.isAfter(end) : r.results_locked === false;
+        });
+        const totalScore = expired.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
+        const bestScore = expired.length > 0 ? Math.max(...expired.map(r => Number(r.percentage || 0))) : 0;
         const totalTimeSpent = results.reduce((sum, r) => sum + Number(r.time_taken || 0), 0);
 
         return {
             totalQuizzes: results.length,
-            averageScore: unlocked.length > 0 ? Math.round(totalScore / unlocked.length) : 0,
+            averageScore: expired.length > 0 ? Math.round(totalScore / expired.length) : 0,
             bestScore: Math.round(bestScore),
             totalTimeSpent: Math.round(totalTimeSpent)
         };
@@ -396,6 +401,8 @@ const StudentQuizResults: React.FC = () => {
                         columns={columns}
                         dataSource={results}
                         rowKey="id"
+                        sticky
+                        scroll={{ y: 440 }}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,
