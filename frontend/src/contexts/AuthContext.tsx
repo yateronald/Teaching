@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
 import { message } from 'antd';
 
 interface User {
@@ -79,7 +80,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         checkAuth();
     }, []);
 
-    const login = async (email, password) => {
+    const login = async (email: string, password: string) => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: 'POST',
@@ -115,7 +116,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         message.success('Logged out successfully');
     };
 
-    const updateProfile = async (profileData) => {
+    const updateProfile = async (profileData: Partial<User>) => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/profile`, {
                 method: 'PUT',
@@ -143,7 +144,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     };
 
-    const changePassword = async (currentPassword, newPassword) => {
+    const changePassword = async (currentPassword: string, newPassword: string) => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
                 method: 'PUT',
@@ -188,7 +189,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     // Helper function to make authenticated API calls
-    const apiCall = async (endpoint, options = {}) => {
+    const apiCall = async (endpoint: string, options: RequestInit = {}) => {
         // First verify token is still valid
         const isTokenValid = await verifyToken();
         if (!isTokenValid) {

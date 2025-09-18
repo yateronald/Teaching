@@ -3,8 +3,7 @@ import {
     Card, 
     Button, 
     Radio, 
-    Input, 
-    Form, 
+ 
     Typography, 
     Progress, 
     Space, 
@@ -27,7 +26,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const { Title, Text, Paragraph } = Typography;
-const { TextArea } = Input;
 
 // Helper function to format numbers - show whole numbers without .00
 const formatNumber = (num: number): string => {
@@ -93,13 +91,12 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [quizResults, setQuizResults] = useState<QuizResults | null>(null);
     const [totalTimeSeconds, setTotalTimeSeconds] = useState<number>(0);
-    const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const timerRef = useRef<number | null>(null);
+    const autoSaveTimerRef = useRef<number | null>(null);
     // Server sync polling interval
-    const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+    const syncIntervalRef = useRef<number | null>(null);
     // Track visited questions for nav coloring
     const [visitedQuestions, setVisitedQuestions] = useState<Set<number>>(() => new Set());
-    const [form] = Form.useForm();
 
     useEffect(() => {
         if (quizId) {
@@ -558,93 +555,84 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
 
     if (quizCompleted) {
         return (
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center', 
-                height: '100vh',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-            }}>
+            <div style={{ padding: '24px', textAlign: 'center' }}>
                 {contextHolder}
-                <Card style={{ width: 500, textAlign: 'center' }}>
-                    <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a', marginBottom: 16 }} />
-                    <Title level={2}>Quiz Completed!</Title>
-                    <Paragraph>
-                        Your quiz has been submitted successfully. You will be redirected to your dashboard shortly.
-                    </Paragraph>
-                    <Button type="primary" onClick={() => navigate('/student-dashboard')}>Go to Dashboard</Button>
-                </Card>
+                <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a', marginBottom: 16 }} />
+                <Title level={2}>Quiz Completed!</Title>
+                <Paragraph>
+                    Your quiz has been submitted successfully. You will be redirected to your dashboard shortly.
+                </Paragraph>
+                <Button type="primary" onClick={() => navigate('/student-dashboard')}>Go to Dashboard</Button>
             </div>
         );
     }
 
     if (!quizStarted) {
         return (
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center', 
-                height: '100vh',
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
-            }}>
+            <div style={{ padding: '24px' }}>
                 {contextHolder}
-                <Card style={{ width: 600 }}>
-                    <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                        <QuestionCircleOutlined style={{ fontSize: 64, color: '#1890ff', marginBottom: 16 }} />
-                        <Title level={2}>{quiz.title}</Title>
-                        <Paragraph>{quiz.description}</Paragraph>
-                    </div>
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                    <QuestionCircleOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
+                    <Title level={3} style={{ marginBottom: 8 }}>Take Quiz</Title>
+                    <Title level={4} style={{ marginBottom: 4, fontWeight: 'normal' }}>{quiz.title}</Title>
+                    <Paragraph style={{ marginBottom: 16 }}>{quiz.description}</Paragraph>
+                </div>
                     
-                    <Row gutter={16} style={{ marginBottom: 24 }}>
-                        <Col span={8}>
+                <Row gutter={16} style={{ marginBottom: 20 }}>
+                    <Col span={8}>
+                        <Card size="small" style={{ textAlign: 'center' }}>
                             <Statistic
                                 title="Questions"
                                 value={quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}
                                 prefix={<QuestionCircleOutlined />}
                             />
-                        </Col>
-                        <Col span={8}>
+                        </Card>
+                    </Col>
+                    <Col span={8}>
+                        <Card size="small" style={{ textAlign: 'center' }}>
                             <Statistic
                                 title="Time Limit"
                                 value={quiz.duration_minutes ?? '—'}
-                                suffix="minutes"
+                                suffix="min"
                                 prefix={<ClockCircleOutlined />}
                             />
-                        </Col>
-                        <Col span={8}>
+                        </Card>
+                    </Col>
+                    <Col span={8}>
+                        <Card size="small" style={{ textAlign: 'center' }}>
                             <Statistic
                                 title="Total Points"
                                 value={Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0}
                                 prefix={<CheckCircleOutlined />}
                             />
-                        </Col>
-                    </Row>
-                    
-                    <Alert
-                        message="Important Instructions"
-                        description={
-                            <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-                                <li>Once you start, the timer will begin immediately</li>
-                                <li>You can navigate between questions using Next/Previous buttons</li>
-                                <li>Your answers are saved automatically</li>
-                                <li>Make sure you have a stable internet connection</li>
-                                <li>The quiz will auto-submit when time runs out</li>
-                            </ul>
-                        }
-                        type="info"
-                        showIcon
-                        style={{ marginBottom: 24 }}
-                    />
-                    
-                    <div style={{ textAlign: 'center' }}>
-                        <Space>
-                            <Button onClick={() => navigate('/student-dashboard')}>Cancel</Button>
-                            <Button type="primary" size="large" onClick={startQuiz}>
-                                Start Quiz
-                            </Button>
-                        </Space>
-                    </div>
-                </Card>
+                        </Card>
+                    </Col>
+                </Row>
+                
+                <Alert
+                    message="Important Instructions"
+                    description={
+                        <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
+                            <li>Once you start, the timer will begin immediately</li>
+                            <li>You can navigate between questions using Next/Previous buttons</li>
+                            <li>Your answers are saved automatically</li>
+                            <li>Make sure you have a stable internet connection</li>
+                            <li>The quiz will auto-submit when time runs out</li>
+                        </ul>
+                    }
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 20 }}
+                />
+                
+                <div style={{ textAlign: 'center' }}>
+                    <Space>
+                        <Button onClick={() => navigate('/student-dashboard')}>Cancel</Button>
+                        <Button type="primary" size="large" onClick={startQuiz}>
+                            Start Quiz
+                        </Button>
+                    </Space>
+                </div>
             </div>
         );
     }
@@ -795,8 +783,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                     style={{ 
                         marginTop: 24, 
                         textAlign: 'center',
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        color: 'white'
+                        border: '1px solid #d9d9d9'
                     }}
                 >
                     <div style={{ padding: '24px 0' }}>
@@ -807,22 +794,22 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                 marginBottom: 16 
                             }} 
                         />
-                        <Title level={2} style={{ color: 'white', marginBottom: 24 }}>
+                        <Title level={2} style={{ marginBottom: 24 }}>
                             Quiz Completed!
                         </Title>
                         
                         <Row gutter={[24, 24]} justify="center">
                             <Col xs={24} sm={12} md={6}>
                                 <Statistic
-                                    title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Your Score</span>}
+                                    title="Your Score"
                                     value={quizResults.totalScore}
                                     suffix={`/ ${quizResults.maxScore}`}
-                                    valueStyle={{ color: 'white', fontSize: 28 }}
+                                    valueStyle={{ fontSize: 28 }}
                                 />
                             </Col>
                             <Col xs={24} sm={12} md={6}>
                                 <Statistic
-                                    title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Percentage</span>}
+                                    title="Percentage"
                                     value={formatNumber(quizResults.percentage)}
                                     suffix="%"
                                     valueStyle={{ 
@@ -834,15 +821,15 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             </Col>
                             <Col xs={24} sm={12} md={6}>
                                 <Statistic
-                                    title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Time Taken</span>}
+                                    title="Time Taken"
                                     value={quizResults.time_taken_minutes}
                                     suffix="min"
-                                    valueStyle={{ color: 'white', fontSize: 28 }}
+                                    valueStyle={{ fontSize: 28 }}
                                 />
                             </Col>
                             <Col xs={24} sm={12} md={6}>
                                 <Statistic
-                                    title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Grade</span>}
+                                    title="Grade"
                                     value={
                                         quizResults.percentage >= 90 ? 'A+' :
                                         quizResults.percentage >= 80 ? 'A' :
@@ -874,11 +861,6 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                     quizResults.percentage >= 50 ? 'warning' : 'error'
                                 }
                                 showIcon
-                                style={{ 
-                                    backgroundColor: 'rgba(255,255,255,0.1)',
-                                    border: 'none',
-                                    color: 'white'
-                                }}
                             />
                         </div>
                         
@@ -894,11 +876,6 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                 <Button 
                                     size="large"
                                     onClick={() => navigate('/student-dashboard')}
-                                    style={{ 
-                                        backgroundColor: 'rgba(255,255,255,0.2)',
-                                        borderColor: 'rgba(255,255,255,0.3)',
-                                        color: 'white'
-                                    }}
                                 >
                                     Back to Dashboard
                                 </Button>

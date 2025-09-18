@@ -11,37 +11,29 @@ import {
     Progress,
     Tag,
     Space,
-    Select,
     DatePicker,
     message,
-    Tabs,
     List,
-    Avatar,
     Descriptions,
     Divider,
-    Tooltip,
     Badge,
     Empty
 } from 'antd';
 import {
     TrophyOutlined,
-    UserOutlined,
     ClockCircleOutlined,
     CheckCircleOutlined,
-    ExclamationCircleOutlined,
     EyeOutlined,
     DownloadOutlined,
-    BarChartOutlined,
     FileTextOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
+import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 
-const { Title, Text, Paragraph } = Typography;
-const { Option } = Select;
-const { TabPane } = Tabs;
+const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
 // Number formatting function
@@ -120,7 +112,7 @@ const QuizResults: React.FC = () => {
     const [selectedSubmission, setSelectedSubmission] = useState<DetailedSubmission | null>(null);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedBatch, setSelectedBatch] = useState<number | null>(null);
-    const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+    const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
     const [filteredSubmissions, setFilteredSubmissions] = useState<QuizSubmission[]>([]);
 
     useEffect(() => {
@@ -139,8 +131,9 @@ const QuizResults: React.FC = () => {
         setLoading(true);
         try {
             const response = await apiCall(`/api/quizzes/${quizId}/results`);
-            if (response.success) {
-                setQuizResult(response.data);
+        if (response.ok) {
+            const data = await response.json();
+            setQuizResult(data);
             } else {
                 message.error('Failed to fetch quiz results');
             }
@@ -154,8 +147,9 @@ const QuizResults: React.FC = () => {
     const fetchSubmissionDetails = async (submissionId: number) => {
         try {
             const response = await apiCall(`/api/quiz-submissions/${submissionId}/details`);
-            if (response.success) {
-                setSelectedSubmission(response.data);
+        if (response.ok) {
+            const data = await response.json();
+            setSelectedSubmission(data);
                 setDetailModalVisible(true);
             } else {
                 message.error('Failed to fetch submission details');
@@ -399,7 +393,7 @@ const QuizResults: React.FC = () => {
                     <Col>
                         <RangePicker
                             value={dateRange}
-                            onChange={(dates) => setDateRange(dates)}
+                            onChange={(dates) => setDateRange(dates as [Dayjs, Dayjs] | null)}
                             placeholder={['Start Date', 'End Date']}
                         />
                     </Col>

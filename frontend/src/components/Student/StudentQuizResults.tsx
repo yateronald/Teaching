@@ -10,7 +10,7 @@ import {
     Col,
     Statistic,
     Progress,
-    Divider,
+
     Space,
     Alert,
     Spin,
@@ -95,7 +95,7 @@ const StudentQuizResults: React.FC = () => {
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedResult, setSelectedResult] = useState<DetailedResult | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
-    const { user, apiCall } = useAuth();
+    const { apiCall } = useAuth();
 
     useEffect(() => {
         fetchQuizResults();

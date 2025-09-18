@@ -10,13 +10,11 @@ import {
     Space,
     Typography,
     Tag,
-    Popconfirm,
     Card,
     DatePicker,
     InputNumber,
     Switch,
     Tabs,
-    List,
     Progress,
     Dropdown
 } from 'antd';
@@ -39,7 +37,7 @@ import duration from 'dayjs/plugin/duration';
 // Extend dayjs with duration plugin
 dayjs.extend(duration);
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { Option } = Select;
 const { TabPane } = Tabs;
 const { TextArea } = Input;
@@ -178,21 +176,6 @@ const QuizManagement: React.FC = () => {
         } catch (error) {
             message.error('Error deleting quiz');
         }
-    };
-
-    const handleEdit = (quiz: Quiz) => {
-        setEditingQuiz(quiz);
-        form.setFieldsValue({
-            title: quiz.title,
-            description: quiz.description,
-            batch_id: quiz.batch_id,
-            duration_minutes: quiz.duration_minutes,
-            max_attempts: quiz.max_attempts,
-            passing_score: quiz.passing_score,
-            // status is controlled via publish action in builder; keep modal neutral
-            timeRange: quiz.start_date && quiz.end_date ? [dayjs(quiz.start_date), dayjs(quiz.end_date)] : undefined,
-        });
-        setModalVisible(true);
     };
 
     const handleAdd = () => {

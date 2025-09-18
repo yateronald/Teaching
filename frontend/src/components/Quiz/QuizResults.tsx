@@ -8,10 +8,8 @@ import {
     Button,
     Row,
     Col,
-    Statistic,
     Modal,
     List,
-    Divider,
     message,
     Select,
     DatePicker,
@@ -124,7 +122,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     };
     
     const [quiz, setQuiz] = useState<Quiz | null>(null);
-    const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+
     const [results, setResults] = useState<StudentRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedResult, setSelectedResult] = useState<StudentRow | null>(null);
@@ -181,7 +179,6 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                         batch_name: b.batch_name,
                     }))
                 }));
-                setBatchResults(batches);
                 const flatStudents: StudentRow[] = batches.flatMap(b => b.students);
                 setResults(flatStudents);
             } else {
@@ -586,24 +583,11 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                 const correctOptionObjs = isMCQ
                                     ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1)
                                     : [];
-                                const selectedTexts = isMCQ
-                                    ? selectedOptionObjs.map(o => o!.option_text)
-                                    : [];
-                                const correctTexts = isMCQ
-                                    ? correctOptionObjs.map(o => o.option_text)
-                                    : [];
-
                                 // Determine status based on points for better UX on partial credit
                                 const percent = maxPoints > 0 ? pointsEarned / maxPoints : 0;
                                 const isFullyCorrect = percent >= 1;
                                 const isZero = percent <= 0;
                                 const isPartial = !isZero && !isFullyCorrect;
-
-                                const cardStyles = isFullyCorrect
-                                    ? { bg: '#f6ffed', border: '#b7eb8f' } // green
-                                    : isPartial
-                                        ? { bg: '#fff7e6', border: '#ffd591' } // orange
-                                        : { bg: '#fff2f0', border: '#ffccc7' }; // red
 
                                 const statusTag = isFullyCorrect
                                     ? { color: 'success' as const, text: 'Correct' }
@@ -692,7 +676,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                             Question {index + 1}
                                                         </Text>
                                                     </div>
-                                                    <Space size="medium">
+                                                    <Space size={16}>
                                                         <Tag 
                                                             color={statusTag.color}
                                                             style={{ 

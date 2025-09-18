@@ -1,10 +1,10 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Space, Divider, List, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip, Table, Collapse, Alert } from 'antd';
+import { Card, Row, Col, Statistic, Typography, Space, Divider, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip, Table, Alert } from 'antd';
 import { PieChart, BarChart, LineChart } from '@mui/x-charts';
 import dayjs from 'dayjs';
 import isBetween from 'dayjs/plugin/isBetween';
 import { useAuth } from '../../contexts/AuthContext';
-import { TeamOutlined, CheckCircleOutlined, ReloadOutlined, InfoCircleOutlined, TrophyOutlined, RiseOutlined, FallOutlined, OrderedListOutlined } from '@ant-design/icons';
+import { TeamOutlined, CheckCircleOutlined, ReloadOutlined, InfoCircleOutlined, TrophyOutlined, OrderedListOutlined } from '@ant-design/icons';
 
 dayjs.extend(isBetween);
 
@@ -105,7 +105,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     const avg = valid.length ? Math.round(valid.reduce((a,c)=>a + (c.percentage as number), 0) / valid.length) : 0;
 
     // histogram
-    const hist = bins.slice(0,-1).map((b,i)=>({ bin: `${bins[i]}-${bins[i+1]}`, count: valid.filter(v => {
+    const hist = bins.slice(0,-1).map((_,i)=>({ bin: `${bins[i]}-${bins[i+1]}`, count: valid.filter(v => {
       const p = v.percentage as number; return p >= bins[i] && p <= (i === bins.length-2 ? bins[i+1] : bins[i+1] - 0.0001);
     }).length }));
 
@@ -302,7 +302,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
         <Col xs={24} lg={12}>
           <Card title={<Space><span>Pass vs Fail</span><Tag color="blue">threshold {passMarkLocal}%</Tag></Space>}>
             {hasScores ? (
-              <PieChart height={280} series={[{ data:[{id:0,value:filteredBreakdown.filter(b=>(b.percentage||0)>=passMarkLocal).length,label:'Pass'},{id:1,value:filteredBreakdown.filter(b=>typeof b.percentage==='number' && (b.percentage as number)<passMarkLocal).length,label:'Fail'}], colors:['#52c41a','#ff4d4f'] }]} />
+              <PieChart height={280} series={[{ data:[{id:0,value:filteredBreakdown.filter(b=>(b.percentage||0)>=passMarkLocal).length,label:'Pass'},{id:1,value:filteredBreakdown.filter(b=>typeof b.percentage==='number' && (b.percentage as number)<passMarkLocal).length,label:'Fail'}] }]} />
             ) : (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
             )}

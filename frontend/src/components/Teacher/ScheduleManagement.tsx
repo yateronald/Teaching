@@ -87,7 +87,6 @@ const ScheduleManagement: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
-    const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs());
     const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
@@ -489,7 +488,7 @@ const ScheduleManagement: React.FC = () => {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            render: (status: string, record: Schedule) => (
+            render: (_, record: Schedule) => (
                 <Tag color={getStatusColor(getEffectiveStatus(record))}>
                     {getEffectiveStatus(record).toUpperCase()}
                 </Tag>

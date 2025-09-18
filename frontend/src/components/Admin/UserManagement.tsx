@@ -41,7 +41,7 @@ const UserManagement: React.FC = () => {
     const [modalVisible, setModalVisible] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [form] = Form.useForm();
-    const { apiCall, user, isAdmin, token, isAuthenticated, logout, verifyToken } = useAuth();
+    const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
 
     // Check if user is authenticated and has admin privileges
     if (!isAuthenticated) {

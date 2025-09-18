@@ -19,7 +19,6 @@ import {
     Alert,
     DatePicker,
     Checkbox,
-    Switch,
     Tooltip
 } from 'antd';
 import {
@@ -27,9 +26,6 @@ import {
     DeleteOutlined,
     EditOutlined,
     SaveOutlined,
-    QuestionCircleOutlined,
-    ClockCircleOutlined,
-    CalendarOutlined,
     InfoCircleOutlined,
     MinusCircleOutlined
 } from '@ant-design/icons';
@@ -366,7 +362,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         setEditingIndex(index);
         setQuestionModalVisible(true);
         // Normalize legacy types and answers for the form
-        const qt = question.question_type === 'mcq' ? 'mcq_single' : (question.question_type === 'boolean' ? 'yes_no' : question.question_type);
+        const qt = (question.question_type as any) === 'mcq' ? 'mcq_single' : ((question.question_type as any) === 'boolean' ? 'yes_no' : question.question_type);
         const caNormalized = qt === 'yes_no'
             ? (question.correct_answer === 'true' ? 'yes' : question.correct_answer === 'false' ? 'no' : question.correct_answer)
             : question.correct_answer;
@@ -520,7 +516,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                     <Text strong type="success">{question.correct_answer === 'yes' ? 'Yes' : 'No'}</Text>
                                 </div>
                             )}
-                            {question.question_type === 'boolean' && (
+                            {(question.question_type as any) === 'boolean' && (
                                 <div style={{ marginTop: 8 }}>
                                     <Text type="secondary">Correct Answer: </Text>
                                     <Text strong type="success">{question.correct_answer === 'true' ? 'True' : 'False'}</Text>
@@ -1017,8 +1013,3 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 };
 
 export default QuizBuilder;
-
-// When building the payload to save, ensure MCQ includes options with is_correct booleans
-const onSaveQuestion = async (values: any, question?: Question) => {
-    // ... existing code ...
-};

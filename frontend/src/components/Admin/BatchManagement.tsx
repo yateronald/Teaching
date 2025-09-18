@@ -9,15 +9,11 @@ import {
     message,
     Space,
     Typography,
-    Tag,
-    Popconfirm,
     Card,
     DatePicker
 } from 'antd';
 import {
     PlusOutlined,
-    EditOutlined,
-    DeleteOutlined,
     TeamOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -188,14 +184,7 @@ const BatchManagement: React.FC = () => {
         setModalVisible(true);
     };
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'active': return 'green';
-            case 'inactive': return 'orange';
-            case 'completed': return 'blue';
-            default: return 'default';
-        }
-    };
+
 
     // Helper to format duration as days only
     const formatDaysOnly = (startISO: string, endISO: string) => {

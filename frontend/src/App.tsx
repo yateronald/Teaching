@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
@@ -11,13 +10,11 @@ import UserManagement from './components/Admin/UserManagement';
 import BatchManagement from './components/Admin/BatchManagement';
 import TeacherBatches from './components/Teacher/TeacherBatches';
 import QuizManagement from './components/Teacher/QuizManagement';
-import QuizResults from './components/Quiz/QuizResults';
 import ResourceManagement from './components/Teacher/ResourceManagement';
 import ScheduleManagement from './components/Teacher/ScheduleManagement';
 import StudentQuizzes from './components/Student/StudentQuizzes';
 import StudentResources from './components/Student/StudentResources';
 import StudentSchedule from './components/Student/StudentSchedule';
-import QuizTaking from './components/Quiz/QuizTaking';
 import StudentQuizResults from './components/Student/StudentQuizResults';
 import StudentMarksheet from './components/Student/StudentMarksheet';
 import Profile from './components/Common/Profile';
@@ -142,4 +139,3 @@ function App() {
 }
 
 export default App;
-

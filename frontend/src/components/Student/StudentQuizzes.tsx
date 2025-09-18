@@ -12,10 +12,8 @@ import {
     Tabs,
     Row,
     Col,
+
     Statistic,
-    List,
-    Avatar,
-    Tooltip,
     Empty
 } from 'antd';
 import {
@@ -604,7 +602,7 @@ const StudentQuizzes: React.FC = () => {
 
             {/* QuizTaking Modal */}
             <Modal
-                title="Take Quiz"
+                title={null}
                 open={quizTakingVisible}
                 onCancel={async () => {
                     // If the quiz has started, confirm auto-submit before closing
@@ -629,8 +627,9 @@ const StudentQuizzes: React.FC = () => {
                     setSelectedQuizId(null);
                 }}
                 footer={null}
-                width={1000}
-                style={{ top: 20 }}
+                width={760}
+                centered
+                bodyStyle={{ padding: 0 }}
                 destroyOnClose
             >
                 {selectedQuizId && (

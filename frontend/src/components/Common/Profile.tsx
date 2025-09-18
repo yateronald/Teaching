@@ -37,7 +37,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import type { UploadProps } from 'antd';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 const { TextArea } = Input;
 
@@ -78,7 +78,7 @@ const Profile: React.FC = () => {
     const [passwordModalVisible, setPasswordModalVisible] = useState(false);
     const [form] = Form.useForm();
     const [passwordForm] = Form.useForm();
-    const { user, apiCall } = useAuth();
+    const { apiCall } = useAuth();
 
     useEffect(() => {
         fetchProfile();
@@ -170,7 +170,7 @@ const Profile: React.FC = () => {
 
     const uploadProps: UploadProps = {
         name: 'avatar',
-        action: `${process.env.REACT_APP_API_URL || 'http://localhost:3001'}/api/users/upload-avatar`,
+        action: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/users/upload-avatar`,
         headers: {
             authorization: `Bearer ${localStorage.getItem('token')}`,
         },

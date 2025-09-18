@@ -4,9 +4,6 @@ import {
     message,
     Typography,
     Tag,
-    Badge,
-    // Calendar,  // removed in favor of FullCalendar
-    // Badge,
     Tabs,
     Row,
     Col,
@@ -18,7 +15,6 @@ import {
     Button,
     Modal,
     Space,
-    Divider,
     Descriptions
 } from 'antd';
 import {
@@ -34,7 +30,7 @@ import {
     GlobalOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import type { Dayjs } from 'dayjs';
+
 import dayjs from 'dayjs';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
@@ -44,7 +40,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 // import '@fullcalendar/daygrid/index.css';
 // import '@fullcalendar/timegrid/index.css';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { TabPane } = Tabs;
 
 interface Schedule {
@@ -77,7 +73,7 @@ interface ScheduleStats {
 const StudentSchedule: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [stats, setStats] = useState<ScheduleStats | null>(null);
-    const [loading, setLoading] = useState(false);
+
     // const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs()); // no longer needed with FullCalendar
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
@@ -133,7 +129,6 @@ const StudentSchedule: React.FC = () => {
     }, []);
 
     const fetchSchedules = async () => {
-        setLoading(true);
         try {
             // Use backend list endpoint with role-based filtering
             const response = await apiCall('/schedules');
@@ -173,22 +168,10 @@ const StudentSchedule: React.FC = () => {
         } catch (error) {
             console.error('Error fetching schedule:', error);
             message.error('Error fetching schedule');
-        } finally {
-            setLoading(false);
         }
     };
 
-    const fetchStats = async () => {
-        try {
-            const response = await apiCall('/schedules/my-stats');
-            if (response.ok) {
-                const data = await response.json();
-                setStats(data.stats);
-            }
-        } catch (error) {
-            console.error('Error fetching stats:', error);
-        }
-    };
+
 
     const getTypeColor = (type: string) => {
         switch (type) {
@@ -272,33 +255,9 @@ const StudentSchedule: React.FC = () => {
         }
     };
 
-    const getListData = (value: Dayjs) => {
-        const dateStr = value.format('YYYY-MM-DD');
-        return schedules.filter(schedule => schedule.date === dateStr);
-    };
 
-    const dateCellRender = (value: Dayjs) => {
-        const listData = getListData(value);
-        return (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {listData.map(item => (
-                    <li key={item.id} style={{ marginBottom: 2 }}>
-                        <Badge
-                            status={getStatusColor(getEffectiveStatus(item)) as any}
-                            text={
-                                <span 
-                                    style={{ fontSize: '11px', cursor: 'pointer' }}
-                                    onClick={() => handleViewDetails(item)}
-                                >
-                                    {item.start_time} - {item.title}
-                                </span>
-                            }
-                        />
-                    </li>
-                ))}
-            </ul>
-        );
-    };
+
+
 
     const handleViewDetails = (schedule: Schedule) => {
         setSelectedSchedule(schedule);
@@ -336,14 +295,7 @@ const StudentSchedule: React.FC = () => {
     const nextClass = upcomingSchedules[0];
 
     // Helper function to check if user can join the meeting (5 minutes before start time and not ended)
-    const canJoinMeeting = (date: string, startTime: string): boolean => {
-        const meetingDateTime = dayjs(`${date} ${startTime}`);
-        const meetingEndTime = dayjs(`${date} ${startTime}`).add(2, 'hour'); // Assuming 2 hour default duration
-        const now = dayjs();
-        const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
-        
-        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime);
-    };
+
 
     // Enhanced canJoinMeeting that uses schedule object
     const canJoinMeetingSchedule = (schedule: Schedule): boolean => {
@@ -363,32 +315,7 @@ const StudentSchedule: React.FC = () => {
         return schedule.link;
     };
 
-    // Component to render the join meeting button
-    const renderJoinMeetingButton = (schedule: Schedule) => {
-        const canJoin = canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule);
-        const meetingLink = getSecureMeetingLink(schedule);
-        const hasEnded = isScheduleEnded(schedule);
-        
-        return (
-            <Button
-                type="primary"
-                style={{
-                    backgroundColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
-                    borderColor: hasEnded ? '#d9d9d9' : (canJoin ? '#52c41a' : '#d9d9d9'),
-                    color: hasEnded ? '#00000040' : (canJoin ? 'white' : '#999'),
-                    cursor: canJoin ? 'pointer' : 'not-allowed'
-                }}
-                disabled={!canJoin || hasEnded}
-                onClick={() => {
-                    if (meetingLink && !hasEnded) {
-                        window.open(meetingLink, '_blank');
-                    }
-                }}
-            >
-                {hasEnded ? 'Ended' : 'Join Meeting'}
-            </Button>
-        );
-    };
+
 
     return (
         <div>
@@ -553,7 +480,7 @@ const StudentSchedule: React.FC = () => {
                                                             ) : (
                                                                 <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
                                                             )}
-                                                            <Tag color={getTypeColor(schedule.type)} size="small">
+                                                            <Tag color={getTypeColor(schedule.type)}>
                                                                 {schedule.type.toUpperCase()}
                                                             </Tag>
                                                             {hasJoined(schedule.id) ? <Tag color="success">JOINED</Tag> : null}
@@ -639,7 +566,7 @@ const StudentSchedule: React.FC = () => {
                                                     title={
                                                         <Space>
                                                             <Text strong>{schedule.title}</Text>
-                                                            <Tag color={getTypeColor(schedule.type)} size="small">
+                                                            <Tag color={getTypeColor(schedule.type)}>
                                                                 {schedule.type.toUpperCase()}
                                                             </Tag>
                                                         </Space>
@@ -699,7 +626,7 @@ const StudentSchedule: React.FC = () => {
                                                     title={
                                                         <Space>
                                                             <Text strong>{schedule.title}</Text>
-                                                            <Tag color={getStatusColor(getEffectiveStatus(schedule))} size="small">
+                                                            <Tag color={getStatusColor(getEffectiveStatus(schedule))}>
                                                                 {getEffectiveStatus(schedule).toUpperCase()}
                                                             </Tag>
                                                         </Space>

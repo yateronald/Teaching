@@ -22,9 +22,7 @@ import {
     DeleteOutlined,
     FolderOutlined,
     UploadOutlined,
-    FileOutlined,
-    DownloadOutlined,
-    EyeOutlined
+    DownloadOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';

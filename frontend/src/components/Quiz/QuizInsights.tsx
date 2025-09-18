@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Divider, List, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip } from 'antd';
 import { PieChart, BarChart, LineChart, ScatterChart } from '@mui/x-charts';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import { TeamOutlined, CheckCircleOutlined, FieldTimeOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import isBetween from 'dayjs/plugin/isBetween';
+
+dayjs.extend(isBetween);
 
 const { Title, Text } = Typography;
 
@@ -34,7 +37,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
 
   // UI filter states
   const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [passMarkLocal, setPassMarkLocal] = useState<number>(60);
 
   useEffect(() => { if (quizId) load(); }, [quizId]);
@@ -95,7 +98,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
     const top5 = [...withPerc].sort((a,b)=>b.percentage-a.percentage).slice(0,5);
     const bottom5 = [...withPerc].sort((a,b)=>a.percentage-b.percentage).slice(0,5);
     // histogram
-    const hist = bins.slice(0,-1).map((b,i)=>({ bin:`${bins[i]}-${bins[i+1]}`, count: withPerc.filter(s=>{
+    const hist = bins.slice(0,-1).map((_,i)=>({ bin:`${bins[i]}-${bins[i+1]}`, count: withPerc.filter(s=>{
       const p = s.percentage; return p>=bins[i] && p<=(i===bins.length-2? bins[i+1] : bins[i+1]-0.0001);
     }).length }));
     // completion over time
@@ -149,8 +152,8 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
               <Text type="secondary">Submitted between</Text>
               <DatePicker.RangePicker
                 style={{ width: '100%' }}
-                value={dateRange as any}
-                onChange={(v)=> setDateRange(v as any)}
+                value={dateRange}
+                onChange={(v)=> setDateRange(v as [Dayjs, Dayjs] | null)}
                 allowEmpty={[true, true]}
               />
             </Space>
@@ -191,7 +194,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
             </Space>
           }>
             {hasScores ? (
-              <PieChart height={280} series={[{ data:[{id:0,value:metrics.pass,label:'Pass'},{id:1,value:metrics.fail,label:'Fail'}], colors:['#52c41a','#ff4d4f'] }]} />
+              <PieChart height={280} series={[{ data:[{id:0,value:metrics.pass,label:'Pass',color:'#52c41a'},{id:1,value:metrics.fail,label:'Fail',color:'#ff4d4f'}] }]} />
             ) : (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
             )}
@@ -282,4 +285,3 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
 };
 
 export default QuizInsights;
-dayjs.extend(isBetween);

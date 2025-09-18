@@ -9,7 +9,6 @@ import {
     Typography,
     Tag,
     Progress,
-    Timeline,
     Modal,
     List,
     Tooltip,
@@ -167,11 +166,11 @@ interface Schedule {
 const StudentDashboard: React.FC = () => {
     const [batches, setBatches] = useState<Batch[]>([]);
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-    const [resources, setResources] = useState<Resource[]>([]);
+
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [results, setResults] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
-    const { apiCall, user } = useAuth();
+
+    const { apiCall } = useAuth();
     const navigate = useNavigate();
 
     const [batchModalOpen, setBatchModalOpen] = useState(false);
@@ -193,7 +192,7 @@ const StudentDashboard: React.FC = () => {
     }, []);
 
     const fetchData = async () => {
-        setLoading(true);
+
         try {
             const [quizzesRes, resultsRes, resourcesRes, schedulesRes, batchesRes] = await Promise.all([
                 apiCall('/quizzes'),
@@ -237,7 +236,7 @@ const StudentDashboard: React.FC = () => {
             if (resourcesRes && resourcesRes.ok) {
                 const data = await resourcesRes.json();
                 const resourcesData: Resource[] = Array.isArray(data) ? data : (data.resources || []);
-                setResources(resourcesData);
+
                 setStats(prev => ({ ...prev, totalResources: resourcesData.length }));
             }
 
@@ -275,12 +274,10 @@ const StudentDashboard: React.FC = () => {
             setStats(prev => ({ ...prev, totalBatches: mappedBatches.length }));
         } catch (error) {
             message.error('Failed to fetch data');
-        } finally {
-            setLoading(false);
         }
     };
 
-    const quizColumnsPlaceholder = true; // placeholder to maintain structure if needed
+
     // legacy quiz/resource table columns removed during dashboard simplification
 
 
@@ -295,7 +292,7 @@ const StudentDashboard: React.FC = () => {
         return schedules
             .filter(schedule => dayjs(schedule.start_time).isAfter(dayjs()))
             .sort((a, b) => dayjs(a.start_time).diff(dayjs(b.start_time)))
-            .slice(0, 5);
+            .slice(0, 1);
     };
 
     // Upcoming quizzes (published, future start, and not started)
@@ -749,7 +746,6 @@ const StudentDashboard: React.FC = () => {
                                                         </Text>
                                                         <Tag 
                                                             color={timeColor} 
-                                                            size="small" 
                                                             style={{ 
                                                                 marginLeft: 8, 
                                                                 fontSize: '10px',
@@ -789,7 +785,6 @@ const StudentDashboard: React.FC = () => {
                                                             {schedule.french_level && (
                                                                 <Tag 
                                                                     color="blue" 
-                                                                    size="small" 
                                                                     style={{ 
                                                                         marginLeft: 8,
                                                                         fontSize: '10px',
@@ -847,7 +842,6 @@ const StudentDashboard: React.FC = () => {
                                                         <div style={{ marginTop: 10 }}>
                                                             <Tag 
                                                                 color="green" 
-                                                                size="small"
                                                                 style={{
                                                                     background: '#f6ffed',
                                                                     border: '1px solid #52c41a',
@@ -948,7 +942,6 @@ const StudentDashboard: React.FC = () => {
                                                         </Text>
                                                         <Tag 
                                                             color="purple"
-                                                            size="small"
                                                             style={{ 
                                                                 marginLeft: 8,
                                                                 fontSize: '10px',
@@ -987,7 +980,6 @@ const StudentDashboard: React.FC = () => {
                                                         <div style={{ marginTop: 10 }}>
                                                             <Tag 
                                                                 color="green"
-                                                                size="small"
                                                                 style={{
                                                                     background: '#f6ffed',
                                                                     border: '1px solid #52c41a',
@@ -1056,7 +1048,6 @@ const StudentDashboard: React.FC = () => {
                         <div>
                             {quizzes
                                 .filter(quiz => quiz.submission)
-                                .sort((a, b) => dayjs(b.submission?.submitted_at).diff(dayjs(a.submission?.submitted_at)))
                                 .slice(0, 5)
                                 .map((quiz) => {
                                     const percentage = Number(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)).toFixed(2)) || 0;

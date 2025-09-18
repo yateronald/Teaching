@@ -11,7 +11,6 @@ import {
     Tabs,
     List,
     Avatar,
-    Progress,
     Statistic,
     Row,
     Col,

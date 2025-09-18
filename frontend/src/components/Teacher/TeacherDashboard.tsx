@@ -15,7 +15,6 @@ import {
     Typography,
     Tag,
     Popconfirm,
-    DatePicker,
     Progress,
     Tabs,
     List,
@@ -23,15 +22,12 @@ import {
 } from 'antd';
 import {
     TeamOutlined,
-    BookOutlined,
     PlusOutlined,
     EditOutlined,
     DeleteOutlined,
     FileTextOutlined,
-    CalendarOutlined,
     UserOutlined,
-    CheckCircleOutlined,
-    ClockCircleOutlined
+    CheckCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';

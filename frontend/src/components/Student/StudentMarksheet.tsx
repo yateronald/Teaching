@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Table, Tag, Empty, Spin, Progress, Tooltip, Alert, Select, Space, Modal, Button } from 'antd';
-import { BarChartOutlined, CheckCircleOutlined, CloseCircleOutlined, RiseOutlined, FallOutlined, CalendarOutlined, DashboardOutlined } from '@ant-design/icons';
+import { Card, Statistic, Typography, Table, Tag, Empty, Spin, Progress, Tooltip, Alert, Select, Space, Modal, Button } from 'antd';
+import { BarChartOutlined, CheckCircleOutlined, RiseOutlined, CalendarOutlined, DashboardOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
-import { BarChart, PieChart } from '@mui/x-charts';
+import { BarChart } from '@mui/x-charts';
 
 const { Title, Text, Paragraph } = Typography;
 
