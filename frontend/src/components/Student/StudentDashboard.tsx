@@ -228,7 +228,7 @@ const StudentDashboard: React.FC = () => {
                 });
                 setResults(expired);
                 const scores = expired.map(r => Number(r.percentage ?? 0)).filter((n: number) => !isNaN(n));
-                const averageScore = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length)) : 0;
+                const averageScore = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0;
                 setStats(prev => ({ ...prev, averageScore }));
             }
 
@@ -616,7 +616,7 @@ const StudentDashboard: React.FC = () => {
                                             series={[{ data: results
                                                 .slice()
                                                 .sort((a: any, b: any) => dayjs(a.submitted_at).diff(dayjs(b.submitted_at)))
-                                                .map((r: any) => Math.round(Number(r.percentage ?? 0))) , label: 'Score %' }]}
+                                                .map((r: any) => Number(Number(r.percentage ?? 0).toFixed(2))) , label: 'Score %' }]}
                                             height={260}
                                         />
                                     </div>
@@ -633,7 +633,7 @@ const StudentDashboard: React.FC = () => {
                                             xAxis={[{ scaleType: 'band', data: results
                                                 .slice(-10)
                                                 .map((r: any) => (r.quiz_title?.length > 10 ? r.quiz_title.slice(0, 10) + '…' : r.quiz_title)) }]}
-                                            series={[{ data: results.slice(-10).map((r: any) => Math.round(Number(r.percentage ?? 0))) }]}
+                                            series={[{ data: results.slice(-10).map((r: any) => Number(Number(r.percentage ?? 0).toFixed(2))) }]}
                                             height={260}
                                         />
                                     </div>
@@ -904,13 +904,13 @@ const StudentDashboard: React.FC = () => {
                                 .sort((a, b) => dayjs(b.submission?.submitted_at).diff(dayjs(a.submission?.submitted_at)))
                                 .slice(0, 5)
                                 .map((quiz) => {
-                                    const percentage = Math.round(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)) || 0);
+                                    const percentage = Number(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)).toFixed(2)) || 0;
                                     return (
                                         <div key={quiz.id} style={{ marginBottom: 12 }}>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                                 <Text ellipsis style={{ maxWidth: '70%' }}>{quiz.title}</Text>
                                                 <Text strong style={{ color: getScoreColor(percentage) }}>
-                                                    {percentage}%
+                                                    {percentage.toFixed(2)}%
                                                 </Text>
                                             </div>
                                             <Progress 

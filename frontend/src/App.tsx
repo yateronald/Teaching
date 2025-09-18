@@ -19,9 +19,11 @@ import StudentResources from './components/Student/StudentResources';
 import StudentSchedule from './components/Student/StudentSchedule';
 import QuizTaking from './components/Quiz/QuizTaking';
 import StudentQuizResults from './components/Student/StudentQuizResults';
+import StudentMarksheet from './components/Student/StudentMarksheet';
 import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
+import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
 
 function App() {
   return (
@@ -61,6 +63,11 @@ function App() {
               <Route path="batches" element={
                 <ProtectedRoute requiredRole="admin">
                   <BatchManagement />
+                </ProtectedRoute>
+              } />
+              <Route path="batches/:batchId/insights" element={
+                <ProtectedRoute requiredRole="admin">
+                  <BatchInsightsAdmin />
                 </ProtectedRoute>
               } />
               
@@ -110,6 +117,11 @@ function App() {
               <Route path="my-results" element={
                 <ProtectedRoute requiredRole="student">
                   <StudentQuizResults />
+                </ProtectedRoute>
+              } />
+              <Route path="my-marksheet" element={
+                <ProtectedRoute requiredRole="student">
+                  <StudentMarksheet />
                 </ProtectedRoute>
               } />
               <Route path="my-resources" element={

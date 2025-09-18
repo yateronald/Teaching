@@ -18,6 +18,14 @@ interface StudentRow {
 
 const bins = [0,10,20,30,40,50,60,70,80,90,100];
 
+// Helper function to format numbers - show whole numbers without decimals, keep up to 2 decimal places for others
+const formatNumber = (num: number): string => {
+  if (Number.isInteger(num)) {
+    return num.toString();
+  }
+  return num.toFixed(2).replace(/\.?0+$/, '');
+};
+
 const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
   const { apiCall } = useAuth();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -81,7 +89,8 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
     const total = filteredStudents.length; const submitted = filteredStudents.filter(s=>s.submitted_at).length;
     const completion = total ? Math.round((submitted/total)*100) : 0;
     const withPerc = filteredStudents.filter(s=>typeof s.percentage === 'number') as (StudentRow & { percentage: number })[];
-    const avg = withPerc.length ? Math.round(withPerc.reduce((a,c)=>a+c.percentage,0)/withPerc.length) : 0;
+    const avgRaw = withPerc.length ? withPerc.reduce((a,c)=>a+c.percentage,0)/withPerc.length : 0;
+    const avg = parseFloat(formatNumber(avgRaw));
     const pass = withPerc.filter(s=>s.percentage>=passMarkLocal).length; const fail = withPerc.length - pass;
     const top5 = [...withPerc].sort((a,b)=>b.percentage-a.percentage).slice(0,5);
     const bottom5 = [...withPerc].sort((a,b)=>a.percentage-b.percentage).slice(0,5);
@@ -97,7 +106,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
     // per-batch avg
     const byBatch: Record<string,{avg:number; count:number}> = {};
     withPerc.forEach(s=>{ const k=s.batch_name||'Batch'; const p=s.percentage; if(!byBatch[k]) byBatch[k]={avg:0,count:0}; byBatch[k].avg+=p; byBatch[k].count++; });
-    const batchData = Object.entries(byBatch).map(([k,v])=>({ batch:k, avg: Math.round(v.avg/v.count) }));
+    const batchData = Object.entries(byBatch).map(([k,v])=>({ batch:k, avg: parseFloat(formatNumber(v.avg/v.count)) }));
     return { total, submitted, completion, avg, pass, fail, top5, bottom5, hist, series, scatter, batchData };
   }, [filteredStudents, passMarkLocal]);
 
@@ -240,7 +249,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
                     <List.Item>
                       <Space>
                         <Tag color="green">#{idx+1}</Tag>
-                        <Tag color="green">{Math.round(s.percentage)}%</Tag>
+                        <Tag color="green">{formatNumber(s.percentage)}%</Tag>
                         <span>{s.name}</span>
                       </Space>
                     </List.Item>
@@ -252,7 +261,7 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
                     <List.Item>
                       <Space>
                         <Tag color="red">#{idx+1}</Tag>
-                        <Tag color="red">{Math.round(s.percentage)}%</Tag>
+                        <Tag color="red">{formatNumber(s.percentage)}%</Tag>
                         <span>{s.name}</span>
                       </Space>
                     </List.Item>

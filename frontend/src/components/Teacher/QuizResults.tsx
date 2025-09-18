@@ -46,12 +46,7 @@ const { RangePicker } = DatePicker;
 
 // Number formatting function
 const formatNumber = (num: number): string => {
-    // If the number is a whole number, return it as is
-    if (num % 1 === 0) {
-        return num.toString();
-    }
-    // Otherwise, format to 2 decimal places and remove trailing zeros
-    return parseFloat(num.toFixed(2)).toString();
+    return Number(num).toFixed(2);
 };
 
 interface QuizSubmission {
@@ -234,7 +229,7 @@ const QuizResults: React.FC = () => {
                         {formatNumber(record.score)}/{formatNumber(record.max_score)}
                     </Text>
                     <br />
-                    <Text type="secondary">({record.percentage.toFixed(1)}%)</Text>
+                    <Text type="secondary">({record.percentage.toFixed(2)}%)</Text>
                 </div>
             ),
             width: 100,
@@ -364,7 +359,7 @@ const QuizResults: React.FC = () => {
                     <Card>
                         <Statistic
                             title="Completion Rate"
-                            value={quizResult.stats.completion_rate}
+                            value={Number(quizResult.stats.completion_rate).toFixed(2)}
                             suffix="%"
                             prefix={<CheckCircleOutlined />}
                             valueStyle={{ color: '#52c41a' }}
@@ -375,7 +370,7 @@ const QuizResults: React.FC = () => {
                     <Card>
                         <Statistic
                             title="Average Score"
-                            value={quizResult.stats.average_score}
+                            value={Number(quizResult.stats.average_score).toFixed(2)}
                             suffix="%"
                             prefix={<TrophyOutlined />}
                             valueStyle={{ color: '#faad14' }}
@@ -460,7 +455,7 @@ const QuizResults: React.FC = () => {
                             </Descriptions.Item>
                             <Descriptions.Item label="Score">
                                 <Text strong style={{ color: getScoreColor(selectedSubmission.percentage) }}>
-                                    {formatNumber(selectedSubmission.score)}/{formatNumber(selectedSubmission.max_score)} ({selectedSubmission.percentage.toFixed(1)}%)
+                                    {formatNumber(selectedSubmission.score)}/{formatNumber(selectedSubmission.max_score)} ({selectedSubmission.percentage.toFixed(2)}%)
                                 </Text>
                             </Descriptions.Item>
                             <Descriptions.Item label="Time Taken">

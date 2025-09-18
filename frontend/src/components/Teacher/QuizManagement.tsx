@@ -68,6 +68,14 @@ interface Quiz {
     total_students?: number;
 }
 
+// Helper function to format numbers - show whole numbers without decimals, keep up to 2 decimal places for others
+const formatNumber = (num: number): string => {
+    if (Number.isInteger(num)) {
+        return num.toString();
+    }
+    return num.toFixed(2).replace(/\.?0+$/, '');
+};
+
 interface Batch {
     id: number;
     name: string;
@@ -308,7 +316,7 @@ const QuizManagement: React.FC = () => {
                 <Progress 
                     percent={score || 0} 
                     size="small" 
-                    format={(percent) => `${percent}%`}
+                    format={(percent) => `${formatNumber(percent || 0)}%`}
                 />
             ),
         },

@@ -11,7 +11,8 @@ import {
     LogoutOutlined,
     SettingOutlined,
     MenuFoldOutlined,
-    MenuUnfoldOutlined
+    MenuUnfoldOutlined,
+    BarChartOutlined
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -97,6 +98,11 @@ const Layout: React.FC = () => {
                     key: '/my-results',
                     icon: <BookOutlined />,
                     label: 'My Results',
+                },
+                {
+                    key: '/my-marksheet',
+                    icon: <BarChartOutlined />,
+                    label: 'Marksheet',
                 },
                 {
                     key: '/my-resources',

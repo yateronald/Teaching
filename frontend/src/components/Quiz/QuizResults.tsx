@@ -337,7 +337,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                             </Text>
                             <br />
                             <Tag color={getScoreColor(record.percentage)}>
-                                {record.percentage?.toFixed(1)}% ({getGrade(record.percentage)})
+                                {formatNumber(record.percentage || 0)}% ({getGrade(record.percentage)})
                             </Tag>
                         </>
                     ) : (
@@ -511,7 +511,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                             {formatNumber(submissionDetails.submission.total_score)}/{formatNumber(submissionDetails.submission.max_score)}
                                         </Title>
                                         <Text style={{ color: '#52c41a', fontSize: '16px', fontWeight: 'bold' }}>
-                                            ({(submissionDetails.submission.percentage ?? 0).toFixed(1)}%)
+                                            ({(submissionDetails.submission.percentage ?? 0).toFixed(2)}%)
                                         </Text>
                                         <div style={{ marginTop: '4px' }}>
                                             <Text type="secondary">Score</Text>

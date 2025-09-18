@@ -29,6 +29,11 @@ import { useAuth } from '../../contexts/AuthContext';
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
+// Helper function to format numbers - show whole numbers without .00
+const formatNumber = (num: number): string => {
+  return num % 1 === 0 ? num.toString() : num.toFixed(2);
+};
+
 interface Question {
     id: number;
     question_text: string;
@@ -818,9 +823,8 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             <Col xs={24} sm={12} md={6}>
                                 <Statistic
                                     title={<span style={{ color: 'rgba(255,255,255,0.8)' }}>Percentage</span>}
-                                    value={quizResults.percentage}
+                                    value={formatNumber(quizResults.percentage)}
                                     suffix="%"
-                                    precision={1}
                                     valueStyle={{ 
                                         color: quizResults.percentage >= 70 ? '#52c41a' : 
                                                quizResults.percentage >= 50 ? '#fa8c16' : '#f5222d',

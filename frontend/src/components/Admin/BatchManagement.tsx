@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -57,6 +58,7 @@ const BatchManagement: React.FC = () => {
     const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
+    const navigate = useNavigate();
 
     useEffect(() => {
         fetchBatches();
@@ -257,35 +259,16 @@ const BatchManagement: React.FC = () => {
         {
             title: 'Actions',
             key: 'actions',
-            width: 150,
-            fixed: 'right',
             render: (_, record) => (
                 <Space>
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => handleEdit(record)}
-                    >
-                        Edit
+                    <Button type="default" onClick={() => navigate(`/batches/${record.id}/insights`)}>
+                        Insight
                     </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this batch?"
-                        onConfirm={() => handleDelete(record.id)}
-                        okText="Yes"
-                        cancelText="No"
-                    >
-                        <Button
-                            type="primary"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                        >
-                            Delete
-                        </Button>
-                    </Popconfirm>
+                    <Button type="primary" onClick={() => handleEdit(record)}>Edit</Button>
+                    <Button danger onClick={() => handleDelete(record.id)}>Delete</Button>
                 </Space>
             ),
+            width: 200
         },
     ];
 

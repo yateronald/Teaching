@@ -150,10 +150,19 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     setPassMarkLocal(60);
   };
 
+  // Helper function to format numbers - show whole numbers without .00
+  const formatNumber = (num: number | null | undefined): string => {
+    if (num == null) return '0';
+    if (Number.isInteger(num)) {
+      return num.toString();
+    }
+    return num.toFixed(2);
+  };
+
   const columns = [
     { title: 'Rank', dataIndex: 'rank', key: 'rank', render: (_: any, __: any, idx: number) => <Tag color={idx===0?'gold':idx===1?'silver':idx===2?'volcano':'blue'}>#{idx+1}</Tag> },
     { title: 'Student', dataIndex: 'name', key: 'name' },
-    { title: 'Average %', dataIndex: 'avg', key: 'avg', render: (v:number)=> <Tag color={v>=passMarkLocal?'green':'red'}>{v}%</Tag> },
+    { title: 'Average %', dataIndex: 'avg', key: 'avg', render: (v:number)=> <Tag color={v>=passMarkLocal?'green':'red'}>{formatNumber(v)}%</Tag> },
     { title: 'Submitted', dataIndex: 'attempts', key: 'attempts' }
   ];
 
@@ -162,7 +171,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     if (!s) return null;
     const rows = s.breakdown
       .filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))))
-      .map(b => ({ key: `${s.id}-${b.quiz_id}`, quiz: b.quiz_title, score: b.total_score!=null && b.max_score!=null ? `${b.total_score}/${b.max_score}` : '-', percent: b.percentage!=null ? `${Math.round(b.percentage)}%` : '-', submitted_at: b.submitted_at ? dayjs(b.submitted_at).format('MMM DD, YYYY HH:mm') : '-' }));
+      .map(b => ({ key: `${s.id}-${b.quiz_id}`, quiz: b.quiz_title, score: b.total_score!=null && b.max_score!=null ? `${formatNumber(b.total_score)}/${formatNumber(b.max_score)}` : '-', percent: b.percentage!=null ? `${formatNumber(b.percentage)}%` : '-', submitted_at: b.submitted_at ? dayjs(b.submitted_at).format('MMM DD, YYYY HH:mm') : '-' }));
     return (
       <Table
         columns={[{title:'Quiz',dataIndex:'quiz'},{title:'Score',dataIndex:'score'},{title:'Percentage',dataIndex:'percent'},{title:'Submitted At',dataIndex:'submitted_at'}]}
@@ -179,16 +188,16 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
   // Automated insights texts based on filtered view
   const autoInsights = (() => {
     const parts: React.ReactNode[] = [];
-    parts.push(<li key="c">Completion rate for current view is <b>{metrics.completion}%</b> across {totalSelectedStudents} students and {totalSelectedQuizzes} quizzes.</li>);
+    parts.push(<li key="c">Completion rate for current view is <b>{formatNumber(metrics.completion)}%</b> across {totalSelectedStudents} students and {totalSelectedQuizzes} quizzes.</li>);
     if (metrics.ranking.length) {
-      parts.push(<li key="t">Top performer: <b>{metrics.ranking[0].name}</b> with an average of <b>{metrics.ranking[0].avg}%</b>.</li>);
+      parts.push(<li key="t">Top performer: <b>{metrics.ranking[0].name}</b> with an average of <b>{formatNumber(metrics.ranking[0].avg)}%</b>.</li>);
       const last = metrics.ranking[metrics.ranking.length-1];
-      if (last) parts.push(<li key="b">Needs attention: <b>{last.name}</b> at <b>{last.avg}%</b>.</li>);
+      if (last) parts.push(<li key="b">Needs attention: <b>{last.name}</b> at <b>{formatNumber(last.avg)}%</b>.</li>);
     }
     const best = [...metrics.quizAvg].sort((a,b)=>b.avg-a.avg)[0];
     const worst = [...metrics.quizAvg].sort((a,b)=>a.avg-b.avg)[0];
-    if (best) parts.push(<li key="best">Best quiz in current view: <b>{best.title}</b> with <b>{best.avg}%</b> average.</li>);
-    if (worst) parts.push(<li key="hard">Challenging quiz: <b>{worst.title}</b> averaging <b>{worst.avg}%</b>.</li>);
+    if (best) parts.push(<li key="best">Best quiz in current view: <b>{best.title}</b> with <b>{formatNumber(best.avg)}%</b> average.</li>);
+    if (worst) parts.push(<li key="hard">Challenging quiz: <b>{worst.title}</b> averaging <b>{formatNumber(worst.avg)}%</b>.</li>);
     return parts;
   })();
 
@@ -213,6 +222,8 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
                 value={selectedStudentIds}
                 onChange={setSelectedStudentIds}
                 showSearch
+                style={{ width: '100%' }}
+                dropdownStyle={{ minWidth: '300px' }}
               />
             </Space>
           </Col>
@@ -226,6 +237,8 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
                 options={quizOptions}
                 value={selectedQuizIds}
                 onChange={setSelectedQuizIds}
+                style={{ width: '100%' }}
+                dropdownStyle={{ minWidth: '300px' }}
               />
             </Space>
           </Col>

@@ -239,11 +239,11 @@ const StudentQuizResults: React.FC = () => {
                     ) : (
                         <>
                             <Text strong style={{ color: getScoreColor(Number(record.percentage || 0)) }}>
-                                {Number(record.score || 0) % 1 === 0 ? Number(record.score || 0) : Number(record.score || 0).toFixed(2)}/{Number(record.max_score || 0) % 1 === 0 ? Number(record.max_score || 0) : Number(record.max_score || 0).toFixed(2)}
+                                {Number(record.score || 0).toFixed(2)}/{Number(record.max_score || 0).toFixed(2)}
                             </Text>
                             <br />
                             <Tag color={getScoreColor(Number(record.percentage || 0))}>
-                                {Number(record.percentage || 0)}% ({getGradeText(Number(record.percentage || 0))})
+                                {Number(record.percentage || 0).toFixed(2)}% ({getGradeText(Number(record.percentage || 0))})
                             </Tag>
                         </>
                     )}

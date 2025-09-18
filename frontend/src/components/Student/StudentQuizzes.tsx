@@ -105,7 +105,7 @@ const StudentQuizzes: React.FC = () => {
             const total_quizzes = quizzes.length;
             const completed_quizzes = quizzes.filter(q => q.submission_status === 'completed').length;
             const scores = attempts.map(a => a.score).filter((s) => typeof s === 'number');
-            const average_score = scores.length ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : 0;
+            const average_score = scores.length ? parseFloat((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0;
             const best_score = scores.length ? Math.max(...scores) : 0;
             const total_attempts = attempts.length;
             const passed_quizzes = attempts.filter(a => a.score >= 50).length; // Default pass mark 50%
@@ -252,7 +252,7 @@ const StudentQuizzes: React.FC = () => {
             width: 180,
             render: (_, record) => {
                 const sub = record.submission_status;
-                const pct = record.submission?.percentage ?? (record.submission && record.submission.total_score && record.submission.max_score ? Math.round((record.submission.total_score / record.submission.max_score) * 100) : null);
+                const pct = record.submission?.percentage ?? (record.submission && record.submission.total_score && record.submission.max_score ? ((record.submission.total_score / record.submission.max_score) * 100) : null);
                 const isLocked = record.end_date ? dayjs(record.end_date).isAfter(dayjs()) : false;
                 return (
                     <div>
@@ -265,7 +265,7 @@ const StudentQuizzes: React.FC = () => {
                             <>
                                 <div>Status: {sub ? sub.replace('_', ' ') : 'not started'}</div>
                                 {pct !== null && (
-                                    <div>Score: {Math.round(Number(pct))}%</div>
+                                    <div>Score: {Number(pct).toFixed(2)}%</div>
                                 )}
                             </>
                         )}
@@ -593,7 +593,7 @@ const StudentQuizzes: React.FC = () => {
                                 <>
                                     Status: {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace('_', ' ') : 'not started'}
                                     {selectedQuiz.submission?.percentage != null && (
-                                        <span> | Score: {Math.round(Number(selectedQuiz.submission.percentage))}%</span>
+                                        <span> | Score: {Number(selectedQuiz.submission.percentage).toFixed(2)}%</span>
                                     )}
                                 </>
                             )}
