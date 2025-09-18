@@ -43,7 +43,7 @@ const hashPassword = async (password) => {
 const createUsers = async () => {
     const db = new sqlite3.Database(dbPath);
     
-    console.log('🌱 Starting user seeding process...');
+
     
     try {
         for (const user of defaultUsers) {
@@ -60,7 +60,6 @@ const createUsers = async () => {
             });
             
             if (existingUser) {
-                console.log(`⚠️  User ${user.email} already exists, skipping...`);
                 continue;
             }
             
@@ -77,7 +76,6 @@ const createUsers = async () => {
                         if (err) {
                             reject(err);
                         } else {
-                            console.log(`✅ Created ${user.role}: ${user.email}`);
                             resolve(this.lastID);
                         }
                     }
@@ -85,11 +83,7 @@ const createUsers = async () => {
             });
         }
         
-        console.log('\n🎉 User seeding completed successfully!');
-        console.log('\n📋 Default Login Credentials:');
-        console.log('Admin: admin@example.com / admin123');
-        console.log('Teacher: teacher@example.com / teacher123');
-        console.log('Student: student@example.com / student123');
+
         
     } catch (error) {
         console.error('❌ Error creating users:', error);
@@ -97,8 +91,6 @@ const createUsers = async () => {
         db.close((err) => {
             if (err) {
                 console.error('Error closing database:', err);
-            } else {
-                console.log('\n🔒 Database connection closed.');
             }
         });
     }

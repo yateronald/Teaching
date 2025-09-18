@@ -24,9 +24,6 @@ const verifyPassword = async (password, hashedPassword) => {
 // Authentication middleware
 const authenticateToken = async (req, res, next) => {
     try {
-        // TEMP DEBUG: Log incoming auth header
-        console.log(`[AUTH DEBUG] ${req.method} ${req.originalUrl} - authorization:`, req.headers['authorization']);
-
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 

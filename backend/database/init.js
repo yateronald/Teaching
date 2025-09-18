@@ -22,13 +22,10 @@ class Database {
                     console.error('Error opening database:', err.message);
                     reject(err);
                 } else {
-                    console.log('Connected to SQLite database.');
                     // Ensure foreign keys (and cascading deletes) are enforced for this connection
                     this.db.run('PRAGMA foreign_keys = ON', (pragmaErr) => {
                         if (pragmaErr) {
                             console.warn('Warning: could not enable SQLite foreign_keys:', pragmaErr.message);
-                        } else {
-                            console.log('SQLite foreign_keys PRAGMA enabled.');
                         }
                         this.createTables()
                             .then(() => this.ensureSchemaUpdates())
@@ -61,7 +58,6 @@ class Database {
                     return this.executeStatements(indexStatements);
                 })
                 .then(() => {
-                    console.log('Database tables and indexes created successfully.');
                     resolve();
                 })
                 .catch(reject);
@@ -95,10 +91,7 @@ class Database {
         }
 
         if (statements.length > 0) {
-            console.log('Applying schema updates to schedules table:', statements);
             await this.executeStatements(statements);
-        } else {
-            console.log('No schema updates needed for schedules table.');
         }
 
         // Ensure performance indexes exist (safe to run multiple times using IF NOT EXISTS)
@@ -127,7 +120,6 @@ class Database {
 
         try {
             await this.executeStatements(performanceIndexes);
-            console.log('Ensured performance indexes exist.');
         } catch (e) {
             console.warn('Warning ensuring performance indexes:', e.message);
         }
@@ -171,8 +163,6 @@ class Database {
                 this.db.close((err) => {
                     if (err) {
                         console.error('Error closing database:', err.message);
-                    } else {
-                        console.log('Database connection closed.');
                     }
                     resolve();
                 });

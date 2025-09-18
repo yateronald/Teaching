@@ -220,11 +220,9 @@ async function reconcileOverdueQuizzes(db) {
 async function startServer() {
     try {
         await database.initialize();
-        console.log('Database initialized successfully');
         
         app.listen(PORT, () => {
-            console.log(`Server is running on port ${PORT}`);
-            console.log(`Health check: http://localhost:${PORT}/api/health`);
+            // Server started successfully
         });
 
         // Start periodic auto-reconciliation job and run once on startup
@@ -242,14 +240,12 @@ async function startServer() {
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
-    console.log('\nShutting down server...');
     if (reconcileTimer) clearInterval(reconcileTimer);
     await database.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    console.log('\nShutting down server...');
     if (reconcileTimer) clearInterval(reconcileTimer);
     await database.close();
     process.exit(0);
