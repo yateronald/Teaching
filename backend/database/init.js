@@ -100,6 +100,37 @@ class Database {
         } else {
             console.log('No schema updates needed for schedules table.');
         }
+
+        // Ensure performance indexes exist (safe to run multiple times using IF NOT EXISTS)
+        const performanceIndexes = [
+            // Questions and options ordering
+            'CREATE INDEX IF NOT EXISTS idx_questions_quiz_order ON questions(quiz_id, question_order)',
+            'CREATE INDEX IF NOT EXISTS idx_question_options_question_order ON question_options(question_id, option_order)',
+            // Quizzes filtering and ordering
+            'CREATE INDEX IF NOT EXISTS idx_quizzes_status ON quizzes(status)',
+            'CREATE INDEX IF NOT EXISTS idx_quizzes_status_created ON quizzes(status, created_at DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_quizzes_teacher_status ON quizzes(teacher_id, status)',
+            'CREATE INDEX IF NOT EXISTS idx_quizzes_teacher_created ON quizzes(teacher_id, created_at DESC)',
+            // Quiz-batch assignments
+            'CREATE INDEX IF NOT EXISTS idx_quiz_batches_batch ON quiz_batches(batch_id)',
+            // Submissions filtering and ordering
+            'CREATE INDEX IF NOT EXISTS idx_submissions_status ON quiz_submissions(status)',
+            'CREATE INDEX IF NOT EXISTS idx_submissions_quiz_status ON quiz_submissions(quiz_id, status)',
+            'CREATE INDEX IF NOT EXISTS idx_submissions_student_submitted ON quiz_submissions(student_id, submitted_at DESC)',
+            'CREATE INDEX IF NOT EXISTS idx_submissions_quiz_submitted ON quiz_submissions(quiz_id, submitted_at DESC)',
+            // Users lists by role and name ordering
+            'CREATE INDEX IF NOT EXISTS idx_users_role_name ON users(role, first_name, last_name)',
+            // Schedules and resources
+            'CREATE INDEX IF NOT EXISTS idx_schedules_batch_start ON schedules(batch_id, start_time)',
+            'CREATE INDEX IF NOT EXISTS idx_resources_teacher_created ON resources(teacher_id, created_at DESC)'
+        ];
+
+        try {
+            await this.executeStatements(performanceIndexes);
+            console.log('Ensured performance indexes exist.');
+        } catch (e) {
+            console.warn('Warning ensuring performance indexes:', e.message);
+        }
     }
 
     async executeStatements(statements) {

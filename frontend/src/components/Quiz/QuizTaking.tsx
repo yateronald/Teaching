@@ -652,7 +652,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     const currentQ = quiz.questions?.[currentQuestion];
     const questionsLength = quiz.questions?.length ?? 0;
     const progress = questionsLength ? (((currentQuestion + 1) / questionsLength) * 100) : 0;
-    const answeredQuestions = answers.length;
+    const answeredQuestions = answeredSet.size;
 
     // Guard against quizzes with no questions
     if (!currentQ) {

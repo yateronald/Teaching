@@ -17,6 +17,8 @@ import {
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import type { MenuProps } from 'antd';
+import { ASSET_PATHS } from '../../utils/assets';
+import { COLOR_COMBINATIONS, brandingUtils } from '../../utils/branding';
 
 const { Header, Sider, Content } = AntLayout;
 const { Text } = Typography;
@@ -187,15 +189,14 @@ const Layout: React.FC = () => {
                     alignItems: 'center',
                     justifyContent: 'center',
                     borderBottom: '1px solid #f0f0f0',
-                    marginBottom: 16
+                    marginBottom: 16,
+                    paddingInline: 12
                 }}>
-                    {!collapsed ? (
-                        <Text strong style={{ color: '#1890ff', fontSize: 16 }}>
-                            French Teaching
-                        </Text>
-                    ) : (
-                        <BookOutlined style={{ fontSize: 24, color: '#1890ff' }} />
-                    )}
+                    <img
+                        src={ASSET_PATHS.LOGOS.MAIN}
+                        alt="Learn French - Logo"
+                        style={brandingUtils.getResponsiveLogoStyles(collapsed ? 'header-collapsed' : 'header')}
+                    />
                 </div>
                 
                 <Menu
@@ -210,11 +211,12 @@ const Layout: React.FC = () => {
             <AntLayout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
                 <Header style={{
                     padding: '0 24px',
-                    background: '#fff',
+                    background: COLOR_COMBINATIONS.HEADER.background,
+                    color: COLOR_COMBINATIONS.HEADER.text,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
                     position: 'fixed',
                     top: 0,
                     right: 0,
@@ -226,19 +228,19 @@ const Layout: React.FC = () => {
                         type="text"
                         icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                         onClick={() => setCollapsed(!collapsed)}
-                        style={{ fontSize: 16, width: 64, height: 64 }}
+                        style={{ fontSize: 16, width: 64, height: 64, color: COLOR_COMBINATIONS.HEADER.text }}
                     />
                     
                     <Space align="center" size={12}>
                         <Space direction="vertical" size={0} style={{ textAlign: 'right', lineHeight: 1.2 }}>
-                            <Text strong style={{ margin: 0, display: 'block' }}>
+                            <Text strong style={{ margin: 0, display: 'block', color: COLOR_COMBINATIONS.HEADER.text }}>
                                 {user?.first_name} {user?.last_name}
                             </Text>
                             <Text 
                                 type="secondary" 
                                 style={{ 
                                     fontSize: 12,
-                                    color: getRoleColor(user?.role || ''),
+                                    color: 'rgba(255,255,255,0.85)',
                                     margin: 0,
                                     display: 'block'
                                 }}

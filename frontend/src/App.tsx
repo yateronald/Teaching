@@ -24,13 +24,14 @@ import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
 import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
+import { BRAND_CONFIG } from './utils/branding';
 
 function App() {
   return (
     <ConfigProvider
       theme={{
         token: {
-          colorPrimary: '#1890ff',
+          colorPrimary: BRAND_CONFIG.colors.primary,
           borderRadius: 6,
         },
       }}
@@ -70,7 +71,7 @@ function App() {
                   <BatchInsightsAdmin />
                 </ProtectedRoute>
               } />
-              
+
               {/* Teacher Routes */}
               <Route path="teacher-dashboard" element={
                 <ProtectedRoute requiredRole="teacher">
@@ -97,12 +98,7 @@ function App() {
                   <ScheduleManagement />
                 </ProtectedRoute>
               } />
-              <Route path="teacher/quiz-results/:quizId" element={
-                <ProtectedRoute requiredRole="teacher">
-                  <QuizResults />
-                </ProtectedRoute>
-              } />
-              
+
               {/* Student Routes */}
               <Route path="student-dashboard" element={
                 <ProtectedRoute requiredRole="student">
@@ -134,15 +130,10 @@ function App() {
                   <StudentSchedule />
                 </ProtectedRoute>
               } />
-              <Route path="quiz/:quizId" element={
-                <ProtectedRoute requiredRole="student">
-                  <QuizTaking />
-                </ProtectedRoute>
-              } />
             </Route>
-            
-            {/* Catch all route */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/login" replace />} />
           </Routes>
         </Router>
       </AuthProvider>
@@ -151,3 +142,4 @@ function App() {
 }
 
 export default App;
+

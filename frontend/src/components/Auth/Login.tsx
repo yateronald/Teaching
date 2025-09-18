@@ -3,6 +3,8 @@ import { Form, Input, Button, Card, Typography, message, Spin } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { ASSET_PATHS } from '../../utils/assets';
+import { brandingUtils, BRAND_CONFIG, COLOR_COMBINATIONS } from '../../utils/branding';
 
 const { Title, Text } = Typography;
 
@@ -19,6 +21,11 @@ const Login: React.FC = () => {
     const location = useLocation();
 
     const from = location.state?.from?.pathname || '/';
+
+    useEffect(() => {
+        // Ensure brand CSS variables are ready on the public route as well
+        brandingUtils.applyCSSVariables();
+    }, []);
 
     useEffect(() => {
         if (isAuthenticated && user) {
@@ -63,17 +70,26 @@ const Login: React.FC = () => {
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+            background: `linear-gradient(135deg, ${BRAND_CONFIG.colors.primary} 0%, ${brandingUtils.mix(BRAND_CONFIG.colors.primary, BRAND_CONFIG.colors.secondary, 0.5)} 60%, ${BRAND_CONFIG.colors.secondary} 100%)`
         }}>
             <Card 
                 style={{ 
-                    width: 400, 
+                    width: 420, 
                     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
                     borderRadius: '12px'
                 }}
+                styles={{ body: { padding: 24 } }}
             >
-                <div style={{ textAlign: 'center', marginBottom: 32 }}>
-                    <Title level={2} style={{ color: '#1890ff', marginBottom: 8 }}>
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                    <img 
+                        src={ASSET_PATHS.LOGOS.MAIN}
+                        alt={BRAND_CONFIG.name}
+                        style={brandingUtils.getResponsiveLogoStyles('login')}
+                    />
+                </div>
+
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                    <Title level={3} style={{ color: COLOR_COMBINATIONS.HEADER.background, marginBottom: 8 }}>
                         French Teaching System
                     </Title>
                     <Text type="secondary">

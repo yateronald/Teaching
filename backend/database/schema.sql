@@ -192,3 +192,13 @@ CREATE INDEX idx_answers_question ON student_answers(question_id);
 CREATE INDEX idx_resources_teacher ON resources(teacher_id);
 CREATE INDEX idx_resources_batch ON resources(batch_id);
 CREATE INDEX idx_class_schedules_batch ON class_schedules(batch_id);
+
+-- Additional indexes for large dataset performance
+CREATE INDEX idx_questions_quiz_order ON questions(quiz_id, question_order);
+CREATE INDEX idx_question_options_question_order ON question_options(question_id, option_order);
+CREATE INDEX idx_quizzes_status ON quizzes(status);
+CREATE INDEX idx_quizzes_teacher_status ON quizzes(teacher_id, status);
+CREATE INDEX idx_quiz_batches_batch ON quiz_batches(batch_id);
+CREATE INDEX idx_submissions_status ON quiz_submissions(status);
+CREATE INDEX idx_submissions_quiz_status ON quiz_submissions(quiz_id, status);
+CREATE INDEX idx_schedules_batch_start ON schedules(batch_id, start_time);

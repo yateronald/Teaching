@@ -249,9 +249,9 @@ const UserManagement: React.FC = () => {
     ];
 
     return (
-        <Card>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Title level={2}>
+        <Card style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }} bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                <Title level={2} style={{ margin: 0 }}>
                     <UserOutlined /> User Management
                 </Title>
                 <Button
@@ -263,19 +263,22 @@ const UserManagement: React.FC = () => {
                 </Button>
             </div>
 
-            <Table
-                columns={columns}
-                dataSource={users}
-                rowKey="id"
-                loading={loading}
-                scroll={{ x: 900, y: 400 }}
-                pagination={{
-                    pageSize: 10,
-                    showSizeChanger: true,
-                    showQuickJumper: true,
-                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
-                }}
-            />
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+                <Table
+                    columns={columns}
+                    dataSource={users}
+                    rowKey="id"
+                    loading={loading}
+                    scroll={{ x: 900, y: 'calc(100vh - 280px)' }}
+                    pagination={{
+                        pageSize: 15,
+                        showSizeChanger: true,
+                        showQuickJumper: true,
+                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
+                        pageSizeOptions: ['10', '15', '25', '50'],
+                    }}
+                />
+            </div>
 
             <Modal
                 title={editingUser ? 'Edit User' : 'Add User'}

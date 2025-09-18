@@ -30,7 +30,8 @@ import {
     FieldTimeOutlined,
     VideoCameraOutlined,
     EnvironmentOutlined,
-    GlobalOutlined
+    GlobalOutlined,
+    PlayCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -295,6 +296,20 @@ const StudentDashboard: React.FC = () => {
             .filter(schedule => dayjs(schedule.start_time).isAfter(dayjs()))
             .sort((a, b) => dayjs(a.start_time).diff(dayjs(b.start_time)))
             .slice(0, 5);
+    };
+
+    // Upcoming quizzes (published, future start, and not started)
+    const getUpcomingQuizzes = () => {
+        const now = dayjs();
+        return quizzes
+            .filter(q => {
+                const start = q.start_date ? dayjs(q.start_date) : null;
+                const isPublished = (q.status || '').toLowerCase() === 'published';
+                const notStarted = !q.submission_status || q.submission_status === 'not_started';
+                return !!start && start.isAfter(now) && isPublished && notStarted;
+            })
+            .sort((a, b) => dayjs(a.start_date as string).diff(dayjs(b.start_date as string)))
+            .slice(0, 2);
     };
 
     const getBatchStatus = (batch: Batch) => {
@@ -876,6 +891,146 @@ const StudentDashboard: React.FC = () => {
                                                         </Button>
                                                     </div>
                                                 )}
+                                            </div>
+                                        </Card>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </Card>
+
+                    {/* Upcoming Quiz */}
+                    <Card 
+                        title="Upcoming Quiz" 
+                        style={{ 
+                            marginBottom: 16,
+                            background: '#ffffff',
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                        }}
+                    >
+                        {getUpcomingQuizzes().length === 0 ? (
+                            <Empty 
+                                description="No upcoming quizzes"
+                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                style={{ margin: '20px 0' }}
+                            />
+                        ) : (
+                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+                                {getUpcomingQuizzes().map((q) => {
+                                    const startTime = dayjs(q.start_date as string);
+                                    const now = dayjs();
+                                    const minutesUntilStart = startTime.diff(now, 'minute');
+                                    const withinWindow = q.end_date ? now.isBefore(dayjs(q.end_date)) : true;
+                                    const canStart = minutesUntilStart <= 0 && withinWindow;
+                                    return (
+                                        <Card 
+                                            key={q.id}
+                                            size="small"
+                                            style={{
+                                                marginBottom: 12,
+                                                background: '#ffffff',
+                                                border: '2px solid #722ed1',
+                                                borderRadius: 12,
+                                                boxShadow: '0 4px 8px rgba(0,0,0,0.12)',
+                                                transition: 'all 0.3s ease'
+                                            }}
+                                            hoverable
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                                                        <Text strong style={{ 
+                                                            fontSize: '15px',
+                                                            color: '#000000',
+                                                            fontWeight: 600
+                                                        }}>
+                                                            {q.title}
+                                                        </Text>
+                                                        <Tag 
+                                                            color="purple"
+                                                            size="small"
+                                                            style={{ 
+                                                                marginLeft: 8,
+                                                                fontSize: '10px',
+                                                                fontWeight: 'bold',
+                                                                border: 'none'
+                                                            }}
+                                                        >
+                                                            QUIZ
+                                                        </Tag>
+                                                    </div>
+
+                                                    {q.batch_names && (
+                                                        <div style={{ marginBottom: 6 }}>
+                                                            <Text style={{ fontSize: '13px', color: '#434343', fontWeight: 500 }}>
+                                                                <BookOutlined style={{ marginRight: 6, color: '#1677ff' }} />
+                                                                {q.batch_names}
+                                                            </Text>
+                                                        </div>
+                                                    )}
+
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ fontSize: '13px', color: '#434343', fontWeight: 500 }}>
+                                                            <ClockCircleOutlined style={{ marginRight: 6, color: '#fa8c16' }} />
+                                                            {startTime.format('MMM DD, YYYY HH:mm')}
+                                                        </Text>
+                                                    </div>
+
+                                                    <div style={{ marginBottom: 6 }}>
+                                                        <Text style={{ fontSize: '13px', color: '#434343', fontWeight: 500 }}>
+                                                            <TrophyOutlined style={{ marginRight: 6, color: '#52c41a' }} />
+                                                            {(q.total_questions ?? 0)} questions • {(q.duration_minutes ?? 0)} min
+                                                        </Text>
+                                                    </div>
+
+                                                    {minutesUntilStart > 0 && minutesUntilStart <= 60 && (
+                                                        <div style={{ marginTop: 10 }}>
+                                                            <Tag 
+                                                                color="green"
+                                                                size="small"
+                                                                style={{
+                                                                    background: '#f6ffed',
+                                                                    border: '1px solid #52c41a',
+                                                                    color: '#389e0d',
+                                                                    fontWeight: 'bold'
+                                                                }}
+                                                            >
+                                                                Starts in {minutesUntilStart} min{minutesUntilStart !== 1 ? 's' : ''}
+                                                            </Tag>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div style={{ marginLeft: 16 }}>
+                                                    <Tooltip title={canStart ? 'Start Quiz' : `Available at ${startTime.format('MMM DD, HH:mm')}`}>
+                                                        <Button
+                                                            type="primary"
+                                                            size="small"
+                                                            icon={<PlayCircleOutlined />}
+                                                            disabled={!canStart}
+                                                            onClick={() => {
+                                                                if (canStart) {
+                                                                    navigate('/my-quizzes');
+                                                                    message.success('Quiz is now available. Opening My Quizzes...');
+                                                                }
+                                                            }}
+                                                            style={{
+                                                                background: canStart ? 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)' : undefined,
+                                                                borderColor: canStart ? '#52c41a' : undefined,
+                                                                fontWeight: 'bold',
+                                                                fontSize: '12px',
+                                                                height: '32px',
+                                                                boxShadow: canStart ? '0 2px 6px rgba(82, 196, 26, 0.3)' : undefined,
+                                                                border: 'none',
+                                                                position: 'relative',
+                                                                overflow: 'hidden'
+                                                            }}
+                                                            className={canStart ? 'join-button-animated' : ''}
+                                                        >
+                                                            START
+                                                        </Button>
+                                                    </Tooltip>
+                                                </div>
                                             </div>
                                         </Card>
                                     );
