@@ -4,30 +4,8 @@ import { UserOutlined, TeamOutlined, BookOutlined, DownloadOutlined } from '@ant
 import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
 
-// Chart.js / react-chartjs-2
-import {
-  Chart as ChartJS,
-  ArcElement,
-  BarElement,
-  CategoryScale,
-  LinearScale,
-  Tooltip,
-  Legend,
-  PointElement,
-  LineElement,
-} from 'chart.js';
-import { Doughnut, Bar } from 'react-chartjs-2';
-
-ChartJS.register(
-  ArcElement,
-  BarElement,
-  CategoryScale,
-  LinearScale,
-  Tooltip,
-  Legend,
-  PointElement,
-  LineElement,
-);
+// Replace Chart.js/react-chartjs-2 with Ant Design Plots
+import { Pie, Column } from '@ant-design/plots';
 
 const { Title, Text } = Typography;
 
@@ -89,12 +67,12 @@ const AdminDashboard: React.FC = () => {
   // Controls
   const [monthsRange, setMonthsRange] = useState<number>(6);
 
-  // Chart refs for export
-  const roleChartRef = useRef<ChartJS<'doughnut'> | null>(null);
-  const signupChartRef = useRef<ChartJS<'bar'> | null>(null);
-  const batchesChartRef = useRef<ChartJS<'bar'> | null>(null);
-  const quizStatusChartRef = useRef<ChartJS<'bar'> | null>(null);
-  const scheduleTypeChartRef = useRef<ChartJS<'doughnut'> | null>(null);
+  // Chart refs for export (AntV plots)
+  const rolePlotRef = useRef<any>(null);
+  const signupPlotRef = useRef<any>(null);
+  const batchesPlotRef = useRef<any>(null);
+  const quizStatusPlotRef = useRef<any>(null);
+  const scheduleTypePlotRef = useRef<any>(null);
 
   useEffect(() => {
     fetchData();
@@ -158,119 +136,65 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Derived datasets for charts
-  const roleChartData = useMemo(() => {
+  // Derived datasets for charts (data originates from backend lists above)
+  const rolePieData = useMemo(() => {
     const admins = users.filter(u => u.role === 'admin').length;
     const teachers = users.filter(u => u.role === 'teacher').length;
     const students = users.filter(u => u.role === 'student').length;
-    return {
-      labels: ['Admins', 'Teachers', 'Students'],
-      datasets: [
-        {
-          data: [admins, teachers, students],
-          backgroundColor: ['#ff4d4f', '#1677ff', '#52c41a'],
-        },
-      ],
-    };
+    return [
+      { type: 'Admins', value: admins },
+      { type: 'Teachers', value: teachers },
+      { type: 'Students', value: students },
+    ];
   }, [users]);
 
-  const monthlySignupChart = useMemo(() => {
+  const monthlySignupData = useMemo(() => {
     const months = Array.from({ length: monthsRange }, (_, i) => dayjs().subtract(monthsRange - 1 - i, 'month').startOf('month'));
-    const labels = months.map(m => m.format('MMM'));
     const bucket = new Map<string, number>();
     months.forEach(m => bucket.set(m.format('YYYY-MM'), 0));
     users.forEach(u => {
       const key = dayjs(u.created_at).startOf('month').format('YYYY-MM');
       if (bucket.has(key)) bucket.set(key, (bucket.get(key) || 0) + 1);
     });
-    const values = months.map(m => bucket.get(m.format('YYYY-MM')) || 0);
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Signups',
-          data: values,
-          backgroundColor: '#722ed1',
-          borderRadius: 6,
-        },
-      ],
-    };
+    return months.map(m => ({ month: m.format('MMM'), key: m.format('YYYY-MM'), signups: bucket.get(m.format('YYYY-MM')) || 0 }));
   }, [users, monthsRange]);
 
-  const topBatchesChart = useMemo(() => {
-    const sorted = [...batches]
+  const topBatchesData = useMemo(() => {
+    return [...batches]
       .sort((a, b) => (b.student_count || 0) - (a.student_count || 0))
-      .slice(0, 5);
-    return {
-      labels: sorted.map(b => b.name),
-      datasets: [
-        {
-          label: 'Students',
-          data: sorted.map(b => b.student_count || 0),
-          backgroundColor: '#13c2c2',
-          borderRadius: 6,
-        },
-      ],
-    };
+      .slice(0, 5)
+      .map(b => ({ batch: b.name, students: b.student_count || 0 }));
   }, [batches]);
 
-  const quizStatusChart = useMemo(() => {
+  const quizStatusData = useMemo(() => {
     const statuses = ['draft', 'published', 'archived'];
-    const counts = statuses.map(s => quizzes.filter(q => (q.status || '').toLowerCase() === s).length);
-    return {
-      labels: ['Draft', 'Published', 'Archived'],
-      datasets: [
-        {
-          label: 'Quizzes',
-          data: counts,
-          backgroundColor: ['#faad14', '#52c41a', '#8c8c8c'],
-          borderRadius: 6,
-        },
-      ],
-    };
+    const labels = ['Draft', 'Published', 'Archived'];
+    return statuses.map((s, idx) => ({ status: labels[idx], count: quizzes.filter(q => (q.status || '').toLowerCase() === s).length }));
   }, [quizzes]);
 
-  const scheduleTypeChartData = useMemo(() => {
+  const scheduleTypeData = useMemo(() => {
     const types = ['class', 'assignment', 'quiz', 'exam', 'meeting', 'other'];
     const labels = ['Class', 'Assignment', 'Quiz', 'Exam', 'Meeting', 'Other'];
-    const colors = ['#1677ff', '#722ed1', '#faad14', '#ff4d4f', '#13c2c2', '#bfbfbf'];
-    const counts = types.map(t => schedules.filter(s => (s.type || '').toLowerCase() === t).length);
-    return {
-      labels,
-      datasets: [
-        {
-          data: counts,
-          backgroundColor: colors,
-        },
-      ],
-    };
+    return types.map((t, idx) => ({ type: labels[idx], value: schedules.filter(s => (s.type || '').toLowerCase() === t).length }));
   }, [schedules]);
 
-  const barOptions: any = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: { enabled: true },
-    },
-    scales: {
-      x: { grid: { display: false } },
-      y: { beginAtZero: true, ticks: { precision: 0 } },
-    },
-  };
-
-  const doughnutOptions: any = {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { position: 'bottom' as const },
-      tooltip: { enabled: true },
-    },
-  };
-
-  const downloadChart = (ref: React.MutableRefObject<ChartJS | null>, filename: string) => {
-    const url = ref.current?.toBase64Image();
-    if (!url) return;
+  const downloadPlot = (ref: React.MutableRefObject<any>, filename: string) => {
+    const plot = ref.current;
+    if (!plot) return;
+    // Try AntV download helpers first
+    if (typeof plot.downloadImage === 'function') {
+      try {
+        plot.downloadImage(filename.replace(/\.[a-zA-Z0-9]+$/, ''));
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+    const url = typeof plot.toDataURL === 'function' ? plot.toDataURL() : undefined;
+    if (!url) {
+      message.warning('Download not supported for this chart');
+      return;
+    }
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -303,7 +227,7 @@ const AdminDashboard: React.FC = () => {
           <Card
             title="Users by Role"
             extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(roleChartRef as any, 'users-by-role.png')}>
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(rolePlotRef as any, 'users-by-role.png')}>
                 Download
               </Button>
             }
@@ -312,7 +236,18 @@ const AdminDashboard: React.FC = () => {
               {users.length === 0 ? (
                 <Text type="secondary">No user data available</Text>
               ) : (
-                <Doughnut ref={roleChartRef} data={roleChartData} options={doughnutOptions} />
+                <Pie
+                  data={rolePieData}
+                  height={280}
+                  angleField="value"
+                  colorField="type"
+                  radius={1}
+                  innerRadius={0.6}
+                  legend={{ position: 'bottom' }}
+                  label={{ text: 'value', style: { fontSize: 12 } }}
+                  tooltip={{ items: [{ channel: 'x', field: 'type' }, { channel: 'y', field: 'value' }] }}
+                  onReady={(plot) => (rolePlotRef.current = plot)}
+                />
               )}
             </div>
           </Card>
@@ -334,17 +269,26 @@ const AdminDashboard: React.FC = () => {
                     { value: 12, label: 'Last 12 months' },
                   ]}
                 />
-                <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(signupChartRef as any, 'user-signups.png')}>
+                <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(signupPlotRef as any, 'user-signups.png')}>
                   Download
                 </Button>
               </Space>
             }
           >
             <div style={{ height: 280 }}>
-              {monthlySignupChart.datasets[0].data.every((v: number) => v === 0) ? (
+              {monthlySignupData.every((v) => v.signups === 0) ? (
                 <Text type="secondary">No signup activity in the selected period</Text>
               ) : (
-                <Bar ref={signupChartRef} data={monthlySignupChart as any} options={barOptions} />
+                <Column
+                  data={monthlySignupData}
+                  height={280}
+                  xField="month"
+                  yField="signups"
+                  columnStyle={{ radius: 6 }}
+                  color="#722ed1"
+                  yAxis={{ nice: true, tick: { formatter: (v: number) => `${v}` } }}
+                  onReady={(plot) => (signupPlotRef.current = plot)}
+                />
               )}
             </div>
           </Card>
@@ -357,7 +301,7 @@ const AdminDashboard: React.FC = () => {
           <Card
             title="Top Batches by Students"
             extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(batchesChartRef as any, 'top-batches.png')}>
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(batchesPlotRef as any, 'top-batches.png')}>
                 Download
               </Button>
             }
@@ -366,7 +310,16 @@ const AdminDashboard: React.FC = () => {
               {batches.length === 0 ? (
                 <Text type="secondary">No batch data available</Text>
               ) : (
-                <Bar ref={batchesChartRef} data={topBatchesChart as any} options={barOptions} />
+                <Column
+                  data={topBatchesData}
+                  height={280}
+                  xField="batch"
+                  yField="students"
+                  columnStyle={{ radius: 6 }}
+                  color="#13c2c2"
+                  yAxis={{ nice: true, tick: { formatter: (v: number) => `${v}` } }}
+                  onReady={(plot) => (batchesPlotRef.current = plot)}
+                />
               )}
             </div>
           </Card>
@@ -376,7 +329,7 @@ const AdminDashboard: React.FC = () => {
           <Card
             title="Quiz Status Distribution"
             extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(quizStatusChartRef as any, 'quiz-status.png')}>
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(quizStatusPlotRef as any, 'quiz-status.png')}>
                 Download
               </Button>
             }
@@ -385,7 +338,16 @@ const AdminDashboard: React.FC = () => {
               {quizzes.length === 0 ? (
                 <Text type="secondary">No quizzes found</Text>
               ) : (
-                <Bar ref={quizStatusChartRef} data={quizStatusChart as any} options={barOptions} />
+                <Column
+                  data={quizStatusData}
+                  height={280}
+                  xField="status"
+                  yField="count"
+                  columnStyle={{ radius: 6 }}
+                  color={(d: any) => (d.status === 'Draft' ? '#faad14' : d.status === 'Published' ? '#52c41a' : '#8c8c8c')}
+                  yAxis={{ nice: true, tick: { formatter: (v: number) => `${v}` } }}
+                  onReady={(plot) => (quizStatusPlotRef.current = plot)}
+                />
               )}
             </div>
           </Card>
@@ -398,7 +360,7 @@ const AdminDashboard: React.FC = () => {
           <Card
             title="Schedule Types"
             extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadChart(scheduleTypeChartRef as any, 'schedule-types.png')}>
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(scheduleTypePlotRef as any, 'schedule-types.png')}>
                 Download
               </Button>
             }
@@ -407,7 +369,18 @@ const AdminDashboard: React.FC = () => {
               {schedules.length === 0 ? (
                 <Text type="secondary">No schedules available</Text>
               ) : (
-                <Doughnut ref={scheduleTypeChartRef} data={scheduleTypeChartData} options={doughnutOptions} />
+                <Pie
+                  data={scheduleTypeData}
+                  height={280}
+                  angleField="value"
+                  colorField="type"
+                  radius={1}
+                  innerRadius={0.6}
+                  legend={{ position: 'bottom' }}
+                  label={{ text: 'value', style: { fontSize: 12 } }}
+                  tooltip={{ items: [{ channel: 'x', field: 'type' }, { channel: 'y', field: 'value' }] }}
+                  onReady={(plot) => (scheduleTypePlotRef.current = plot)}
+                />
               )}
             </div>
           </Card>
