@@ -73,7 +73,7 @@ interface CalendarEvent {
 
 const AdminTimetable: React.FC = () => {
     const [teachers, setTeachers] = useState<Teacher[]>([]);
-    const [selectedTeacher, setSelectedTeacher] = useState<number | null>(null);
+    const [selectedTeacher, setSelectedTeacher] = useState<(number | string)[] | null>(null);
     const [timetableData, setTimetableData] = useState<TimetableEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -103,12 +103,38 @@ const AdminTimetable: React.FC = () => {
         }
     };
 
+    const handleTeacherChange = (value: (number | string)[]) => {
+        if (value.includes('all')) {
+            // If 'All' is selected, clear individual selections and set to null (show all)
+            setSelectedTeacher(null);
+        } else if (value.length === 0) {
+            // If nothing is selected, keep it empty (show nothing)
+            setSelectedTeacher([]);
+        } else {
+            // Filter out any 'all' values and keep only numbers
+            const teacherIds = value.filter(v => typeof v === 'number') as number[];
+            setSelectedTeacher(teacherIds);
+        }
+    };
+
     const fetchTimetable = async () => {
         setLoading(true);
         try {
-            const url = selectedTeacher 
-                ? `/batches/timetable?teacher_id=${selectedTeacher}`
-                : '/batches/timetable';
+            // If selectedTeacher is an empty array, show no data
+            if (selectedTeacher && selectedTeacher.length === 0) {
+                setTimetableData([]);
+                setLoading(false);
+                return;
+            }
+            
+            let url = '/batches/timetable';
+            if (selectedTeacher && selectedTeacher.length > 0) {
+                // Filter out 'all' and only use numeric teacher IDs
+                const teacherIds = selectedTeacher.filter(id => typeof id === 'number').join(',');
+                if (teacherIds) {
+                    url = `/batches/timetable?teacher_id=${teacherIds}`;
+                }
+            }
             
             const response = await apiCall(url);
             if (response.ok) {
@@ -157,25 +183,118 @@ const AdminTimetable: React.FC = () => {
         setDetailModalVisible(true);
     };
 
+    // Generate distinct colors for teachers
+    const teacherColors = useMemo(() => {
+        const uniqueTeachers = Array.from(new Set(timetableData.map(entry => entry.teacher_id)));
+        const colorPalette = [
+            '#1890ff', '#52c41a', '#722ed1', '#fa8c16', '#eb2f96', 
+            '#13c2c2', '#f5222d', '#a0d911', '#fadb14', '#2f54eb',
+            '#fa541c', '#1890ff', '#722ed1', '#52c41a', '#fa8c16'
+        ];
+        
+        const teacherColorMap: Record<number, { primary: string; border: string }> = {};
+        uniqueTeachers.forEach((teacherId, index) => {
+            const baseColor = colorPalette[index % colorPalette.length];
+            teacherColorMap[teacherId] = {
+                primary: baseColor,
+                border: baseColor
+            };
+        });
+        
+        return teacherColorMap;
+    }, [timetableData]);
+
+    // Generate distinct colors for batches (for single teacher view)
+    const batchColors = useMemo(() => {
+        const uniqueBatches = Array.from(new Set(timetableData.map(entry => entry.batch_id)));
+        const colorPalette = [
+            '#1890ff', '#52c41a', '#722ed1', '#fa8c16', '#eb2f96', 
+            '#13c2c2', '#f5222d', '#a0d911', '#fadb14', '#2f54eb',
+            '#fa541c', '#1890ff', '#722ed1', '#52c41a', '#fa8c16'
+        ];
+        
+        const batchColorMap: Record<number, { primary: string; border: string }> = {};
+        uniqueBatches.forEach((batchId, index) => {
+            const baseColor = colorPalette[index % colorPalette.length];
+            batchColorMap[batchId] = {
+                primary: baseColor,
+                border: baseColor
+            };
+        });
+        
+        return batchColorMap;
+    }, [timetableData]);
+
+    // Get unique teachers for legend display
+    const uniqueTeachers = useMemo(() => {
+        const teacherMap = new Map();
+        timetableData.forEach(entry => {
+            if (!teacherMap.has(entry.teacher_id)) {
+                teacherMap.set(entry.teacher_id, {
+                    teacher_id: entry.teacher_id,
+                    teacher_name: `${entry.teacher_first_name} ${entry.teacher_last_name}`,
+                    teacher_first_name: entry.teacher_first_name,
+                    teacher_last_name: entry.teacher_last_name
+                });
+            }
+        });
+        return Array.from(teacherMap.values());
+    }, [timetableData]);
+
+    // Get unique batches for legend display
+    const uniqueBatches = useMemo(() => {
+        const batchMap = new Map();
+        timetableData.forEach(entry => {
+            if (!batchMap.has(entry.batch_id)) {
+                batchMap.set(entry.batch_id, {
+                    batch_id: entry.batch_id,
+                    batch_name: entry.batch_name,
+                    french_level: entry.french_level,
+                    location_mode: entry.location_mode,
+                    teacher_name: `${entry.teacher_first_name} ${entry.teacher_last_name}`
+                });
+            }
+        });
+        return Array.from(batchMap.values());
+    }, [timetableData]);
+
+    // Determine if multiple batches are present
+    const hasMultipleBatches = uniqueBatches.length > 1;
+    
+    // Determine if multiple teachers are selected
+    const hasMultipleTeachers = selectedTeacher === null || 
+        (selectedTeacher && selectedTeacher.length > 1) ||
+        (selectedTeacher && uniqueBatches.some(batch => 
+            batch.teacher_name !== uniqueBatches[0].teacher_name
+        ));
+
     const eventStyleGetter = (event: CalendarEvent) => {
         const entry = event.resource;
-        let backgroundColor = '#1890ff';
-        let borderColor = '#1890ff';
         
-        // Color code by location mode with better colors
-        if (entry.location_mode === 'online') {
-            backgroundColor = '#52c41a';
-            borderColor = '#389e0d';
+        // Use teacher colors when multiple teachers are selected or all teachers
+        // Use batch colors when single teacher is selected
+        const isMultipleTeachers = selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1);
+        
+        let backgroundColor, borderColor;
+        
+        if (isMultipleTeachers) {
+            const teacherColor = teacherColors[entry.teacher_id];
+            backgroundColor = teacherColor?.primary || '#1890ff';
+            borderColor = teacherColor?.border || '#1890ff';
         } else {
-            backgroundColor = '#722ed1';
-            borderColor = '#531dab';
+            const batchColor = batchColors[entry.batch_id];
+            backgroundColor = batchColor?.primary || '#1890ff';
+            borderColor = batchColor?.border || '#1890ff';
         }
+        
+        // Add slight transparency for online classes to maintain distinction
+        const opacity = entry.location_mode === 'online' ? 0.85 : 0.9;
         
         return {
             style: {
                 backgroundColor,
                 borderRadius: '6px',
-                opacity: 0.9,
+                opacity,
                 color: 'white',
                 border: `2px solid ${borderColor}`,
                 display: 'block',
@@ -320,14 +439,18 @@ const AdminTimetable: React.FC = () => {
                                 <FilterOutlined /> Filter by Teacher:
                             </Text>
                             <Select
-                                placeholder="Select a teacher (or leave empty for all)"
+                                mode="multiple"
+                                placeholder="Select teachers or 'All'"
                                 style={{ width: '100%' }}
-                                value={selectedTeacher}
-                                onChange={setSelectedTeacher}
+                                value={selectedTeacher === null ? ['all'] : (selectedTeacher.length === 0 ? [] : selectedTeacher)}
+                                onChange={handleTeacherChange}
                                 allowClear
                                 showSearch
                                 optionFilterProp="children"
                             >
+                                <Option key="all" value="all">
+                                    <UserOutlined /> All Teachers
+                                </Option>
                                 {teachers.map(teacher => (
                                     <Option key={teacher.id} value={teacher.id}>
                                         <UserOutlined /> {teacher.first_name} {teacher.last_name}
@@ -379,10 +502,48 @@ const AdminTimetable: React.FC = () => {
 
                 <Row style={{ marginTop: 12 }}>
                     <Col span={24}>
-                        <Space>
-                            <Text type="secondary">Legend:</Text>
-                            <Tag color="#52c41a">🌐 Online Classes</Tag>
-                            <Tag color="#722ed1">📍 Physical Classes</Tag>
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                            {/* Teacher Legend - Only visible when all teachers or multiple teachers are selected */}
+                            {(selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1)) && uniqueTeachers.length > 0 && (
+                                <Space wrap>
+                                    <Text type="secondary">Teachers:</Text>
+                                    {uniqueTeachers.map(teacher => (
+                                        <Tag 
+                                            key={teacher.teacher_id}
+                                            color={teacherColors[teacher.teacher_id]?.primary}
+                                            style={{ 
+                                                color: 'white',
+                                                fontWeight: 'bold',
+                                                border: `1px solid ${teacherColors[teacher.teacher_id]?.border}`
+                                            }}
+                                        >
+                                            {teacher.teacher_name}
+                                        </Tag>
+                                    ))}
+                                </Space>
+                            )}
+                            
+                            {/* Per-batch Legend - Only visible when exactly one teacher is selected */}
+                            {selectedTeacher && selectedTeacher.length === 1 && uniqueBatches.length > 0 && (
+                                <Space wrap>
+                                    <Text type="secondary">
+                                        {uniqueBatches[0]?.teacher_name}'s Batches:
+                                    </Text>
+                                    {uniqueBatches.map(batch => (
+                                        <Tag 
+                                            key={batch.batch_id}
+                                            color={batchColors[batch.batch_id]?.primary}
+                                            style={{ 
+                                                color: 'white',
+                                                fontWeight: 'bold',
+                                                border: `1px solid ${batchColors[batch.batch_id]?.border}`
+                                            }}
+                                        >
+                                            {batch.batch_name} ({batch.french_level})
+                                        </Tag>
+                                    ))}
+                                </Space>
+                            )}
                         </Space>
                     </Col>
                 </Row>

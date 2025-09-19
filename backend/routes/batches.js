@@ -224,8 +224,13 @@ router.get('/timetable', authenticateToken, adminOnly, async (req, res) => {
         
         let params = [];
         if (teacher_id) {
-            sql += ' AND u.id = ?';
-            params.push(teacher_id);
+            // Handle multiple teacher IDs (comma-separated)
+            const teacherIds = teacher_id.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+            if (teacherIds.length > 0) {
+                const placeholders = teacherIds.map(() => '?').join(',');
+                sql += ` AND u.id IN (${placeholders})`;
+                params.push(...teacherIds);
+            }
         }
         
         sql += ' ORDER BY u.first_name, u.last_name, bt.day_of_week, bt.start_time';
