@@ -18,7 +18,17 @@ const PORT = process.env.PORT || 5000;
 const database = new Database();
 
 // Middleware
-app.use(cors());
+const corsOptions = {
+    origin: [
+        'https://teaching-qnvf.onrender.com',
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:3000'
+    ],
+    credentials: true,
+    optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
