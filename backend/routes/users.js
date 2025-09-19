@@ -319,4 +319,45 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
     }
 });
 
+// Admin reset user password
+router.put('/:id/reset-password', [
+    authenticateToken,
+    adminOnly,
+    body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ 
+                error: 'Validation failed', 
+                details: errors.array() 
+            });
+        }
+
+        const { id } = req.params;
+        const { newPassword } = req.body;
+
+        // Check if user exists
+        const user = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Hash new password
+        const newPasswordHash = await hashPassword(newPassword);
+
+        // Update password in database
+        await req.db.run(
+            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [newPasswordHash, id]
+        );
+
+        res.json({ message: 'Password reset successfully' });
+
+    } catch (error) {
+        console.error('Reset password error:', error);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
+});
+
 module.exports = router;

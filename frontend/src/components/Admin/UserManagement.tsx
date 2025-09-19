@@ -11,13 +11,15 @@ import {
     Typography,
     Tag,
     Popconfirm,
-    Card
+    Card,
+    Divider
 } from 'antd';
 import {
     PlusOutlined,
     EditOutlined,
     DeleteOutlined,
-    UserOutlined
+    UserOutlined,
+    KeyOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
@@ -39,8 +41,11 @@ const UserManagement: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
+    const [passwordModalVisible, setPasswordModalVisible] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
+    const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
     const [form] = Form.useForm();
+    const [passwordForm] = Form.useForm();
     const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
 
     // Check if user is authenticated and has admin privileges
@@ -171,6 +176,44 @@ const UserManagement: React.FC = () => {
         setModalVisible(true);
     };
 
+    const handleResetPassword = (user: User) => {
+        setResetPasswordUser(user);
+        passwordForm.resetFields();
+        setPasswordModalVisible(true);
+    };
+
+    const handlePasswordReset = async (values: any) => {
+        if (!resetPasswordUser) return;
+
+        try {
+            const response = await apiCall(`/users/${resetPasswordUser.id}/reset-password`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ newPassword: values.newPassword }),
+            });
+
+            if (response.ok) {
+                message.success('Password reset successfully');
+                setPasswordModalVisible(false);
+                passwordForm.resetFields();
+                setResetPasswordUser(null);
+            } else {
+                const errorData = await response.json();
+                message.error(errorData.error || errorData.message || 'Failed to reset password');
+            }
+        } catch (error: any) {
+            console.error('Password reset error:', error);
+            if (error.message && error.message.includes('Authentication token is invalid or expired.')) {
+                message.error('Session expired. Please log in again.');
+                logout();
+            } else {
+                message.error('Error resetting password');
+            }
+        }
+    };
+
     const getRoleColor = (role: string) => {
         switch (role) {
             case 'admin': return 'red';
@@ -216,7 +259,7 @@ const UserManagement: React.FC = () => {
         {
             title: 'Actions',
             key: 'actions',
-            width: 180,
+            width: 250,
             fixed: 'right',
             render: (_, record) => (
                 <Space>
@@ -227,6 +270,14 @@ const UserManagement: React.FC = () => {
                         onClick={() => handleEdit(record)}
                     >
                         Edit
+                    </Button>
+                    <Button
+                        type="default"
+                        size="small"
+                        icon={<KeyOutlined />}
+                        onClick={() => handleResetPassword(record)}
+                    >
+                        Reset Password
                     </Button>
                     <Popconfirm
                         title="Are you sure you want to delete this user?"
@@ -289,12 +340,31 @@ const UserManagement: React.FC = () => {
                     setEditingUser(null);
                 }}
                 footer={null}
+                width={600}
             >
                 <Form
                     form={form}
                     layout="vertical"
                     onFinish={handleSubmit}
                 >
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                        <Form.Item
+                            name="first_name"
+                            label="First Name"
+                            rules={[{ required: true, message: 'Please input first name!' }]}
+                        >
+                            <Input placeholder="Enter first name" />
+                        </Form.Item>
+
+                        <Form.Item
+                            name="last_name"
+                            label="Last Name"
+                            rules={[{ required: true, message: 'Please input last name!' }]}
+                        >
+                            <Input placeholder="Enter last name" />
+                        </Form.Item>
+                    </div>
+
                     <Form.Item
                         name="username"
                         label="Username"
@@ -303,7 +373,11 @@ const UserManagement: React.FC = () => {
                             { min: 3, message: 'Username must be at least 3 characters!' }
                         ]}
                     >
-                        <Input placeholder="Enter username" disabled={!!editingUser} />
+                        <Input 
+                            placeholder="Enter username" 
+                            disabled={!!editingUser}
+                            prefix={<UserOutlined />}
+                        />
                     </Form.Item>
 
                     <Form.Item
@@ -317,58 +391,170 @@ const UserManagement: React.FC = () => {
                         <Input placeholder="Enter email" />
                     </Form.Item>
 
-                    <Form.Item
-                        name="first_name"
-                        label="First Name"
-                        rules={[{ required: true, message: 'Please input first name!' }]}
-                    >
-                        <Input placeholder="Enter first name" />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="last_name"
-                        label="Last Name"
-                        rules={[{ required: true, message: 'Please input last name!' }]}
-                    >
-                        <Input placeholder="Enter last name" />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="role"
-                        label="Role"
-                        rules={[{ required: true, message: 'Please select a role!' }]}
-                    >
-                        <Select placeholder="Select role">
-                            <Option value="admin">Admin</Option>
-                            <Option value="teacher">Teacher</Option>
-                            <Option value="student">Student</Option>
-                        </Select>
-                    </Form.Item>
-
-                    {!editingUser && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                         <Form.Item
-                            name="password"
-                            label="Password"
-                            rules={[
-                                { required: true, message: 'Please input password!' },
-                                { min: 6, message: 'Password must be at least 6 characters!' }
-                            ]}
+                            name="role"
+                            label="Role"
+                            rules={[{ required: true, message: 'Please select a role!' }]}
                         >
-                            <Input.Password placeholder="Enter password" />
+                            <Select placeholder="Select role">
+                                <Option value="admin">
+                                    <Space>
+                                        <Tag color="red">Admin</Tag>
+                                        Full system access
+                                    </Space>
+                                </Option>
+                                <Option value="teacher">
+                                    <Space>
+                                        <Tag color="blue">Teacher</Tag>
+                                        Manage classes & students
+                                    </Space>
+                                </Option>
+                                <Option value="student">
+                                    <Space>
+                                        <Tag color="green">Student</Tag>
+                                        Access learning materials
+                                    </Space>
+                                </Option>
+                            </Select>
                         </Form.Item>
+
+                        {!editingUser && (
+                            <Form.Item
+                                name="password"
+                                label="Password"
+                                rules={[
+                                    { required: true, message: 'Please input password!' },
+                                    { min: 6, message: 'Password must be at least 6 characters!' }
+                                ]}
+                            >
+                                <Input.Password placeholder="Enter password" />
+                            </Form.Item>
+                        )}
+                    </div>
+
+                    {editingUser && (
+                        <div style={{ 
+                            background: '#f6ffed', 
+                            border: '1px solid #b7eb8f', 
+                            borderRadius: '6px', 
+                            padding: '12px', 
+                            marginBottom: '16px' 
+                        }}>
+                            <Space>
+                                <KeyOutlined style={{ color: '#52c41a' }} />
+                                <span style={{ color: '#389e0d' }}>
+                                    To change the password, use the "Reset Password" button in the user list.
+                                </span>
+                            </Space>
+                        </div>
                     )}
 
-                    <Form.Item>
-                        <Space>
-                            <Button type="primary" htmlType="submit">
-                                {editingUser ? 'Update' : 'Create'}
-                            </Button>
+                    <Divider />
+
+                    <Form.Item style={{ marginBottom: 0 }}>
+                        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
                             <Button onClick={() => {
                                 setModalVisible(false);
                                 form.resetFields();
                                 setEditingUser(null);
                             }}>
                                 Cancel
+                            </Button>
+                            <Button type="primary" htmlType="submit">
+                                {editingUser ? 'Update User' : 'Create User'}
+                            </Button>
+                        </Space>
+                    </Form.Item>
+                </Form>
+            </Modal>
+
+            {/* Password Reset Modal */}
+            <Modal
+                title={
+                    <Space>
+                        <KeyOutlined style={{ color: '#1890ff' }} />
+                        Reset Password for {resetPasswordUser?.first_name} {resetPasswordUser?.last_name}
+                    </Space>
+                }
+                open={passwordModalVisible}
+                onCancel={() => {
+                    setPasswordModalVisible(false);
+                    passwordForm.resetFields();
+                    setResetPasswordUser(null);
+                }}
+                footer={null}
+                width={500}
+            >
+                <div style={{ 
+                    background: '#fff7e6', 
+                    border: '1px solid #ffd591', 
+                    borderRadius: '6px', 
+                    padding: '12px', 
+                    marginBottom: '20px' 
+                }}>
+                    <Space>
+                        <KeyOutlined style={{ color: '#fa8c16' }} />
+                        <span style={{ color: '#d46b08' }}>
+                            This will reset the user's password. They will need to use the new password to log in.
+                        </span>
+                    </Space>
+                </div>
+
+                <Form
+                    form={passwordForm}
+                    layout="vertical"
+                    onFinish={handlePasswordReset}
+                >
+                    <Form.Item
+                        name="newPassword"
+                        label="New Password"
+                        rules={[
+                            { required: true, message: 'Please input new password!' },
+                            { min: 6, message: 'Password must be at least 6 characters!' }
+                        ]}
+                    >
+                        <Input.Password 
+                            placeholder="Enter new password"
+                            size="large"
+                        />
+                    </Form.Item>
+
+                    <Form.Item
+                        name="confirmPassword"
+                        label="Confirm Password"
+                        dependencies={['newPassword']}
+                        rules={[
+                            { required: true, message: 'Please confirm the password!' },
+                            ({ getFieldValue }) => ({
+                                validator(_, value) {
+                                    if (!value || getFieldValue('newPassword') === value) {
+                                        return Promise.resolve();
+                                    }
+                                    return Promise.reject(new Error('The two passwords do not match!'));
+                                },
+                            }),
+                        ]}
+                    >
+                        <Input.Password 
+                            placeholder="Confirm new password"
+                            size="large"
+                        />
+                    </Form.Item>
+
+                    <Divider />
+
+                    <Form.Item style={{ marginBottom: 0 }}>
+                        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                            <Button onClick={() => {
+                                setPasswordModalVisible(false);
+                                passwordForm.resetFields();
+                                setResetPasswordUser(null);
+                            }}>
+                                Cancel
+                            </Button>
+                            <Button type="primary" htmlType="submit" danger>
+                                Reset Password
                             </Button>
                         </Space>
                     </Form.Item>
