@@ -17,7 +17,8 @@ import {
     Segmented,
     Select,
     Space,
-    Divider
+    Divider,
+    Spin
 } from 'antd';
 import {
     BookOutlined,
@@ -166,9 +167,9 @@ interface Schedule {
 const StudentDashboard: React.FC = () => {
     const [batches, setBatches] = useState<Batch[]>([]);
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [results, setResults] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
 
     const { apiCall } = useAuth();
     const navigate = useNavigate();
@@ -192,7 +193,7 @@ const StudentDashboard: React.FC = () => {
     }, []);
 
     const fetchData = async () => {
-
+        setLoading(true);
         try {
             const [quizzesRes, resultsRes, resourcesRes, schedulesRes, batchesRes] = await Promise.all([
                 apiCall('/quizzes'),
@@ -274,6 +275,8 @@ const StudentDashboard: React.FC = () => {
             setStats(prev => ({ ...prev, totalBatches: mappedBatches.length }));
         } catch (error) {
             message.error('Failed to fetch data');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -363,44 +366,68 @@ const StudentDashboard: React.FC = () => {
                 <Col xs={24} sm={12} md={6}>
                     <Tooltip title="View my batches">
                         <Card hoverable onClick={() => setBatchModalOpen(true)} style={{ cursor: 'pointer' }}>
-                            <Statistic
-                                title="My Batches"
-                                value={stats.totalBatches}
-                                prefix={<BookOutlined />}
-                                valueStyle={{ color: '#1890ff' }}
-                            />
+                            {loading ? (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
+                                    <Spin />
+                                </div>
+                            ) : (
+                                <Statistic
+                                    title="My Batches"
+                                    value={stats.totalBatches}
+                                    prefix={<BookOutlined />}
+                                    valueStyle={{ color: '#1890ff' }}
+                                />
+                            )}
                         </Card>
                     </Tooltip>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
                     <Card>
-                        <Statistic
-                            title="Completed Quizzes"
-                            value={stats.completedQuizzes}
-                            prefix={<CheckCircleOutlined />}
-                            valueStyle={{ color: '#52c41a' }}
-                        />
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
+                                <Spin />
+                            </div>
+                        ) : (
+                            <Statistic
+                                title="Completed Quizzes"
+                                value={stats.completedQuizzes}
+                                prefix={<CheckCircleOutlined />}
+                                valueStyle={{ color: '#52c41a' }}
+                            />
+                        )}
                     </Card>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
                     <Card>
-                        <Statistic
-                            title="Average Score"
-                            value={stats.averageScore}
-                            suffix="%"
-                            prefix={<TrophyOutlined />}
-                            valueStyle={{ color: getScoreColor(stats.averageScore) }}
-                        />
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
+                                <Spin />
+                            </div>
+                        ) : (
+                            <Statistic
+                                title="Average Score"
+                                value={stats.averageScore}
+                                suffix="%"
+                                prefix={<TrophyOutlined />}
+                                valueStyle={{ color: getScoreColor(stats.averageScore) }}
+                            />
+                        )}
                     </Card>
                 </Col>
                 <Col xs={24} sm={12} md={6}>
                     <Card>
-                        <Statistic
-                            title="Pending Quizzes"
-                            value={stats.pendingQuizzes}
-                            prefix={<ClockCircleOutlined />}
-                            valueStyle={{ color: '#fa8c16' }}
-                        />
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80 }}>
+                                <Spin />
+                            </div>
+                        ) : (
+                            <Statistic
+                                title="Pending Quizzes"
+                                value={stats.pendingQuizzes}
+                                prefix={<ClockCircleOutlined />}
+                                valueStyle={{ color: '#fa8c16' }}
+                            />
+                        )}
                     </Card>
                 </Col>
             </Row>
@@ -697,7 +724,12 @@ const StudentDashboard: React.FC = () => {
                             boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                         }}
                     >
-                        {getUpcomingSchedules().length === 0 ? (
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+                                <Spin size="large" />
+                                <Text style={{ marginLeft: 12 }}>Loading schedule...</Text>
+                            </div>
+                        ) : getUpcomingSchedules().length === 0 ? (
                             <Empty 
                                 description="No upcoming events"
                                 image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -902,7 +934,12 @@ const StudentDashboard: React.FC = () => {
                             boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                         }}
                     >
-                        {getUpcomingQuizzes().length === 0 ? (
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+                                <Spin size="large" />
+                                <Text style={{ marginLeft: 12 }}>Loading quizzes...</Text>
+                            </div>
+                        ) : getUpcomingQuizzes().length === 0 ? (
                             <Empty 
                                 description="No upcoming quizzes"
                                 image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -1045,34 +1082,41 @@ const StudentDashboard: React.FC = () => {
                             )
                         }
                     >
-                        <div>
-                            {quizzes
-                                .filter(quiz => quiz.submission)
-                                .slice(0, 5)
-                                .map((quiz) => {
-                                    const percentage = Number(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)).toFixed(2)) || 0;
-                                    return (
-                                        <div key={quiz.id} style={{ marginBottom: 12 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                                <Text ellipsis style={{ maxWidth: '70%' }}>{quiz.title}</Text>
-                                                <Text strong style={{ color: getScoreColor(percentage) }}>
-                                                    {percentage.toFixed(2)}%
-                                                </Text>
+                        {loading ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 150 }}>
+                                <Spin size="large" />
+                                <Text style={{ marginLeft: 12 }}>Loading performance data...</Text>
+                            </div>
+                        ) : (
+                            <div>
+                                {quizzes
+                                    .filter(quiz => quiz.submission)
+                                    .slice(0, 5)
+                                    .map((quiz) => {
+                                        const percentage = Number(Number(quiz.submission?.percentage ?? ((Number(quiz.submission?.total_score || 0) / Number(quiz.submission?.max_score || 0)) * 100)).toFixed(2)) || 0;
+                                        return (
+                                            <div key={quiz.id} style={{ marginBottom: 12 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <Text ellipsis style={{ maxWidth: '70%' }}>{quiz.title}</Text>
+                                                    <Text strong style={{ color: getScoreColor(percentage) }}>
+                                                        {percentage.toFixed(2)}%
+                                                    </Text>
+                                                </div>
+                                                <Progress 
+                                                    percent={percentage} 
+                                                    size="small" 
+                                                    strokeColor={getScoreColor(percentage)}
+                                                    showInfo={false}
+                                                />
                                             </div>
-                                            <Progress 
-                                                percent={percentage} 
-                                                size="small" 
-                                                strokeColor={getScoreColor(percentage)}
-                                                showInfo={false}
-                                            />
-                                        </div>
-                                    );
-                                })
-                            }
-                            {quizzes.filter(quiz => quiz.submission).length === 0 && (
-                                <Text type="secondary">No completed quizzes yet</Text>
-                            )}
-                        </div>
+                                        );
+                                    })
+                                }
+                                {quizzes.filter(quiz => quiz.submission).length === 0 && (
+                                    <Text type="secondary">No completed quizzes yet</Text>
+                                )}
+                            </div>
+                        )}
                     </Card>
                 </Col>
             </Row>

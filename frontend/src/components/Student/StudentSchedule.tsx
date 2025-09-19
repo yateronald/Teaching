@@ -15,7 +15,8 @@ import {
     Button,
     Modal,
     Space,
-    Descriptions
+    Descriptions,
+    Spin
 } from 'antd';
 import {
     CalendarOutlined,
@@ -73,6 +74,7 @@ interface ScheduleStats {
 const StudentSchedule: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [stats, setStats] = useState<ScheduleStats | null>(null);
+    const [loading, setLoading] = useState(true); // Add loading state
 
     // const [selectedDate, setSelectedDate] = useState<Dayjs>(dayjs()); // no longer needed with FullCalendar
     const [detailsVisible, setDetailsVisible] = useState(false);
@@ -129,6 +131,7 @@ const StudentSchedule: React.FC = () => {
     }, []);
 
     const fetchSchedules = async () => {
+        setLoading(true);
         try {
             // Use backend list endpoint with role-based filtering
             const response = await apiCall('/schedules');
@@ -168,6 +171,8 @@ const StudentSchedule: React.FC = () => {
         } catch (error) {
             console.error('Error fetching schedule:', error);
             message.error('Error fetching schedule');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -325,46 +330,52 @@ const StudentSchedule: React.FC = () => {
                 </Title>
             </div>
 
-            {stats && (
-                <Row gutter={16} style={{ marginBottom: 16 }}>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Total Classes"
-                                value={stats.total_classes}
-                                prefix={<BookOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="This Week"
-                                value={stats.this_week_classes}
-                                prefix={<CalendarOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Upcoming"
-                                value={stats.upcoming_classes}
-                                prefix={<ClockCircleOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Completed"
-                                value={stats.completed_classes}
-                                prefix={<CheckCircleOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                </Row>
-            )}
+            <Spin spinning={loading} tip="Loading schedule statistics...">
+                {stats && (
+                    <Row gutter={16} style={{ marginBottom: 16 }}>
+                        <Col span={6}>
+                            <Card>
+                                <Statistic
+                                    title="Total Classes"
+                                    value={stats.total_classes ?? 0}
+                                    prefix={<BookOutlined />}
+                                    valueStyle={{ color: '#1677ff' }}
+                                />
+                            </Card>
+                        </Col>
+                        <Col span={6}>
+                            <Card>
+                                <Statistic
+                                    title="This Week"
+                                    value={stats.this_week_classes ?? 0}
+                                    prefix={<CalendarOutlined />}
+                                    valueStyle={{ color: '#52c41a' }}
+                                />
+                            </Card>
+                        </Col>
+                        <Col span={6}>
+                            <Card>
+                                <Statistic
+                                    title="Upcoming"
+                                    value={stats.upcoming_classes ?? 0}
+                                    prefix={<ClockCircleOutlined />}
+                                    valueStyle={{ color: '#faad14' }}
+                                />
+                            </Card>
+                        </Col>
+                        <Col span={6}>
+                            <Card>
+                                <Statistic
+                                    title="Completed"
+                                    value={stats.completed_classes ?? 0}
+                                    prefix={<CheckCircleOutlined />}
+                                    valueStyle={{ color: '#52c41a' }}
+                                />
+                            </Card>
+                        </Col>
+                    </Row>
+                )}
+            </Spin>
 
             {nextClass && (
                 <Card 
@@ -456,7 +467,12 @@ const StudentSchedule: React.FC = () => {
                     <Tabs defaultActiveKey="today" size="small">
                         <TabPane tab={`Today (${todaySchedules.length})`} key="today">
                             <Card size="small">
-                                {todaySchedules.length > 0 ? (
+                                {loading ? (
+                                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                                        <Spin size="large" />
+                                        <div style={{ marginTop: 8 }}>Loading today's schedule...</div>
+                                    </div>
+                                ) : todaySchedules.length > 0 ? (
                                     <Timeline>
                                         {todaySchedules
                                             .sort((a, b) => a.start_time.localeCompare(b.start_time))
@@ -522,7 +538,12 @@ const StudentSchedule: React.FC = () => {
                         
                         <TabPane tab={`Upcoming (${upcomingSchedules.slice(0, 10).length})`} key="upcoming">
                             <Card size="small">
-                                {upcomingSchedules.slice(0, 10).length > 0 ? (
+                                {loading ? (
+                                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                                        <Spin size="large" />
+                                        <div style={{ marginTop: 8 }}>Loading upcoming classes...</div>
+                                    </div>
+                                ) : upcomingSchedules.slice(0, 10).length > 0 ? (
                                     <List
                                         size="small"
                                         dataSource={upcomingSchedules.slice(0, 10)}
@@ -601,7 +622,12 @@ const StudentSchedule: React.FC = () => {
                         
                         <TabPane tab={`This Week (${thisWeekSchedules.length})`} key="week">
                             <Card size="small">
-                                {thisWeekSchedules.length > 0 ? (
+                                {loading ? (
+                                    <div style={{ textAlign: 'center', padding: '20px' }}>
+                                        <Spin size="large" />
+                                        <div style={{ marginTop: 8 }}>Loading this week's schedule...</div>
+                                    </div>
+                                ) : thisWeekSchedules.length > 0 ? (
                                     <List
                                         size="small"
                                         dataSource={thisWeekSchedules

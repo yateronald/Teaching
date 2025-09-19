@@ -12,7 +12,7 @@ import {
     Tabs,
     Row,
     Col,
-
+    Spin,
     Statistic,
     Empty
 } from 'antd';
@@ -82,7 +82,8 @@ const StudentQuizzes: React.FC = () => {
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
     const [stats, setStats] = useState<QuizStats | null>(null);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true); // Start with loading true
+    const [attemptsLoading, setAttemptsLoading] = useState(true); // Separate loading for attempts
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
     const [quizTakingVisible, setQuizTakingVisible] = useState(false);
@@ -131,6 +132,7 @@ const StudentQuizzes: React.FC = () => {
     };
 
     const fetchAttempts = async () => {
+        setAttemptsLoading(true);
         try {
             // Map backend results to attempts list
             const response = await apiCall('/quizzes/student/results');
@@ -148,14 +150,18 @@ const StudentQuizzes: React.FC = () => {
                         total_questions: Number(r.total_questions ?? 0),
                         correct_answers: Number(r.correct_answers ?? 0),
                         time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),
-                        completed_at: r.submitted_at,
+                        completed_at: r.submitted_at || r.completed_at,
                         passed: Number(r.percentage ?? 0) >= 50,
-                        attempt_number: 1,
+                        attempt_number: 1, // Backend doesn't track attempt numbers yet
                     }));
                 setAttempts(mapped);
+            } else {
+                messageApi.error('Failed to fetch quiz attempts');
             }
         } catch (error) {
-            console.error('Error fetching attempts:', error);
+            messageApi.error('Error fetching quiz attempts');
+        } finally {
+            setAttemptsLoading(false);
         }
     };
 
@@ -370,13 +376,14 @@ const StudentQuizzes: React.FC = () => {
                 </Title>
             </div>
 
-            {stats && (
+            {/* Statistics Cards with loading */}
+            <Spin spinning={loading || attemptsLoading}>
                 <Row gutter={16} style={{ marginBottom: 16 }}>
                     <Col span={6}>
                         <Card>
                             <Statistic
                                 title="Total Quizzes"
-                                value={stats.total_quizzes}
+                                value={stats?.total_quizzes ?? 0}
                                 prefix={<BookOutlined />}
                             />
                         </Card>
@@ -385,8 +392,9 @@ const StudentQuizzes: React.FC = () => {
                         <Card>
                             <Statistic
                                 title="Completed"
-                                value={stats.completed_quizzes}
+                                value={stats?.completed_quizzes ?? 0}
                                 prefix={<CheckCircleOutlined />}
+                                valueStyle={{ color: '#52c41a' }}
                             />
                         </Card>
                     </Col>
@@ -394,9 +402,10 @@ const StudentQuizzes: React.FC = () => {
                         <Card>
                             <Statistic
                                 title="Average Score"
-                                value={stats.average_score}
+                                value={stats?.average_score ?? 0}
                                 suffix="%"
                                 prefix={<BarChartOutlined />}
+                                valueStyle={{ color: '#1890ff' }}
                             />
                         </Card>
                     </Col>
@@ -404,19 +413,25 @@ const StudentQuizzes: React.FC = () => {
                         <Card>
                             <Statistic
                                 title="Best Score"
-                                value={stats.best_score}
+                                value={stats?.best_score ?? 0}
                                 suffix="%"
                                 prefix={<TrophyOutlined />}
+                                valueStyle={{ color: '#722ed1' }}
                             />
                         </Card>
                     </Col>
                 </Row>
-            )}
+            </Spin>
 
             <Card>
                 <Tabs defaultActiveKey="available">
                     <TabPane tab={`Available (${activeQuizzes.length})`} key="available">
-                        {activeQuizzes.length > 0 ? (
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+                                <Spin size="large" />
+                                <div style={{ marginTop: 16 }}>Loading available quizzes...</div>
+                            </div>
+                        ) : activeQuizzes.length > 0 ? (
                             <Table
                                 columns={quizColumns}
                                 dataSource={activeQuizzes}
@@ -437,7 +452,12 @@ const StudentQuizzes: React.FC = () => {
                     </TabPane>
                     
                     <TabPane tab={`Upcoming (${upcomingQuizzes.length})`} key="upcoming">
-                        {upcomingQuizzes.length > 0 ? (
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+                                <Spin size="large" />
+                                <div style={{ marginTop: 16 }}>Loading upcoming quizzes...</div>
+                            </div>
+                        ) : upcomingQuizzes.length > 0 ? (
                             <Table
                                 columns={quizColumns}
                                 dataSource={upcomingQuizzes}
@@ -458,7 +478,12 @@ const StudentQuizzes: React.FC = () => {
                     </TabPane>
                     
                     <TabPane tab={`Completed (${completedQuizzes.length})`} key="completed">
-                        {completedQuizzes.length > 0 ? (
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+                                <Spin size="large" />
+                                <div style={{ marginTop: 16 }}>Loading completed quizzes...</div>
+                            </div>
+                        ) : completedQuizzes.length > 0 ? (
                             <Table
                                 columns={quizColumns}
                                 dataSource={completedQuizzes}
@@ -478,24 +503,29 @@ const StudentQuizzes: React.FC = () => {
                         )}
                     </TabPane>
                     
-                    <TabPane tab={`My Attempts (${attempts.length})`} key="attempts">
-                        {attempts.length > 0 ? (
+                    <TabPane tab={`Results (${attempts.length})`} key="results">
+                        {attemptsLoading ? (
+                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
+                                <Spin size="large" />
+                                <div style={{ marginTop: 16 }}>Loading quiz results...</div>
+                            </div>
+                        ) : attempts.length > 0 ? (
                             <Table
                                 columns={attemptColumns}
                                 dataSource={attempts}
                                 rowKey="id"
-                                loading={loading}
+                                loading={attemptsLoading}
                                 sticky
                                 scroll={{ x: 850, y: 400 }}
                                 pagination={{
                                     pageSize: 10,
                                     showSizeChanger: true,
                                     showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} attempts`
+                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quiz results`
                                 }}
                             />
                         ) : (
-                            <Empty description="No quiz attempts yet" />
+                            <Empty description="No quiz results available yet" />
                         )}
                     </TabPane>
                 </Tabs>
