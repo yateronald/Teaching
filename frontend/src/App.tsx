@@ -21,6 +21,7 @@ import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
 import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
+import AdminTimetable from './components/Admin/AdminTimetable';
 import { BRAND_CONFIG } from './utils/branding';
 
 function App() {
@@ -66,6 +67,11 @@ function App() {
               <Route path="batches/:batchId/insights" element={
                 <ProtectedRoute requiredRole="admin">
                   <BatchInsightsAdmin />
+                </ProtectedRoute>
+              } />
+              <Route path="timetable" element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminTimetable />
                 </ProtectedRoute>
               } />
 

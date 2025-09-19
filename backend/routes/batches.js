@@ -205,6 +205,39 @@ router.get('/:id/insights', authenticateToken, async (req, res) => {
 });
 // <<< Batch Insights
 
+// Get timetable for all teachers (Admin only)
+router.get('/timetable', authenticateToken, adminOnly, async (req, res) => {
+    try {
+        const { teacher_id } = req.query;
+        
+        let sql = `
+            SELECT 
+                bt.id, bt.batch_id, bt.day_of_week, bt.start_time, bt.end_time, 
+                bt.timezone, bt.location_mode, bt.location, bt.link, bt.is_active,
+                b.name as batch_name, b.french_level, b.start_date, b.end_date,
+                u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name
+            FROM batch_timetables bt
+            JOIN batches b ON bt.batch_id = b.id
+            JOIN users u ON b.teacher_id = u.id
+            WHERE bt.is_active = 1
+        `;
+        
+        let params = [];
+        if (teacher_id) {
+            sql += ' AND u.id = ?';
+            params.push(teacher_id);
+        }
+        
+        sql += ' ORDER BY u.first_name, u.last_name, bt.day_of_week, bt.start_time';
+        
+        const timetable = await req.db.all(sql, params);
+        res.json(timetable);
+    } catch (error) {
+        console.error('Get timetable error:', error);
+        res.status(500).json({ error: 'Failed to fetch timetable' });
+    }
+});
+
 // Get batch by ID with students
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
@@ -270,7 +303,19 @@ router.post('/', [
             });
         }
 
-        const { name, teacher_id, french_level, start_date, end_date, student_ids } = req.body;
+        const { 
+            name, 
+            teacher_id, 
+            french_level, 
+            start_date, 
+            end_date, 
+            student_ids,
+            timezone = 'UTC',
+            default_location_mode = 'physical',
+            default_location,
+            default_link,
+            timetable = []
+        } = req.body;
 
         // Validate dates
         if (new Date(start_date) >= new Date(end_date)) {
@@ -297,8 +342,8 @@ router.post('/', [
 
         // Create batch
         const result = await req.db.run(
-            'INSERT INTO batches (name, teacher_id, french_level, start_date, end_date) VALUES (?, ?, ?, ?, ?)',
-            [name, teacher_id, french_level, start_date, end_date]
+            'INSERT INTO batches (name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link]
         );
 
         const batchId = result.id;
@@ -308,6 +353,23 @@ router.post('/', [
             await req.db.run(
                 'INSERT INTO batch_students (batch_id, student_id) VALUES (?, ?)',
                 [batchId, studentId]
+            );
+        }
+
+        // Add timetable entries
+        for (const schedule of timetable) {
+            await req.db.run(
+                'INSERT INTO batch_timetables (batch_id, day_of_week, start_time, end_time, timezone, location_mode, location, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    batchId,
+                    schedule.day_of_week,
+                    schedule.start_time,
+                    schedule.end_time,
+                    schedule.timezone || timezone,
+                    schedule.location_mode || default_location_mode,
+                    schedule.location || default_location,
+                    schedule.link || default_link
+                ]
             );
         }
 
@@ -609,6 +671,89 @@ router.get('/student/my-batches', authenticateToken, authorizeRoles('student'), 
     } catch (error) {
         console.error('Get student my-batches error:', error);
         res.status(500).json({ error: 'Failed to fetch student batches' });
+    }
+});
+
+// Get batch timetable (Admin and Teacher)
+router.get('/:id/timetable', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Check if batch exists and user has access
+        const batch = await req.db.get(
+            'SELECT id, teacher_id FROM batches WHERE id = ?',
+            [id]
+        );
+        
+        if (!batch) {
+            return res.status(404).json({ error: 'Batch not found' });
+        }
+        
+        // Check access permissions
+        if (req.user.role === 'teacher' && batch.teacher_id !== req.user.id) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        
+        const timetable = await req.db.all(
+            'SELECT * FROM batch_timetables WHERE batch_id = ? AND is_active = 1 ORDER BY day_of_week, start_time',
+            [id]
+        );
+        
+        res.json(timetable);
+    } catch (error) {
+        console.error('Get batch timetable error:', error);
+        res.status(500).json({ error: 'Failed to fetch batch timetable' });
+    }
+});
+
+// Update batch timetable (Admin only)
+router.put('/:id/timetable', [
+    authenticateToken,
+    adminOnly,
+    body('timetable').isArray()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ 
+                error: 'Validation failed', 
+                details: errors.array() 
+            });
+        }
+
+        const { id } = req.params;
+        const { timetable } = req.body;
+
+        // Check if batch exists
+        const batch = await req.db.get('SELECT id FROM batches WHERE id = ?', [id]);
+        if (!batch) {
+            return res.status(404).json({ error: 'Batch not found' });
+        }
+
+        // Delete existing timetable entries
+        await req.db.run('DELETE FROM batch_timetables WHERE batch_id = ?', [id]);
+
+        // Add new timetable entries
+        for (const schedule of timetable) {
+            await req.db.run(
+                'INSERT INTO batch_timetables (batch_id, day_of_week, start_time, end_time, timezone, location_mode, location, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    id,
+                    schedule.day_of_week,
+                    schedule.start_time,
+                    schedule.end_time,
+                    schedule.timezone || 'UTC',
+                    schedule.location_mode || 'physical',
+                    schedule.location,
+                    schedule.link
+                ]
+            );
+        }
+
+        res.json({ message: 'Timetable updated successfully' });
+    } catch (error) {
+        console.error('Update batch timetable error:', error);
+        res.status(500).json({ error: 'Failed to update batch timetable' });
     }
 });
 

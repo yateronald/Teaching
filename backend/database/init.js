@@ -94,6 +94,9 @@ class Database {
             await this.executeStatements(statements);
         }
 
+        // Add timetable support for batches
+        await this.ensureTimetableSchema();
+
         // Ensure performance indexes exist (safe to run multiple times using IF NOT EXISTS)
         const performanceIndexes = [
             // Questions and options ordering
@@ -196,6 +199,61 @@ class Database {
                 }
             });
         });
+    }
+
+    async ensureTimetableSchema() {
+        // Create batch_timetables table for managing weekly schedules
+        const timetableTableSql = `
+            CREATE TABLE IF NOT EXISTS batch_timetables (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                batch_id INTEGER NOT NULL,
+                day_of_week INTEGER NOT NULL CHECK (day_of_week >= 0 AND day_of_week <= 6),
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                timezone TEXT NOT NULL DEFAULT 'UTC',
+                location_mode TEXT NOT NULL CHECK (location_mode IN ('online', 'physical')) DEFAULT 'physical',
+                location TEXT,
+                link TEXT,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
+            )
+        `;
+
+        await this.executeStatements([timetableTableSql]);
+
+        // Add timezone support to batches table
+        const batchColumns = await this.all("PRAGMA table_info(batches)");
+        const batchColumnNames = batchColumns.map(col => col.name);
+        
+        const batchUpdates = [];
+        if (!batchColumnNames.includes('timezone')) {
+            batchUpdates.push("ALTER TABLE batches ADD COLUMN timezone TEXT DEFAULT 'UTC'");
+        }
+        if (!batchColumnNames.includes('default_location_mode')) {
+            batchUpdates.push("ALTER TABLE batches ADD COLUMN default_location_mode TEXT DEFAULT 'physical'");
+        }
+        if (!batchColumnNames.includes('default_location')) {
+            batchUpdates.push("ALTER TABLE batches ADD COLUMN default_location TEXT");
+        }
+        if (!batchColumnNames.includes('default_link')) {
+            batchUpdates.push("ALTER TABLE batches ADD COLUMN default_link TEXT");
+        }
+
+        if (batchUpdates.length > 0) {
+            await this.executeStatements(batchUpdates);
+        }
+
+        // Create indexes for timetable queries
+        const timetableIndexes = [
+            'CREATE INDEX IF NOT EXISTS idx_batch_timetables_batch ON batch_timetables(batch_id)',
+            'CREATE INDEX IF NOT EXISTS idx_batch_timetables_day ON batch_timetables(day_of_week)',
+            'CREATE INDEX IF NOT EXISTS idx_batch_timetables_batch_day ON batch_timetables(batch_id, day_of_week)',
+            'CREATE INDEX IF NOT EXISTS idx_batch_timetables_active ON batch_timetables(is_active)'
+        ];
+
+        await this.executeStatements(timetableIndexes);
     }
 
     // Helper method to get all rows

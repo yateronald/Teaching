@@ -10,11 +10,22 @@ import {
     Space,
     Typography,
     Card,
-    DatePicker
+    DatePicker,
+    TimePicker,
+    Checkbox,
+    Row,
+    Col,
+    Divider,
+    Tag,
+    Collapse,
+    Popconfirm
 } from 'antd';
 import {
     PlusOutlined,
-    TeamOutlined
+    TeamOutlined,
+    ClockCircleOutlined,
+    EnvironmentOutlined,
+    CalendarOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
@@ -55,6 +66,20 @@ const BatchManagement: React.FC = () => {
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
     const navigate = useNavigate();
+
+    // Timetable state
+    const [selectedDays, setSelectedDays] = useState<number[]>([]);
+    const [scheduleType, setScheduleType] = useState<'all' | 'workdays' | 'weekends' | 'custom'>('custom');
+    const [timetableEntries, setTimetableEntries] = useState<any[]>([]);
+    const [scheduleMode, setScheduleMode] = useState<'same' | 'different'>('different');
+    const [masterSchedule, setMasterSchedule] = useState({
+        start_time: '09:00',
+        end_time: '10:00',
+        timezone: 'UTC',
+        location_mode: 'physical',
+        location: '',
+        link: ''
+    });
 
     useEffect(() => {
         fetchBatches();
@@ -114,6 +139,12 @@ const BatchManagement: React.FC = () => {
                 // Send ISO8601 strings to match backend validator
                 start_date: values.dateRange[0].toDate().toISOString(),
                 end_date: values.dateRange[1].toDate().toISOString(),
+                // Timetable data
+                timezone: values.timezone || 'UTC',
+                default_location_mode: values.default_location_mode || 'physical',
+                default_location: values.default_location,
+                default_link: values.default_link,
+                timetable: timetableEntries
             };
 
             const endpoint = editingBatch ? `/batches/${editingBatch.id}` : '/batches';
@@ -137,6 +168,19 @@ const BatchManagement: React.FC = () => {
                 setModalVisible(false);
                 form.resetFields();
                 setEditingBatch(null);
+                // Reset timetable state
+                setSelectedDays([]);
+                setScheduleType('custom');
+                setTimetableEntries([]);
+                setScheduleMode('different');
+                setMasterSchedule({
+                    start_time: '09:00',
+                    end_time: '10:00',
+                    timezone: 'UTC',
+                    location_mode: 'physical',
+                    location: '',
+                    link: ''
+                });
                 fetchBatches();
             } else {
                 const errorData = await response.json();
@@ -144,6 +188,81 @@ const BatchManagement: React.FC = () => {
             }
         } catch (error) {
             message.error('Error saving batch');
+        }
+    };
+
+    // Timetable helper functions
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const timezones = [
+        'UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 
+        'Europe/Paris', 'Asia/Tokyo', 'Asia/Shanghai', 'Australia/Sydney'
+    ];
+
+    const handleScheduleTypeChange = (type: 'all' | 'workdays' | 'weekends' | 'custom') => {
+        setScheduleType(type);
+        let days: number[] = [];
+        
+        switch (type) {
+            case 'all':
+                days = [0, 1, 2, 3, 4, 5, 6];
+                break;
+            case 'workdays':
+                days = [1, 2, 3, 4, 5];
+                break;
+            case 'weekends':
+                days = [0, 6];
+                break;
+            case 'custom':
+                days = selectedDays;
+                break;
+        }
+        
+        setSelectedDays(days);
+        updateTimetableEntries(days);
+    };
+
+    const updateTimetableEntries = (days: number[]) => {
+        const newEntries = days.map(day => {
+            const existing = timetableEntries.find(entry => entry.day_of_week === day);
+            return existing || {
+                day_of_week: day,
+                start_time: '09:00',
+                end_time: '10:00',
+                timezone: 'UTC',
+                location_mode: 'physical',
+                location: '',
+                link: ''
+            };
+        });
+        setTimetableEntries(newEntries);
+    };
+
+    const updateTimetableEntry = (dayOfWeek: number, field: string, value: any) => {
+        setTimetableEntries(prev => 
+            prev.map(entry => 
+                entry.day_of_week === dayOfWeek 
+                    ? { ...entry, [field]: value }
+                    : entry
+            )
+        );
+    };
+
+    const handleScheduleModeChange = (mode: 'same' | 'different') => {
+        setScheduleMode(mode);
+        
+        // If switching to 'same' mode, apply master schedule to all entries
+        if (mode === 'same' && timetableEntries.length > 0) {
+            setTimetableEntries(prev => 
+                prev.map(entry => ({
+                    ...entry,
+                    start_time: masterSchedule.start_time,
+                    end_time: masterSchedule.end_time,
+                    timezone: masterSchedule.timezone,
+                    location_mode: masterSchedule.location_mode,
+                    location: masterSchedule.location,
+                    link: masterSchedule.link
+                }))
+            );
         }
     };
 
@@ -254,7 +373,14 @@ const BatchManagement: React.FC = () => {
                         Insight
                     </Button>
                     <Button type="primary" onClick={() => handleEdit(record)}>Edit</Button>
-                    <Button danger onClick={() => handleDelete(record.id)}>Delete</Button>
+                    <Popconfirm
+                        title="Are you sure you want to delete this batch?"
+                        okText="Yes"
+                        cancelText="No"
+                        onConfirm={() => handleDelete(record.id)}
+                    >
+                        <Button danger>Delete</Button>
+                    </Popconfirm>
                 </Space>
             ),
             width: 200
@@ -300,9 +426,22 @@ const BatchManagement: React.FC = () => {
                     setModalVisible(false);
                     form.resetFields();
                     setEditingBatch(null);
+                    // Reset timetable state
+                    setSelectedDays([]);
+                    setScheduleType('custom');
+                    setTimetableEntries([]);
+                    setScheduleMode('different');
+                    setMasterSchedule({
+                        start_time: '09:00',
+                        end_time: '10:00',
+                        timezone: 'UTC',
+                        location_mode: 'physical',
+                        location: '',
+                        link: ''
+                    });
                 }}
                 footer={null}
-                width={600}
+                width={900}
             >
                 <Form
                     form={form}
@@ -350,6 +489,328 @@ const BatchManagement: React.FC = () => {
                         </Select>
                     </Form.Item>
 
+                    <Divider orientation="left">
+                        <Space>
+                            <CalendarOutlined />
+                            Timetable Configuration
+                        </Space>
+                    </Divider>
+
+                    <Row gutter={16}>
+                        <Col span={12}>
+                            <Form.Item
+                                name="timezone"
+                                label="Timezone"
+                                initialValue="UTC"
+                            >
+                                <Select placeholder="Select timezone">
+                                    {timezones.map(tz => (
+                                        <Option key={tz} value={tz}>{tz}</Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                            <Form.Item
+                                name="default_location_mode"
+                                label="Default Location Mode"
+                                initialValue="physical"
+                            >
+                                <Select>
+                                    <Option value="physical">Physical</Option>
+                                    <Option value="online">Online</Option>
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                    </Row>
+
+                    <Row gutter={16}>
+                        <Col span={12}>
+                            <Form.Item
+                                name="default_location"
+                                label="Default Location"
+                            >
+                                <Input placeholder="e.g., Room 101, Building A" />
+                            </Form.Item>
+                        </Col>
+                        <Col span={12}>
+                            <Form.Item
+                                name="default_link"
+                                label="Default Meeting Link"
+                            >
+                                <Input placeholder="e.g., https://zoom.us/j/..." />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+
+                    <Form.Item label="Weekly Schedule">
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                            <div>
+                                <Typography.Text strong>Schedule Type:</Typography.Text>
+                                <br />
+                                <Space wrap style={{ marginTop: 8 }}>
+                                    <Button 
+                                        type={scheduleType === 'all' ? 'primary' : 'default'}
+                                        onClick={() => handleScheduleTypeChange('all')}
+                                        size="small"
+                                    >
+                                        All Days
+                                    </Button>
+                                    <Button 
+                                        type={scheduleType === 'workdays' ? 'primary' : 'default'}
+                                        onClick={() => handleScheduleTypeChange('workdays')}
+                                        size="small"
+                                    >
+                                        Workdays (Mon-Fri)
+                                    </Button>
+                                    <Button 
+                                        type={scheduleType === 'weekends' ? 'primary' : 'default'}
+                                        onClick={() => handleScheduleTypeChange('weekends')}
+                                        size="small"
+                                    >
+                                        Weekends
+                                    </Button>
+                                    <Button 
+                                        type={scheduleType === 'custom' ? 'primary' : 'default'}
+                                        onClick={() => handleScheduleTypeChange('custom')}
+                                        size="small"
+                                    >
+                                        Custom
+                                    </Button>
+                                </Space>
+                            </div>
+
+                            {(scheduleType === 'all' || scheduleType === 'workdays' || scheduleType === 'weekends' || selectedDays.length > 1) && (
+                                <div>
+                                    <Typography.Text strong>Schedule Mode:</Typography.Text>
+                                    <br />
+                                    <Space wrap style={{ marginTop: 8 }}>
+                                        <Button 
+                                            type={scheduleMode === 'same' ? 'primary' : 'default'}
+                                            onClick={() => handleScheduleModeChange('same')}
+                                            size="small"
+                                            icon={<ClockCircleOutlined />}
+                                        >
+                                            Same Schedule
+                                        </Button>
+                                        <Button 
+                                            type={scheduleMode === 'different' ? 'primary' : 'default'}
+                                            onClick={() => handleScheduleModeChange('different')}
+                                            size="small"
+                                            icon={<CalendarOutlined />}
+                                        >
+                                            Different Schedule
+                                        </Button>
+                                    </Space>
+                                    <Typography.Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
+                                        {scheduleMode === 'same' 
+                                            ? 'Enter one schedule and apply to all selected days' 
+                                            : 'Configure individual schedule for each day'
+                                        }
+                                    </Typography.Text>
+                                </div>
+                            )}
+
+                            {scheduleType === 'custom' && (
+                                <div>
+                                    <Typography.Text strong>Select Days:</Typography.Text>
+                                    <br />
+                                    <Checkbox.Group 
+                                        value={selectedDays}
+                                        onChange={(days) => {
+                                            setSelectedDays(days as number[]);
+                                            updateTimetableEntries(days as number[]);
+                                        }}
+                                        style={{ marginTop: 8 }}
+                                    >
+                                        <Row>
+                                            {dayNames.map((day, index) => (
+                                                <Col span={8} key={index}>
+                                                    <Checkbox value={index}>{day}</Checkbox>
+                                                </Col>
+                                            ))}
+                                        </Row>
+                                    </Checkbox.Group>
+                                </div>
+                            )}
+
+                            {timetableEntries.length > 0 && (
+                                <div>
+                                    <Typography.Text strong>Schedule Details:</Typography.Text>
+                                    
+                                    {scheduleMode === 'same' ? (
+                                        // Single master schedule form
+                                        <div style={{ marginTop: 8 }}>
+                                            <Card 
+                                                size="small" 
+                                                style={{ marginBottom: 8 }}
+                                                title={
+                                                    <Space>
+                                                        <ClockCircleOutlined />
+                                                        Master Schedule (applies to all selected days)
+                                                    </Space>
+                                                }
+                                            >
+                                                <Row gutter={8}>
+                                                    <Col span={6}>
+                                                        <Typography.Text type="secondary">Start:</Typography.Text>
+                                                        <TimePicker
+                                                            value={dayjs(masterSchedule.start_time, 'HH:mm')}
+                                                            format="HH:mm"
+                                                            onChange={(time) => {
+                                                                const newTime = time?.format('HH:mm') || '09:00';
+                                                                setMasterSchedule(prev => ({ ...prev, start_time: newTime }));
+                                                                // Apply to all entries
+                                                                setTimetableEntries(prev => 
+                                                                    prev.map(entry => ({ ...entry, start_time: newTime }))
+                                                                );
+                                                            }}
+                                                            size="small"
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    </Col>
+                                                    <Col span={6}>
+                                                        <Typography.Text type="secondary">End:</Typography.Text>
+                                                        <TimePicker
+                                                            value={dayjs(masterSchedule.end_time, 'HH:mm')}
+                                                            format="HH:mm"
+                                                            onChange={(time) => {
+                                                                const newTime = time?.format('HH:mm') || '10:00';
+                                                                setMasterSchedule(prev => ({ ...prev, end_time: newTime }));
+                                                                // Apply to all entries
+                                                                setTimetableEntries(prev => 
+                                                                    prev.map(entry => ({ ...entry, end_time: newTime }))
+                                                                );
+                                                            }}
+                                                            size="small"
+                                                            style={{ width: '100%' }}
+                                                        />
+                                                    </Col>
+                                                    <Col span={6}>
+                                                        <Typography.Text type="secondary">Mode:</Typography.Text>
+                                                        <Select
+                                                            value={masterSchedule.location_mode}
+                                                            onChange={(value) => {
+                                                                setMasterSchedule(prev => ({ ...prev, location_mode: value }));
+                                                                // Apply to all entries
+                                                                setTimetableEntries(prev => 
+                                                                    prev.map(entry => ({ ...entry, location_mode: value }))
+                                                                );
+                                                            }}
+                                                            size="small"
+                                                            style={{ width: '100%' }}
+                                                        >
+                                                            <Option value="physical">Physical</Option>
+                                                            <Option value="online">Online</Option>
+                                                        </Select>
+                                                    </Col>
+                                                    <Col span={6}>
+                                                        <Typography.Text type="secondary">
+                                                            {masterSchedule.location_mode === 'physical' ? 'Location:' : 'Link:'}
+                                                        </Typography.Text>
+                                                        <Input
+                                                            value={masterSchedule.location_mode === 'physical' ? masterSchedule.location : masterSchedule.link}
+                                                            onChange={(e) => {
+                                                                const field = masterSchedule.location_mode === 'physical' ? 'location' : 'link';
+                                                                setMasterSchedule(prev => ({ ...prev, [field]: e.target.value }));
+                                                                // Apply to all entries
+                                                                setTimetableEntries(prev => 
+                                                                    prev.map(entry => ({ ...entry, [field]: e.target.value }))
+                                                                );
+                                                            }}
+                                                            size="small"
+                                                            placeholder={masterSchedule.location_mode === 'physical' ? 'Room 101' : 'Meeting link'}
+                                                        />
+                                                    </Col>
+                                                </Row>
+                                            </Card>
+                                            <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                                                Selected days: {timetableEntries.map(entry => dayNames[entry.day_of_week]).join(', ')}
+                                            </Typography.Text>
+                                        </div>
+                                    ) : (
+                                        // Individual schedule forms
+                                        <div style={{ marginTop: 8, maxHeight: 300, overflowY: 'auto' }}>
+                                            {timetableEntries.map((entry) => (
+                                                <Card 
+                                                    key={entry.day_of_week} 
+                                                    size="small" 
+                                                    style={{ marginBottom: 8 }}
+                                                    title={
+                                                        <Space>
+                                                            <ClockCircleOutlined />
+                                                            {dayNames[entry.day_of_week]}
+                                                        </Space>
+                                                    }
+                                                >
+                                                    <Row gutter={8}>
+                                                        <Col span={6}>
+                                                            <Typography.Text type="secondary">Start:</Typography.Text>
+                                                            <TimePicker
+                                                                value={dayjs(entry.start_time, 'HH:mm')}
+                                                                format="HH:mm"
+                                                                onChange={(time) => 
+                                                                    updateTimetableEntry(entry.day_of_week, 'start_time', time?.format('HH:mm'))
+                                                                }
+                                                                size="small"
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </Col>
+                                                        <Col span={6}>
+                                                            <Typography.Text type="secondary">End:</Typography.Text>
+                                                            <TimePicker
+                                                                value={dayjs(entry.end_time, 'HH:mm')}
+                                                                format="HH:mm"
+                                                                onChange={(time) => 
+                                                                    updateTimetableEntry(entry.day_of_week, 'end_time', time?.format('HH:mm'))
+                                                                }
+                                                                size="small"
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </Col>
+                                                        <Col span={6}>
+                                                            <Typography.Text type="secondary">Mode:</Typography.Text>
+                                                            <Select
+                                                                value={entry.location_mode}
+                                                                onChange={(value) => 
+                                                                    updateTimetableEntry(entry.day_of_week, 'location_mode', value)
+                                                                }
+                                                                size="small"
+                                                                style={{ width: '100%' }}
+                                                            >
+                                                                <Option value="physical">Physical</Option>
+                                                                <Option value="online">Online</Option>
+                                                            </Select>
+                                                        </Col>
+                                                        <Col span={6}>
+                                                            <Typography.Text type="secondary">
+                                                                {entry.location_mode === 'physical' ? 'Location:' : 'Link:'}
+                                                            </Typography.Text>
+                                                            <Input
+                                                                value={entry.location_mode === 'physical' ? entry.location : entry.link}
+                                                                onChange={(e) => 
+                                                                    updateTimetableEntry(
+                                                                        entry.day_of_week, 
+                                                                        entry.location_mode === 'physical' ? 'location' : 'link', 
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                size="small"
+                                                                placeholder={entry.location_mode === 'physical' ? 'Room 101' : 'Meeting link'}
+                                                            />
+                                                        </Col>
+                                                    </Row>
+                                                </Card>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </Space>
+                    </Form.Item>
+
+                    <Divider />
+
                     <Form.Item
                         name="dateRange"
                         label="Duration"
@@ -392,6 +853,19 @@ const BatchManagement: React.FC = () => {
                                 setModalVisible(false);
                                 form.resetFields();
                                 setEditingBatch(null);
+                                // Reset timetable state
+                                setSelectedDays([]);
+                                setScheduleType('custom');
+                                setTimetableEntries([]);
+                                setScheduleMode('different');
+                                setMasterSchedule({
+                                    start_time: '09:00',
+                                    end_time: '10:00',
+                                    timezone: 'UTC',
+                                    location_mode: 'physical',
+                                    location: '',
+                                    link: ''
+                                });
                             }}>
                                 Cancel
                             </Button>

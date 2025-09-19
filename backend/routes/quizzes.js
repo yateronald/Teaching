@@ -1262,12 +1262,50 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
         
-        await req.db.run('DELETE FROM quizzes WHERE id = ?', [id]);
+        // Begin transaction for atomic deletion
+        await req.db.run('BEGIN TRANSACTION');
         
-        res.json({ message: 'Quiz deleted successfully' });
+        try {
+            // Step 1: Delete student answers (depends on submission_id and question_id)
+            await req.db.run(`
+                DELETE FROM student_answers 
+                WHERE submission_id IN (
+                    SELECT id FROM quiz_submissions WHERE quiz_id = ?
+                )
+            `, [id]);
+            
+            // Step 2: Delete quiz submissions (depends on quiz_id)
+            await req.db.run('DELETE FROM quiz_submissions WHERE quiz_id = ?', [id]);
+            
+            // Step 3: Delete question options (depends on question_id)
+            await req.db.run(`
+                DELETE FROM question_options 
+                WHERE question_id IN (
+                    SELECT id FROM questions WHERE quiz_id = ?
+                )
+            `, [id]);
+            
+            // Step 4: Delete questions (depends on quiz_id)
+            await req.db.run('DELETE FROM questions WHERE quiz_id = ?', [id]);
+            
+            // Step 5: Delete quiz batch assignments (depends on quiz_id)
+            await req.db.run('DELETE FROM quiz_batches WHERE quiz_id = ?', [id]);
+            
+            // Step 6: Finally delete the quiz itself
+            await req.db.run('DELETE FROM quizzes WHERE id = ?', [id]);
+            
+            // Commit transaction
+            await req.db.run('COMMIT');
+            
+            res.json({ message: 'Quiz and all related data deleted successfully' });
+        } catch (deleteError) {
+            // Rollback transaction on error
+            await req.db.run('ROLLBACK');
+            throw deleteError;
+        }
     } catch (error) {
         console.error('Delete quiz error:', error);
-        res.status(500).json({ error: 'Failed to delete quiz' });
+        res.status(500).json({ error: 'Failed to delete quiz and related data' });
     }
 });
 

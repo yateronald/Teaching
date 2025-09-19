@@ -50,6 +50,11 @@ const Layout: React.FC = () => {
                     key: '/batches',
                     icon: <TeamOutlined />,
                     label: 'Batch Management',
+                },
+                {
+                    key: '/timetable',
+                    icon: <CalendarOutlined />,
+                    label: 'Teacher Timetable',
                 }
             );
         }
