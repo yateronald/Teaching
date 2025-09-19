@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Row, Col, Card, Statistic, List, Typography, Avatar, Space, Modal, Table, Tag, Button, Descriptions, Badge } from 'antd';
-import { UserOutlined, CheckCircleOutlined, FileTextOutlined, TeamOutlined, EyeOutlined, ClockCircleOutlined, TrophyOutlined } from '@ant-design/icons';
+import { UserOutlined, CheckCircleOutlined, FileTextOutlined, TeamOutlined, EyeOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import { LineChart } from '@mui/x-charts/LineChart';

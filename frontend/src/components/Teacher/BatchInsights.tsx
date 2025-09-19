@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Divider, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip, Table, Alert } from 'antd';
 import { PieChart, BarChart, LineChart } from '@mui/x-charts';
 import dayjs from 'dayjs';

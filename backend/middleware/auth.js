@@ -1,86 +1,67 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
-// JWT token generation
-const generateToken = (userId, role) => {
-    return jwt.sign(
-        { userId, role },
-        process.env.JWT_SECRET,
-        { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
-};
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
-// Password hashing
-const hashPassword = async (password) => {
-    const saltRounds = 12;
-    return await bcrypt.hash(password, saltRounds);
-};
+// Generate JWT token
+function generateToken(userId, role) {
+    return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: '7d' });
+}
 
-// Password verification
-const verifyPassword = async (password, hashedPassword) => {
-    return await bcrypt.compare(password, hashedPassword);
-};
+// Hash password
+async function hashPassword(password) {
+    const salt = await bcrypt.genSalt(10);
+    return await bcrypt.hash(password, salt);
+}
 
-// Authentication middleware
-const authenticateToken = async (req, res, next) => {
+// Verify password
+async function verifyPassword(password, hash) {
+    return await bcrypt.compare(password, hash);
+}
+
+// Authenticate JWT token middleware
+async function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
+
     try {
-        const authHeader = req.headers['authorization'];
-        const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-        if (!token) {
-            return res.status(401).json({ error: 'Access token required' });
-        }
-
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // Get user details from database
+        const decoded = jwt.verify(token, JWT_SECRET);
+        // Fetch user from DB and attach to request (include created_at for profile dates)
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name FROM users WHERE id = ?',
-            [decoded.userId]
+            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            [decoded.id]
         );
 
         if (!user) {
-            return res.status(401).json({ error: 'Invalid token - user not found' });
+            return res.status(401).json({ error: 'Invalid token: user not found' });
         }
 
         req.user = user;
         next();
     } catch (error) {
-        if (error.name === 'TokenExpiredError') {
-            return res.status(401).json({ error: 'Token expired' });
-        } else if (error.name === 'JsonWebTokenError') {
-            return res.status(401).json({ error: 'Invalid token' });
-        }
-        console.error('Authentication error:', error);
-        return res.status(500).json({ error: 'Authentication failed' });
+        console.error('Token authentication error:', error);
+        return res.status(401).json({ error: 'Invalid token' });
     }
-};
+}
 
-// Role-based authorization middleware
-const authorizeRoles = (...roles) => {
+// Authorize based on roles middleware
+function authorizeRoles(...allowedRoles) {
     return (req, res, next) => {
-        if (!req.user) {
-            return res.status(401).json({ error: 'Authentication required' });
+        const userRole = req.user.role;
+        if (!allowedRoles.includes(userRole)) {
+            return res.status(403).json({ error: 'Forbidden: insufficient permissions' });
         }
-
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ 
-                error: 'Access denied', 
-                message: `Required role: ${roles.join(' or ')}` 
-            });
-        }
-
         next();
     };
-};
+}
 
-// Admin only middleware
+// Compatibility helpers used by existing route files
 const adminOnly = authorizeRoles('admin');
-
-// Teacher or Admin middleware
 const teacherOrAdmin = authorizeRoles('teacher', 'admin');
-
-// Student, Teacher or Admin middleware
 const authenticated = authorizeRoles('student', 'teacher', 'admin');
 
 module.exports = {
@@ -91,5 +72,5 @@ module.exports = {
     authorizeRoles,
     adminOnly,
     teacherOrAdmin,
-    authenticated
+    authenticated,
 };

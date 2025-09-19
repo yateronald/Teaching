@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Card,
     Form,
@@ -7,7 +7,6 @@ import {
     message,
     Typography,
     Avatar,
-    Upload,
     Row,
     Col,
     Divider,
@@ -15,84 +14,74 @@ import {
     Space,
     Modal,
     Descriptions,
-    Tabs,
-    List,
-    Statistic,
-    Progress
 } from 'antd';
 import {
     UserOutlined,
     EditOutlined,
     SaveOutlined,
-    CameraOutlined,
     MailOutlined,
-    PhoneOutlined,
     CalendarOutlined,
-    BookOutlined,
-    TrophyOutlined,
-    ClockCircleOutlined,
-    TeamOutlined,
-    UploadOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import type { UploadProps } from 'antd';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
-const { TextArea } = Input;
 
 interface UserProfile {
     id: number;
-    name: string;
+    username: string;
     email: string;
-    phone?: string;
+    first_name: string;
+    last_name: string;
     role: 'admin' | 'teacher' | 'student';
-    avatar?: string;
-    bio?: string;
-    date_joined: string;
-    last_login?: string;
-    batch_name?: string;
-    batch_id?: number;
-    subjects?: string[];
-    total_quizzes?: number;
-    completed_quizzes?: number;
-    average_score?: number;
-    total_resources?: number;
-    downloaded_resources?: number;
+    created_at: string;
 }
 
-interface Activity {
-    id: number;
-    type: 'quiz' | 'resource' | 'login' | 'batch_join';
-    description: string;
-    timestamp: string;
-    score?: number;
-    resource_name?: string;
-}
+const formatDateSafe = (value?: string | null) => {
+    if (!value) return '-';
+    const candidates = [value, value.replace(' ', 'T')];
+    for (const v of candidates) {
+        const d = new Date(v);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleDateString('en-GB', { 
+                day: 'numeric', 
+                month: 'long', 
+                year: 'numeric' 
+            });
+        }
+    }
+    return '-';
+};
 
 const Profile: React.FC = () => {
+    const { apiCall, updateProfile, changePassword, isAdmin } = useAuth();
     const [profile, setProfile] = useState<UserProfile | null>(null);
-    const [activities, setActivities] = useState<Activity[]>([]);
     const [loading, setLoading] = useState(false);
     const [editing, setEditing] = useState(false);
     const [passwordModalVisible, setPasswordModalVisible] = useState(false);
-    const [form] = Form.useForm();
-    const [passwordForm] = Form.useForm();
-    const { apiCall } = useAuth();
+    const [form] = Form.useForm<UserProfile>();
+    const [passwordForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
+
+    const displayName = useMemo(() => {
+        if (!profile) return '';
+        const fn = profile.first_name?.trim() || '';
+        const ln = profile.last_name?.trim() || '';
+        const full = `${fn} ${ln}`.trim();
+        return full || profile.username || 'User';
+    }, [profile]);
 
     useEffect(() => {
         fetchProfile();
-        fetchActivities();
     }, []);
 
     const fetchProfile = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/users/profile');
+            const response = await apiCall('/auth/profile');
             if (response.ok) {
                 const data = await response.json();
-                setProfile(data.profile);
-                form.setFieldsValue(data.profile);
+                const p: UserProfile = data.user;
+                setProfile(p);
+                form.setFieldsValue(p);
             } else {
                 message.error('Failed to fetch profile');
             }
@@ -103,37 +92,22 @@ const Profile: React.FC = () => {
         }
     };
 
-    const fetchActivities = async () => {
-        try {
-            const response = await apiCall('/users/activities');
-            if (response.ok) {
-                const data = await response.json();
-                setActivities(data.activities || []);
-            }
-        } catch (error) {
-            console.error('Error fetching activities:', error);
-        }
-    };
-
-    const handleUpdateProfile = async (values: any) => {
+    const handleUpdateProfile = async (values: Partial<UserProfile>) => {
         setLoading(true);
         try {
-            const response = await apiCall('/users/profile', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(values),
-            });
+            const payload: Partial<UserProfile> = {
+                first_name: values.first_name,
+                last_name: values.last_name,
+                username: values.username,
+                ...(isAdmin ? { email: values.email } : {}),
+            };
 
-            if (response.ok) {
-                const data = await response.json();
-                setProfile(data.profile);
+            const result = await updateProfile(payload);
+            if (result.success) {
+                await fetchProfile();
                 setEditing(false);
-                message.success('Profile updated successfully');
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.message || 'Failed to update profile');
+            } else if (result.error) {
+                message.error(result.error);
             }
         } catch (error) {
             message.error('Error updating profile');
@@ -142,57 +116,21 @@ const Profile: React.FC = () => {
         }
     };
 
-    const handleChangePassword = async (values: any) => {
+    const handleChangePassword = async (values: { currentPassword: string; newPassword: string }) => {
         setLoading(true);
         try {
-            const response = await apiCall('/users/change-password', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(values),
-            });
-
-            if (response.ok) {
+            const result = await changePassword(values.currentPassword, values.newPassword);
+            if (result.success) {
                 setPasswordModalVisible(false);
                 passwordForm.resetFields();
-                message.success('Password changed successfully');
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.message || 'Failed to change password');
+            } else if (result.error) {
+                message.error(result.error);
             }
         } catch (error) {
             message.error('Error changing password');
         } finally {
             setLoading(false);
         }
-    };
-
-    const uploadProps: UploadProps = {
-        name: 'avatar',
-        action: `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/users/upload-avatar`,
-        headers: {
-            authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        beforeUpload: (file) => {
-            const isJpgOrPng = file.type === 'image/jpeg' || file.type === 'image/png';
-            if (!isJpgOrPng) {
-                message.error('You can only upload JPG/PNG file!');
-            }
-            const isLt2M = file.size / 1024 / 1024 < 2;
-            if (!isLt2M) {
-                message.error('Image must smaller than 2MB!');
-            }
-            return isJpgOrPng && isLt2M;
-        },
-        onChange: (info) => {
-            if (info.file.status === 'done') {
-                message.success('Avatar uploaded successfully');
-                fetchProfile();
-            } else if (info.file.status === 'error') {
-                message.error('Avatar upload failed');
-            }
-        },
     };
 
     const getRoleColor = (role: string) => {
@@ -202,34 +140,6 @@ const Profile: React.FC = () => {
             case 'student': return 'green';
             default: return 'default';
         }
-    };
-
-    const getActivityIcon = (type: string) => {
-        switch (type) {
-            case 'quiz': return <BookOutlined />;
-            case 'resource': return <UploadOutlined />;
-            case 'login': return <UserOutlined />;
-            case 'batch_join': return <TeamOutlined />;
-            default: return <ClockCircleOutlined />;
-        }
-    };
-
-    const formatDate = (dateString: string) => {
-        return new Date(dateString).toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-        });
-    };
-
-    const formatDateTime = (dateString: string) => {
-        return new Date(dateString).toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
     };
 
     if (!profile) {
@@ -254,285 +164,155 @@ const Profile: React.FC = () => {
                 <Col span={8}>
                     <Card>
                         <div style={{ textAlign: 'center' }}>
-                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                <Avatar
-                                    size={120}
-                                    src={profile.avatar}
-                                    icon={<UserOutlined />}
-                                    style={{ marginBottom: 16 }}
-                                />
-                                <Upload {...uploadProps} showUploadList={false}>
-                                    <Button
-                                        type="primary"
-                                        shape="circle"
-                                        icon={<CameraOutlined />}
-                                        size="small"
-                                        style={{
-                                            position: 'absolute',
-                                            bottom: 16,
-                                            right: 0,
-                                            zIndex: 1
-                                        }}
-                                    />
-                                </Upload>
-                            </div>
-                            
+                            <Avatar
+                                size={120}
+                                icon={<UserOutlined />}
+                                style={{ marginBottom: 16, backgroundColor: '#1677ff' }}
+                            >
+                                {displayName ? displayName[0]?.toUpperCase() : ''}
+                            </Avatar>
+
                             <Title level={3} style={{ marginBottom: 8 }}>
-                                {profile.name}
+                                {displayName}
                             </Title>
-                            
+
                             <Tag color={getRoleColor(profile.role)} style={{ marginBottom: 16 }}>
                                 {profile.role.toUpperCase()}
                             </Tag>
-                            
-                            {profile.batch_name && (
-                                <div style={{ marginBottom: 16 }}>
-                                    <Text type="secondary">
-                                        <TeamOutlined /> {profile.batch_name}
-                                    </Text>
-                                </div>
-                            )}
-                            
+
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Text>
                                     <MailOutlined /> {profile.email}
                                 </Text>
-                                {profile.phone && (
-                                    <Text>
-                                        <PhoneOutlined /> {profile.phone}
-                                    </Text>
-                                )}
                                 <Text type="secondary">
-                                    <CalendarOutlined /> Joined {formatDate(profile.date_joined)}
+                                    <CalendarOutlined /> Joined {formatDateSafe(profile.created_at)}
                                 </Text>
-                                {profile.last_login && (
-                                    <Text type="secondary">
-                                        <ClockCircleOutlined /> Last login: {formatDateTime(profile.last_login)}
-                                    </Text>
-                                )}
                             </Space>
                         </div>
                     </Card>
-
-                    {profile.role === 'student' && (
-                        <Card title="Statistics" style={{ marginTop: 16 }}>
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <Statistic
-                                        title="Quizzes"
-                                        value={profile.completed_quizzes || 0}
-                                        suffix={`/ ${profile.total_quizzes || 0}`}
-                                        prefix={<BookOutlined />}
-                                    />
-                                </Col>
-                                <Col span={12}>
-                                    <Statistic
-                                        title="Avg Score"
-                                        value={profile.average_score || 0}
-                                        suffix="%"
-                                        prefix={<TrophyOutlined />}
-                                    />
-                                </Col>
-                            </Row>
-                            
-                            {profile.total_quizzes && profile.total_quizzes > 0 && (
-                                <div style={{ marginTop: 16 }}>
-                                    <Text strong>Quiz Progress</Text>
-                                    <Progress
-                                        percent={Math.round(((profile.completed_quizzes || 0) / profile.total_quizzes) * 100)}
-                                        status="active"
-                                        style={{ marginTop: 8 }}
-                                    />
-                                </div>
-                            )}
-                            
-                            <Divider />
-                            
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <Statistic
-                                        title="Resources"
-                                        value={profile.downloaded_resources || 0}
-                                        suffix={`/ ${profile.total_resources || 0}`}
-                                        prefix={<UploadOutlined />}
-                                    />
-                                </Col>
-                                <Col span={12}>
-                                    {profile.total_resources && profile.total_resources > 0 && (
-                                        <div>
-                                            <Text strong>Download Rate</Text>
-                                            <Progress
-                                                percent={Math.round(((profile.downloaded_resources || 0) / profile.total_resources) * 100)}
-                                                size="small"
-                                                style={{ marginTop: 8 }}
-                                            />
-                                        </div>
-                                    )}
-                                </Col>
-                            </Row>
-                        </Card>
-                    )}
                 </Col>
-                
+
                 <Col span={16}>
-                    <Tabs defaultActiveKey="details">
-                        <TabPane tab="Profile Details" key="details">
-                            <Card
-                                title="Personal Information"
-                                extra={
-                                    <Space>
-                                        {editing ? (
-                                            <>
-                                                <Button onClick={() => setEditing(false)}>
-                                                    Cancel
-                                                </Button>
-                                                <Button
-                                                    type="primary"
-                                                    icon={<SaveOutlined />}
-                                                    onClick={() => form.submit()}
-                                                    loading={loading}
-                                                >
-                                                    Save
-                                                </Button>
-                                            </>
-                                        ) : (
-                                            <Button
-                                                type="primary"
-                                                icon={<EditOutlined />}
-                                                onClick={() => setEditing(true)}
-                                            >
-                                                Edit
-                                            </Button>
-                                        )}
-                                    </Space>
-                                }
-                            >
+                    <Card
+                        title="Personal Information"
+                        extra={
+                            <Space>
                                 {editing ? (
-                                    <Form
-                                        form={form}
-                                        layout="vertical"
-                                        onFinish={handleUpdateProfile}
-                                        initialValues={profile}
-                                    >
-                                        <Row gutter={16}>
-                                            <Col span={12}>
-                                                <Form.Item
-                                                    label="Full Name"
-                                                    name="name"
-                                                    rules={[{ required: true, message: 'Please enter your name' }]}
-                                                >
-                                                    <Input prefix={<UserOutlined />} />
-                                                </Form.Item>
-                                            </Col>
-                                            <Col span={12}>
-                                                <Form.Item
-                                                    label="Phone Number"
-                                                    name="phone"
-                                                >
-                                                    <Input prefix={<PhoneOutlined />} />
-                                                </Form.Item>
-                                            </Col>
-                                        </Row>
-                                        
-                                        <Form.Item
-                                            label="Bio"
-                                            name="bio"
+                                    <>
+                                        <Button onClick={() => { setEditing(false); form.setFieldsValue(profile); }}>
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            icon={<SaveOutlined />}
+                                            onClick={() => form.submit()}
+                                            loading={loading}
                                         >
-                                            <TextArea
-                                                rows={4}
-                                                placeholder="Tell us about yourself..."
-                                            />
-                                        </Form.Item>
-                                    </Form>
+                                            Save
+                                        </Button>
+                                    </>
                                 ) : (
-                                    <Descriptions column={1} bordered>
-                                        <Descriptions.Item label="Full Name">
-                                            {profile.name}
-                                        </Descriptions.Item>
-                                        <Descriptions.Item label="Email">
-                                            {profile.email}
-                                        </Descriptions.Item>
-                                        <Descriptions.Item label="Phone">
-                                            {profile.phone || 'Not provided'}
-                                        </Descriptions.Item>
-                                        <Descriptions.Item label="Role">
-                                            <Tag color={getRoleColor(profile.role)}>
-                                                {profile.role.toUpperCase()}
-                                            </Tag>
-                                        </Descriptions.Item>
-                                        {profile.batch_name && (
-                                            <Descriptions.Item label="Batch">
-                                                {profile.batch_name}
-                                            </Descriptions.Item>
-                                        )}
-                                        {profile.subjects && profile.subjects.length > 0 && (
-                                            <Descriptions.Item label="Subjects">
-                                                {profile.subjects.map(subject => (
-                                                    <Tag key={subject} color="blue">{subject}</Tag>
-                                                ))}
-                                            </Descriptions.Item>
-                                        )}
-                                        <Descriptions.Item label="Bio">
-                                            {profile.bio || 'No bio provided'}
-                                        </Descriptions.Item>
-                                        <Descriptions.Item label="Member Since">
-                                            {formatDate(profile.date_joined)}
-                                        </Descriptions.Item>
-                                    </Descriptions>
-                                )}
-                            </Card>
-                            
-                            <Card title="Security" style={{ marginTop: 16 }}>
-                                <div style={{ textAlign: 'center', padding: '20px 0' }}>
                                     <Button
                                         type="primary"
-                                        onClick={() => setPasswordModalVisible(true)}
+                                        icon={<EditOutlined />}
+                                        onClick={() => setEditing(true)}
                                     >
-                                        Change Password
+                                        Edit
                                     </Button>
-                                </div>
-                            </Card>
-                        </TabPane>
-                        
-                        <TabPane tab="Recent Activity" key="activity">
-                            <Card title="Activity Log">
-                                {activities.length > 0 ? (
-                                    <List
-                                        dataSource={activities}
-                                        renderItem={(activity) => (
-                                            <List.Item>
-                                                <List.Item.Meta
-                                                    avatar={
-                                                        <Avatar 
-                                                            icon={getActivityIcon(activity.type)}
-                                                            style={{ backgroundColor: '#1890ff' }}
-                                                        />
-                                                    }
-                                                    title={activity.description}
-                                                    description={
-                                                        <Space>
-                                                            <Text type="secondary">
-                                                                {formatDateTime(activity.timestamp)}
-                                                            </Text>
-                                                            {activity.score && (
-                                                                <Tag color="green">Score: {activity.score}%</Tag>
-                                                            )}
-                                                        </Space>
-                                                    }
-                                                />
-                                            </List.Item>
-                                        )}
-                                    />
-                                ) : (
-                                    <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                                        <Text type="secondary">No recent activity</Text>
-                                    </div>
                                 )}
-                            </Card>
-                        </TabPane>
-                    </Tabs>
+                            </Space>
+                        }
+                    >
+                        {editing ? (
+                            <Form
+                                form={form}
+                                layout="vertical"
+                                onFinish={handleUpdateProfile}
+                                initialValues={profile}
+                            >
+                                <Row gutter={16}>
+                                    <Col span={12}>
+                                        <Form.Item
+                                            label="First Name"
+                                            name="first_name"
+                                            rules={[{ required: true, message: 'Please enter your first name' }]}
+                                        >
+                                            <Input prefix={<UserOutlined />} />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={12}>
+                                        <Form.Item
+                                            label="Last Name"
+                                            name="last_name"
+                                            rules={[{ required: true, message: 'Please enter your last name' }]}
+                                        >
+                                            <Input prefix={<UserOutlined />} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+
+                                <Row gutter={16}>
+                                    <Col span={12}>
+                                        <Form.Item
+                                            label="Username"
+                                            name="username"
+                                            rules={[{ required: true, message: 'Please enter your username' }, { min: 3 }]}
+                                        >
+                                            <Input />
+                                        </Form.Item>
+                                    </Col>
+                                    <Col span={12}>
+                                        <Form.Item
+                                            label="Email"
+                                            name="email"
+                                            rules={[{ type: 'email', message: 'Please enter a valid email' }]}
+                                        >
+                                            <Input disabled={!isAdmin} />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
+                            </Form>
+                        ) : (
+                            <Descriptions column={1} bordered>
+                                <Descriptions.Item label="First Name">
+                                    {profile.first_name}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Last Name">
+                                    {profile.last_name}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Username">
+                                    {profile.username}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Email">
+                                    {profile.email}
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Role">
+                                    <Tag color={getRoleColor(profile.role)}>
+                                        {profile.role.toUpperCase()}
+                                    </Tag>
+                                </Descriptions.Item>
+                                <Descriptions.Item label="Member Since">
+                                    {formatDateSafe(profile.created_at)}
+                                </Descriptions.Item>
+                            </Descriptions>
+                        )}
+                    </Card>
+
+                    <Card title="Security" style={{ marginTop: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                                <Title level={5} style={{ margin: 0 }}>Password</Title>
+                                <Text type="secondary">Use a strong password that you don’t use elsewhere</Text>
+                            </div>
+                            <Button type="primary" onClick={() => setPasswordModalVisible(true)}>
+                                Change Password
+                            </Button>
+                        </div>
+                    </Card>
                 </Col>
             </Row>
+
+            <Divider />
 
             <Modal
                 title="Change Password"
@@ -541,27 +321,12 @@ const Profile: React.FC = () => {
                     setPasswordModalVisible(false);
                     passwordForm.resetFields();
                 }}
-                footer={[
-                    <Button key="cancel" onClick={() => {
-                        setPasswordModalVisible(false);
-                        passwordForm.resetFields();
-                    }}>
-                        Cancel
-                    </Button>,
-                    <Button
-                        key="submit"
-                        type="primary"
-                        loading={loading}
-                        onClick={() => passwordForm.submit()}
-                    >
-                        Change Password
-                    </Button>
-                ]}
+                footer={null}
             >
                 <Form
                     form={passwordForm}
                     layout="vertical"
-                    onFinish={handleChangePassword}
+                    onFinish={(vals) => handleChangePassword({ currentPassword: vals.currentPassword, newPassword: vals.newPassword })}
                 >
                     <Form.Item
                         label="Current Password"
@@ -570,18 +335,15 @@ const Profile: React.FC = () => {
                     >
                         <Input.Password />
                     </Form.Item>
-                    
+
                     <Form.Item
                         label="New Password"
                         name="newPassword"
-                        rules={[
-                            { required: true, message: 'Please enter your new password' },
-                            { min: 6, message: 'Password must be at least 6 characters' }
-                        ]}
+                        rules={[{ required: true, message: 'Please enter your new password' }, { min: 6 }]}
                     >
                         <Input.Password />
                     </Form.Item>
-                    
+
                     <Form.Item
                         label="Confirm New Password"
                         name="confirmPassword"
@@ -600,6 +362,11 @@ const Profile: React.FC = () => {
                     >
                         <Input.Password />
                     </Form.Item>
+
+                    <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <Button onClick={() => { setPasswordModalVisible(false); passwordForm.resetFields(); }}>Cancel</Button>
+                        <Button type="primary" htmlType="submit" loading={loading}>Change Password</Button>
+                    </Space>
                 </Form>
             </Modal>
         </div>

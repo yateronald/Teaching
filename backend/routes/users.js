@@ -1,11 +1,17 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { hashPassword, authenticateToken, adminOnly, teacherOrAdmin } = require('../middleware/auth');
+const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles } = require('../middleware/auth');
+
+// Build local admin-only middleware using authorizeRoles to avoid any export mismatch
+const adminOnlyMw = authorizeRoles('admin');
+
+// Debug types to diagnose startup crash
+console.log('[users.js] typeof authenticateToken:', typeof authenticateToken, ' typeof adminOnlyMw:', typeof adminOnlyMw, ' typeof teacherOrAdmin:', typeof teacherOrAdmin);
 
 const router = express.Router();
 
 // Get all users (Admin only)
-router.get('/', authenticateToken, adminOnly, async (req, res) => {
+router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { role, search } = req.query;
         let sql = 'SELECT id, username, email, role, first_name, last_name, created_at FROM users';
@@ -39,7 +45,7 @@ router.get('/', authenticateToken, adminOnly, async (req, res) => {
 });
 
 // Get user by ID (Admin only)
-router.get('/:id', authenticateToken, adminOnly, async (req, res) => {
+router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
         const user = await req.db.get(
@@ -61,7 +67,7 @@ router.get('/:id', authenticateToken, adminOnly, async (req, res) => {
 // Create new user (Admin only)
 router.post('/', [
     authenticateToken,
-    adminOnly,
+    adminOnlyMw,
     body('username').isLength({ min: 3 }).trim(),
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 6 }),
@@ -119,7 +125,7 @@ router.post('/', [
 // Update user (Admin only)
 router.put('/:id', [
     authenticateToken,
-    adminOnly,
+    adminOnlyMw,
     body('username').optional().isLength({ min: 3 }).trim(),
     body('email').optional().isEmail().normalizeEmail(),
     body('role').optional().isIn(['admin', 'teacher', 'student']),
@@ -210,7 +216,7 @@ router.put('/:id', [
 });
 
 // Delete user (Admin only)
-router.delete('/:id', authenticateToken, adminOnly, async (req, res) => {
+router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
         
@@ -235,7 +241,7 @@ router.delete('/:id', authenticateToken, adminOnly, async (req, res) => {
 });
 
 // Get teachers (for batch assignment)
-router.get('/role/teachers', authenticateToken, adminOnly, async (req, res) => {
+router.get('/role/teachers', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const teachers = await req.db.all(
             'SELECT id, username, first_name, last_name, email FROM users WHERE role = "teacher" ORDER BY first_name, last_name',
@@ -249,7 +255,7 @@ router.get('/role/teachers', authenticateToken, adminOnly, async (req, res) => {
 });
 
 // Get students (for batch assignment)
-router.get('/role/students', authenticateToken, adminOnly, async (req, res) => {
+router.get('/role/students', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const students = await req.db.all(
             'SELECT id, username, first_name, last_name, email FROM users WHERE role = "student" ORDER BY first_name, last_name',
@@ -322,7 +328,7 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
 // Admin reset user password
 router.put('/:id/reset-password', [
     authenticateToken,
-    adminOnly,
+    adminOnlyMw,
     body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
 ], async (req, res) => {
     try {

@@ -11,7 +11,7 @@ router.get('/', authenticateToken, async (req, res) => {
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                COUNT(bs.student_id) as student_count
+                COUNT(DISTINCT bs.student_id) as student_count
             FROM batches b
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN batch_students bs ON b.id = bs.batch_id
@@ -92,9 +92,15 @@ router.get('/:id/insights', authenticateToken, async (req, res) => {
         const submissions = await req.db.all(
             `SELECT s.quiz_id, s.student_id, s.total_score, s.max_score, s.percentage, s.submitted_at
              FROM quiz_submissions s
-             WHERE s.quiz_id IN (SELECT qb.quiz_id FROM quiz_batches qb WHERE qb.batch_id = ?)
-               AND s.student_id IN (SELECT bs.student_id FROM batch_students bs WHERE bs.batch_id = ?)
-               AND s.status IN ('submitted', 'auto_submitted', 'graded')`,
+             JOIN (
+                 SELECT quiz_id, student_id, MAX(submitted_at) AS last_submitted
+                 FROM quiz_submissions
+                 WHERE quiz_id IN (SELECT qb.quiz_id FROM quiz_batches qb WHERE qb.batch_id = ?)
+                   AND student_id IN (SELECT bs.student_id FROM batch_students bs WHERE bs.batch_id = ?)
+                   AND status IN ('submitted', 'auto_submitted', 'graded')
+                 GROUP BY quiz_id, student_id
+             ) latest ON latest.quiz_id = s.quiz_id AND latest.student_id = s.student_id AND latest.last_submitted = s.submitted_at
+             WHERE s.status IN ('submitted', 'auto_submitted', 'graded')`,
             [id, id]
         );
 
@@ -617,7 +623,7 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
         const batches = await req.db.all(`
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
-                COUNT(bs.student_id) as student_count
+                COUNT(DISTINCT bs.student_id) as student_count
             FROM batches b
             LEFT JOIN batch_students bs ON b.id = bs.batch_id
             WHERE b.teacher_id = ?
@@ -640,7 +646,7 @@ router.get('/my-batches', authenticateToken, async (req, res) => {
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                COUNT(bs.student_id) as student_count
+                COUNT(DISTINCT bs.student_id) as student_count
             FROM batches b
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN batch_students bs ON b.id = bs.batch_id
@@ -663,7 +669,7 @@ router.get('/student/my-batches', authenticateToken, authorizeRoles('student'), 
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                COUNT(bs2.student_id) as student_count
+                COUNT(DISTINCT bs2.student_id) as student_count
             FROM batches b
             JOIN batch_students bs ON b.id = bs.batch_id AND bs.student_id = ?
             LEFT JOIN users u ON b.teacher_id = u.id

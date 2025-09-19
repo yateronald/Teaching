@@ -112,6 +112,85 @@ router.put('/change-password', [
     }
 });
 
+// Update current user profile (role-aware)
+router.put('/profile', [
+    authenticateToken,
+    // Optional validations; enforced based on role below
+    body('first_name').optional().isLength({ min: 1 }).trim(),
+    body('last_name').optional().isLength({ min: 1 }).trim(),
+    body('username').optional().isLength({ min: 3 }).trim(),
+    body('email').optional().isEmail().normalizeEmail(),
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
+            });
+        }
+
+        const userId = req.user.id;
+        const role = req.user.role;
+
+        // Determine allowed fields
+        const allowedForAll = ['first_name', 'last_name', 'username'];
+        const allowedForAdmin = [...allowedForAll, 'email'];
+        const allowed = role === 'admin' ? allowedForAdmin : allowedForAll;
+
+        // Build update set dynamically from request body but only for allowed fields
+        const updates = [];
+        const params = [];
+
+        for (const key of allowed) {
+            if (Object.prototype.hasOwnProperty.call(req.body, key)) {
+                updates.push(`${key} = ?`);
+                params.push(req.body[key]);
+            }
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No valid fields provided to update' });
+        }
+
+        // Uniqueness checks
+        if (req.body.username) {
+            const existingUsername = await req.db.get(
+                'SELECT id FROM users WHERE username = ? AND id != ?',
+                [req.body.username, userId]
+            );
+            if (existingUsername) {
+                return res.status(400).json({ error: 'Username already in use' });
+            }
+        }
+        if (role === 'admin' && req.body.email) {
+            const existingEmail = await req.db.get(
+                'SELECT id FROM users WHERE email = ? AND id != ?',
+                [req.body.email, userId]
+            );
+            if (existingEmail) {
+                return res.status(400).json({ error: 'Email already in use' });
+            }
+        }
+
+        // Execute update
+        const sql = `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+        params.push(userId);
+        await req.db.run(sql, params);
+
+        // Fetch updated user
+        const updatedUser = await req.db.get(
+            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            [userId]
+        );
+
+        res.json({ message: 'Profile updated successfully', user: updatedUser });
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({ error: 'Failed to update profile' });
+    }
+});
+
 // Verify token endpoint
 router.get('/verify', authenticateToken, (req, res) => {
     res.json({ 

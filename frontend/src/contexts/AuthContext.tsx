@@ -4,6 +4,7 @@ import { message } from 'antd';
 
 interface User {
     id: number;
+    username: string; // added to align with backend and profile editing
     email: string;
     first_name: string;
     last_name: string;
