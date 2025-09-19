@@ -14,9 +14,10 @@ import {
     Col,
     Spin,
     message,
-    Tooltip,
     Badge,
-    Statistic
+    Statistic,
+    Avatar,
+    List
 } from 'antd';
 import {
     CalendarOutlined,
@@ -25,7 +26,9 @@ import {
     EnvironmentOutlined,
     LinkOutlined,
     FilterOutlined,
-    ReloadOutlined
+    ReloadOutlined,
+    TeamOutlined,
+    EyeOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
@@ -41,6 +44,15 @@ interface Teacher {
     first_name: string;
     last_name: string;
     email: string;
+}
+
+interface Student {
+    id: number;
+    username: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    enrolled_at: string;
 }
 
 interface TimetableEntry {
@@ -73,11 +85,15 @@ interface CalendarEvent {
 
 const AdminTimetable: React.FC = () => {
     const [teachers, setTeachers] = useState<Teacher[]>([]);
-    const [selectedTeacher, setSelectedTeacher] = useState<(number | string)[] | null>(null);
+    const [selectedTeacher, setSelectedTeacher] = useState<number[] | null>(null);
     const [timetableData, setTimetableData] = useState<TimetableEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<TimetableEntry | null>(null);
+    const [studentListModalVisible, setStudentListModalVisible] = useState(false);
+    const [students, setStudents] = useState<Student[]>([]);
+    const [studentCount, setStudentCount] = useState<number>(0);
+    const [studentsLoading, setStudentsLoading] = useState(false);
     const { apiCall } = useAuth();
 
     const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -148,6 +164,29 @@ const AdminTimetable: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const fetchBatchStudents = async (batchId: number) => {
+        setStudentsLoading(true);
+        try {
+            const response = await apiCall(`/batches/${batchId}`);
+            if (response.ok) {
+                const data = await response.json();
+                setStudents(Array.isArray(data.students) ? data.students : []);
+                setStudentCount(data.students ? data.students.length : 0);
+            } else {
+                message.error('Failed to fetch students');
+            }
+        } catch (error) {
+            message.error('Error fetching students');
+        } finally {
+            setStudentsLoading(false);
+        }
+    };
+
+    const handleViewStudents = (batchId: number) => {
+        setStudentListModalVisible(true);
+        fetchBatchStudents(batchId);
     };
 
     // Convert timetable entries to calendar events - showing recurring weekly pattern
@@ -258,15 +297,7 @@ const AdminTimetable: React.FC = () => {
         return Array.from(batchMap.values());
     }, [timetableData]);
 
-    // Determine if multiple batches are present
-    const hasMultipleBatches = uniqueBatches.length > 1;
-    
-    // Determine if multiple teachers are selected
-    const hasMultipleTeachers = selectedTeacher === null || 
-        (selectedTeacher && selectedTeacher.length > 1) ||
-        (selectedTeacher && uniqueBatches.some(batch => 
-            batch.teacher_name !== uniqueBatches[0].teacher_name
-        ));
+
 
     const eventStyleGetter = (event: CalendarEvent) => {
         const entry = event.resource;
@@ -622,6 +653,19 @@ const AdminTimetable: React.FC = () => {
                                 {selectedEvent.teacher_first_name} {selectedEvent.teacher_last_name}
                             </Space>
                         </Descriptions.Item>
+                        <Descriptions.Item label="Students" span={2}>
+                            <Button 
+                                type="link" 
+                                icon={<TeamOutlined />}
+                                onClick={() => handleViewStudents(selectedEvent.batch_id)}
+                                style={{ padding: 0, height: 'auto' }}
+                            >
+                                <Space>
+                                    <EyeOutlined />
+                                    View Students
+                                </Space>
+                            </Button>
+                        </Descriptions.Item>
                         <Descriptions.Item label="Location Mode" span={2}>
                             <Tag color={selectedEvent.location_mode === 'online' ? 'green' : 'purple'}>
                                 {selectedEvent.location_mode === 'online' ? '🌐 Online' : '📍 Physical'}
@@ -653,6 +697,133 @@ const AdminTimetable: React.FC = () => {
                         </Descriptions.Item>
                     </Descriptions>
                 )}
+            </Modal>
+
+            {/* Student List Modal */}
+            <Modal
+                title={
+                    <Space>
+                        <TeamOutlined />
+                        <span>Students in {selectedEvent?.batch_name}</span>
+                        <Badge count={studentCount} style={{ backgroundColor: '#52c41a' }} />
+                    </Space>
+                }
+                open={studentListModalVisible}
+                onCancel={() => {
+                    setStudentListModalVisible(false);
+                    setStudents([]);
+                    setStudentCount(0);
+                }}
+                footer={[
+                    <Button key="close" onClick={() => {
+                        setStudentListModalVisible(false);
+                        setStudents([]);
+                        setStudentCount(0);
+                    }}>
+                        Close
+                    </Button>
+                ]}
+                width={700}
+            >
+                <Spin spinning={studentsLoading}>
+                    {students.length > 0 ? (
+                        <div>
+                            <div style={{ marginBottom: 16, padding: '12px 16px', backgroundColor: '#f5f5f5', borderRadius: 8 }}>
+                                <Row gutter={16}>
+                                    <Col span={8}>
+                                        <Statistic 
+                                            title="Total Students" 
+                                            value={studentCount} 
+                                            prefix={<TeamOutlined />}
+                                            valueStyle={{ color: '#1890ff' }}
+                                        />
+                                    </Col>
+                                    <Col span={8}>
+                                        <Statistic 
+                                            title="Batch" 
+                                            value={selectedEvent?.batch_name || 'N/A'} 
+                                            prefix={<CalendarOutlined />}
+                                        />
+                                    </Col>
+                                    <Col span={8}>
+                                        <Statistic 
+                                            title="Level" 
+                                            value={selectedEvent?.french_level || 'N/A'} 
+                                            prefix={<Tag color="blue" style={{ margin: 0 }}>FR</Tag>}
+                                        />
+                                    </Col>
+                                </Row>
+                            </div>
+                            
+                            <List
+                                itemLayout="horizontal"
+                                dataSource={students}
+                                renderItem={(student, index) => (
+                                    <List.Item
+                                        style={{
+                                            padding: '12px 16px',
+                                            borderRadius: 8,
+                                            marginBottom: 8,
+                                            backgroundColor: index % 2 === 0 ? '#fafafa' : '#ffffff',
+                                            border: '1px solid #f0f0f0'
+                                        }}
+                                    >
+                                        <List.Item.Meta
+                                            avatar={
+                                                <Avatar 
+                                                    size={40}
+                                                    style={{ 
+                                                        backgroundColor: `hsl(${(student.id * 137.508) % 360}, 70%, 50%)`,
+                                                        fontSize: '16px',
+                                                        fontWeight: 'bold'
+                                                    }}
+                                                >
+                                                    {student.first_name.charAt(0)}{student.last_name.charAt(0)}
+                                                </Avatar>
+                                            }
+                                            title={
+                                                <Space>
+                                                    <Text strong style={{ fontSize: '16px' }}>
+                                                        {student.first_name} {student.last_name}
+                                                    </Text>
+                                                    <Tag color="blue" style={{ fontSize: '11px' }}>
+                                                        @{student.username}
+                                                    </Tag>
+                                                </Space>
+                                            }
+                                            description={
+                                                <Space direction="vertical" size={4}>
+                                                    <Text type="secondary" style={{ fontSize: '14px' }}>
+                                                        📧 {student.email}
+                                                    </Text>
+                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                                        📅 Enrolled: {dayjs(student.enrolled_at).format('MMM DD, YYYY')}
+                                                    </Text>
+                                                </Space>
+                                            }
+                                        />
+                                        <div style={{ textAlign: 'right' }}>
+                                            <Badge 
+                                                count={`#${index + 1}`} 
+                                                style={{ 
+                                                    backgroundColor: '#f0f0f0', 
+                                                    color: '#666',
+                                                    border: '1px solid #d9d9d9'
+                                                }} 
+                                            />
+                                        </div>
+                                    </List.Item>
+                                )}
+                            />
+                        </div>
+                    ) : (
+                        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                            <TeamOutlined style={{ fontSize: '48px', color: '#d9d9d9', marginBottom: 16 }} />
+                            <Title level={4} type="secondary">No Students Found</Title>
+                            <Text type="secondary">This batch doesn't have any enrolled students yet.</Text>
+                        </div>
+                    )}
+                </Spin>
             </Modal>
         </Card>
     );

@@ -16,15 +16,12 @@ import {
     Row,
     Col,
     Divider,
-    Tag,
-    Collapse,
     Popconfirm
 } from 'antd';
 import {
     PlusOutlined,
     TeamOutlined,
     ClockCircleOutlined,
-    EnvironmentOutlined,
     CalendarOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
