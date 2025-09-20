@@ -20,7 +20,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     loading: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+    login: (email: string, password: string) => Promise<{ success: boolean; error?: string; code?: string; message?: string; locked_until?: string; failed_attempts?: number }>;
     logout: () => void;
     updateProfile: (profileData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
     changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
@@ -112,8 +112,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 message.success('Login successful!');
                 return { success: true };
             } else {
-                message.error(data.error || 'Login failed');
-                return { success: false, error: data.error };
+                // Don't show message here for security errors - let the component handle it
+                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED') {
+                    return { 
+                        success: false, 
+                        error: data.error,
+                        code: data.code,
+                        message: data.message,
+                        locked_until: data.locked_until,
+                        failed_attempts: data.failed_attempts
+                    };
+                } else {
+                    message.error(data.message || data.error || 'Login failed');
+                    return { success: false, error: data.error };
+                }
             }
         } catch (error) {
             console.error('Login error:', error);

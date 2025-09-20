@@ -67,12 +67,12 @@ const Layout: React.FC = () => {
                     label: 'Dashboard',
                 },
                 {
-                    key: '/my-batches',
+                    key: '/teacher-batches',
                     icon: <TeamOutlined />,
                     label: 'My Batches',
                 },
                 {
-                    key: '/quizzes',
+                    key: '/quiz-management',
                     icon: <FileTextOutlined />,
                     label: 'Quiz Management',
                 },
@@ -82,7 +82,7 @@ const Layout: React.FC = () => {
                     label: 'Resources',
                 },
                 {
-                    key: '/schedule',
+                    key: '/schedules',
                     icon: <CalendarOutlined />,
                     label: 'Schedule',
                 }

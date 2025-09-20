@@ -108,8 +108,47 @@ class Database {
         if (userMissing('password_expires_at')) {
             userStatements.push('ALTER TABLE users ADD COLUMN password_expires_at DATETIME');
         }
+
+        // Users table: account security columns used by auth middleware
+        if (userMissing('is_active')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE');
+        }
+        if (userMissing('failed_login_attempts')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER DEFAULT 0');
+        }
+        if (userMissing('last_failed_login')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN last_failed_login DATETIME');
+        }
+        if (userMissing('account_locked_until')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN account_locked_until DATETIME');
+        }
+
         if (userStatements.length > 0) {
             await this.executeStatements(userStatements);
+            // Backfill sane defaults for existing rows
+            try {
+                await this.run('UPDATE users SET is_active = 1 WHERE is_active IS NULL');
+            } catch (e) {}
+            try {
+                await this.run('UPDATE users SET failed_login_attempts = 0 WHERE failed_login_attempts IS NULL');
+            } catch (e) {}
+            try {
+                await this.run('UPDATE users SET last_failed_login = NULL WHERE last_failed_login IS NOT NULL AND typeof(last_failed_login) = ""');
+            } catch (e) {}
+            try {
+                await this.run('UPDATE users SET account_locked_until = NULL WHERE account_locked_until IS NOT NULL AND typeof(account_locked_until) = ""');
+            } catch (e) {}
+        }
+
+        // Ensure indexes for performance on new columns
+        const securityIndexes = [
+            'CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)',
+            'CREATE INDEX IF NOT EXISTS idx_users_failed_attempts ON users(failed_login_attempts)'
+        ];
+        try {
+            await this.executeStatements(securityIndexes);
+        } catch (e) {
+            console.warn('Warning ensuring security indexes:', e.message);
         }
 
         // Add timetable support for batches
@@ -128,9 +167,6 @@ class Database {
             'CREATE INDEX IF NOT EXISTS idx_question_options_question_order ON question_options(question_id, option_order)',
             // Quizzes filtering and ordering
             'CREATE INDEX IF NOT EXISTS idx_quizzes_status ON quizzes(status)',
-            'CREATE INDEX IF NOT EXISTS idx_quizzes_status_created ON quizzes(status, created_at DESC)',
-            'CREATE INDEX IF NOT EXISTS idx_quizzes_teacher_status ON quizzes(teacher_id, status)',
-            'CREATE INDEX IF NOT EXISTS idx_quizzes_teacher_created ON quizzes(teacher_id, created_at DESC)',
             // Quiz-batch assignments
             'CREATE INDEX IF NOT EXISTS idx_quiz_batches_batch ON quiz_batches(batch_id)',
             // Submissions filtering and ordering

@@ -415,7 +415,7 @@ const TeacherBatches: React.FC = () => {
                 width={980}
                 open={insightsVisible}
                 onClose={() => setInsightsVisible(false)}
-                destroyOnClose
+                destroyOnHidden
                 >
                     {insightsVisible && insightsBatchId !== null && (
                         <BatchInsights batchId={String(insightsBatchId)} />

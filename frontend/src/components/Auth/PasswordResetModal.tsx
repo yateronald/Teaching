@@ -209,7 +209,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
       onCancel={handleClose}
       footer={null}
       width={560}
-      destroyOnClose
+      destroyOnHidden
       styles={{ body: { paddingTop: 8 } as any }}
     >
       <div style={{ marginBottom: 16 }}>

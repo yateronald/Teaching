@@ -177,7 +177,7 @@ const ChangeEmailModal: React.FC<Props> = ({ open, onClose, onSuccess, currentEm
       open={open}
       onCancel={() => { onClose(); resetAll(); }}
       footer={null}
-      destroyOnClose
+      destroyOnHidden
     >
       {step === 'email' ? (
         <>

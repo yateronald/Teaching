@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { generateToken, hashPassword, verifyPassword, authenticateToken } = require('../middleware/auth');
+const { generateToken, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -27,14 +27,57 @@ router.post('/login', [
         );
 
         if (!user) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            return res.status(401).json({ 
+                error: 'Invalid credentials',
+                message: 'Email or password is incorrect'
+            });
+        }
+
+        // Check if account is locked before attempting login
+        const lockStatus = await isAccountLocked(req.db, user.id);
+        if (lockStatus.locked) {
+            if (lockStatus.reason === 'Account disabled') {
+                return res.status(403).json({ 
+                    error: 'Account disabled', 
+                    message: 'Your account has been disabled. Please contact the administrator.',
+                    code: 'ACCOUNT_DISABLED'
+                });
+            } else if (lockStatus.reason === 'Temporarily locked') {
+                const lockUntil = new Date(lockStatus.until);
+                return res.status(423).json({ 
+                    error: 'Account temporarily locked', 
+                    message: `Your account is temporarily locked due to multiple failed login attempts. Please try again after ${lockUntil.toLocaleString()}.`,
+                    code: 'ACCOUNT_LOCKED',
+                    locked_until: lockStatus.until,
+                    failed_attempts: lockStatus.attempts
+                });
+            }
         }
 
         // Verify password
         const isValidPassword = await verifyPassword(password, user.password_hash);
         if (!isValidPassword) {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            // Record failed login attempt
+            const { attempts, lockUntil } = await recordFailedLogin(req.db, user.id);
+            
+            let errorResponse = { 
+                error: 'Invalid credentials',
+                message: 'Email or password is incorrect',
+                failed_attempts: attempts
+            };
+
+            if (lockUntil) {
+                errorResponse.code = 'ACCOUNT_LOCKED';
+                errorResponse.message = `Too many failed login attempts. Your account has been temporarily locked until ${lockUntil.toLocaleString()}.`;
+                errorResponse.locked_until = lockUntil.toISOString();
+                return res.status(423).json(errorResponse);
+            }
+
+            return res.status(401).json(errorResponse);
         }
+
+        // Successful login - reset failed attempts
+        await resetFailedLogins(req.db, user.id);
 
         // Generate JWT token
         const token = generateToken(user.id, user.role);
@@ -45,6 +88,7 @@ router.post('/login', [
         const mustChange = !!user.must_change_password;
         const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
         userWithoutPassword.force_password_change = mustChange || expired;
+        
         res.json({
             message: 'Login successful',
             token,

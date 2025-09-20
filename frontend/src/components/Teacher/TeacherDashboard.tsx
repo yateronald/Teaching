@@ -139,7 +139,6 @@ const TeacherDashboard: React.FC = () => {
 
   // KPIs - using unique student count
   const totalStudents = uniqueStudentsData.length;
-  console.log(uniqueStudentsData)
   
   // Unique student count for KPI (deduplicate across batches by student ID)
   const uniqueStudentCount  = useMemo(() => {
@@ -149,7 +148,6 @@ const TeacherDashboard: React.FC = () => {
       uniqueStudentIds.add(s.id);
     });
     
-    console.log('uniqueStudentCount', uniqueStudentIds.size);
     return uniqueStudentIds.size;
   }, [students]);
   

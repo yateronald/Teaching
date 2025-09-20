@@ -6,6 +6,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { ASSET_PATHS } from '../../utils/assets';
 import { brandingUtils, BRAND_CONFIG, COLOR_COMBINATIONS } from '../../utils/branding';
 import PasswordResetModal from './PasswordResetModal';
+import AccountDisabledModal from './AccountDisabledModal';
 
 const { Title, Text } = Typography;
 
@@ -21,6 +22,13 @@ const Login: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [resetOpen, setResetOpen] = useState(false);
+    const [accountDisabledOpen, setAccountDisabledOpen] = useState(false);
+    const [accountDisabledData, setAccountDisabledData] = useState<{
+        type: 'disabled' | 'locked';
+        message?: string;
+        lockedUntil?: string;
+        failedAttempts?: number;
+    }>({ type: 'disabled' });
 
     const from = location.state?.from?.pathname || '/';
 
@@ -45,6 +53,20 @@ const Login: React.FC = () => {
             const result = await login(values.email, values.password);
             if (result.success) {
                 // Navigation will be handled by useEffect
+            } else if (result.code === 'ACCOUNT_DISABLED') {
+                setAccountDisabledData({
+                    type: 'disabled',
+                    message: result.message
+                });
+                setAccountDisabledOpen(true);
+            } else if (result.code === 'ACCOUNT_LOCKED') {
+                setAccountDisabledData({
+                    type: 'locked',
+                    message: result.message,
+                    lockedUntil: result.locked_until,
+                    failedAttempts: result.failed_attempts
+                });
+                setAccountDisabledOpen(true);
             }
         } catch (error) {
             message.error('Login failed. Please try again.');
@@ -166,6 +188,14 @@ const Login: React.FC = () => {
                 open={resetOpen} 
                 onClose={() => setResetOpen(false)}
                 initialEmail={form.getFieldValue('email')}
+            />
+            <AccountDisabledModal
+                visible={accountDisabledOpen}
+                onClose={() => setAccountDisabledOpen(false)}
+                type={accountDisabledData.type}
+                message={accountDisabledData.message}
+                lockedUntil={accountDisabledData.lockedUntil}
+                failedAttempts={accountDisabledData.failedAttempts}
             />
         </div>
     );

@@ -41,7 +41,7 @@ function generateTempPassword(len = 10) {
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { role, search } = req.query;
-        let sql = 'SELECT id, username, email, role, first_name, last_name, created_at FROM users';
+        let sql = 'SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts FROM users';
         let params = [];
         
         const conditions = [];
@@ -76,7 +76,7 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts FROM users WHERE id = ?',
             [id]
         );
         
@@ -100,7 +100,8 @@ router.post('/', [
     // password is no longer provided by client; it will be auto-generated
     body('role').isIn(['admin', 'teacher', 'student']),
     body('first_name').isLength({ min: 1 }).trim(),
-    body('last_name').isLength({ min: 1 }).trim()
+    body('last_name').isLength({ min: 1 }).trim(),
+    body('is_active').optional().isBoolean()
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -111,7 +112,7 @@ router.post('/', [
             });
         }
 
-        const { username, email, role, first_name, last_name } = req.body;
+        const { username, email, role, first_name, last_name, is_active = true } = req.body;
 
         // Check if username or email already exists
         const existingUser = await req.db.get(
@@ -131,8 +132,8 @@ router.post('/', [
 
         // Create user with password policy defaults and require change on next login
         const result = await req.db.run(
-            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at) VALUES (?, ?, ?, ?, ?, ?, 1, DATETIME('now', '+90 days'))",
-            [username, email, passwordHash, role, first_name, last_name]
+            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at, is_active, failed_login_attempts) VALUES (?, ?, ?, ?, ?, ?, 1, DATETIME('now', '+90 days'), ?, 0)",
+            [username, email, passwordHash, role, first_name, last_name, is_active]
         );
 
         const userId = result.lastID;
@@ -169,7 +170,8 @@ router.put('/:id', [
     body('email').optional().isEmail().normalizeEmail(),
     body('role').optional().isIn(['admin', 'teacher', 'student']),
     body('first_name').optional().isLength({ min: 1 }).trim(),
-    body('last_name').optional().isLength({ min: 1 }).trim()
+    body('last_name').optional().isLength({ min: 1 }).trim(),
+    body('is_active').optional().isBoolean()
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -181,7 +183,7 @@ router.put('/:id', [
         }
 
         const { id } = req.params;
-        const { username, email, role, first_name, last_name } = req.body;
+        const { username, email, role, first_name, last_name, is_active } = req.body;
 
         // Check if user exists
         const existingUser = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
@@ -224,6 +226,15 @@ router.put('/:id', [
             updates.push('last_name = ?');
             params.push(last_name);
         }
+        if (typeof is_active === 'boolean') {
+            updates.push('is_active = ?');
+            params.push(is_active);
+            // Reset failed login attempts when reactivating account
+            if (is_active) {
+                updates.push('failed_login_attempts = 0');
+                updates.push('account_locked_until = NULL');
+            }
+        }
         
         if (updates.length === 0) {
             return res.status(400).json({ error: 'No fields to update' });
@@ -239,7 +250,7 @@ router.put('/:id', [
 
         // Get updated user
         const updatedUser = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at, updated_at FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, created_at, updated_at, is_active, failed_login_attempts FROM users WHERE id = ?',
             [id]
         );
         
@@ -302,16 +313,49 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
     try {
         const { teacherId } = req.params;
 
+        // Get students with their batch information and quiz scores
         const students = await req.db.all(
-            `SELECT u.id, u.username, u.email, u.role, u.first_name, u.last_name, u.created_at
+            `SELECT DISTINCT 
+                u.id, 
+                u.first_name, 
+                u.last_name, 
+                u.email,
+                b.name as batch_name,
+                COALESCE(AVG(qs.percentage), 0) as average_score
              FROM users u
-             JOIN teacher_students ts ON u.id = ts.student_id
-             WHERE ts.teacher_id = ?
+             JOIN batch_students bs ON u.id = bs.student_id
+             JOIN batches b ON bs.batch_id = b.id
+             LEFT JOIN quiz_submissions qs ON u.id = qs.student_id AND qs.status = 'submitted'
+             WHERE b.teacher_id = ? AND u.role = 'student'
+             GROUP BY u.id, u.first_name, u.last_name, u.email, b.name
              ORDER BY u.first_name ASC`,
             [teacherId]
         );
 
-        res.json(students);
+        // Get detailed quiz scores for each student
+        const studentsWithScores = await Promise.all(students.map(async (student) => {
+            const quizScores = await req.db.all(
+                `SELECT 
+                    q.title as quiz_title,
+                    qs.total_score as score,
+                    qs.max_score,
+                    qs.submitted_at
+                 FROM quiz_submissions qs
+                 JOIN quizzes q ON qs.quiz_id = q.id
+                 JOIN quiz_batches qb ON q.id = qb.quiz_id
+                 JOIN batches b ON qb.batch_id = b.id
+                 WHERE qs.student_id = ? AND b.teacher_id = ? AND qs.status = 'submitted'
+                 ORDER BY qs.submitted_at DESC`,
+                [student.id, teacherId]
+            );
+
+            return {
+                ...student,
+                quiz_scores: quizScores || []
+            };
+        }));
+
+        res.json(studentsWithScores);
     } catch (error) {
         console.error('Get teacher students error:', error);
         res.status(500).json({ error: 'Failed to fetch teacher students' });

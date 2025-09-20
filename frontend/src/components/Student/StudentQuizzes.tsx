@@ -660,7 +660,7 @@ const StudentQuizzes: React.FC = () => {
                 width={760}
                 centered
                 bodyStyle={{ padding: 0 }}
-                destroyOnClose
+                destroyOnHidden
             >
                 {selectedQuizId && (
                     <QuizTaking 

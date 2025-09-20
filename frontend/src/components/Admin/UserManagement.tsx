@@ -10,19 +10,25 @@ import {
     Space,
     Typography,
     Tag,
-    Popconfirm,
     Card,
-    Divider
+    Divider,
+    Switch,
+    Dropdown,
 } from 'antd';
 import {
     PlusOutlined,
     EditOutlined,
     DeleteOutlined,
     UserOutlined,
-    KeyOutlined
+    KeyOutlined,
+    CheckCircleOutlined,
+    StopOutlined,
+    MoreOutlined,
+    EyeOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
+import type { MenuProps } from 'antd';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -35,6 +41,8 @@ interface User {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    is_active?: boolean;
+    failed_login_attempts?: number;
 }
 
 const UserManagement: React.FC = () => {
@@ -48,6 +56,9 @@ const UserManagement: React.FC = () => {
     const [form] = Form.useForm();
     const [passwordForm] = Form.useForm();
     const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
+
+    // Watch the is_active field to update Switch color reactively
+    const isActiveValue = Form.useWatch('is_active', form);
 
     // Check if user is authenticated and has admin privileges
     if (!isAuthenticated) {
@@ -171,6 +182,7 @@ const UserManagement: React.FC = () => {
             first_name: user.first_name,
             last_name: user.last_name,
             role: user.role,
+            is_active: user.is_active ?? true, // Use actual value, default to true only if undefined
         });
         setModalVisible(true);
     };
@@ -178,6 +190,10 @@ const UserManagement: React.FC = () => {
     const handleAdd = () => {
         setEditingUser(null);
         form.resetFields();
+        // Set default values for new user
+        form.setFieldsValue({
+            is_active: true // Default to active for new users
+        });
         setModalVisible(true);
     };
 
@@ -185,6 +201,28 @@ const UserManagement: React.FC = () => {
         setResetPasswordUser(user);
         passwordForm.resetFields();
         setPasswordModalVisible(true);
+    };
+
+    const handleToggleStatus = async (user: User) => {
+        try {
+            const newStatus = !user.is_active;
+            const response = await apiCall(`/users/${user.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: newStatus }),
+            });
+
+            if (response.ok) {
+                message.success(`User ${newStatus ? 'activated' : 'deactivated'} successfully`);
+                fetchUsers(); // Refresh the list
+            } else {
+                const errorData = await response.json();
+                message.error(errorData.error || 'Failed to update user status');
+            }
+        } catch (error) {
+            console.error('Toggle status error:', error);
+            message.error('Error updating user status');
+        }
     };
 
     const handlePasswordReset = async (_values: any) => {
@@ -239,25 +277,72 @@ const UserManagement: React.FC = () => {
         {
             title: 'Name',
             key: 'name',
-            width: 200,
+            width: 180,
             fixed: 'left',
-            render: (_, record) => `${record.first_name} ${record.last_name}`,
+            render: (_, record) => (
+                <div>
+                    <div style={{ fontWeight: 600, color: '#262626' }}>
+                        {`${record.first_name} ${record.last_name}`}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
+                        ID: {record.id}
+                    </div>
+                </div>
+            ),
         },
         {
             title: 'Email',
             dataIndex: 'email',
             key: 'email',
-            width: 250,
+            width: 220,
             ellipsis: true,
+            render: (email: string) => (
+                <div style={{ color: '#595959' }}>
+                    {email}
+                </div>
+            ),
         },
         {
             title: 'Role',
             dataIndex: 'role',
             key: 'role',
-            width: 120,
+            width: 100,
             render: (role: string) => (
-                <Tag color={getRoleColor(role)}>
+                <Tag color={getRoleColor(role)} style={{ fontWeight: 500 }}>
                     {role.toUpperCase()}
+                </Tag>
+            ),
+        },
+        {
+            title: 'Status',
+            dataIndex: 'is_active',
+            key: 'status',
+            width: 90,
+            render: (isActive: boolean) => (
+                <Tag 
+                    color={isActive ? 'green' : 'red'} 
+                    style={{ 
+                        fontWeight: 500,
+                        minWidth: '70px',
+                        textAlign: 'center'
+                    }}
+                >
+                    {isActive ? 'ACTIVE' : 'DISABLED'}
+                </Tag>
+            ),
+        },
+        {
+            title: 'Failed Logins',
+            dataIndex: 'failed_login_attempts',
+            key: 'failed_login_attempts',
+            width: 110,
+            align: 'center',
+            render: (attempts: number) => (
+                <Tag 
+                    color={attempts >= 5 ? 'red' : attempts >= 3 ? 'orange' : 'default'}
+                    style={{ fontWeight: 500 }}
+                >
+                    {attempts || 0}
                 </Tag>
             ),
         },
@@ -265,49 +350,135 @@ const UserManagement: React.FC = () => {
             title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
-            width: 150,
-            render: (date: string) => new Date(date).toLocaleDateString(),
+            width: 120,
+            render: (date: string) => (
+                <div style={{ color: '#8c8c8c', fontSize: '13px' }}>
+                    {new Date(date).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                    })}
+                </div>
+            ),
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 250,
+            width: 120,
             fixed: 'right',
-            render: (_, record) => (
-                <Space>
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => handleEdit(record)}
-                    >
-                        Edit
-                    </Button>
-                    <Button
-                        type="default"
-                        size="small"
-                        icon={<KeyOutlined />}
-                        onClick={() => handleResetPassword(record)}
-                    >
-                        Reset Password
-                    </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this user?"
-                        onConfirm={() => handleDelete(record.id)}
-                        okText="Yes"
-                        cancelText="No"
-                    >
+            align: 'center',
+            render: (_, record) => {
+                const menuItems: MenuProps['items'] = [
+                    {
+                        key: 'edit',
+                        icon: <EditOutlined style={{ color: '#1890ff' }} />,
+                        label: <span style={{ color: '#262626' }}>Edit User</span>,
+                        onClick: () => handleEdit(record),
+                    },
+                    {
+                        key: 'reset-password',
+                        icon: <KeyOutlined style={{ color: '#722ed1' }} />,
+                        label: <span style={{ color: '#262626' }}>Reset Password</span>,
+                        onClick: () => handleResetPassword(record),
+                    },
+                    {
+                        type: 'divider',
+                    },
+                    {
+                        key: 'toggle-status',
+                        icon: record.is_active ? 
+                            <StopOutlined style={{ color: '#ff4d4f' }} /> : 
+                            <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+                        label: (
+                            <span style={{ color: record.is_active ? '#ff4d4f' : '#52c41a' }}>
+                                {record.is_active ? 'Deactivate User' : 'Activate User'}
+                            </span>
+                        ),
+                        onClick: () => {
+                            Modal.confirm({
+                                title: `${record.is_active ? 'Deactivate' : 'Activate'} User`,
+                                content: `Are you sure you want to ${record.is_active ? 'deactivate' : 'activate'} ${record.first_name} ${record.last_name}?`,
+                                okText: 'Yes',
+                                cancelText: 'No',
+                                okButtonProps: {
+                                    style: {
+                                        backgroundColor: record.is_active ? '#ff4d4f' : '#52c41a',
+                                        borderColor: record.is_active ? '#ff4d4f' : '#52c41a'
+                                    }
+                                },
+                                onOk: () => handleToggleStatus(record),
+                            });
+                        },
+                    },
+                    {
+                        type: 'divider',
+                    },
+                    {
+                        key: 'delete',
+                        icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
+                        label: <span style={{ color: '#ff4d4f' }}>Delete User</span>,
+                        onClick: () => {
+                            Modal.confirm({
+                                title: 'Delete User',
+                                content: `Are you sure you want to delete ${record.first_name} ${record.last_name}? This action cannot be undone.`,
+                                okText: 'Yes, Delete',
+                                cancelText: 'Cancel',
+                                okType: 'danger',
+                                onOk: () => handleDelete(record.id),
+                            });
+                        },
+                    },
+                ];
+
+                return (
+                    <Space size="small">
                         <Button
                             type="primary"
-                            danger
                             size="small"
-                            icon={<DeleteOutlined />}
+                            icon={<EyeOutlined />}
+                            onClick={() => handleEdit(record)}
+                            title="Quick Edit"
+                            style={{
+                                borderRadius: '6px',
+                                height: '28px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        />
+                        <Dropdown
+                            menu={{ items: menuItems }}
+                            trigger={['click']}
+                            placement="bottomRight"
                         >
-                            Delete
-                        </Button>
-                    </Popconfirm>
-                </Space>
-            ),
+                            <Button
+                                type="text"
+                                size="small"
+                                icon={<MoreOutlined />}
+                                style={{ 
+                                    border: '1px solid #d9d9d9',
+                                    borderRadius: '6px',
+                                    height: '28px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: '#fafafa',
+                                    transition: 'all 0.2s ease'
+                                }}
+                                title="More Actions"
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#f0f0f0';
+                                    e.currentTarget.style.borderColor = '#b7b7b7';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#fafafa';
+                                    e.currentTarget.style.borderColor = '#d9d9d9';
+                                }}
+                            />
+                        </Dropdown>
+                    </Space>
+                );
+            },
         },
     ];
 
@@ -438,6 +609,19 @@ const UserManagement: React.FC = () => {
                                 </div>
                             </Form.Item>
                         )}
+
+                        <Form.Item
+                            name="is_active"
+                            label="Account Status"
+                            valuePropName="checked"
+                            initialValue={true}
+                        >
+                            <Switch 
+                                checkedChildren="Active" 
+                                unCheckedChildren="Disabled"
+                                style={{ backgroundColor: isActiveValue ? '#52c41a' : '#ff4d4f' }}
+                            />
+                        </Form.Item>
                     </div>
 
                     {editingUser && (
