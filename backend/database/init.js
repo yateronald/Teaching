@@ -97,6 +97,12 @@ class Database {
         // Add timetable support for batches
         await this.ensureTimetableSchema();
 
+        // Ensure email change requests schema exists
+        await this.ensureEmailChangeSchema();
+
+        // Ensure password reset requests schema exists
+        await this.ensurePasswordResetSchema();
+
         // Ensure performance indexes exist (safe to run multiple times using IF NOT EXISTS)
         const performanceIndexes = [
             // Questions and options ordering
@@ -254,6 +260,76 @@ class Database {
         ];
 
         await this.executeStatements(timetableIndexes);
+    }
+
+    // Ensure email change requests table and indexes
+    async ensureEmailChangeSchema() {
+        const tableSql = `
+            CREATE TABLE IF NOT EXISTS email_change_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                old_email TEXT NOT NULL,
+                new_email TEXT NOT NULL,
+                code TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 3,
+                status TEXT NOT NULL CHECK (status IN ('pending','completed','cancelled','expired')) DEFAULT 'pending',
+                expires_at DATETIME NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `;
+        await this.executeStatements([tableSql]);
+
+        const indexes = [
+            'CREATE INDEX IF NOT EXISTS idx_ecr_user_status ON email_change_requests(user_id, status)',
+            'CREATE INDEX IF NOT EXISTS idx_ecr_expires ON email_change_requests(expires_at)',
+            'CREATE INDEX IF NOT EXISTS idx_ecr_user_code ON email_change_requests(user_id, code)'
+        ];
+        await this.executeStatements(indexes);
+    }
+
+    // Helper method to get all rows
+    async all(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (err, rows) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows);
+                }
+            });
+        });
+    }
+
+    // Ensure password reset requests table and indexes
+    async ensurePasswordResetSchema() {
+        const tableSql = `
+            CREATE TABLE IF NOT EXISTS password_reset_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                code TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 3,
+                status TEXT NOT NULL CHECK (status IN ('pending','otp_verified','completed','cancelled','expired')) DEFAULT 'pending',
+                expires_at DATETIME NOT NULL,
+                reset_token_hash TEXT,
+                reset_expires_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        `;
+        await this.executeStatements([tableSql]);
+
+        const indexes = [
+            'CREATE INDEX IF NOT EXISTS idx_prr_user_status ON password_reset_requests(user_id, status)',
+            'CREATE INDEX IF NOT EXISTS idx_prr_expires ON password_reset_requests(expires_at)',
+            'CREATE INDEX IF NOT EXISTS idx_prr_user_code ON password_reset_requests(user_id, code)'
+        ];
+        await this.executeStatements(indexes);
     }
 
     // Helper method to get all rows

@@ -578,7 +578,7 @@ const TeacherDashboard: React.FC = () => {
                     <Text strong>{item.student}</Text>
                     <Text type="secondary">{item.quiz} • {dayjs(item.date).format('MMM DD, YYYY HH:mm')}</Text>
                   </Space>
-                  <Text strong>{item.percentage}%</Text>
+                  <Text strong style={{ whiteSpace: 'nowrap' }}>{item.percentage}%</Text>
                 </List.Item>
               )}
             />

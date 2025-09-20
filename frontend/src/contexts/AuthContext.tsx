@@ -26,6 +26,13 @@ interface AuthContextType {
     isAdmin: boolean;
     isTeacher: boolean;
     isStudent: boolean;
+    requestEmailChange: (newEmail: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number; status?: number }>;
+    verifyEmailChange: (code: string) => Promise<{ success: boolean; error?: string; user?: User; attemptsLeft?: number }>;
+    resendEmailChange: () => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number }>;
+    // Password reset additions
+    requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number }>;
+    verifyPasswordReset: (email: string, code: string) => Promise<{ success: boolean; error?: string; token?: string; resetExpiresAt?: string; attemptsLeft?: number }>;
+    completePasswordReset: (email: string, token: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 interface AuthProviderProps {
@@ -235,6 +242,114 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     };
 
+    const requestEmailChange = async (newEmail: string) => {
+        try {
+            const res = await apiCall('/email-change/request', { method: 'POST', body: JSON.stringify({ newEmail }) });
+            const data = await res.json();
+            if (res.ok) return { success: true, expiresAt: data.expiresAt, attemptsLeft: data.attemptsLeft };
+            return { success: false, error: data.error, status: res.status };
+        } catch (e: any) {
+            return { success: false, error: e?.message || 'Network error' };
+        }
+    };
+
+    const verifyEmailChange = async (code: string) => {
+        try {
+            const res = await apiCall('/email-change/verify', { method: 'POST', body: JSON.stringify({ code }) });
+            const data = await res.json();
+            if (res.ok) {
+                setUser(data.user);
+                return { success: true, user: data.user };
+            }
+            return { success: false, error: data.error, attemptsLeft: data.attemptsLeft };
+        } catch (e: any) {
+            return { success: false, error: e?.message || 'Network error' };
+        }
+    };
+
+    const resendEmailChange = async () => {
+        try {
+            const res = await apiCall('/email-change/resend', { method: 'POST' });
+            const data = await res.json();
+            if (res.ok) return { success: true, expiresAt: data.expiresAt, attemptsLeft: data.attemptsLeft };
+            return { success: false, error: data.error };
+        } catch (e: any) {
+            return { success: false, error: e?.message || 'Network error' };
+        }
+    };
+
+    // Password reset flows (public endpoints, do not use apiCall)
+    const requestPasswordReset = async (email: string) => {
+        try {
+            const resp = await fetch(`${API_BASE_URL}/password-reset/request`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                message.success('If an account exists, a code has been sent to your email.');
+                return { success: true, expiresAt: data.expiresAt, attemptsLeft: data.attemptsLeft };
+            } else {
+                // Still show success-like message to avoid enumeration
+                message.success('If an account exists, a code has been sent to your email.');
+                return { success: false, error: data.error };
+            }
+        } catch (e) {
+            console.error('requestPasswordReset error', e);
+            message.error('Network error. Please try again.');
+            return { success: false, error: 'Network error' };
+        }
+    };
+
+    const verifyPasswordReset = async (email: string, code: string) => {
+        try {
+            const resp = await fetch(`${API_BASE_URL}/password-reset/verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, code })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                message.success('Code verified. You can now set a new password.');
+                return { success: true, token: data.token, resetExpiresAt: data.resetExpiresAt };
+            } else {
+                if (typeof data.attemptsLeft === 'number') {
+                    message.error(`${data.error || 'Invalid code'}. Attempts left: ${data.attemptsLeft}`);
+                } else {
+                    message.error(data.error || 'Verification failed');
+                }
+                return { success: false, error: data.error, attemptsLeft: data.attemptsLeft } as any;
+            }
+        } catch (e) {
+            console.error('verifyPasswordReset error', e);
+            message.error('Network error. Please try again.');
+            return { success: false, error: 'Network error' };
+        }
+    };
+
+    const completePasswordReset = async (email: string, token: string, newPassword: string) => {
+        try {
+            const resp = await fetch(`${API_BASE_URL}/password-reset/reset`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, token, newPassword })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                message.success('Your password has been reset. You can now sign in.');
+                return { success: true };
+            } else {
+                message.error(data.error || 'Could not reset password');
+                return { success: false, error: data.error };
+            }
+        } catch (e) {
+            console.error('completePasswordReset error', e);
+            message.error('Network error. Please try again.');
+            return { success: false, error: 'Network error' };
+        }
+    };
+
     const value = {
         user,
         token,
@@ -248,7 +363,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAuthenticated: !!token && !!user,
         isAdmin: user?.role === 'admin',
         isTeacher: user?.role === 'teacher',
-        isStudent: user?.role === 'student'
+        isStudent: user?.role === 'student',
+        requestEmailChange,
+        verifyEmailChange,
+        resendEmailChange,
+        requestPasswordReset,
+        verifyPasswordReset,
+        completePasswordReset
     };
 
     return (

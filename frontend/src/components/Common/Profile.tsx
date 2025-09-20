@@ -23,6 +23,7 @@ import {
     CalendarOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import ChangeEmailModal from './ChangeEmailModal';
 
 const { Title, Text } = Typography;
 
@@ -60,6 +61,7 @@ const Profile: React.FC = () => {
     const [passwordModalVisible, setPasswordModalVisible] = useState(false);
     const [form] = Form.useForm<UserProfile>();
     const [passwordForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
+    const [emailModalOpen, setEmailModalOpen] = useState(false);
 
     const displayName = useMemo(() => {
         if (!profile) return '';
@@ -140,6 +142,11 @@ const Profile: React.FC = () => {
             case 'student': return 'green';
             default: return 'default';
         }
+    };
+
+    const handleEmailChangeSuccess = () => {
+        // Refresh user profile data after email change
+        fetchProfile();
     };
 
     if (!profile) {
@@ -299,13 +306,22 @@ const Profile: React.FC = () => {
                     </Card>
 
                     <Card title="Security" style={{ marginTop: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                             <div>
                                 <Title level={5} style={{ margin: 0 }}>Password</Title>
-                                <Text type="secondary">Use a strong password that you don’t use elsewhere</Text>
+                                <Text type="secondary">Use a strong password that you don't use elsewhere</Text>
                             </div>
                             <Button type="primary" onClick={() => setPasswordModalVisible(true)}>
                                 Change Password
+                            </Button>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div>
+                                <Title level={5} style={{ margin: 0 }}>Email Address</Title>
+                                <Text type="secondary">Update your email address for account notifications</Text>
+                            </div>
+                            <Button onClick={() => setEmailModalOpen(true)}>
+                                Change Email
                             </Button>
                         </div>
                     </Card>
@@ -369,6 +385,12 @@ const Profile: React.FC = () => {
                     </Space>
                 </Form>
             </Modal>
+            <ChangeEmailModal
+                open={emailModalOpen}
+                onClose={() => setEmailModalOpen(false)}
+                onSuccess={handleEmailChangeSuccess}
+                currentEmail={profile?.email || ''}
+            />
         </div>
     );
 };

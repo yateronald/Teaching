@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ASSET_PATHS } from '../../utils/assets';
 import { brandingUtils, BRAND_CONFIG, COLOR_COMBINATIONS } from '../../utils/branding';
+import PasswordResetModal from './PasswordResetModal';
 
 const { Title, Text } = Typography;
 
@@ -19,6 +20,7 @@ const Login: React.FC = () => {
     const { login, isAuthenticated, user } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+    const [resetOpen, setResetOpen] = useState(false);
 
     const from = location.state?.from?.pathname || '/';
 
@@ -132,6 +134,12 @@ const Login: React.FC = () => {
                         />
                     </Form.Item>
 
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <Button type="link" onClick={() => setResetOpen(true)} style={{ padding: 0 }}>
+                            Forgot password?
+                        </Button>
+                    </div>
+
                     <Form.Item style={{ marginBottom: 0 }}>
                         <Button 
                             type="primary" 
@@ -154,6 +162,11 @@ const Login: React.FC = () => {
                     </Text>
                 </div>
             </Card>
+            <PasswordResetModal 
+                open={resetOpen} 
+                onClose={() => setResetOpen(false)}
+                initialEmail={form.getFieldValue('email')}
+            />
         </div>
     );
 };

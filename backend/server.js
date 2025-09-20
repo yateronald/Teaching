@@ -46,6 +46,8 @@ app.use((req, res, next) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/email-change', require('./routes/emailChange'));
+app.use('/api/password-reset', require('./routes/passwordReset'));
 app.use('/api/batches', batchRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/resources', resourceRoutes);

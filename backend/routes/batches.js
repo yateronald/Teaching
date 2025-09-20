@@ -1,6 +1,8 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, adminOnly, teacherOrAdmin, authorizeRoles } = require('../middleware/auth');
+// Add email service for batch notifications
+const { sendBatchAssignmentToTeacher, sendBatchEnrollmentToStudent } = require('../emails/emailService');
 
 const router = express.Router();
 
@@ -384,6 +386,29 @@ router.post('/', [
             );
         }
 
+        // Prepare schedule data for emails (include defaults applied in DB insert)
+        const schedulesForEmail = Array.isArray(timetable) ? timetable.map(s => ({
+            day_of_week: s.day_of_week,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            timezone: s.timezone || timezone,
+            location_mode: s.location_mode || default_location_mode,
+            location: s.location || default_location,
+            link: s.link || default_link
+        })) : [];
+
+        // Fetch email targets (names + emails) ahead of time to avoid using req.db after response
+        const teacherRow = await req.db.get(
+            'SELECT first_name, last_name, email FROM users WHERE id = ?',
+            [teacher_id]
+        );
+        const studentRows = student_ids.length
+            ? await req.db.all(
+                `SELECT id, first_name, last_name, email FROM users WHERE id IN (${student_ids.map(() => '?').join(',')})`,
+                student_ids
+              )
+            : [];
+
         // Get created batch with details
         const newBatch = await req.db.get(`
             SELECT 
@@ -394,9 +419,52 @@ router.post('/', [
             WHERE b.id = ?
         `, [batchId]);
 
+        // Respond immediately
         res.status(201).json({
             message: 'Batch created successfully',
             batch: newBatch
+        });
+
+        // Fire-and-forget background email dispatch
+        setImmediate(async () => {
+            try {
+                // Teacher assignment email
+                if (teacherRow && teacherRow.email) {
+                    await sendBatchAssignmentToTeacher({
+                        to: teacherRow.email,
+                        teacherName: `${teacherRow.first_name || ''} ${teacherRow.last_name || ''}`.trim(),
+                        batchName: name,
+                        frenchLevel: french_level,
+                        startDate: start_date,
+                        endDate: end_date,
+                        schedules: schedulesForEmail,
+                        studentCount: (studentRows || []).length
+                    });
+                }
+
+                // Student enrollment emails
+                const tasks = (studentRows || [])
+                    .filter(s => !!s.email)
+                    .map(s => sendBatchEnrollmentToStudent({
+                        to: s.email,
+                        studentName: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+                        batchName: name,
+                        frenchLevel: french_level,
+                        startDate: start_date,
+                        endDate: end_date,
+                        schedules: schedulesForEmail,
+                        studentCount: (studentRows || []).length
+                    }));
+
+                if (tasks.length > 0) {
+                    const results = await Promise.allSettled(tasks);
+                    const ok = results.filter(r => r.status === 'fulfilled').length;
+                    const fail = results.length - ok;
+                    console.log(`Batch ${batchId}: enrollment emails dispatched — ${ok} success, ${fail} failed`);
+                }
+            } catch (bgErr) {
+                console.error(`Batch ${batchId}: background email dispatch failed`, bgErr?.message || bgErr);
+            }
         });
 
     } catch (error) {

@@ -28,7 +28,9 @@
     "express-validator": "^7.2.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mailtrap": "^4.2.0",
     "multer": "^2.0.2",
+    "nodemailer": "^6.10.1",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
