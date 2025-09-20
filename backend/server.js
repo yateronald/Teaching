@@ -4,6 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const Database = require('./database/init');
+const QuizReminderScheduler = require('./services/quizReminderScheduler');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const batchRoutes = require('./routes/batches');
@@ -234,6 +235,10 @@ async function reconcileOverdueQuizzes(db) {
 async function startServer() {
     try {
         await database.initialize();
+        
+        // Initialize quiz reminder scheduler
+        const quizReminderScheduler = new QuizReminderScheduler(database);
+        console.log('📅 Quiz reminder scheduler initialized');
         
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);

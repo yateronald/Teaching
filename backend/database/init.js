@@ -65,6 +65,36 @@ class Database {
     }
 
     async ensureSchemaUpdates() {
+        // Check if we need to run migrations
+        try {
+            // Check if quiz_reminders_sent table exists
+            const reminderTableExists = await this.get(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='quiz_reminders_sent'
+            `);
+            
+            if (!reminderTableExists) {
+                console.log('Creating quiz_reminders_sent table...');
+                await this.run(`
+                    CREATE TABLE quiz_reminders_sent (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        quiz_id INTEGER NOT NULL,
+                        sent_at DATETIME NOT NULL,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+                    )
+                `);
+                
+                await this.run('CREATE INDEX idx_quiz_reminders_quiz ON quiz_reminders_sent(quiz_id)');
+                await this.run('CREATE INDEX idx_quiz_reminders_sent_at ON quiz_reminders_sent(sent_at)');
+                await this.run('CREATE UNIQUE INDEX idx_quiz_reminders_unique ON quiz_reminders_sent(quiz_id)');
+                
+                console.log('✅ Quiz reminders table created successfully');
+            }
+        } catch (error) {
+            console.error('Error in schema updates:', error);
+        }
+
         // Add new columns to schedules table if they don't exist
         const getColumns = (table) => new Promise((resolve, reject) => {
             this.db.all(`PRAGMA table_info(${table})`, [], (err, rows) => {

@@ -9,6 +9,8 @@ const { buildBatchAssignmentTeacherTemplate } = require('./templates/batchAssign
 const { buildBatchEnrollmentStudentTemplate } = require('./templates/batchEnrollmentStudent');
 const { buildWelcomeTemplate } = require('./templates/welcome');
 const { buildAdminPasswordResetTemplate } = require('./templates/adminPasswordReset');
+const { buildQuizNotificationTemplate } = require('./templates/quizNotification');
+const { buildQuizReminderTemplate } = require('./templates/quizReminder');
 
 const transporter = createEmailTransport();
 
@@ -165,6 +167,64 @@ async function sendAdminPasswordReset({ to, username, tempPassword }) {
     return await sendEmail(transporter, mailOptions);
 }
 
+// New: Quiz notification email when quiz is published
+async function sendQuizNotification({ to, studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+
+    const { subject, html, text } = buildQuizNotificationTemplate({ 
+        studentName, 
+        quizName, 
+        teacherName, 
+        batchName, 
+        duration, 
+        startDate, 
+        endDate, 
+        totalPoints, 
+        logoCid 
+    });
+
+    const mailOptions = {
+        from,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+    return await sendEmail(transporter, mailOptions);
+}
+
+// New: Quiz reminder email 5 minutes before quiz starts
+async function sendQuizReminder({ to, studentName, quizName, teacherName, batchName, duration, startDate, totalPoints, quizUrl }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+
+    const { subject, html, text } = buildQuizReminderTemplate({ 
+        studentName, 
+        quizName, 
+        teacherName, 
+        batchName, 
+        duration, 
+        startDate, 
+        totalPoints, 
+        quizUrl, 
+        logoCid 
+    });
+
+    const mailOptions = {
+        from,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+    return await sendEmail(transporter, mailOptions);
+}
+
 module.exports = {
     sendEmailChangeVerification,
     sendEmailChangeNotifications,
@@ -173,5 +233,7 @@ module.exports = {
     sendBatchAssignmentToTeacher,
     sendBatchEnrollmentToStudent,
     sendWelcomeEmail,
-    sendAdminPasswordReset
+    sendAdminPasswordReset,
+    sendQuizNotification,
+    sendQuizReminder
 };

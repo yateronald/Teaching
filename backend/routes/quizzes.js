@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
+const { sendQuizNotification } = require('../emails/emailService');
 
 const router = express.Router();
 
@@ -957,10 +958,22 @@ router.patch('/:id/status', [
 
         // If publishing, create submissions for all students in assigned batches
         if (status === 'published') {
+            // Get quiz details for email notification
+            const quizDetails = await req.db.get(`
+                SELECT 
+                    q.id, q.title, q.duration_minutes, q.start_date, q.end_date, q.total_marks,
+                    u.first_name as teacher_first_name, u.last_name as teacher_last_name
+                FROM quizzes q
+                LEFT JOIN users u ON q.teacher_id = u.id
+                WHERE q.id = ?
+            `, [id]);
+
             const students = await req.db.all(`
-                SELECT DISTINCT bs.student_id
+                SELECT DISTINCT bs.student_id, s.email, s.first_name, s.last_name, b.name as batch_name
                 FROM quiz_batches qb
                 JOIN batch_students bs ON qb.batch_id = bs.batch_id
+                JOIN users s ON bs.student_id = s.id
+                JOIN batches b ON qb.batch_id = b.id
                 WHERE qb.quiz_id = ?
             `, [id]);
 
@@ -983,6 +996,25 @@ router.patch('/:id/status', [
                         'INSERT INTO quiz_submissions (quiz_id, student_id, status, max_score) VALUES (?, ?, ?, ?)',
                         [id, student.student_id, 'not_started', maxScore]
                     );
+                }
+
+                // Send quiz notification email to student
+                try {
+                    await sendQuizNotification({
+                        to: student.email,
+                        studentName: student.first_name || 'Student',
+                        quizName: quizDetails.title,
+                        teacherName: `${quizDetails.teacher_first_name || ''} ${quizDetails.teacher_last_name || ''}`.trim() || 'Your Teacher',
+                        batchName: student.batch_name,
+                        duration: quizDetails.duration_minutes || 0,
+                        startDate: quizDetails.start_date,
+                        endDate: quizDetails.end_date,
+                        totalPoints: quizDetails.total_marks || 0
+                    });
+                    console.log(`✅ Quiz notification sent to ${student.email}`);
+                } catch (emailError) {
+                    console.error(`❌ Failed to send quiz notification to ${student.email}:`, emailError.message);
+                    // Continue with other students even if one email fails
                 }
             }
         }
