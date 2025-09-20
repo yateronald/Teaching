@@ -32,13 +32,18 @@ async function authenticateToken(req, res, next) {
         const decoded = jwt.verify(token, JWT_SECRET);
         // Fetch user from DB and attach to request (include created_at for profile dates)
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, created_at, must_change_password, password_changed_at, password_expires_at FROM users WHERE id = ?',
             [decoded.id]
         );
 
         if (!user) {
             return res.status(401).json({ error: 'Invalid token: user not found' });
         }
+
+        // Compute force password change flag
+        const mustChange = !!user.must_change_password;
+        const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
+        user.force_password_change = mustChange || expired;
 
         req.user = user;
         next();

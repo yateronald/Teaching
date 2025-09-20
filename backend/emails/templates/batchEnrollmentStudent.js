@@ -1,4 +1,4 @@
-function baseHtml({ subject, headerTitle, bodyHtml, logoCid, brandPrimary = '#1E3A8A', brandAccent = '#3B82F6' }) {
+function baseHtml({ subject, headerTitle, bodyHtml, logoCid, brandPrimary = '#0F172A', brandAccent = '#2563EB' }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11,24 +11,27 @@ function baseHtml({ subject, headerTitle, bodyHtml, logoCid, brandPrimary = '#1E
     }
   </style>
 </head>
-<body style="margin:0; background:#f5f7fb; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#111827;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(120deg, ${brandPrimary}, ${brandAccent}); padding: 24px 0;">
+<body style="margin:0; background:#f3f4f6; font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; color:#111827;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="padding: 24px 0;">
     <tr>
       <td align="center">
-        <table width="600" class="container" cellspacing="0" cellpadding="0" style="background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 8px 24px rgba(30,58,138,0.15);">
+        <table width="600" class="container" cellspacing="0" cellpadding="0" style="background:#ffffff; border:1px solid #E5E7EB; border-radius:14px; overflow:hidden; box-shadow:0 6px 18px rgba(0,0,0,0.06);">
           <tr>
-            <td style="background:linear-gradient(120deg, ${brandPrimary}, ${brandAccent}); padding: 24px; text-align:center;">
-              ${logoCid ? `<img src="cid:${logoCid}" alt="Learn French with Natives" height="56" style="display:block; margin: 0 auto 8px;" />` : ''}
-              <h1 style="margin:0; color:#fff; font-size:22px; font-weight:700; letter-spacing:0.3px;">${headerTitle}</h1>
+            <td style="padding: 20px 24px; text-align:center; background:#ffffff;">
+              ${logoCid ? `<img src="cid:${logoCid}" alt="Learn French with Natives" height="56" style="display:block; margin: 0 auto 10px;" />` : ''}
+              <h1 style="margin:0; color:${brandPrimary}; font-size:20px; font-weight:700; letter-spacing:0.2px;">${headerTitle}</h1>
             </td>
           </tr>
           <tr>
-            <td style="padding: 32px;">
+            <td style="height:1px; background:#E5E7EB;"></td>
+          </tr>
+          <tr>
+            <td style="padding: 28px;">
               ${bodyHtml}
             </td>
           </tr>
           <tr>
-            <td style="padding: 16px 24px; background:#F9FAFB; text-align:center; color:#6B7280; font-size:12px;">
+            <td style="padding: 14px 18px; background:#F9FAFB; text-align:center; color:#6B7280; font-size:12px;">
               © ${new Date().getFullYear()} Learn French with Natives
             </td>
           </tr>
@@ -70,7 +73,7 @@ function renderScheduleHtml(schedules = []) {
       return `<li style=\"margin:8px 0;\"> <strong>${day}</strong>: ${time}${tz} — <span style=\"color:#374151;\">${where}</span></li>`;
     })
     .join('');
-  return `<ul style="margin:0; padding-left:18px;">${items}</ul>`;
+  return `<div style="border-left:3px solid #E5E7EB; padding-left:12px;"><ul style="margin:0; padding-left:18px;">${items}</ul></div>`;
 }
 
 function renderScheduleText(schedules = []) {
@@ -91,20 +94,30 @@ function buildBatchEnrollmentStudentTemplate({ studentName, batchName, frenchLev
   const duration = computeDurationLabel(startDate, endDate);
   const bodyHtml = `
     <p style="margin:0 0 12px; font-size:16px;">Bonjour ${studentName || 'Student'},</p>
-    <p style="margin:0 0 16px; font-size:15px; color:#374151;">Great news! You have been enrolled in the following batch. Here are your details:</p>
+    <p style="margin:0 0 18px; font-size:15px; color:#374151;">Great news! You have been enrolled in the following batch. Here are your details:</p>
 
-    <div style="background:#F3F4F6; border:1px solid #E5E7EB; border-radius:12px; padding:16px; margin:16px 0;">
-      <p style="margin:0 0 6px; font-size:14px; color:#6B7280;">Batch name</p>
-      <p style="margin:0 10px 12px; font-weight:600;">${batchName}</p>
-      <p style="margin:0 0 6px; font-size:14px; color:#6B7280;">French level</p>
-      <p style="margin:0 10px 12px; font-weight:600;">${frenchLevel}</p>
-      <p style="margin:0 0 6px; font-size:14px; color:#6B7280;">Duration</p>
-      <p style="margin:0 10px 12px; font-weight:600;">${duration}</p>
-      <p style=\"margin:0 0 6px; font-size:14px; color:#6B7280;\">Number of students</p>
-      <p style=\"margin:0 10px 0; font-weight:600;\">${typeof studentCount === 'number' ? studentCount : '—'}</p>
+    <div style="border:1px solid #E5E7EB; border-radius:12px; padding:0; margin:16px 0; background:#ffffff; overflow:hidden;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:14px; color:#111827;">
+        <tr>
+          <td style="color:#6B7280; padding:10px 12px; width:40%; background:#F9FAFB;">Batch name</td>
+          <td style="font-weight:600; padding:10px 12px;">${batchName}</td>
+        </tr>
+        <tr>
+          <td style="color:#6B7280; padding:10px 12px; background:#F9FAFB;">French level</td>
+          <td style="font-weight:600; padding:10px 12px;">${frenchLevel}</td>
+        </tr>
+        <tr>
+          <td style="color:#6B7280; padding:10px 12px; background:#F9FAFB;">Duration</td>
+          <td style="font-weight:600; padding:10px 12px;">${duration}</td>
+        </tr>
+        <tr>
+          <td style="color:#6B7280; padding:10px 12px; background:#F9FAFB;">Number of students</td>
+          <td style="font-weight:600; padding:10px 12px;">${typeof studentCount === 'number' ? studentCount : '—'}</td>
+        </tr>
+      </table>
     </div>
 
-    <h3 style="margin:18px 0 8px; font-size:16px;">Timetable</h3>
+    <h3 style="margin:18px 0 8px; font-size:16px; color:#0F172A;">Timetable</h3>
     ${renderScheduleHtml(schedules)}
 
     <p style="margin:18px 0 0; font-size:13px; color:#6B7280;">Please add these times to your calendar. If anything looks wrong, reply to this email.</p>

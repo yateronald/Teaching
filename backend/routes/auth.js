@@ -41,6 +41,10 @@ router.post('/login', [
 
         // Return user data (without password) and token
         const { password_hash, ...userWithoutPassword } = user;
+        // Compute force_password_change flag
+        const mustChange = !!user.must_change_password;
+        const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
+        userWithoutPassword.force_password_change = mustChange || expired;
         res.json({
             message: 'Login successful',
             token,
@@ -100,7 +104,7 @@ router.put('/change-password', [
 
         // Update password in database
         await req.db.run(
-            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            "UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = DATETIME('now', '+90 days'), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [newPasswordHash, userId]
         );
 

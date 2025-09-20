@@ -7,6 +7,8 @@ const { buildPasswordResetSuccessTemplate } = require('./templates/passwordReset
 const { buildEmailChangeSuccessOldTemplate, buildEmailChangeSuccessNewTemplate } = require('./templates/emailChangeSuccess');
 const { buildBatchAssignmentTeacherTemplate } = require('./templates/batchAssignmentTeacher');
 const { buildBatchEnrollmentStudentTemplate } = require('./templates/batchEnrollmentStudent');
+const { buildWelcomeTemplate } = require('./templates/welcome');
+const { buildAdminPasswordResetTemplate } = require('./templates/adminPasswordReset');
 
 const transporter = createEmailTransport();
 
@@ -121,11 +123,55 @@ async function sendBatchEnrollmentToStudent({ to, studentName, batchName, french
     return await sendEmail(transporter, mailOptions);
 }
 
+// New: Welcome email for newly created users (admin-created)
+async function sendWelcomeEmail({ to, username, tempPassword }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const appBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    const loginUrl = `${appBase}/login`;
+
+    const { subject, html, text } = buildWelcomeTemplate({ username, tempPassword, loginUrl, logoCid });
+
+    const mailOptions = {
+        from,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+    return await sendEmail(transporter, mailOptions);
+}
+
+// New: Admin-initiated password reset notification with temp password
+async function sendAdminPasswordReset({ to, username, tempPassword }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const appBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+    const loginUrl = `${appBase}/login`;
+
+    const { subject, html, text } = buildAdminPasswordResetTemplate({ username, tempPassword, loginUrl, logoCid });
+
+    const mailOptions = {
+        from,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+    return await sendEmail(transporter, mailOptions);
+}
+
 module.exports = {
     sendEmailChangeVerification,
     sendEmailChangeNotifications,
     sendPasswordResetOTP,
     sendPasswordResetSuccess,
     sendBatchAssignmentToTeacher,
-    sendBatchEnrollmentToStudent
+    sendBatchEnrollmentToStudent,
+    sendWelcomeEmail,
+    sendAdminPasswordReset
 };

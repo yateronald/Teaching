@@ -30,6 +30,23 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
         return <Navigate to="/login" state={{ from: location }} replace />;
     }
 
+    // Enforce password change if required and restrict access to the force-change route
+    const isForceChangeRoute = location.pathname === '/force-change-password';
+    const force = (user as any)?.force_password_change;
+
+    // If user is trying to access force-change-password but doesn't need to change password, redirect to their dashboard
+    if (isForceChangeRoute && !force) {
+        const dashboardPath = user?.role === 'admin' ? '/dashboard' : 
+                             user?.role === 'teacher' ? '/teacher-dashboard' : 
+                             '/student-dashboard';
+        return <Navigate to={dashboardPath} replace />;
+    }
+
+    // If user must change password, redirect to force-change page from any other route
+    if (!isForceChangeRoute && force) {
+        return <Navigate to="/force-change-password" replace state={{ from: location }} />;
+    }
+
     // Check role-based access
     if (requiredRole && user?.role !== requiredRole) {
         // Redirect to appropriate dashboard based on user role
@@ -39,7 +56,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
         return <Navigate to={dashboardPath} replace />;
     }
 
-    return <>{children}</>;
+    return <>{children}</>; 
 };
 
 export default ProtectedRoute;

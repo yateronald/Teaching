@@ -236,7 +236,7 @@ async function startServer() {
         await database.initialize();
         
         app.listen(PORT, () => {
-            // Server started successfully
+            console.log(`🚀 Server running on port ${PORT}`);
         });
 
         // Start periodic auto-reconciliation job and run once on startup

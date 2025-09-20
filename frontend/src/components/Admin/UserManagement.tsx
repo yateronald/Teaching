@@ -42,6 +42,7 @@ const UserManagement: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+    const [passwordResetLoading, setPasswordResetLoading] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
     const [form] = Form.useForm();
@@ -105,12 +106,16 @@ const UserManagement: React.FC = () => {
             const endpoint = editingUser ? `/users/${editingUser.id}` : '/users';
             const method = editingUser ? 'PUT' : 'POST';
             
+            const payload = { ...values };
+            if (!editingUser) {
+                // Remove password field; backend will auto-generate 10-char password and email it
+                delete (payload as any).password;
+            }
+            
             const response = await apiCall(endpoint, {
                 method,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(values),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
             });
 
             if (response.ok) {
@@ -129,7 +134,7 @@ const UserManagement: React.FC = () => {
                 message.error('Session expired. Please log in again.');
                 logout();
             } else {
-                message.error('Error saving user');
+                message.error('Error while saving user');
             }
         }
     };
@@ -182,35 +187,42 @@ const UserManagement: React.FC = () => {
         setPasswordModalVisible(true);
     };
 
-    const handlePasswordReset = async (values: any) => {
+    const handlePasswordReset = async (_values: any) => {
         if (!resetPasswordUser) return;
-
+        
+        setPasswordResetLoading(true);
         try {
+            const payload: any = { mustChange: true };
             const response = await apiCall(`/users/${resetPasswordUser.id}/reset-password`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ newPassword: values.newPassword }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
             });
-
-            if (response.ok) {
-                message.success('Password reset successfully');
-                setPasswordModalVisible(false);
-                passwordForm.resetFields();
-                setResetPasswordUser(null);
-            } else {
-                const errorData = await response.json();
+            const data = await response.json();
+            if (!response.ok) {
+                const errorData = data || {};
                 message.error(errorData.error || errorData.message || 'Failed to reset password');
+                return;
             }
+            message.success('Password reset. A temporary password has been emailed to the user.');
+            setPasswordModalVisible(false);
+            passwordForm.resetFields();
+            setResetPasswordUser(null);
+            fetchUsers();
         } catch (error: any) {
             console.error('Password reset error:', error);
-            if (error.message && error.message.includes('Authentication token is invalid or expired.')) {
-                message.error('Session expired. Please log in again.');
-                logout();
+            if (error?.response) {
+                try {
+                    const errorData = await error.response.json();
+                    message.error(errorData.error || 'Error resetting password');
+                } catch (e) {
+                    message.error('Error resetting password');
+                }
             } else {
                 message.error('Error resetting password');
             }
+        } finally {
+            setPasswordResetLoading(false);
         }
     };
 
@@ -420,15 +432,10 @@ const UserManagement: React.FC = () => {
                         </Form.Item>
 
                         {!editingUser && (
-                            <Form.Item
-                                name="password"
-                                label="Password"
-                                rules={[
-                                    { required: true, message: 'Please input password!' },
-                                    { min: 6, message: 'Password must be at least 6 characters!' }
-                                ]}
-                            >
-                                <Input.Password placeholder="Enter password" />
+                            <Form.Item name="password" label="Password">
+                                <div style={{ color: '#888' }}>
+                                  Password will be auto-generated (10 characters: letters and numbers) and emailed to the user.
+                                </div>
                             </Form.Item>
                         )}
                     </div>
@@ -471,94 +478,104 @@ const UserManagement: React.FC = () => {
 
             {/* Password Reset Modal */}
             <Modal
-                title={
-                    <Space>
-                        <KeyOutlined style={{ color: '#1890ff' }} />
-                        Reset Password for {resetPasswordUser?.first_name} {resetPasswordUser?.last_name}
-                    </Space>
-                }
+                title={`Reset Password for ${resetPasswordUser?.first_name} ${resetPasswordUser?.last_name}`}
                 open={passwordModalVisible}
                 onCancel={() => {
-                    setPasswordModalVisible(false);
-                    passwordForm.resetFields();
-                    setResetPasswordUser(null);
+                    if (!passwordResetLoading) {
+                        setPasswordModalVisible(false);
+                        passwordForm.resetFields();
+                        setResetPasswordUser(null);
+                    }
                 }}
                 footer={null}
                 width={500}
+                closable={!passwordResetLoading}
+                maskClosable={!passwordResetLoading}
             >
-                <div style={{ 
-                    background: '#fff7e6', 
-                    border: '1px solid #ffd591', 
-                    borderRadius: '6px', 
-                    padding: '12px', 
-                    marginBottom: '20px' 
-                }}>
-                    <Space>
-                        <KeyOutlined style={{ color: '#fa8c16' }} />
-                        <span style={{ color: '#d46b08' }}>
-                            This will reset the user's password. They will need to use the new password to log in.
-                        </span>
-                    </Space>
-                </div>
+                {passwordResetLoading ? (
+                    <div style={{ 
+                        textAlign: 'center', 
+                        padding: '60px 20px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '20px'
+                    }}>
+                        <div style={{
+                            width: '60px',
+                            height: '60px',
+                            border: '4px solid #f0f0f0',
+                            borderTop: '4px solid #1890ff',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }} />
+                        <div style={{ 
+                            fontSize: '16px', 
+                            color: '#666',
+                            fontWeight: '500'
+                        }}>
+                            Resetting password...
+                        </div>
+                        <div style={{ 
+                            fontSize: '14px', 
+                            color: '#999'
+                        }}>
+                            Please wait while we process your request
+                        </div>
+                        <style>
+                            {`
+                                @keyframes spin {
+                                    0% { transform: rotate(0deg); }
+                                    100% { transform: rotate(360deg); }
+                                }
+                            `}
+                        </style>
+                    </div>
+                ) : (
+                    <>
+                        <div style={{ 
+                            background: '#fff7e6', 
+                            border: '1px solid #ffd591', 
+                            borderRadius: '6px', 
+                            padding: '12px', 
+                            marginBottom: '20px' 
+                        }}>
+                            <Space>
+                                <KeyOutlined style={{ color: '#fa8c16' }} />
+                                <span style={{ color: '#d46b08' }}>
+                                    This will reset the user's password. They may be required to change it on next login.
+                                </span>
+                            </Space>
+                        </div>
 
-                <Form
-                    form={passwordForm}
-                    layout="vertical"
-                    onFinish={handlePasswordReset}
-                >
-                    <Form.Item
-                        name="newPassword"
-                        label="New Password"
-                        rules={[
-                            { required: true, message: 'Please input new password!' },
-                            { min: 6, message: 'Password must be at least 6 characters!' }
-                        ]}
-                    >
-                        <Input.Password 
-                            placeholder="Enter new password"
-                            size="large"
-                        />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="confirmPassword"
-                        label="Confirm Password"
-                        dependencies={['newPassword']}
-                        rules={[
-                            { required: true, message: 'Please confirm the password!' },
-                            ({ getFieldValue }) => ({
-                                validator(_, value) {
-                                    if (!value || getFieldValue('newPassword') === value) {
-                                        return Promise.resolve();
-                                    }
-                                    return Promise.reject(new Error('The two passwords do not match!'));
-                                },
-                            }),
-                        ]}
-                    >
-                        <Input.Password 
-                            placeholder="Confirm new password"
-                            size="large"
-                        />
-                    </Form.Item>
-
-                    <Divider />
-
-                    <Form.Item style={{ marginBottom: 0 }}>
-                        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                            <Button onClick={() => {
-                                setPasswordModalVisible(false);
-                                passwordForm.resetFields();
-                                setResetPasswordUser(null);
-                            }}>
-                                Cancel
-                            </Button>
-                            <Button type="primary" htmlType="submit" danger>
-                                Reset Password
-                            </Button>
-                        </Space>
-                    </Form.Item>
-                </Form>
+                        <Form
+                            form={passwordForm}
+                            layout="vertical"
+                            onFinish={handlePasswordReset}
+                        >
+                            <Divider />
+                            <Form.Item style={{ marginBottom: 0 }}>
+                                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+                                    <Button onClick={() => {
+                                        setPasswordModalVisible(false);
+                                        passwordForm.resetFields();
+                                        setResetPasswordUser(null);
+                                    }}>
+                                        Cancel
+                                    </Button>
+                                    <Button 
+                                        type="primary" 
+                                        danger 
+                                        htmlType="submit"
+                                        loading={passwordResetLoading}
+                                    >
+                                        Reset Password
+                                    </Button>
+                                </Space>
+                            </Form.Item>
+                        </Form>
+                    </>
+                )}
             </Modal>
         </Card>
     );

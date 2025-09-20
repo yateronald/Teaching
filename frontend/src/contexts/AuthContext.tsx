@@ -10,6 +10,10 @@ interface User {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    // Password policy fields (may be undefined depending on endpoint)
+    must_change_password?: number | boolean;
+    password_expires_at?: string | null;
+    force_password_change?: boolean;
 }
 
 interface AuthContextType {
@@ -26,6 +30,7 @@ interface AuthContextType {
     isAdmin: boolean;
     isTeacher: boolean;
     isStudent: boolean;
+    isForcePasswordChange: boolean;
     requestEmailChange: (newEmail: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number; status?: number }>;
     verifyEmailChange: (code: string) => Promise<{ success: boolean; error?: string; user?: User; attemptsLeft?: number }>;
     resendEmailChange: () => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number }>;
@@ -71,7 +76,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                     if (response.ok) {
                         const userData = await response.json();
                         setUser(userData.user);
-                        setToken(storedToken);
+                         setToken(storedToken);
                     } else {
                         localStorage.removeItem('token');
                         setToken(null);
@@ -166,6 +171,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const data = await response.json();
 
             if (response.ok) {
+                // Refresh user profile to clear any force change flags
+                try {
+                    const verifyResp = await fetch(`${API_BASE_URL}/auth/verify`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (verifyResp.ok) {
+                        const verifyData = await verifyResp.json();
+                        setUser(verifyData.user);
+                    }
+                } catch (e) {
+                    console.warn('Post-change profile refresh failed', e);
+                }
                 message.success('Password changed successfully!');
                 return { success: true };
             } else {
@@ -364,6 +381,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: user?.role === 'admin',
         isTeacher: user?.role === 'teacher',
         isStudent: user?.role === 'student',
+        isForcePasswordChange: !!user?.force_password_change,
         requestEmailChange,
         verifyEmailChange,
         resendEmailChange,

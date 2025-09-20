@@ -23,6 +23,7 @@ import './App.css';
 import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
 import AdminTimetable from './components/Admin/AdminTimetable';
 import { BRAND_CONFIG } from './utils/branding';
+import ForcePasswordChange from './components/Auth/ForcePasswordChange';
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
           <Routes>
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
+            <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
             
             {/* Protected Routes */}
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>

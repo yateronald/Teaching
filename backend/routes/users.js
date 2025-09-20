@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles } = require('../middleware/auth');
+const { sendWelcomeEmail, sendAdminPasswordReset } = require('../emails/emailService');
 
 // Build local admin-only middleware using authorizeRoles to avoid any export mismatch
 const adminOnlyMw = authorizeRoles('admin');
@@ -9,6 +10,32 @@ const adminOnlyMw = authorizeRoles('admin');
 console.log('[users.js] typeof authenticateToken:', typeof authenticateToken, ' typeof adminOnlyMw:', typeof adminOnlyMw, ' typeof teacherOrAdmin:', typeof teacherOrAdmin);
 
 const router = express.Router();
+
+// Helper: generate a temporary password of exact length 10 including letters (upper/lower) and digits
+function generateTempPassword(len = 10) {
+    const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // exclude I/O
+    const L = 'abcdefghijkmnopqrstuvwxyz'; // exclude l
+    const D = '23456789'; // exclude 0/1
+    const pools = [U, L, D];
+
+    // Ensure at least one from each required class
+    const required = [
+        U[Math.floor(Math.random() * U.length)],
+        L[Math.floor(Math.random() * L.length)],
+        D[Math.floor(Math.random() * D.length)]
+    ];
+
+    const all = (U + L + D).split('');
+    while (required.length < len) {
+        required.push(all[Math.floor(Math.random() * all.length)]);
+    }
+    // Shuffle
+    for (let i = required.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [required[i], required[j]] = [required[j], required[i]];
+    }
+    return required.join('');
+}
 
 // Get all users (Admin only)
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
@@ -70,7 +97,7 @@ router.post('/', [
     adminOnlyMw,
     body('username').isLength({ min: 3 }).trim(),
     body('email').isEmail().normalizeEmail(),
-    body('password').isLength({ min: 6 }),
+    // password is no longer provided by client; it will be auto-generated
     body('role').isIn(['admin', 'teacher', 'student']),
     body('first_name').isLength({ min: 1 }).trim(),
     body('last_name').isLength({ min: 1 }).trim()
@@ -84,7 +111,7 @@ router.post('/', [
             });
         }
 
-        const { username, email, password, role, first_name, last_name } = req.body;
+        const { username, email, role, first_name, last_name } = req.body;
 
         // Check if username or email already exists
         const existingUser = await req.db.get(
@@ -96,19 +123,31 @@ router.post('/', [
             return res.status(400).json({ error: 'Username or email already exists' });
         }
 
-        // Hash password
-        const passwordHash = await hashPassword(password);
+        // Auto-generate a temporary password (exactly 10 chars)
+        const tempPassword = generateTempPassword(10);
 
-        // Create user
+        // Hash password
+        const passwordHash = await hashPassword(tempPassword);
+
+        // Create user with password policy defaults and require change on next login
         const result = await req.db.run(
-            'INSERT INTO users (username, email, password_hash, role, first_name, last_name) VALUES (?, ?, ?, ?, ?, ?)',
+            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at) VALUES (?, ?, ?, ?, ?, ?, 1, DATETIME('now', '+90 days'))",
             [username, email, passwordHash, role, first_name, last_name]
         );
+
+        const userId = result.lastID;
+
+        // Try to send welcome email with temp password (non-blocking error)
+        try {
+            await sendWelcomeEmail({ to: email, username, tempPassword: tempPassword });
+        } catch (e) {
+            console.error('Failed to send welcome email for user', email, e && e.message);
+        }
 
         // Get created user (without password)
         const newUser = await req.db.get(
             'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
-            [result.id]
+            [userId]
         );
 
         res.status(201).json({
@@ -203,11 +242,8 @@ router.put('/:id', [
             'SELECT id, username, email, role, first_name, last_name, created_at, updated_at FROM users WHERE id = ?',
             [id]
         );
-
-        res.json({
-            message: 'User updated successfully',
-            user: updatedUser
-        });
+        
+        res.json({ message: 'User updated successfully', user: updatedUser });
 
     } catch (error) {
         console.error('Update user error:', error);
@@ -219,20 +255,15 @@ router.put('/:id', [
 router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Check if user exists
-        const user = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
-        if (!user) {
+        const existingUser = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        if (!existingUser) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
-        // Prevent admin from deleting themselves
-        if (parseInt(id) === req.user.id) {
-            return res.status(400).json({ error: 'Cannot delete your own account' });
-        }
-        
+
         await req.db.run('DELETE FROM users WHERE id = ?', [id]);
-        
+
         res.json({ message: 'User deleted successfully' });
     } catch (error) {
         console.error('Delete user error:', error);
@@ -240,12 +271,11 @@ router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     }
 });
 
-// Get teachers (for batch assignment)
+// Get teachers (Admin only)
 router.get('/role/teachers', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const teachers = await req.db.all(
-            'SELECT id, username, first_name, last_name, email FROM users WHERE role = "teacher" ORDER BY first_name, last_name',
-            []
+            "SELECT id, username, email, role, first_name, last_name FROM users WHERE role = 'teacher' ORDER BY first_name ASC"
         );
         res.json(teachers);
     } catch (error) {
@@ -254,12 +284,11 @@ router.get('/role/teachers', authenticateToken, adminOnlyMw, async (req, res) =>
     }
 });
 
-// Get students (for batch assignment)
+// Get students (Admin only)
 router.get('/role/students', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const students = await req.db.all(
-            'SELECT id, username, first_name, last_name, email FROM users WHERE role = "student" ORDER BY first_name, last_name',
-            []
+            "SELECT id, username, email, role, first_name, last_name FROM users WHERE role = 'student' ORDER BY first_name ASC"
         );
         res.json(students);
     } catch (error) {
@@ -268,57 +297,21 @@ router.get('/role/students', authenticateToken, adminOnlyMw, async (req, res) =>
     }
 });
 
-// Get students for a specific teacher
+// Get students by teacher (for teachers and admins)
 router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { teacherId } = req.params;
-        
-        // Check if user can access this teacher's students
-        if (req.user.role === 'teacher' && parseInt(teacherId) !== req.user.id) {
-            return res.status(403).json({ error: 'Access denied' });
-        }
-        
-        const students = await req.db.all(`
-            SELECT DISTINCT
-                u.id, u.first_name, u.last_name, u.email,
-                b.name as batch_name,
-                (
-                    SELECT AVG(
-                        CASE 
-                            WHEN qs.max_score > 0 THEN (qs.total_score * 100.0 / qs.max_score)
-                            ELSE 0
-                        END
-                    )
-                    FROM quiz_submissions qs
-                    JOIN quizzes q ON qs.quiz_id = q.id
-                    WHERE qs.student_id = u.id AND q.teacher_id = ? AND qs.status = 'graded'
-                ) as average_score
-            FROM users u
-            JOIN batch_students bs ON u.id = bs.student_id
-            JOIN batches b ON bs.batch_id = b.id
-            WHERE u.role = 'student' AND b.teacher_id = ?
-            ORDER BY u.first_name, u.last_name
-        `, [teacherId, teacherId]);
-        
-        // Get quiz scores for each student
-        for (let student of students) {
-            const quizScores = await req.db.all(`
-                SELECT 
-                    q.title as quiz_title,
-                    qs.total_score as score,
-                    qs.max_score,
-                    qs.submitted_at
-                FROM quiz_submissions qs
-                JOIN quizzes q ON qs.quiz_id = q.id
-                WHERE qs.student_id = ? AND q.teacher_id = ? AND qs.status = 'graded'
-                ORDER BY qs.submitted_at DESC
-            `, [student.id, teacherId]);
-            
-            student.quiz_scores = quizScores;
-            student.average_score = student.average_score || 0;
-        }
-        
-        res.json({ data: students });
+
+        const students = await req.db.all(
+            `SELECT u.id, u.username, u.email, u.role, u.first_name, u.last_name, u.created_at
+             FROM users u
+             JOIN teacher_students ts ON u.id = ts.student_id
+             WHERE ts.teacher_id = ?
+             ORDER BY u.first_name ASC`,
+            [teacherId]
+        );
+
+        res.json(students);
     } catch (error) {
         console.error('Get teacher students error:', error);
         res.status(500).json({ error: 'Failed to fetch teacher students' });
@@ -329,7 +322,9 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
 router.put('/:id/reset-password', [
     authenticateToken,
     adminOnlyMw,
-    body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+    // newPassword no longer accepted; password will be auto-generated
+    body('mustChange').optional().isBoolean(),
+    body('sendEmail').optional().isBoolean()
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -341,24 +336,36 @@ router.put('/:id/reset-password', [
         }
 
         const { id } = req.params;
-        const { newPassword } = req.body;
+        const mustChange = ('mustChange' in req.body) ? !!req.body.mustChange : true;
+        // Always send email with a generated temp password per new requirement
+        const sendEmail = true;
 
         // Check if user exists
-        const user = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        const user = await req.db.get('SELECT id, email, username FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
 
-        // Hash new password
+        // Always generate a temp password (exactly 10 chars, mixed letters and digits)
+        const newPassword = generateTempPassword(10);
+
+        // Hash the new password
         const newPasswordHash = await hashPassword(newPassword);
 
         // Update password in database
         await req.db.run(
-            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [newPasswordHash, id]
+            "UPDATE users SET password_hash = ?, must_change_password = ?, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = DATETIME('now', '+90 days'), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [newPasswordHash, mustChange ? 1 : 0, id]
         );
 
-        res.json({ message: 'Password reset successfully' });
+        // Email the user
+        try {
+            await sendAdminPasswordReset({ to: user.email, username: user.username || user.email, tempPassword: newPassword });
+        } catch (e) {
+            console.error('Failed to send admin reset email to', user.email, e && e.message);
+        }
+
+        res.json({ message: 'Password reset successfully', mustChange: !!mustChange, emailed: !!sendEmail });
 
     } catch (error) {
         console.error('Reset password error:', error);

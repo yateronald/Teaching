@@ -227,6 +227,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
       {step === 'request' && (
         <Form
           layout="vertical"
+          form={form}
           onFinish={handleRequest}
           initialValues={{ email }}
         >
@@ -261,8 +262,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
             padding: 12,
             marginBottom: 16
           }}>
--            <Text>We sent a 6-digit code to <strong>{email}</strong>. Enter it below.</Text>
-+            <Text>If the email you entered is registered, a 6-digit code has been sent to <strong>{email}</strong>. Enter it below.</Text>
+            <Text>If the email you entered is registered, a 6-digit code has been sent to <strong>{email}</strong>. Enter it below.</Text>
           </div>
           {otpBoxes}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
@@ -281,7 +281,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
       )}
 
       {step === 'reset' && (
-        <Form layout="vertical" onFinish={handleCompleteReset}>
+        <Form layout="vertical" form={form} onFinish={handleCompleteReset}>
           <div style={{ marginBottom: 8 }}>
             <Text type="secondary">Set a new password for <strong>{email}</strong>.</Text>
           </div>

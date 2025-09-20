@@ -73,25 +73,43 @@ class Database {
             });
         });
 
-        const columns = await getColumns('schedules');
-        const missing = (name) => !columns.includes(name);
+        // Schedules table column checks
+        const scheduleColumns = await getColumns('schedules');
+        const scheduleMissing = (name) => !scheduleColumns.includes(name);
 
-        const statements = [];
-        if (missing('location_mode')) {
-            statements.push("ALTER TABLE schedules ADD COLUMN location_mode TEXT DEFAULT 'physical' NOT NULL");
+        const scheduleStatements = [];
+        if (scheduleMissing('location_mode')) {
+            scheduleStatements.push("ALTER TABLE schedules ADD COLUMN location_mode TEXT DEFAULT 'physical' NOT NULL");
         }
-        if (missing('location')) {
-            statements.push('ALTER TABLE schedules ADD COLUMN location TEXT');
+        if (scheduleMissing('location')) {
+            scheduleStatements.push('ALTER TABLE schedules ADD COLUMN location TEXT');
         }
-        if (missing('link')) {
-            statements.push('ALTER TABLE schedules ADD COLUMN link TEXT');
+        if (scheduleMissing('link')) {
+            scheduleStatements.push('ALTER TABLE schedules ADD COLUMN link TEXT');
         }
-        if (missing('status')) {
-            statements.push("ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT 'scheduled' NOT NULL");
+        if (scheduleMissing('status')) {
+            scheduleStatements.push("ALTER TABLE schedules ADD COLUMN status TEXT DEFAULT 'scheduled' NOT NULL");
         }
 
-        if (statements.length > 0) {
-            await this.executeStatements(statements);
+        if (scheduleStatements.length > 0) {
+            await this.executeStatements(scheduleStatements);
+        }
+
+        // Users table: password policy columns
+        const userColumns = await getColumns('users');
+        const userMissing = (name) => !userColumns.includes(name);
+        const userStatements = [];
+        if (userMissing('must_change_password')) {
+            userStatements.push("ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0 NOT NULL");
+        }
+        if (userMissing('password_changed_at')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN password_changed_at DATETIME');
+        }
+        if (userMissing('password_expires_at')) {
+            userStatements.push('ALTER TABLE users ADD COLUMN password_expires_at DATETIME');
+        }
+        if (userStatements.length > 0) {
+            await this.executeStatements(userStatements);
         }
 
         // Add timetable support for batches
