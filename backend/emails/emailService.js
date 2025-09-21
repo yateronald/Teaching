@@ -11,6 +11,10 @@ const { buildWelcomeTemplate } = require('./templates/welcome');
 const { buildAdminPasswordResetTemplate } = require('./templates/adminPasswordReset');
 const { buildQuizNotificationTemplate } = require('./templates/quizNotification');
 const { buildQuizReminderTemplate } = require('./templates/quizReminder');
+const { buildClassScheduleNotificationTemplate } = require('./templates/classScheduleNotification');
+const { buildClassReminderTemplate } = require('./templates/classReminder');
+const { buildMeetingUpdateTemplate } = require('./templates/meetingUpdate');
+const { buildMeetingCancellationTemplate } = require('./templates/meetingCancellation');
 
 const transporter = createEmailTransport();
 
@@ -225,6 +229,184 @@ async function sendQuizReminder({ to, studentName, quizName, teacherName, batchN
     return await sendEmail(transporter, mailOptions);
 }
 
+// New: Class schedule notification to students
+async function sendClassScheduleNotification({ 
+    to, 
+    studentName, 
+    className, 
+    teacherName, 
+    batchName, 
+    frenchLevel, 
+    startTime, 
+    endTime, 
+    date, 
+    location, 
+    locationMode, 
+    link, 
+    description 
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildClassScheduleNotificationTemplate({ 
+        studentName, 
+        className, 
+        teacherName, 
+        batchName, 
+        frenchLevel, 
+        startTime, 
+        endTime, 
+        date, 
+        location, 
+        locationMode, 
+        link, 
+        description, 
+        logoCid 
+    });
+
+    const mailOptions = {
+        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(transporter, mailOptions);
+}
+
+// New: Class reminder to students (5 minutes before)
+async function sendClassReminder({ 
+    to, 
+    studentName, 
+    className, 
+    teacherName, 
+    batchName, 
+    startTime, 
+    endTime, 
+    date, 
+    location, 
+    locationMode, 
+    link 
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildClassReminderTemplate({ 
+        studentName, 
+        className, 
+        teacherName, 
+        batchName, 
+        startTime, 
+        endTime, 
+        date, 
+        location, 
+        locationMode, 
+        link, 
+        logoCid 
+    });
+
+    const mailOptions = {
+        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(transporter, mailOptions);
+}
+
+// New: Meeting update notification
+async function sendMeetingUpdate({
+    to,
+    studentName,
+    meetingTitle,
+    teacherName,
+    batchName,
+    date,
+    startTime,
+    endTime,
+    locationMode,
+    location,
+    link,
+    description,
+    changes
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildMeetingUpdateTemplate({
+        studentName,
+        meetingTitle,
+        teacherName,
+        batchName,
+        date,
+        startTime,
+        endTime,
+        locationMode,
+        location,
+        link,
+        description,
+        changes,
+        logoCid
+    });
+
+    const mailOptions = {
+        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(transporter, mailOptions);
+}
+
+// New: Meeting cancellation notification
+async function sendMeetingCancellation({
+    to,
+    studentName,
+    meetingTitle,
+    teacherName,
+    batchName,
+    originalDate,
+    originalStartTime,
+    originalEndTime,
+    locationMode,
+    location,
+    link,
+    reason
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildMeetingCancellationTemplate({
+        studentName,
+        meetingTitle,
+        teacherName,
+        batchName,
+        originalDate,
+        originalStartTime,
+        originalEndTime,
+        locationMode,
+        location,
+        link,
+        reason,
+        logoCid
+    });
+
+    const mailOptions = {
+        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(transporter, mailOptions);
+}
+
 module.exports = {
     sendEmailChangeVerification,
     sendEmailChangeNotifications,
@@ -235,5 +417,9 @@ module.exports = {
     sendWelcomeEmail,
     sendAdminPasswordReset,
     sendQuizNotification,
-    sendQuizReminder
+    sendQuizReminder,
+    sendClassScheduleNotification,
+    sendClassReminder,
+    sendMeetingUpdate,
+    sendMeetingCancellation
 };

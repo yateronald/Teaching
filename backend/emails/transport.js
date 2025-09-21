@@ -1,4 +1,20 @@
-require('dotenv').config();
+// Load env with fallback to backend/.env or backend/.env.postgres
+const fs = require('fs');
+const path = require('path');
+(() => {
+  const backendRoot = path.join(__dirname, '..');
+  const envPath = fs.existsSync(path.join(backendRoot, '.env'))
+    ? path.join(backendRoot, '.env')
+    : (fs.existsSync(path.join(backendRoot, '.env.postgres'))
+        ? path.join(backendRoot, '.env.postgres')
+        : null);
+  if (envPath) {
+    require('dotenv').config({ path: envPath });
+    console.log(`Loaded environment from ${path.basename(envPath)}`);
+  } else {
+    require('dotenv').config();
+  }
+})();
 const nodemailer = require('nodemailer');
 
 // Hostinger SMTP configuration with secure handling of credentials
@@ -15,10 +31,16 @@ const createEmailTransport = () => {
         return transporter;
     }
 
+    const host = process.env.EMAIL_HOST || 'smtp.hostinger.com';
+    const port = Number(process.env.EMAIL_PORT) || 465;
+    const secure = typeof process.env.EMAIL_SECURE !== 'undefined'
+        ? String(process.env.EMAIL_SECURE).toLowerCase() === 'true'
+        : port === 465; // default secure for 465, STARTTLS for 587
+
     const transporter = nodemailer.createTransport({
-        host: process.env.EMAIL_HOST || 'smtp.hostinger.com',
-        port: Number(process.env.EMAIL_PORT) || 465,
-        secure: (process.env.EMAIL_SECURE || 'true') === 'true', // Use SSL/TLS
+        host,
+        port,
+        secure, // Use SSL/TLS for 465, otherwise STARTTLS
         auth: {
             user,
             pass
@@ -30,6 +52,8 @@ const createEmailTransport = () => {
         rateLimit: 100, // Max ~10 emails per second
         connectionTimeout: 60000, // 60 seconds
         socketTimeout: 60000,
+        // For some providers on 587, you may need relaxed TLS during STARTTLS negotiation
+        tls: secure ? undefined : { rejectUnauthorized: false },
         debug: process.env.NODE_ENV === 'development'
     });
 
@@ -48,6 +72,14 @@ const createEmailTransport = () => {
 // Enhanced send function with error handling and logging
 const sendEmail = async (transporter, mailOptions) => {
     try {
+        const isJsonTransport = (transporter && (
+            (transporter.options && transporter.options.jsonTransport) ||
+            (transporter.transporter && transporter.transporter.name === 'JSON')
+        ));
+        if (isJsonTransport) {
+            console.warn('Using JSON transport — emails will NOT be delivered. Set EMAIL_USER/EMAIL_PASS (and optionally EMAIL_HOST/EMAIL_PORT/EMAIL_SECURE).');
+        }
+
         console.log(`📧 Sending email to: ${Array.isArray(mailOptions.to) ? mailOptions.to.length + ' recipient(s)' : mailOptions.to}`);
         console.log(`📧 Subject: ${mailOptions.subject}`);
         
@@ -59,6 +91,11 @@ const sendEmail = async (transporter, mailOptions) => {
         }
         if (info && info.response) {
             console.log(`📧 Response: ${info.response}`);
+        }
+        if (isJsonTransport && info) {
+            try {
+                console.log('📦 JSON transport output:', typeof info === 'object' ? JSON.stringify(info) : String(info));
+            } catch (_) { /* noop */ }
         }
         
         return { success: true, messageId: info && info.messageId, response: info && info.response };

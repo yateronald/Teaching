@@ -1,6 +1,8 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
+const { sendClassScheduleNotification, sendMeetingUpdate, sendMeetingCancellation } = require('../emails/emailService');
+const reminderService = require('../services/reminderService');
 
 const router = express.Router();
 
@@ -208,6 +210,61 @@ router.post('/', [
             WHERE s.id = ?
         `, [result.rows[0].id]);
 
+        // Send email notifications to students if this is a class
+        if (type === 'class' && (status || 'scheduled') === 'scheduled') {
+            try {
+                // Get all students in this batch
+                const students = await req.db.all(`
+                    SELECT u.id, u.email, u.first_name, u.last_name
+                    FROM users u
+                    JOIN batch_students bs ON u.id = bs.student_id
+                    WHERE bs.batch_id = ? AND u.role = 'student'
+                `, [batch_id]);
+
+                // Format date and time for email template
+                const startTime = new Date(start_time);
+                const endTime = new Date(end_time);
+                const date = startTime.toISOString().split('T')[0]; // YYYY-MM-DD
+                const startTimeStr = startTime.toTimeString().slice(0, 5); // HH:MM
+                const endTimeStr = endTime.toTimeString().slice(0, 5); // HH:MM
+
+                // Send notifications to all students
+                const emailPromises = students.map(student => 
+                    sendClassScheduleNotification({
+                        to: student.email,
+                        studentName: student.first_name || student.last_name || 'Student',
+                        className: title,
+                        teacherName: `${newSchedule.teacher_first_name || ''} ${newSchedule.teacher_last_name || ''}`.trim() || 'Your Teacher',
+                        batchName: newSchedule.batch_name,
+                        frenchLevel: newSchedule.french_level,
+                        startTime: startTimeStr,
+                        endTime: endTimeStr,
+                        date: date,
+                        location: finalLocation,
+                        locationMode: location_mode,
+                        link: finalLink,
+                        description: description
+                    }).catch(error => {
+                        console.error(`Failed to send notification to ${student.email}:`, error);
+                        return null; // Don't fail the entire operation
+                    })
+                );
+
+                await Promise.allSettled(emailPromises);
+                console.log(`Class schedule notifications sent to ${students.length} students for "${title}"`);
+
+                // Schedule 5-minute reminder
+                const reminderTime = new Date(startTime.getTime() - 5 * 60 * 1000); // 5 minutes before
+                if (reminderTime > new Date()) {
+                    reminderService.scheduleReminder(result.rows[0].id, reminderTime);
+                }
+
+            } catch (emailError) {
+                console.error('Error sending class notifications:', emailError);
+                // Don't fail the schedule creation if email fails
+            }
+        }
+
         res.status(201).json({
             message: 'Schedule created successfully',
             schedule: newSchedule
@@ -345,6 +402,149 @@ router.put('/:id', [
             WHERE s.id = ?
         `, [id]);
 
+        // New: Schedule update/cancellation notifications for all types
+        try {
+            // Send notifications for all schedule types
+            if (updatedSchedule && updatedSchedule.type) {
+                console.log(`🔔 Processing notifications for ${updatedSchedule.type}: "${updatedSchedule.title}"`);
+                
+                const toDateStr = (dt) => new Date(dt).toISOString().split('T')[0];
+                const toHM = (dt) => new Date(dt).toTimeString().slice(0, 5);
+
+                const statusChangedToCancelled = (status !== undefined ? status : schedule.status) === 'cancelled' && schedule.status !== 'cancelled';
+
+                // Build change summary for updates
+                const changes = [];
+                if (title !== undefined && title !== schedule.title) {
+                    changes.push({ label: 'Title', old: schedule.title || '—', new: title || '—' });
+                }
+                if (description !== undefined && description !== schedule.description) {
+                    changes.push({ label: 'Description', old: schedule.description || '—', new: description || '—' });
+                }
+                if (start_time !== undefined && start_time !== schedule.start_time) {
+                    const oldDate = toDateStr(schedule.start_time);
+                    const newDate = toDateStr(newStartTime);
+                    if (oldDate !== newDate) {
+                        changes.push({ label: 'Date', old: oldDate, new: newDate });
+                    }
+                    changes.push({ label: 'Start Time', old: toHM(schedule.start_time), new: toHM(newStartTime) });
+                }
+                if (end_time !== undefined && end_time !== schedule.end_time) {
+                    changes.push({ label: 'End Time', old: toHM(schedule.end_time), new: toHM(newEndTime) });
+                }
+                if (location_mode !== undefined && location_mode !== schedule.location_mode) {
+                    const fmt = (m) => m ? (m.charAt(0).toUpperCase() + m.slice(1)) : '—';
+                    changes.push({ label: 'Mode', old: fmt(schedule.location_mode), new: fmt(location_mode) });
+                }
+                if (location !== undefined && location !== schedule.location) {
+                    changes.push({ label: 'Location', old: schedule.location || '—', new: location || '—' });
+                }
+                if (link !== undefined && link !== schedule.link) {
+                    changes.push({ label: 'Meeting Link', old: schedule.link || '—', new: link || '—' });
+                }
+
+                if (statusChangedToCancelled) {
+                    // Send cancellation to students of the original batch
+                    const students = await req.db.all(`
+                        SELECT u.id, u.email, u.first_name, u.last_name
+                        FROM users u
+                        JOIN batch_students bs ON u.id = bs.student_id
+                        WHERE bs.batch_id = ? AND u.role = 'student'
+                    `, [schedule.batch_id]);
+
+                    console.log(`📧 Found ${students.length} students to notify about cancellation`);
+
+                    // Fetch original batch/teacher info for email context
+                    const oldBatchTeacher = await req.db.get(`
+                        SELECT b.name as batch_name, u.first_name as teacher_first_name, u.last_name as teacher_last_name
+                        FROM batches b
+                        LEFT JOIN users u ON b.teacher_id = u.id
+                        WHERE b.id = ?
+                    `, [schedule.batch_id]);
+
+                    const originalDate = toDateStr(schedule.start_time);
+                    const originalStartTime = toHM(schedule.start_time);
+                    const originalEndTime = toHM(schedule.end_time);
+                    const teacherName = `${oldBatchTeacher?.teacher_first_name || ''} ${oldBatchTeacher?.teacher_last_name || ''}`.trim() || 'Your Teacher';
+
+                    const cancelPromises = students.map(student => {
+                        console.log(`📧 Sending cancellation to: ${student.email}`);
+                        return sendMeetingCancellation({
+                            to: student.email,
+                            studentName: student.first_name || student.last_name || 'Student',
+                            meetingTitle: schedule.title,
+                            teacherName,
+                            batchName: oldBatchTeacher?.batch_name || updatedSchedule.batch_name,
+                            originalDate,
+                            originalStartTime,
+                            originalEndTime,
+                            locationMode: schedule.location_mode,
+                            location: schedule.location,
+                            link: schedule.link,
+                            reason: description // if provided, use as reason
+                        }).catch(err => {
+                            console.error(`❌ Failed to send cancellation to ${student.email}:`, err);
+                            return null;
+                        });
+                    });
+
+                    await Promise.allSettled(cancelPromises);
+                    console.log(`✅ ${updatedSchedule.type} cancellation notifications sent to ${students.length} students for "${schedule.title}"`);
+                } else {
+                    // Send update only if relevant meeting fields changed
+                    const relevantChanged = changes.length > 0 || (batch_id !== undefined && batch_id !== schedule.batch_id);
+                    if (relevantChanged) {
+                        const notifyBatchId = (batch_id !== undefined) ? batch_id : schedule.batch_id;
+                        const students = await req.db.all(`
+                            SELECT u.id, u.email, u.first_name, u.last_name
+                            FROM users u
+                            JOIN batch_students bs ON u.id = bs.student_id
+                            WHERE bs.batch_id = ? AND u.role = 'student'
+                        `, [notifyBatchId]);
+
+                        console.log(`📧 Found ${students.length} students to notify about update`);
+                        console.log(`📧 Changes detected: ${changes.map(c => c.label).join(', ')}`);
+
+                        const date = toDateStr(updatedSchedule.start_time);
+                        const startTimeStr = toHM(updatedSchedule.start_time);
+                        const endTimeStr = toHM(updatedSchedule.end_time);
+                        const teacherName = `${updatedSchedule.teacher_first_name || ''} ${updatedSchedule.teacher_last_name || ''}`.trim() || 'Your Teacher';
+
+                        const updatePromises = students.map(student => {
+                            console.log(`📧 Sending update to: ${student.email}`);
+                            return sendMeetingUpdate({
+                                to: student.email,
+                                studentName: student.first_name || student.last_name || 'Student',
+                                meetingTitle: updatedSchedule.title,
+                                teacherName,
+                                batchName: updatedSchedule.batch_name,
+                                date,
+                                startTime: startTimeStr,
+                                endTime: endTimeStr,
+                                locationMode: updatedSchedule.location_mode,
+                                location: updatedSchedule.location,
+                                link: updatedSchedule.link,
+                                description: updatedSchedule.description,
+                                changes
+                            }).catch(err => {
+                                console.error(`❌ Failed to send update to ${student.email}:`, err);
+                                return null;
+                            });
+                        });
+
+                        await Promise.allSettled(updatePromises);
+                        console.log(`✅ ${updatedSchedule.type} update notifications sent to ${students.length} students for "${updatedSchedule.title}"`);
+                    } else {
+                        console.log(`ℹ️ No relevant changes detected for ${updatedSchedule.type} "${updatedSchedule.title}" - skipping notifications`);
+                    }
+                }
+            } else {
+                console.log(`ℹ️ Schedule type "${updatedSchedule?.type}" does not trigger notifications`);
+            }
+        } catch (notifyErr) {
+            console.error('❌ Error sending notifications:', notifyErr);
+        }
+
         res.json({
             message: 'Schedule updated successfully',
             schedule: updatedSchedule
@@ -365,17 +565,75 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
         let schedule;
         if (req.user.role === 'teacher') {
             schedule = await req.db.get(`
-                SELECT s.id 
+                SELECT s.*, b.teacher_id 
                 FROM schedules s 
                 JOIN batches b ON s.batch_id = b.id 
                 WHERE s.id = ? AND b.teacher_id = ?
             `, [id, req.user.id]);
         } else {
-            schedule = await req.db.get('SELECT id FROM schedules WHERE id = ?', [id]);
+            schedule = await req.db.get('SELECT * FROM schedules WHERE id = ?', [id]);
         }
         
         if (!schedule) {
             return res.status(404).json({ error: 'Schedule not found or access denied' });
+        }
+
+        // Send cancellation emails for all schedule types before deletion
+        try {
+            if (schedule.type) {
+                console.log(`🔔 Processing deletion notifications for ${schedule.type}: "${schedule.title}"`);
+                
+                const detail = await req.db.get(`
+                    SELECT 
+                        s.*, 
+                        b.name as batch_name,
+                        u.first_name as teacher_first_name, u.last_name as teacher_last_name
+                    FROM schedules s
+                    LEFT JOIN batches b ON s.batch_id = b.id
+                    LEFT JOIN users u ON b.teacher_id = u.id
+                    WHERE s.id = ?
+                `, [id]);
+
+                const students = await req.db.all(`
+                    SELECT u.id, u.email, u.first_name, u.last_name
+                    FROM users u
+                    JOIN batch_students bs ON u.id = bs.student_id
+                    WHERE bs.batch_id = ? AND u.role = 'student'
+                `, [detail.batch_id]);
+
+                console.log(`📧 Found ${students.length} students to notify about deletion`);
+
+                const toDateStr = (dt) => new Date(dt).toISOString().split('T')[0];
+                const toHM = (dt) => new Date(dt).toTimeString().slice(0, 5);
+
+                const cancelPromises = students.map(student => {
+                    console.log(`📧 Sending deletion notification to: ${student.email}`);
+                    return sendMeetingCancellation({
+                        to: student.email,
+                        studentName: student.first_name || student.last_name || 'Student',
+                        meetingTitle: detail.title,
+                        teacherName: `${detail.teacher_first_name || ''} ${detail.teacher_last_name || ''}`.trim() || 'Your Teacher',
+                        batchName: detail.batch_name,
+                        originalDate: toDateStr(detail.start_time),
+                        originalStartTime: toHM(detail.start_time),
+                        originalEndTime: toHM(detail.end_time),
+                        locationMode: detail.location_mode,
+                        location: detail.location,
+                        link: detail.link,
+                        reason: `The ${schedule.type} has been cancelled.`
+                    }).catch(err => {
+                        console.error(`❌ Failed to send deletion notification to ${student.email}:`, err);
+                        return null;
+                    });
+                });
+
+                await Promise.allSettled(cancelPromises);
+                console.log(`✅ ${schedule.type} deletion notifications sent to ${students.length} students for "${detail.title}"`);
+            } else {
+                console.log(`ℹ️ Schedule has no type specified - skipping deletion notifications`);
+            }
+        } catch (notifyErr) {
+            console.error('❌ Error sending deletion notifications:', notifyErr);
         }
         
         await req.db.run('DELETE FROM schedules WHERE id = ?', [id]);

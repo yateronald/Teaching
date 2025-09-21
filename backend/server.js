@@ -9,6 +9,7 @@ const database = new PostgreSQLDatabase();
 console.log('📊 Using PostgreSQL database');
 
 const QuizReminderScheduler = require('./services/quizReminderScheduler');
+const reminderService = require('./services/reminderService');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const batchRoutes = require('./routes/batches');
@@ -259,6 +260,10 @@ async function startServer() {
         const quizReminderScheduler = new QuizReminderScheduler(database);
         console.log('📅 Quiz reminder scheduler initialized');
         
+        // Initialize class reminder service
+        reminderService.start();
+        console.log('📅 Class reminder service initialized');
+        
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
@@ -279,12 +284,14 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
+    reminderService.stop();
     await database.close();
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
+    reminderService.stop();
     await database.close();
     process.exit(0);
 });

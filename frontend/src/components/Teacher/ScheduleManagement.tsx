@@ -94,6 +94,9 @@ const ScheduleManagement: React.FC = () => {
     // New: view-only modal state for event details
     const [viewModalVisible, setViewModalVisible] = useState(false);
     const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
+    
+    // Loading state for form submission
+    const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         fetchSchedules();
@@ -192,6 +195,7 @@ const ScheduleManagement: React.FC = () => {
             link: values.location_mode === 'online' ? (values.link || '') : undefined,
         };
 
+        setSubmitting(true);
         try {
             const resp = await apiCall(isEditing ? `/schedules/${editingSchedule?.id}` : '/schedules', {
                 method: isEditing ? 'PUT' : 'POST',
@@ -209,6 +213,8 @@ const ScheduleManagement: React.FC = () => {
             }
         } catch (error) {
             message.error('Error saving schedule');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -737,11 +743,15 @@ const ScheduleManagement: React.FC = () => {
                 title={editingSchedule ? 'Edit Schedule' : 'Add Schedule'}
                 open={modalVisible}
                 onCancel={() => {
-                    setModalVisible(false);
-                    setEditingSchedule(null);
+                    if (!submitting) {
+                        setModalVisible(false);
+                        setEditingSchedule(null);
+                    }
                 }}
                 footer={null}
                 width={650}
+                closable={!submitting}
+                maskClosable={!submitting}
             >
                 <Form
                     form={form}
@@ -880,9 +890,17 @@ const ScheduleManagement: React.FC = () => {
 
                     <Form.Item>
                         <Space style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <Button onClick={() => setModalVisible(false)}>Cancel</Button>
-                            <Button type="primary" htmlType="submit">
-                                {editingSchedule ? 'Update' : 'Create'}
+                            <Button onClick={() => setModalVisible(false)} disabled={submitting}>Cancel</Button>
+                            <Button 
+                                type="primary" 
+                                htmlType="submit" 
+                                loading={submitting}
+                                disabled={submitting}
+                            >
+                                {submitting 
+                                    ? `${editingSchedule ? 'Updating' : 'Creating'}...` 
+                                    : editingSchedule ? 'Update' : 'Create'
+                                }
                             </Button>
                         </Space>
                     </Form.Item>
