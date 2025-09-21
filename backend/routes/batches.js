@@ -26,7 +26,7 @@ router.get('/', authenticateToken, async (req, res) => {
             params.push(req.user.id);
         }
         
-        sql += ' GROUP BY b.id ORDER BY b.created_at DESC';
+        sql += ' GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, u.id, u.first_name, u.last_name ORDER BY b.created_at DESC';
         
         const batches = await req.db.all(sql, params);
         res.json(batches);
@@ -91,7 +91,7 @@ router.get('/:id/insights', authenticateToken, async (req, res) => {
         }
 
         // Submissions for this batch across assigned quizzes
-        const submissions = await req.db.all(
+        const submissionsRaw = await req.db.all(
             `SELECT s.quiz_id, s.student_id, s.total_score, s.max_score, s.percentage, s.submitted_at
              FROM quiz_submissions s
              JOIN (
@@ -105,6 +105,14 @@ router.get('/:id/insights', authenticateToken, async (req, res) => {
              WHERE s.status IN ('submitted', 'auto_submitted', 'graded')`,
             [id, id]
         );
+
+        // Coerce numeric fields for Postgres: DECIMAL values may come back as strings
+        const submissions = submissionsRaw.map(s => ({
+            ...s,
+            total_score: s.total_score != null ? Number(s.total_score) : null,
+            max_score: s.max_score != null ? Number(s.max_score) : null,
+            percentage: s.percentage != null ? Number(s.percentage) : null,
+        }));
 
         // Aggregate per-quiz
         const quizMap = new Map(quizzes.map(q => [q.quiz_id, q.quiz_title]));
@@ -227,7 +235,7 @@ router.get('/timetable', authenticateToken, adminOnly, async (req, res) => {
             FROM batch_timetables bt
             JOIN batches b ON bt.batch_id = b.id
             JOIN users u ON b.teacher_id = u.id
-            WHERE bt.is_active = 1
+            WHERE bt.is_active = true
         `;
         
         let params = [];
@@ -337,7 +345,7 @@ router.post('/', [
 
         // Check if teacher exists and has teacher role
         const teacher = await req.db.get(
-            'SELECT id FROM users WHERE id = ? AND role = "teacher"',
+            'SELECT id FROM users WHERE id = ? AND role = \'teacher\'',
             [teacher_id]
         );
         if (!teacher) {
@@ -346,7 +354,7 @@ router.post('/', [
 
         // Check if all student IDs exist and have student role
         const studentCheck = await req.db.all(
-            `SELECT id FROM users WHERE id IN (${student_ids.map(() => '?').join(',')}) AND role = "student"`,
+            `SELECT id FROM users WHERE id IN (${student_ids.map(() => '?').join(',')}) AND role = 'student'`,
             student_ids
         );
         if (studentCheck.length !== student_ids.length) {
@@ -355,11 +363,11 @@ router.post('/', [
 
         // Create batch
         const result = await req.db.run(
-            'INSERT INTO batches (name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO batches (name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
             [name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link]
         );
 
-        const batchId = result.id;
+        const batchId = result.rows[0].id;
 
         // Add students to batch
         for (const studentId of student_ids) {
@@ -481,7 +489,13 @@ router.put('/:id', [
     body('teacher_id').optional().isInt({ min: 1 }),
     body('french_level').optional().isLength({ min: 1 }).trim(),
     body('start_date').optional().isISO8601(),
-    body('end_date').optional().isISO8601()
+    body('end_date').optional().isISO8601(),
+    // New optional fields for defaults and timetable
+    body('timezone').optional().isString(),
+    body('default_location_mode').optional().isIn(['online', 'physical']),
+    body('default_location').optional().isString(),
+    body('default_link').optional().isString(),
+    body('timetable').optional().isArray()
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -493,7 +507,7 @@ router.put('/:id', [
         }
 
         const { id } = req.params;
-        const { name, teacher_id, french_level, start_date, end_date } = req.body;
+        const { name, teacher_id, french_level, start_date, end_date, timezone, default_location_mode, default_location, default_link, timetable } = req.body;
 
         // Check if batch exists
         const existingBatch = await req.db.get('SELECT * FROM batches WHERE id = ?', [id]);
@@ -511,7 +525,7 @@ router.put('/:id', [
         // Check teacher if provided
         if (teacher_id) {
             const teacher = await req.db.get(
-                'SELECT id FROM users WHERE id = ? AND role = "teacher"',
+                'SELECT id FROM users WHERE id = ? AND role = \'teacher\'',
                 [teacher_id]
             );
             if (!teacher) {
@@ -543,18 +557,57 @@ router.put('/:id', [
             updates.push('end_date = ?');
             params.push(end_date);
         }
+        if (timezone) {
+            updates.push('timezone = ?');
+            params.push(timezone);
+        }
+        if (default_location_mode) {
+            updates.push('default_location_mode = ?');
+            params.push(default_location_mode);
+        }
+        if (typeof default_location !== 'undefined') {
+            updates.push('default_location = ?');
+            params.push(default_location);
+        }
+        if (typeof default_link !== 'undefined') {
+            updates.push('default_link = ?');
+            params.push(default_link);
+        }
         
-        if (updates.length === 0) {
+        if (updates.length === 0 && !Array.isArray(timetable)) {
             return res.status(400).json({ error: 'No fields to update' });
         }
         
-        updates.push('updated_at = CURRENT_TIMESTAMP');
-        params.push(id);
+        if (updates.length > 0) {
+            updates.push('updated_at = CURRENT_TIMESTAMP');
+            params.push(id);
 
-        await req.db.run(
-            `UPDATE batches SET ${updates.join(', ')} WHERE id = ?`,
-            params
-        );
+            await req.db.run(
+                `UPDATE batches SET ${updates.join(', ')} WHERE id = ?`,
+                params
+            );
+        }
+
+        // If timetable provided, replace existing entries
+        if (Array.isArray(timetable)) {
+            await req.db.run('DELETE FROM batch_timetables WHERE batch_id = ?', [id]);
+
+            for (const schedule of timetable) {
+                await req.db.run(
+                    'INSERT INTO batch_timetables (batch_id, day_of_week, start_time, end_time, timezone, location_mode, location, link) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        id,
+                        schedule.day_of_week,
+                        schedule.start_time,
+                        schedule.end_time,
+                        schedule.timezone || timezone || existingBatch.timezone || 'UTC',
+                        schedule.location_mode || default_location_mode || existingBatch.default_location_mode || 'physical',
+                        typeof schedule.location !== 'undefined' ? schedule.location : (typeof default_location !== 'undefined' ? default_location : existingBatch.default_location),
+                        typeof schedule.link !== 'undefined' ? schedule.link : (typeof default_link !== 'undefined' ? default_link : existingBatch.default_link)
+                    ]
+                );
+            }
+        }
 
         // Get updated batch
         const updatedBatch = await req.db.get(`
@@ -603,7 +656,7 @@ router.post('/:id/students', [
 
         // Check if all student IDs exist and have student role
         const studentCheck = await req.db.all(
-            `SELECT id FROM users WHERE id IN (${student_ids.map(() => '?').join(',')}) AND role = "student"`,
+            `SELECT id FROM users WHERE id IN (${student_ids.map(() => '?').join(',')}) AND role = 'student'`,
             student_ids
         );
         if (studentCheck.length !== student_ids.length) {
@@ -695,11 +748,17 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
             FROM batches b
             LEFT JOIN batch_students bs ON b.id = bs.batch_id
             WHERE b.teacher_id = ?
-            GROUP BY b.id
+            GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at
             ORDER BY b.created_at DESC
         `, [teacherId]);
         
-        res.json(batches);
+        // Coerce numeric fields for Postgres compatibility
+        const normalized = (batches || []).map(b => ({
+            ...b,
+            student_count: b.student_count != null ? Number(b.student_count) : 0,
+        }));
+        
+        res.json(normalized);
     } catch (error) {
         console.error('Get teacher batches error:', error);
         res.status(500).json({ error: 'Failed to fetch teacher batches' });
@@ -719,7 +778,7 @@ router.get('/my-batches', authenticateToken, async (req, res) => {
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN batch_students bs ON b.id = bs.batch_id
             WHERE b.teacher_id = ?
-            GROUP BY b.id
+            GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, u.id, u.first_name, u.last_name
             ORDER BY b.created_at DESC
         `;
         const batches = await req.db.all(sql, [req.user.id]);
@@ -742,7 +801,7 @@ router.get('/student/my-batches', authenticateToken, authorizeRoles('student'), 
             JOIN batch_students bs ON b.id = bs.batch_id AND bs.student_id = ?
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN batch_students bs2 ON b.id = bs2.batch_id
-            GROUP BY b.id
+            GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, u.id, u.first_name, u.last_name
             ORDER BY b.created_at DESC
         `;
         const batches = await req.db.all(sql, [req.user.id]);
@@ -774,7 +833,7 @@ router.get('/:id/timetable', authenticateToken, async (req, res) => {
         }
         
         const timetable = await req.db.all(
-            'SELECT * FROM batch_timetables WHERE batch_id = ? AND is_active = 1 ORDER BY day_of_week, start_time',
+            'SELECT * FROM batch_timetables WHERE batch_id = ? AND is_active = true ORDER BY day_of_week, start_time',
             [id]
         );
         

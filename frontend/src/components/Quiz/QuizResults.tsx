@@ -109,16 +109,24 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const quizId = propQuizId || paramQuizId;
 
     // Helper function to format numbers
-    const formatNumber = (num: number | null | undefined): string => {
+    const formatNumber = (num: number | string | null | undefined): string => {
         if (num === null || num === undefined) return '0';
         
+        // Convert to number if it's a string
+        const numValue = typeof num === 'string' ? parseFloat(num) : num;
+        
+        // Handle NaN or invalid numbers
+        if (isNaN(numValue)) {
+            return '0';
+        }
+        
         // If it's a whole number, return as is
-        if (Number.isInteger(num)) {
-            return num.toString();
+        if (Number.isInteger(numValue)) {
+            return numValue.toString();
         }
         
         // For decimals, format to 2 decimal places and remove trailing zeros
-        return parseFloat(num.toFixed(2)).toString();
+        return parseFloat(numValue.toFixed(2)).toString();
     };
     
     const [quiz, setQuiz] = useState<Quiz | null>(null);
@@ -508,7 +516,7 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                             {formatNumber(submissionDetails.submission.total_score)}/{formatNumber(submissionDetails.submission.max_score)}
                                         </Title>
                                         <Text style={{ color: '#52c41a', fontSize: '16px', fontWeight: 'bold' }}>
-                                            ({(submissionDetails.submission.percentage ?? 0).toFixed(2)}%)
+                                            ({formatNumber(submissionDetails.submission.percentage ?? 0)}%)
                                         </Text>
                                         <div style={{ marginTop: '4px' }}>
                                             <Text type="secondary">Score</Text>

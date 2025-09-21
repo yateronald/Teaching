@@ -81,18 +81,41 @@ const TeacherDashboard: React.FC = () => {
         ]);
         if (bRes.ok) {
           const d = await bRes.json();
-          // Normalize: backend returns raw array for batches
-          setBatches(Array.isArray(d) ? d : (d?.data || d?.batches || []));
+          const raw = Array.isArray(d) ? d : (d?.data || d?.batches || []);
+          const normalized = (raw || []).map((b: any) => ({
+            ...b,
+            student_count: b?.student_count != null ? Number(b.student_count) : 0,
+            max_students: b?.max_students != null ? Number(b.max_students) : b?.max_students,
+            current_students: b?.current_students != null ? Number(b.current_students) : b?.current_students,
+          }));
+          setBatches(normalized);
         }
         if (qRes.ok) {
           const d = await qRes.json();
-          // Normalize quizzes shape defensively
-          setQuizzes(Array.isArray(d) ? d : (d?.data || d?.quizzes || []));
+          const raw = Array.isArray(d) ? d : (d?.data || d?.quizzes || []);
+          const normalized = (raw || []).map((q: any) => ({
+            ...q,
+            is_active: typeof q?.is_active === 'boolean' ? q.is_active : !!Number(q?.is_active),
+            submissions_count: q?.submissions_count != null ? Number(q.submissions_count) : 0,
+            total_questions: q?.total_questions != null ? Number(q.total_questions) : q?.total_questions,
+            duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : q?.duration_minutes,
+            time_limit: q?.time_limit != null ? Number(q.time_limit) : q?.time_limit,
+          }));
+          setQuizzes(normalized);
         }
         if (sRes.ok) {
           const d = await sRes.json();
-          // Normalize students shape defensively
-          setStudents(Array.isArray(d) ? d : (d?.data || d?.students || []));
+          const raw = Array.isArray(d) ? d : (d?.data || d?.students || []);
+          const normalized = (raw || []).map((s: any) => ({
+            ...s,
+            average_score: s?.average_score != null ? Number(s.average_score) : 0,
+            quiz_scores: (s?.quiz_scores || []).map((qs: any) => ({
+              ...qs,
+              score: qs?.score != null ? Number(qs.score) : qs?.score,
+              max_score: qs?.max_score != null ? Number(qs.max_score) : qs?.max_score,
+            })),
+          }));
+          setStudents(normalized);
         }
       } finally {
         setLoading(false);
@@ -157,40 +180,43 @@ const TeacherDashboard: React.FC = () => {
   const activeQuizzes = quizzes.filter(q => q.is_active).length;
   const totalBatches = batches.length;
 
-  // Trend: monthly average percentage across all submissions
+  // Trend: monthly average percentage across all submissions (using total score / total max score)
   const { trendMonths, trendData } = useMemo(() => {
-    const map = new Map<string, number[]>();
+    const map = new Map<string, { totalScore: number; totalMax: number }>();
     students.forEach(s => {
       (s.quiz_scores || []).forEach(q => {
         const key = dayjs(q.submitted_at).format('YYYY-MM');
-        const pct = q.max_score ? (q.score / q.max_score) * 100 : 0;
-        const arr = map.get(key) || [];
-        arr.push(pct);
-        map.set(key, arr);
+        const existing = map.get(key) || { totalScore: 0, totalMax: 0 };
+        existing.totalScore += q.score || 0;
+        existing.totalMax += q.max_score || 0;
+        map.set(key, existing);
       });
     });
     const months = Array.from(map.keys()).sort();
     return {
       trendMonths: months.map(m => dayjs(m + '-01').format('MMM YYYY')),
       trendData: months.map(m => {
-        const arr = map.get(m)!;
-        return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+        const data = map.get(m)!;
+        return Math.round(data.totalMax > 0 ? (data.totalScore / data.totalMax) * 100 : 0);
       })
     };
   }, [students]);
 
-  // Average by batch
+  // Average by batch (using total score / total max score)
   const { batchNames, batchAvg } = useMemo(() => {
-    const agg = new Map<string, number[]>();
+    const agg = new Map<string, { totalScore: number; totalMax: number }>();
     students.forEach(s => {
-      const arr = agg.get(s.batch_name) || [];
-      arr.push(s.average_score || 0);
-      agg.set(s.batch_name, arr);
+      (s.quiz_scores || []).forEach(q => {
+        const existing = agg.get(s.batch_name) || { totalScore: 0, totalMax: 0 };
+        existing.totalScore += q.score || 0;
+        existing.totalMax += q.max_score || 0;
+        agg.set(s.batch_name, existing);
+      });
     });
     const names = Array.from(agg.keys());
     const avg = names.map(n => {
-      const a = agg.get(n)!;
-      return Math.round(a.reduce((x, y) => x + y, 0) / (a.length || 1));
+      const data = agg.get(n)!;
+      return Math.round(data.totalMax > 0 ? (data.totalScore / data.totalMax) * 100 : 0);
     });
     return { batchNames: names, batchAvg: avg };
   }, [students]);
@@ -348,6 +374,13 @@ const TeacherDashboard: React.FC = () => {
       key: 'submissions_count',
       render: (count?: number) => (
         <Badge count={count || 0} style={{ backgroundColor: '#52c41a' }} />
+      ),
+    },
+    {
+      title: 'Attend',
+      key: 'attend',
+      render: (_: any, record: any) => (
+        <span>{Number(record.submissions_count ?? record.submitted_students ?? 0)} / {Number(record.total_students ?? 0)}</span>
       ),
     },
     {

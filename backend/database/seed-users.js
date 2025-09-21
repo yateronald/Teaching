@@ -70,7 +70,7 @@ const createUsers = async () => {
             await new Promise((resolve, reject) => {
                 db.run(
                     `INSERT INTO users (username, email, password_hash, role, first_name, last_name, created_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+                     VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
                     [user.username, user.email, hashedPassword, user.role, user.first_name, user.last_name],
                     function(err) {
                         if (err) {

@@ -165,7 +165,7 @@ router.post('/reset', [
     const newPasswordHash = await hashPassword(newPassword);
 
     // Update user password and clear must_change_password flag
-    await db.run('UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = DATETIME(\'now\', \'+90 days\'), updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newPasswordHash, user.id]);
+    await db.run('UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = NOW() + INTERVAL \'90 days\', updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newPasswordHash, user.id]);
 
     // Mark request completed and clear token hash
     await db.run("UPDATE password_reset_requests SET status = 'completed', reset_token_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [request.id]);

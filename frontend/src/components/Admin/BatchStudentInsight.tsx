@@ -74,8 +74,10 @@ const BatchStudentInsight: React.FC<BatchStudentInsightProps> = ({ batchId }) =>
     const attemptedRows = rows.filter(r => r.submitted_at);
     const sumScore = attemptedRows.reduce((a, r) => a + (r.total_score ?? 0), 0);
     const sumMax = attemptedRows.reduce((a, r) => a + (r.max_score ?? 0), 0);
-    const percValues = attemptedRows.filter(r => typeof r.percentage === 'number').map(r => r.percentage as number);
-    const avg = percValues.length ? percValues.reduce((a, c) => a + c, 0) / percValues.length : null;
+    
+    // Calculate average using total score / total max score instead of percentage averages
+    const avg = sumMax > 0 ? (sumScore / sumMax) * 100 : null;
+    
     return { total: sumScore, max: sumMax, avg: avg, attempted: attemptedRows.length, totalQuizzes: rows.length || quizzes.length };
   }, [current, quizzes.length]);
 

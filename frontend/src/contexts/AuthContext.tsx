@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import { message } from 'antd';
+import { App as AntApp } from 'antd';
 
 interface User {
     id: number;
@@ -60,6 +60,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
 
     const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+
+    // Use Ant Design App context message instance to avoid static function warning
+    const { message } = AntApp.useApp();
 
     // Check if user is authenticated on app load
     useEffect(() => {

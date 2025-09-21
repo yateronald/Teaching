@@ -80,7 +80,13 @@ const TeacherBatches: React.FC = () => {
             const response = await apiCall('/batches');
             if (response.ok) {
                 const data = await response.json();
-                setBatches(Array.isArray(data) ? data : (data.batches || []));
+                const list = Array.isArray(data) ? data : (data.batches || []);
+                // Normalize numeric fields that may arrive as strings (e.g., from PostgreSQL COUNT)
+                const normalized = list.map((b: any) => ({
+                    ...b,
+                    student_count: Number(b?.student_count ?? 0),
+                }));
+                setBatches(normalized);
             } else {
                 message.error('Failed to fetch batches');
             }
@@ -175,7 +181,7 @@ const TeacherBatches: React.FC = () => {
             render: (_, record) => (
                 <div>
                     <TeamOutlined style={{ marginRight: 8 }} />
-                    {record.student_count || 0} students
+                    {Number(record.student_count ?? 0)} students
                 </div>
             ),
         },
@@ -234,7 +240,7 @@ const TeacherBatches: React.FC = () => {
                     <Card>
                         <Statistic
                             title="Total Students"
-                            value={batches.reduce((sum, batch) => sum + (batch.student_count || 0), 0)}
+                            value={batches.reduce((sum, batch) => sum + Number(batch.student_count ?? 0), 0)}
                             prefix={<UserOutlined />}
                         />
                     </Card>
@@ -310,7 +316,7 @@ const TeacherBatches: React.FC = () => {
                                 <Descriptions.Item label="Batch Name">{selectedBatch.name}</Descriptions.Item>
                                 <Descriptions.Item label="Teacher">{selectedBatch.teacher_first_name} {selectedBatch.teacher_last_name}</Descriptions.Item>
                                 <Descriptions.Item label="French Level"><Tag color="blue">{selectedBatch.french_level}</Tag></Descriptions.Item>
-                                <Descriptions.Item label="Total Students">{selectedBatch.student_count || 0}</Descriptions.Item>
+                                <Descriptions.Item label="Total Students">{Number(selectedBatch.student_count ?? 0)}</Descriptions.Item>
                                 <Descriptions.Item label="Duration" span={2}>
                                     {dayjs(selectedBatch.start_date).format('MMM DD, YYYY')} - {dayjs(selectedBatch.end_date).format('MMM DD, YYYY')}
                                 </Descriptions.Item>
@@ -323,7 +329,7 @@ const TeacherBatches: React.FC = () => {
                             </Descriptions>
                             {(selectedBatch.student_count ?? 0) !== students.length && (
                                 <div style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Showing {students.length} of {selectedBatch.student_count ?? students.length} students</Text>
+                                    <Text type="secondary">Showing {students.length} of {Number(selectedBatch.student_count ?? students.length)} students</Text>
                                 </div>
                             )}
                         </Card>

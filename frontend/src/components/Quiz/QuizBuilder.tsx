@@ -274,8 +274,13 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     question_text: q.question_text,
                     question_type: q.question_type,
                     marks: q.marks,
-                    correct_answer: q.correct_answer,
-                    options: q.options || []
+                    // Only send correct_answer for yes/no questions. For MCQs, backend derives correctness from options.
+                    correct_answer: q.question_type === 'yes_no' ? (q as any).correct_answer : undefined,
+                    // Send only the fields the backend expects for options
+                    options: (q.options || []).map((opt: any) => ({
+                        option_text: opt.option_text,
+                        is_correct: !!opt.is_correct,
+                    })),
                 }))
             } as any;
 

@@ -228,8 +228,11 @@ const StudentDashboard: React.FC = () => {
                     return end ? now.isAfter(end) : r?.results_locked === false;
                 });
                 setResults(expired);
-                const scores = expired.map(r => Number(r.percentage ?? 0)).filter((n: number) => !isNaN(n));
-                const averageScore = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0;
+                
+                // Calculate average as total score obtained / overall score (same logic as StudentMarksheet)
+                const totalScore = expired.reduce((sum, r) => sum + (Number(r.score) || 0), 0);
+                const totalMaxScore = expired.reduce((sum, r) => sum + (Number(r.max_score) || 0), 0);
+                const averageScore = totalMaxScore > 0 ? Number(((totalScore / totalMaxScore) * 100).toFixed(2)) : 0;
                 setStats(prev => ({ ...prev, averageScore }));
             }
 

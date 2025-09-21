@@ -97,16 +97,21 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
 
   // Build metrics from filtered data
   const metrics = useMemo(() => {
-    const valid = filteredBreakdown.filter(b => typeof b.percentage === 'number');
+    const valid = filteredBreakdown.filter(b => typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0);
     const submitted = filteredBreakdown.filter(b => b.submitted_at);
     const completion = totalSelectedStudents * totalSelectedQuizzes > 0
       ? Math.round((submitted.length / (totalSelectedStudents * totalSelectedQuizzes)) * 100)
       : 0;
-    const avg = valid.length ? Math.round(valid.reduce((a,c)=>a + (c.percentage as number), 0) / valid.length) : 0;
+    
+    // Calculate average using total score / total max score
+    const totalScore = valid.reduce((sum, b) => sum + (b.total_score as number), 0);
+    const totalMaxScore = valid.reduce((sum, b) => sum + (b.max_score as number), 0);
+    const avg = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
 
     // histogram
     const hist = bins.slice(0,-1).map((_,i)=>({ bin: `${bins[i]}-${bins[i+1]}`, count: valid.filter(v => {
-      const p = v.percentage as number; return p >= bins[i] && p <= (i === bins.length-2 ? bins[i+1] : bins[i+1] - 0.0001);
+      const p = v.max_score > 0 ? (v.total_score as number / v.max_score) * 100 : 0; 
+      return p >= bins[i] && p <= (i === bins.length-2 ? bins[i+1] : bins[i+1] - 0.0001);
     }).length }));
 
     // completion over time
@@ -116,32 +121,47 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     const series = timeline.map((s,i)=>({ x: dayjs(s.submitted_at!).format('MM-DD HH:mm'), y: Math.round(((i+1)/(submitted.length||1))*100) }));
 
     // per-quiz average among filtered
-    const byQuiz: Record<number, { title: string; sum: number; count: number; submitted: number } > = {};
+    const byQuiz: Record<number, { title: string; totalScore: number; totalMaxScore: number; submitted: number } > = {};
     filteredBreakdown.forEach(b => {
-      if (!byQuiz[b.quiz_id]) byQuiz[b.quiz_id] = { title: b.quiz_title, sum: 0, count: 0, submitted: 0 };
-      if (typeof b.percentage === 'number') { byQuiz[b.quiz_id].sum += (b.percentage as number); byQuiz[b.quiz_id].count++; }
+      if (!byQuiz[b.quiz_id]) byQuiz[b.quiz_id] = { title: b.quiz_title, totalScore: 0, totalMaxScore: 0, submitted: 0 };
+      if (typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0) { 
+        byQuiz[b.quiz_id].totalScore += b.total_score; 
+        byQuiz[b.quiz_id].totalMaxScore += b.max_score; 
+      }
       if (b.submitted_at) byQuiz[b.quiz_id].submitted++;
     });
-    const quizAvg = Object.entries(byQuiz).map(([id, v]) => ({ quiz_id: Number(id), title: v.title, avg: v.count ? Math.round(v.sum / v.count) : 0, completion: totalSelectedStudents>0 ? Math.round((v.submitted/(totalSelectedStudents))*100) : 0 }));
+    const quizAvg = Object.entries(byQuiz).map(([id, v]) => ({ 
+      quiz_id: Number(id), 
+      title: v.title, 
+      avg: v.totalMaxScore > 0 ? Math.round((v.totalScore / v.totalMaxScore) * 100) : 0, 
+      completion: totalSelectedStudents>0 ? Math.round((v.submitted/(totalSelectedStudents))*100) : 0 
+    }));
 
     // ranking by student average within filtered scope
-    const byStudent: Record<number, { name: string; email?: string; avg: number; count: number } > = {};
+    const byStudent: Record<number, { name: string; email?: string; totalScore: number; totalMaxScore: number } > = {};
     students.forEach(s => {
       if (selectedStudentIds.length && !selectedStudentIds.includes(s.id)) return;
       const rows = s.breakdown.filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))));
-      const vals = rows.filter(r=> typeof r.percentage === 'number');
-      const avgS = vals.length ? (vals.reduce((a,c)=>a+(c.percentage as number),0)/vals.length) : NaN;
-      byStudent[s.id] = { name: `${s.first_name} ${s.last_name}`, email: s.email, avg: avgS, count: vals.length };
+      const validRows = rows.filter(r=> typeof r.total_score === 'number' && typeof r.max_score === 'number' && r.max_score > 0);
+      const totalScore = validRows.reduce((sum, r) => sum + (r.total_score as number), 0);
+      const totalMaxScore = validRows.reduce((sum, r) => sum + (r.max_score as number), 0);
+      byStudent[s.id] = { name: `${s.first_name} ${s.last_name}`, email: s.email, totalScore, totalMaxScore };
     });
     const ranking = Object.entries(byStudent)
-      .filter(([_,v]) => !Number.isNaN(v.avg))
-      .map(([id,v]) => ({ student_id: Number(id), name: v.name, email: v.email, avg: Math.round(v.avg), attempts: v.count }))
+      .filter(([_,v]) => v.totalMaxScore > 0)
+      .map(([id,v]) => ({ 
+        student_id: Number(id), 
+        name: v.name, 
+        email: v.email, 
+        avg: Math.round((v.totalScore / v.totalMaxScore) * 100), 
+        attempts: students.find(s => s.id === Number(id))?.breakdown.filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))) && typeof b.total_score === 'number').length || 0
+      }))
       .sort((a,b)=>b.avg-a.avg);
 
     return { completion, avg, hist, series, quizAvg, ranking, submissions: submitted.length, total: totalSelectedStudents * totalSelectedQuizzes };
   }, [filteredBreakdown, totalSelectedStudents, totalSelectedQuizzes, selectedStudentIds, selectedQuizIds, dateRange, students]);
 
-  const hasScores = useMemo(() => filteredBreakdown.some(b => typeof b.percentage === 'number'), [filteredBreakdown]);
+  const hasScores = useMemo(() => filteredBreakdown.some(b => typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0), [filteredBreakdown]);
 
   const resetFilters = () => {
     setSelectedStudentIds([]);
@@ -151,12 +171,12 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
   };
 
   // Helper function to format numbers - show whole numbers without .00
-  const formatNumber = (num: number | null | undefined): string => {
-    if (num == null) return '0';
-    if (Number.isInteger(num)) {
-      return num.toString();
-    }
-    return num.toFixed(2);
+  const formatNumber = (num: number | string | null | undefined): string => {
+  if (num === null || num === undefined || num === '') return '0';
+  const n = typeof num === 'string' ? Number(num) : num;
+  if (!Number.isFinite(n)) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(2).replace(/\.0+$/,'').replace(/(\.\d*[1-9])0+$/,'$1');
   };
 
   const columns = [

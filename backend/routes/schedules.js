@@ -192,7 +192,7 @@ router.post('/', [
         // Create schedule
         const result = await req.db.run(`
             INSERT INTO schedules (title, description, start_time, end_time, type, batch_id, location_mode, location, link, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         `, [title, description || null, start_time, end_time, type, batch_id, location_mode, finalLocation || null, finalLink || null, status || 'scheduled']);
 
         // Get created schedule with batch info
@@ -206,7 +206,7 @@ router.post('/', [
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
             WHERE s.id = ?
-        `, [result.id]);
+        `, [result.rows[0].id]);
 
         res.status(201).json({
             message: 'Schedule created successfully',

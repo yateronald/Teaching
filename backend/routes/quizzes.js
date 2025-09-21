@@ -48,7 +48,7 @@ const calculateQuizResults = async (db, submissionId) => {
         'SELECT COALESCE(SUM(marks), 0) AS max_score FROM questions WHERE quiz_id = ?',
         [submission.quiz_id]
     );
-    const maxScore = maxScoreRow && typeof maxScoreRow.max_score === 'number' ? maxScoreRow.max_score : (maxScoreRow?.max_score || 0);
+    const maxScore = Number(maxScoreRow?.max_score) || 0;
 
     // Grade only the answers that exist; unanswered implicitly earn 0
     const answers = await db.all(`
@@ -63,35 +63,36 @@ const calculateQuizResults = async (db, submissionId) => {
     for (const answer of answers) {
         let isCorrect = false;
         let marksAwarded = 0;
+        const marks = Number(answer.marks) || 0;
 
         if (answer.question_type === 'yes_no') {
             isCorrect = answer.answer_text === answer.correct_answer;
-            marksAwarded = isCorrect ? answer.marks : 0;
+            marksAwarded = isCorrect ? marks : 0;
         } else if (answer.question_type === 'mcq_single' || answer.question_type === 'mcq_multiple') {
             let selectedOptions = [];
             try { selectedOptions = JSON.parse(answer.selected_options || '[]') || []; } catch {}
 
             const correctOptions = await db.all(
-                'SELECT id FROM question_options WHERE question_id = ? AND is_correct = 1',
+                'SELECT id FROM question_options WHERE question_id = ? AND is_correct = TRUE',
                 [answer.question_id]
             );
             const correctIds = correctOptions.map(opt => opt.id);
 
             if (answer.question_type === 'mcq_single') {
                 isCorrect = selectedOptions.length === 1 && correctIds.includes(selectedOptions[0]);
-                marksAwarded = isCorrect ? answer.marks : 0;
+                marksAwarded = isCorrect ? marks : 0;
             } else {
                 // Multiple-answer MCQ grading with proportional scoring and penalty for wrong picks
                 const totalCorrect = correctIds.length || 1; // avoid divide-by-zero
                 const correctSelected = selectedOptions.filter(id => correctIds.includes(id)).length; // S
                 const incorrectSelected = selectedOptions.filter(id => !correctIds.includes(id)).length; // W
 
-                const positive = (correctSelected / totalCorrect) * answer.marks; // (S/C) * marks
-                const negative = (incorrectSelected / totalCorrect) * answer.marks; // (W/C) * marks
+                const positive = (correctSelected / totalCorrect) * marks; // (S/C) * marks
+                const negative = (incorrectSelected / totalCorrect) * marks; // (W/C) * marks
                 const rawScore = positive - negative;
 
                 // Clamp to [0, full marks]
-                marksAwarded = Math.max(0, Math.min(answer.marks, rawScore));
+                marksAwarded = Math.max(0, Math.min(marks, rawScore));
                 isCorrect = correctSelected === totalCorrect && incorrectSelected === 0;
             }
         }
@@ -104,11 +105,12 @@ const calculateQuizResults = async (db, submissionId) => {
         totalScore += marksAwarded;
     }
 
-    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    const percentageRaw = maxScore > 0 ? (Number(totalScore) / Number(maxScore)) * 100 : 0;
+    const percentage = Math.min(100, Math.max(0, Number.isFinite(percentageRaw) ? Number(percentageRaw.toFixed(2)) : 0));
 
     await db.run(
         "UPDATE quiz_submissions SET total_score = ?, max_score = ?, percentage = ?, status = 'graded' WHERE id = ?",
-        [totalScore, maxScore, percentage, submissionId]
+        [Number(totalScore) || 0, Number(maxScore) || 0, percentage, submissionId]
     );
 
     return { totalScore, maxScore, percentage };
@@ -126,8 +128,8 @@ router.get('/', authenticateToken, async (req, res) => {
                 COUNT(DISTINCT CASE WHEN qs.status IN ('submitted','auto_submitted','graded') THEN qs.student_id END) as submitted_students,
                 COUNT(DISTINCT bs.student_id) as total_students,
                 (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as total_questions,
-                GROUP_CONCAT(DISTINCT b.name) as batch_names,
-                GROUP_CONCAT(DISTINCT b.french_level) as french_levels,
+                string_agg(DISTINCT b.name, ',') as batch_names,
+                string_agg(DISTINCT b.french_level, ',') as french_levels,
                 ROUND(AVG(CASE WHEN qs.status IN ('submitted','auto_submitted','graded') AND qs.percentage IS NOT NULL THEN qs.percentage END), 1) as avg_score
             FROM quizzes q
             LEFT JOIN users u ON q.teacher_id = u.id
@@ -153,7 +155,7 @@ router.get('/', authenticateToken, async (req, res) => {
             params.push(req.user.id);
         }
         
-        sql += ' GROUP BY q.id ORDER BY q.created_at DESC';
+        sql += ' GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at, u.first_name, u.last_name ORDER BY q.created_at DESC';
         
         const quizzes = await req.db.all(sql, params);
         
@@ -183,6 +185,17 @@ router.get('/', authenticateToken, async (req, res) => {
                     quiz.submission.max_score = null;
                 }
             }
+        }
+        
+        // Coerce numeric fields for Postgres compatibility so frontend tables show correct counts
+        for (let quiz of quizzes) {
+            quiz.batch_count = quiz.batch_count != null ? Number(quiz.batch_count) : 0;
+            quiz.submitted_students = quiz.submitted_students != null ? Number(quiz.submitted_students) : 0;
+            quiz.total_students = quiz.total_students != null ? Number(quiz.total_students) : 0;
+            quiz.total_questions = quiz.total_questions != null ? Number(quiz.total_questions) : 0;
+            if (quiz.duration_minutes != null) quiz.duration_minutes = Number(quiz.duration_minutes);
+            if (quiz.total_marks != null) quiz.total_marks = Number(quiz.total_marks);
+            if (quiz.avg_score != null) quiz.avg_score = Number(quiz.avg_score);
         }
         
         res.json(quizzes);
@@ -379,14 +392,14 @@ router.post('/', [
             INSERT INTO quizzes (
                 title, description, instructions, teacher_id, status, start_date, end_date, 
                 duration_minutes, total_marks, randomize_questions, randomize_options, auto_submit
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         `, [
             title, description || null, instructions || null, teacher_id, 'draft',
             start_date || null, end_date || null, duration_minutes || null, finalTotalMarks,
             randomize_questions || false, randomize_options || false, auto_submit !== false
         ]);
 
-        const quizId = quizResult.id;
+        const quizId = quizResult.rows[0].id;
 
         // Add questions
         for (let i = 0; i < questions.length; i++) {
@@ -394,7 +407,7 @@ router.post('/', [
             const questionResult = await req.db.run(`
                 INSERT INTO questions (
                     quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
             `, [
                 quizId, question.question_text, question.question_type, i + 1, 
                 Number(question.marks), question.correct_answer || null, question.explanation || null
@@ -405,7 +418,7 @@ router.post('/', [
                 for (let j = 0; j < question.options.length; j++) {
                     await req.db.run(
                         'INSERT INTO question_options (question_id, option_text, option_order, is_correct) VALUES (?, ?, ?, ?)',
-                        [questionResult.id, question.options[j].option_text, j + 1, question.options[j].is_correct || false]
+                        [questionResult.rows[0].id, question.options[j].option_text, j + 1, question.options[j].is_correct || false]
                     );
                 }
             }
@@ -589,7 +602,7 @@ router.put('/:id', [
             const qRes = await req.db.run(`
                 INSERT INTO questions (
                     quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
             `, [
                 id,
                 q.question_text,
@@ -605,7 +618,7 @@ router.put('/:id', [
                     const opt = q.options[j];
                     await req.db.run(
                         'INSERT INTO question_options (question_id, option_text, option_order, is_correct) VALUES (?, ?, ?, ?)',
-                        [qRes.id, opt.option_text, j + 1, !!opt.is_correct]
+                        [qRes.rows[0].id, opt.option_text, j + 1, !!opt.is_correct]
                     );
                 }
             }
@@ -678,9 +691,9 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
         } else {
             const result = await req.db.run(`
                 INSERT INTO quiz_submissions (quiz_id, student_id, status, started_at)
-                VALUES (?, ?, 'in_progress', ?)
+                VALUES (?, ?, 'in_progress', ?) RETURNING id
             `, [id, req.user.id, now]);
-            submissionId = result.id;
+            submissionId = result.rows[0].id;
         }
         
         // Get quiz details for response
@@ -775,9 +788,13 @@ router.post('/:id/submit', [
         // Save answers
         for (const answer of answers) {
             await req.db.run(`
-                INSERT OR REPLACE INTO student_answers 
-                (submission_id, question_id, answer_text, selected_options)
+                INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT (submission_id, question_id)
+                DO UPDATE SET 
+                  answer_text = EXCLUDED.answer_text,
+                  selected_options = EXCLUDED.selected_options,
+                  updated_at = CURRENT_TIMESTAMP
             `, [
                 submission.id, 
                 answer.question_id, 
@@ -867,10 +884,20 @@ router.get('/:id/status', authenticateToken, async (req, res) => {
             try { answers = submission.auto_saved_data ? JSON.parse(submission.auto_saved_data) : []; } catch { answers = []; }
 
             for (const answer of answers) {
-                await req.db.run(
-                    'INSERT OR REPLACE INTO student_answers (submission_id, question_id, answer_text, selected_options) VALUES (?, ?, ?, ?)',
-                    [submission.id, answer.question_id, answer.answer_text || null, answer.selected_options ? JSON.stringify(answer.selected_options) : null]
-                );
+                await req.db.run(`
+                    INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (submission_id, question_id)
+                    DO UPDATE SET 
+                      answer_text = EXCLUDED.answer_text,
+                      selected_options = EXCLUDED.selected_options,
+                      updated_at = CURRENT_TIMESTAMP
+                `, [
+                    submission.id, 
+                    answer.question_id, 
+                    answer.answer_text || null, 
+                    answer.selected_options ? JSON.stringify(answer.selected_options) : null
+                ]);
             }
 
             const timeTakenMin = Math.max(0, Math.round((hardEndMs - startMs) / (1000 * 60)));
@@ -1041,11 +1068,16 @@ router.get('/student/results', authenticateToken, async (req, res) => {
                 qs.quiz_id,
                 q.title as quiz_title,
                 q.description as quiz_description,
+                b.id as batch_id,
                 b.name as batch_name,
                 q.end_date as end_date,
-                qs.total_score AS score,
-                qs.max_score AS max_score,
-                CASE WHEN qs.max_score > 0 THEN ROUND((qs.total_score * 100.0 / qs.max_score), 1) ELSE 0 END as percentage,
+                COALESCE(qs.total_score, 0)::NUMERIC AS score,
+                COALESCE(qs.max_score, 0)::NUMERIC AS max_score,
+                CASE 
+                    WHEN COALESCE(qs.max_score, 0) > 0 THEN 
+                        ROUND((COALESCE(qs.total_score, 0)::NUMERIC * 100.0 / COALESCE(qs.max_score, 1)::NUMERIC), 2)::NUMERIC
+                    ELSE 0::NUMERIC 
+                END as percentage,
                 COALESCE(qs.time_taken_minutes, 0) * 60 as time_taken,
                 qs.submitted_at,
                 qs.status,
@@ -1056,7 +1088,7 @@ router.get('/student/results', authenticateToken, async (req, res) => {
                 (
                     SELECT COUNT(*) 
                     FROM student_answers sa 
-                    WHERE sa.submission_id = qs.id AND sa.is_correct = 1
+                    WHERE sa.submission_id = qs.id AND sa.is_correct = true
                 ) as correct_answers
             FROM quiz_submissions qs
             JOIN quizzes q ON qs.quiz_id = q.id
@@ -1104,7 +1136,7 @@ router.get('/:id/results', [
             SELECT q.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM quizzes q
             JOIN users u ON q.teacher_id = u.id
-            WHERE q.id = ? AND (q.teacher_id = ? OR ? = 'admin')
+            WHERE q.id = $1 AND (q.teacher_id = $2 OR $3 = 'admin')
         `, [id, req.user.id, req.user.role]);
         
         if (!quiz) {
@@ -1116,7 +1148,7 @@ router.get('/:id/results', [
         let batchParams = [id];
         
         if (batch_id) {
-            batchFilter = 'AND qb.batch_id = ?';
+            batchFilter = 'AND qb.batch_id = $2';
             batchParams.push(batch_id);
         }
         
@@ -1132,7 +1164,7 @@ router.get('/:id/results', [
             JOIN batches b ON bs.batch_id = b.id
             JOIN quiz_batches qb ON b.id = qb.batch_id
             LEFT JOIN quiz_submissions qs ON qb.quiz_id = qs.quiz_id AND u.id = qs.student_id
-            WHERE qb.quiz_id = ? ${batchFilter}
+            WHERE qb.quiz_id = $1 ${batchFilter}
             AND u.role = 'student'
             ORDER BY b.name, u.first_name, u.last_name
         `;
@@ -1210,7 +1242,7 @@ router.get('/:id/submissions/:submission_id', [
         // Check if quiz exists and belongs to teacher
         const quiz = await req.db.get(`
             SELECT * FROM quizzes 
-            WHERE id = ? AND (teacher_id = ? OR ? = 'admin')
+            WHERE id = $1 AND (teacher_id = $2 OR $3 = 'admin')
         `, [id, req.user.id, req.user.role]);
         
         if (!quiz) {
@@ -1222,7 +1254,7 @@ router.get('/:id/submissions/:submission_id', [
             SELECT qs.*, u.first_name, u.last_name, u.email
             FROM quiz_submissions qs
             JOIN users u ON qs.student_id = u.id
-            WHERE qs.id = ? AND qs.quiz_id = ?
+            WHERE qs.id = $1 AND qs.quiz_id = $2
         `, [submission_id, id]);
         
         if (!submission) {
@@ -1235,8 +1267,8 @@ router.get('/:id/submissions/:submission_id', [
                 q.id, q.question_text, q.question_type, q.marks, q.correct_answer,
                 sa.answer_text, sa.selected_options, sa.marks_awarded, sa.is_correct
             FROM questions q
-            LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = ?
-            WHERE q.quiz_id = ?
+            LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = $1
+            WHERE q.quiz_id = $2
             ORDER BY q.question_order
         `, [submission_id, id]);
         
@@ -1246,7 +1278,7 @@ router.get('/:id/submissions/:submission_id', [
                 question.options = await req.db.all(`
                     SELECT id, option_text, is_correct
                     FROM question_options
-                    WHERE question_id = ?
+                    WHERE question_id = $1
                     ORDER BY option_order
                 `, [question.id]);
                 
@@ -1385,9 +1417,13 @@ router.post('/:id/submit', [
             const { question_id, answer_text, selected_options } = answer;
             
             await req.db.run(`
-                INSERT OR REPLACE INTO student_answers 
-                (submission_id, question_id, answer_text, selected_options) 
+                INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                 VALUES (?, ?, ?, ?)
+                ON CONFLICT (submission_id, question_id)
+                DO UPDATE SET 
+                  answer_text = EXCLUDED.answer_text,
+                  selected_options = EXCLUDED.selected_options,
+                  updated_at = CURRENT_TIMESTAMP
             `, [
                 submissionId, 
                 question_id, 
@@ -1881,26 +1917,26 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
                 q.id, q.title, q.description, q.status, q.start_date, q.end_date,
                 q.duration_minutes, q.total_marks, q.created_at, q.updated_at,
                 COUNT(DISTINCT qb.batch_id) as batch_count,
-                COUNT(DISTINCT qs.id) as submissions_count,
+                COUNT(DISTINCT CASE WHEN qs.status IN ('submitted','auto_submitted','graded') THEN qs.id END) as submissions_count,
                 (
                     SELECT COUNT(*) 
                     FROM questions 
                     WHERE quiz_id = q.id
                 ) as total_questions,
                 CASE 
-                    WHEN q.status = 'published' AND (q.start_date IS NULL OR q.start_date <= datetime('now')) 
-                         AND (q.end_date IS NULL OR q.end_date >= datetime('now')) THEN 1
+                    WHEN q.status = 'published' AND (q.start_date IS NULL OR q.start_date <= NOW())
+                     AND (q.end_date IS NULL OR q.end_date >= NOW()) THEN 1
                     ELSE 0
                 END as is_active
             FROM quizzes q
             LEFT JOIN quiz_batches qb ON q.id = qb.quiz_id
             LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id
             WHERE q.teacher_id = ?
-            GROUP BY q.id
+            GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at
             ORDER BY q.created_at DESC
         `, [teacherId]);
         
-        // Add batch names for each quiz
+        // Add batch names and coerce numeric/boolean types for each quiz
         for (let quiz of quizzes) {
             const batches = await req.db.all(`
                 SELECT b.name
@@ -1909,6 +1945,15 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
                 WHERE qb.quiz_id = ?
             `, [quiz.id]);
             quiz.batch_name = batches.map(b => b.name).join(', ');
+
+            // Coerce numeric fields that Postgres may return as strings
+            quiz.batch_count = quiz.batch_count != null ? Number(quiz.batch_count) : 0;
+            quiz.submissions_count = quiz.submissions_count != null ? Number(quiz.submissions_count) : 0;
+            quiz.total_questions = quiz.total_questions != null ? Number(quiz.total_questions) : 0;
+            if (quiz.duration_minutes != null) quiz.duration_minutes = Number(quiz.duration_minutes);
+            if (quiz.total_marks != null) quiz.total_marks = Number(quiz.total_marks);
+            // Convert is_active 1/0 -> boolean
+            quiz.is_active = !!Number(quiz.is_active);
         }
         
         res.json({ data: quizzes });

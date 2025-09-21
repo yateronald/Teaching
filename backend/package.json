@@ -32,6 +32,7 @@
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^6.10.1",
+    "pg": "^8.16.3",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {

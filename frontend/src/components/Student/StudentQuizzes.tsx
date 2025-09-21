@@ -61,6 +61,8 @@ interface QuizAttempt {
     quiz_id: number;
     quiz_title: string;
     score: number; // percentage
+    total_score?: number; // raw points earned
+    max_score?: number; // raw points possible
     total_questions: number;
     correct_answers: number;
     time_taken: number; // minutes
@@ -103,8 +105,19 @@ const StudentQuizzes: React.FC = () => {
         const computeStats = () => {
             const total_quizzes = quizzes.length;
             const completed_quizzes = quizzes.filter(q => q.submission_status === 'completed').length;
+            
+            // Calculate average as (sum of total_score) / (sum of max_score) instead of average of percentages
+            const validAttempts = attempts.filter(a => 
+                typeof a.total_score === 'number' && 
+                typeof a.max_score === 'number' && 
+                a.max_score > 0
+            );
+            
+            const totalScoreSum = validAttempts.reduce((sum, a) => sum + a.total_score!, 0);
+            const maxScoreSum = validAttempts.reduce((sum, a) => sum + a.max_score!, 0);
+            const average_score = maxScoreSum > 0 ? parseFloat(((totalScoreSum / maxScoreSum) * 100).toFixed(2)) : 0;
+            
             const scores = attempts.map(a => a.score).filter((s) => typeof s === 'number');
-            const average_score = scores.length ? parseFloat((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)) : 0;
             const best_score = scores.length ? Math.max(...scores) : 0;
             const total_attempts = attempts.length;
             const passed_quizzes = attempts.filter(a => a.score >= 50).length; // Default pass mark 50%
@@ -120,7 +133,16 @@ const StudentQuizzes: React.FC = () => {
             const response = await apiCall('/quizzes');
             if (response.ok) {
                 const data = await response.json();
-                setQuizzes(Array.isArray(data) ? data : (data.quizzes || []));
+                const raw = Array.isArray(data) ? data : (data.quizzes || []);
+                // Normalize numeric fields to ensure proper rendering
+                const normalized = raw.map((q: any) => ({
+                    ...q,
+                    total_questions: Number(q?.total_questions ?? 0),
+                    duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0,
+                    total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined,
+                    avg_score: q?.avg_score != null ? Number(q.avg_score) : undefined,
+                }));
+                setQuizzes(normalized);
             } else {
                 messageApi.error('Failed to fetch quizzes');
             }
@@ -147,6 +169,8 @@ const StudentQuizzes: React.FC = () => {
                         quiz_id: r.quiz_id,
                         quiz_title: r.quiz_title,
                         score: Number(r.percentage ?? 0),
+                        total_score: Number(r.score ?? 0), // raw points earned
+                        max_score: Number(r.max_score ?? 0), // raw points possible
                         total_questions: Number(r.total_questions ?? 0),
                         correct_answers: Number(r.correct_answers ?? 0),
                         time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),

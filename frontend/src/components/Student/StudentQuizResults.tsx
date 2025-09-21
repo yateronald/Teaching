@@ -191,13 +191,19 @@ const StudentQuizResults: React.FC = () => {
         }
 
         const unlocked = results.filter(r => !r.results_locked);
-        const totalScore = unlocked.reduce((sum, r) => sum + Number(r.percentage || 0), 0);
+        
+        // Average should be based on total points earned over total points possible (not average of percentages)
+        const valid = unlocked.filter(r => Number(r.max_score || 0) > 0);
+        const sumScores = valid.reduce((sum, r) => sum + Number(r.score || 0), 0);
+        const sumMax = valid.reduce((sum, r) => sum + Number(r.max_score || 0), 0);
+        const avgPercent = sumMax > 0 ? (sumScores / sumMax) * 100 : 0;
+        
         const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
         const totalTimeSpent = results.reduce((sum, r) => sum + Number(r.time_taken || 0), 0);
 
         return {
             totalQuizzes: results.length,
-            averageScore: unlocked.length > 0 ? Math.round(totalScore / unlocked.length) : 0,
+            averageScore: Math.round(avgPercent),
             bestScore: Math.round(bestScore),
             totalTimeSpent: Math.round(totalTimeSpent)
         };

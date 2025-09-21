@@ -148,7 +148,7 @@ router.put('/change-password', [
 
         // Update password in database
         await req.db.run(
-            "UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = DATETIME('now', '+90 days'), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = NOW() + INTERVAL '90 days', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [newPasswordHash, userId]
         );
 

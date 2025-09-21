@@ -202,7 +202,7 @@ router.post('/', [
         // Save resource to database
         const result = await req.db.run(`
             INSERT INTO resources (title, description, file_name, file_path, file_type, file_size, teacher_id, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
         `, [
             title,
             description || null,
@@ -224,7 +224,7 @@ router.post('/', [
             LEFT JOIN users u ON r.teacher_id = u.id
             LEFT JOIN batches b ON r.batch_id = b.id
             WHERE r.id = ?
-        `, [result.id]);
+        `, [result.rows[0].id]);
 
         res.status(201).json({
             message: 'Resource uploaded successfully',

@@ -30,6 +30,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import QuizBuilder from '../Quiz/QuizBuilder';
 import QuizResults from '../Quiz/QuizResults';
 import QuizInsights from '../Quiz/QuizInsights';
+import ErrorBoundary from '../ErrorBoundary';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
@@ -39,7 +40,6 @@ dayjs.extend(duration);
 
 const { Title } = Typography;
 const { Option } = Select;
-const { TabPane } = Tabs;
 const { TextArea } = Input;
 
 interface Quiz {
@@ -67,11 +67,24 @@ interface Quiz {
 }
 
 // Helper function to format numbers - show whole numbers without decimals, keep up to 2 decimal places for others
-const formatNumber = (num: number): string => {
-    if (Number.isInteger(num)) {
-        return num.toString();
+const formatNumber = (num: number | string | null | undefined): string => {
+    // Handle null, undefined, or empty values
+    if (num === null || num === undefined || num === '') {
+        return '0';
     }
-    return num.toFixed(2).replace(/\.?0+$/, '');
+    
+    // Convert to number if it's a string
+    const numValue = typeof num === 'string' ? parseFloat(num) : num;
+    
+    // Handle NaN or invalid numbers
+    if (isNaN(numValue)) {
+        return '0';
+    }
+    
+    if (Number.isInteger(numValue)) {
+        return numValue.toString();
+    }
+    return numValue.toFixed(2).replace(/\.?0+$/, '');
 };
 
 interface Batch {
@@ -103,7 +116,18 @@ const QuizManagement: React.FC = () => {
             const response = await apiCall('/quizzes');
             if (response.ok) {
                 const data = await response.json();
-                setQuizzes(Array.isArray(data) ? data : (data.quizzes || []));
+                const raw = Array.isArray(data) ? data : (data.quizzes || []);
+                // Normalize numeric fields so UI shows correct values
+                const normalized = (raw || []).map((q: any) => ({
+                    ...q,
+                    total_questions: q?.total_questions != null ? Number(q.total_questions) : 0,
+                    duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0,
+                    total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined,
+                    submitted_students: q?.submitted_students != null ? Number(q.submitted_students) : 0,
+                    total_students: q?.total_students != null ? Number(q.total_students) : 0,
+                    avg_score: q?.avg_score != null ? Number(q.avg_score) : 0,
+                }));
+                setQuizzes(normalized);
             } else {
                 message.error('Failed to fetch quizzes');
             }
@@ -268,7 +292,7 @@ const QuizManagement: React.FC = () => {
             key: 'total_questions',
             width: 90,
             align: 'center',
-            render: (count: number) => (typeof count === 'number' ? count : 0),
+            render: (count: any) => Number(count ?? 0),
         },
         {
             title: 'Duration',
@@ -279,7 +303,7 @@ const QuizManagement: React.FC = () => {
             render: (minutes: number) => `${minutes} min`,
         },
         {
-            title: 'Attempts',
+            title: 'Attend',
             key: 'attempts',
             width: 100,
             align: 'center',
@@ -428,68 +452,87 @@ const QuizManagement: React.FC = () => {
             </div>
 
             <Card>
-                <Tabs defaultActiveKey="all">
-                    <TabPane tab={`All Quizzes (${quizzes.length})`} key="all">
-                        <Table
-                            columns={columns}
-                            dataSource={quizzes}
-                            rowKey="id"
-                            loading={loading}
-                            scroll={{ x: 1000, y: 400 }}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                                showQuickJumper: true,
-                                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quizzes`
-                            }}
-                        />
-                    </TabPane>
-                    <TabPane tab={`Active (${activeQuizzes.length})`} key="active">
-                        <Table
-                            columns={columns}
-                            dataSource={activeQuizzes}
-                            rowKey="id"
-                            loading={loading}
-                            scroll={{ x: 1000, y: 400 }}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                                showQuickJumper: true,
-                                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} active quizzes`
-                            }}
-                        />
-                    </TabPane>
-                    <TabPane tab={`Scheduled (${scheduledQuizzes.length})`} key="scheduled">
-                        <Table
-                            columns={columns}
-                            dataSource={scheduledQuizzes}
-                            rowKey="id"
-                            loading={loading}
-                            scroll={{ x: 1000, y: 400 }}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                                showQuickJumper: true,
-                                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} scheduled quizzes`
-                            }}
-                        />
-                    </TabPane>
-                    <TabPane tab={`Ended (${endedQuizzes.length})`} key="ended">
-                        <Table
-                            columns={columns}
-                            dataSource={endedQuizzes}
-                            rowKey="id"
-                            loading={loading}
-                            scroll={{ x: 1000, y: 400 }}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                                showQuickJumper: true,
-                                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} ended quizzes`
-                            }}
-                        />
-                    </TabPane>
-                </Tabs>
+                <Tabs 
+                    defaultActiveKey="all"
+                    items={[
+                        {
+                            key: 'all',
+                            label: `All Quizzes (${quizzes.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={quizzes}
+                                    rowKey="id"
+                                    loading={loading}
+                                    scroll={{ x: 1000, y: 400 }}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                        showQuickJumper: true,
+                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quizzes`
+                                    }}
+                                />
+                            )
+                        },
+                        {
+                            key: 'active',
+                            label: `Active (${activeQuizzes.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={activeQuizzes}
+                                    rowKey="id"
+                                    loading={loading}
+                                    scroll={{ x: 1000, y: 400 }}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                        showQuickJumper: true,
+                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} active quizzes`
+                                    }}
+                                />
+                            )
+                        },
+                        {
+                            key: 'scheduled',
+                            label: `Scheduled (${scheduledQuizzes.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={scheduledQuizzes}
+                                    rowKey="id"
+                                    loading={loading}
+                                    scroll={{ x: 1000, y: 400 }}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                        showQuickJumper: true,
+                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} scheduled quizzes`
+                                    }}
+                                />
+                            )
+                        },
+                        {
+                            key: 'ended',
+                            label: `Ended (${endedQuizzes.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={endedQuizzes}
+                                    rowKey="id"
+                                    loading={loading}
+                                    scroll={{ x: 1000, y: 400 }}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                        showQuickJumper: true,
+                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} ended quizzes`
+                                    }}
+                                />
+                            )
+                        }
+                    ]}
+                />
             </Card>
 
             <Modal
@@ -640,7 +683,11 @@ const QuizManagement: React.FC = () => {
                 width={1200}
                 style={{ top: 20 }}
             >
-                {selectedQuizId && <QuizResults quizId={selectedQuizId.toString()} />}
+                {selectedQuizId && (
+                    <ErrorBoundary>
+                        <QuizResults quizId={selectedQuizId.toString()} />
+                    </ErrorBoundary>
+                )}
             </Modal>
 
             {/* Quiz Insights Modal */}
@@ -655,9 +702,11 @@ const QuizManagement: React.FC = () => {
                 width={1200}
                 style={{ top: 20 }}
             >
-                <QuizInsights
-                    quizId={selectedQuizId?.toString()}
-                />
+                <ErrorBoundary>
+                    <QuizInsights
+                        quizId={selectedQuizId?.toString()}
+                    />
+                </ErrorBoundary>
             </Modal>
         </div>
     );

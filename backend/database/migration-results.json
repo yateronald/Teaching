@@ -1,0 +1,87 @@
+{
+  "batch_students": {
+    "sqlite": 6,
+    "postgres": 6,
+    "match": true
+  },
+  "batch_timetables": {
+    "sqlite": 5,
+    "postgres": 5,
+    "match": true
+  },
+  "batches": {
+    "sqlite": 4,
+    "postgres": 4,
+    "match": true
+  },
+  "class_schedules": {
+    "sqlite": 0,
+    "postgres": 0,
+    "match": true
+  },
+  "email_change_requests": {
+    "sqlite": 9,
+    "postgres": 9,
+    "match": true
+  },
+  "migrations": {
+    "sqlite": 1,
+    "postgres": 1,
+    "match": true
+  },
+  "password_reset_requests": {
+    "sqlite": 14,
+    "postgres": 14,
+    "match": true
+  },
+  "question_options": {
+    "sqlite": 44,
+    "postgres": 33,
+    "match": false
+  },
+  "questions": {
+    "sqlite": 27,
+    "postgres": 21,
+    "match": false
+  },
+  "quiz_batches": {
+    "sqlite": 11,
+    "postgres": 9,
+    "match": false
+  },
+  "quiz_reminders_sent": {
+    "sqlite": 1,
+    "postgres": 1,
+    "match": true
+  },
+  "quiz_submissions": {
+    "sqlite": 15,
+    "postgres": 13,
+    "match": false
+  },
+  "quizzes": {
+    "sqlite": 9,
+    "postgres": 9,
+    "match": true
+  },
+  "resources": {
+    "sqlite": 0,
+    "postgres": 0,
+    "match": true
+  },
+  "schedules": {
+    "sqlite": 4,
+    "postgres": 4,
+    "match": true
+  },
+  "student_answers": {
+    "sqlite": 21,
+    "postgres": 21,
+    "match": true
+  },
+  "users": {
+    "sqlite": 10,
+    "postgres": 10,
+    "match": true
+  }
+}

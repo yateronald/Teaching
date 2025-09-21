@@ -3,7 +3,11 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
-const Database = require('./database/init');
+// Database initialization - PostgreSQL only
+const PostgreSQLDatabase = require('./database/init-postgres');
+const database = new PostgreSQLDatabase();
+console.log('📊 Using PostgreSQL database');
+
 const QuizReminderScheduler = require('./services/quizReminderScheduler');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -14,9 +18,6 @@ const scheduleRoutes = require('./routes/schedules');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// Initialize database
-const database = new Database();
 
 // Middleware
 const corsOptions = {
@@ -88,9 +89,7 @@ async function calculateQuizResultsServer(db, submissionId) {
         'SELECT COALESCE(SUM(marks), 0) AS max_score FROM questions WHERE quiz_id = ?',
         [submission.quiz_id]
     );
-    const maxScore = maxScoreRow && typeof maxScoreRow.max_score === 'number'
-        ? maxScoreRow.max_score
-        : (maxScoreRow?.max_score || 0);
+    const maxScore = Number(maxScoreRow?.max_score) || 0;
 
     const answers = await db.all(`
         SELECT sa.*, q.marks, q.question_type, q.correct_answer
@@ -104,32 +103,33 @@ async function calculateQuizResultsServer(db, submissionId) {
     for (const answer of answers) {
         let isCorrect = false;
         let marksAwarded = 0;
+        const marks = Number(answer.marks) || 0;
 
         if (answer.question_type === 'yes_no') {
             isCorrect = answer.answer_text === answer.correct_answer;
-            marksAwarded = isCorrect ? answer.marks : 0;
+            marksAwarded = isCorrect ? marks : 0;
         } else if (answer.question_type === 'mcq_single' || answer.question_type === 'mcq_multiple') {
             let selectedOptions = [];
             try { selectedOptions = JSON.parse(answer.selected_options || '[]') || []; } catch {}
 
             const correctOptions = await db.all(
-                'SELECT id FROM question_options WHERE question_id = ? AND is_correct = 1',
+                'SELECT id FROM question_options WHERE question_id = ? AND is_correct = TRUE',
                 [answer.question_id]
             );
             const correctIds = correctOptions.map(opt => opt.id);
 
             if (answer.question_type === 'mcq_single') {
                 isCorrect = selectedOptions.length === 1 && correctIds.includes(selectedOptions[0]);
-                marksAwarded = isCorrect ? answer.marks : 0;
+                marksAwarded = isCorrect ? marks : 0;
             } else {
                 const totalCorrect = correctIds.length || 1;
                 const correctSelected = selectedOptions.filter(id => correctIds.includes(id)).length;
                 const incorrectSelected = selectedOptions.filter(id => !correctIds.includes(id)).length;
 
-                const positive = (correctSelected / totalCorrect) * answer.marks;
-                const negative = (incorrectSelected / totalCorrect) * answer.marks;
+                const positive = (correctSelected / totalCorrect) * marks;
+                const negative = (incorrectSelected / totalCorrect) * marks;
                 const rawScore = positive - negative;
-                marksAwarded = Math.max(0, Math.min(answer.marks, rawScore));
+                marksAwarded = Math.max(0, Math.min(marks, rawScore));
                 isCorrect = correctSelected === totalCorrect && incorrectSelected === 0;
             }
         }
@@ -141,11 +141,12 @@ async function calculateQuizResultsServer(db, submissionId) {
         totalScore += marksAwarded;
     }
 
-    const percentage = maxScore > 0 ? (totalScore / maxScore) * 100 : 0;
+    const percentageRaw = maxScore > 0 ? (Number(totalScore) / Number(maxScore)) * 100 : 0;
+    const percentage = Math.min(100, Math.max(0, Number.isFinite(percentageRaw) ? Number(percentageRaw.toFixed(2)) : 0));
 
     await db.run(
         "UPDATE quiz_submissions SET total_score = ?, max_score = ?, percentage = ?, status = 'graded', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [totalScore, maxScore, percentage, submissionId]
+        [Number(totalScore) || 0, Number(maxScore) || 0, percentage, submissionId]
     );
 
     return { totalScore, maxScore, percentage };
@@ -159,10 +160,10 @@ async function reconcileOverdueQuizzes(db) {
             SELECT qs.id AS submission_id, qs.quiz_id, qs.started_at, q.duration_minutes, q.end_date
             FROM quiz_submissions qs
             JOIN quizzes q ON qs.quiz_id = q.id
-            WHERE qs.status = 'in_progress' AND q.status = 'published' AND q.auto_submit = 1
+            WHERE qs.status = 'in_progress' AND q.status = 'published' AND q.auto_submit = true
               AND (
-                (q.duration_minutes IS NOT NULL AND datetime(qs.started_at, '+' || q.duration_minutes || ' minutes') <= datetime('now'))
-                OR (q.end_date IS NOT NULL AND datetime(q.end_date) <= datetime('now'))
+                (q.duration_minutes IS NOT NULL AND qs.started_at + INTERVAL '1 minute' * q.duration_minutes <= NOW())
+                OR (q.end_date IS NOT NULL AND q.end_date <= NOW())
               )
         `);
 
@@ -173,10 +174,20 @@ async function reconcileOverdueQuizzes(db) {
             try { answers = submission?.auto_saved_data ? JSON.parse(submission.auto_saved_data) : []; } catch {}
 
             for (const ans of answers) {
-                await db.run(
-                    'INSERT OR REPLACE INTO student_answers (submission_id, question_id, answer_text, selected_options) VALUES (?, ?, ?, ?)',
-                    [row.submission_id, ans.question_id, ans.answer_text || null, ans.selected_options ? JSON.stringify(ans.selected_options) : null]
-                );
+                await db.run(`
+                    INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT (submission_id, question_id)
+                    DO UPDATE SET 
+                      answer_text = EXCLUDED.answer_text,
+                      selected_options = EXCLUDED.selected_options,
+                      updated_at = CURRENT_TIMESTAMP
+                `, [
+                    row.submission_id, 
+                    ans.question_id, 
+                    ans.answer_text || null, 
+                    ans.selected_options ? JSON.stringify(ans.selected_options) : null
+                ]);
             }
 
             // Compute time taken up to the hard deadline
@@ -199,8 +210,8 @@ async function reconcileOverdueQuizzes(db) {
             FROM quiz_submissions qs
             JOIN quizzes q ON qs.quiz_id = q.id
             WHERE (qs.status = 'not_started' OR qs.status = 'assigned')
-              AND q.status = 'published' AND q.auto_submit = 1
-              AND q.end_date IS NOT NULL AND datetime(q.end_date) <= datetime('now')
+              AND q.status = 'published' AND q.auto_submit = true
+              AND q.end_date IS NOT NULL AND q.end_date <= NOW()
         `);
 
         for (const row of neverStarted) {
@@ -220,9 +231,17 @@ async function reconcileOverdueQuizzes(db) {
 
         // 3) Submissions stuck in 'submitted' but not graded (legacy path)
         const submittedNotGraded = await db.all(`
-            SELECT id AS submission_id FROM quiz_submissions WHERE status = 'submitted' AND (percentage IS NULL OR max_score IS NULL)
+            SELECT id AS submission_id FROM quiz_submissions WHERE (status = 'submitted' OR status = 'auto_submitted') AND (percentage IS NULL OR max_score IS NULL)
         `);
         for (const row of submittedNotGraded) {
+            await calculateQuizResultsServer(db, row.submission_id);
+        }
+
+        // Also finalize any lingering auto_submitted submissions that already have computed scores
+        const leftoverAutoSubmitted = await db.all(`
+            SELECT id AS submission_id FROM quiz_submissions WHERE status = 'auto_submitted' AND percentage IS NOT NULL AND max_score IS NOT NULL
+        `);
+        for (const row of leftoverAutoSubmitted) {
             await calculateQuizResultsServer(db, row.submission_id);
         }
 

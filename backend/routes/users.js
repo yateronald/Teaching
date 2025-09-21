@@ -132,11 +132,11 @@ router.post('/', [
 
         // Create user with password policy defaults and require change on next login
         const result = await req.db.run(
-            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at, is_active, failed_login_attempts) VALUES (?, ?, ?, ?, ?, ?, 1, DATETIME('now', '+90 days'), ?, 0)",
+            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at, is_active, failed_login_attempts) VALUES (?, ?, ?, ?, ?, ?, 1, NOW() + INTERVAL '90 days', ?, 0) RETURNING id",
             [username, email, passwordHash, role, first_name, last_name, is_active]
         );
 
-        const userId = result.lastID;
+        const userId = result.rows[0].id;
 
         // Try to send welcome email with temp password (non-blocking error)
         try {
@@ -321,11 +321,17 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
                 u.last_name, 
                 u.email,
                 b.name as batch_name,
-                COALESCE(AVG(qs.percentage), 0) as average_score
+                COALESCE(
+                  (SUM(CASE WHEN qs.max_score > 0 THEN qs.total_score ELSE 0 END)::numeric / 
+                   NULLIF(SUM(CASE WHEN qs.max_score > 0 THEN qs.max_score ELSE 0 END), 0)) * 100,
+                  0
+                ) as average_score
              FROM users u
              JOIN batch_students bs ON u.id = bs.student_id
              JOIN batches b ON bs.batch_id = b.id
-             LEFT JOIN quiz_submissions qs ON u.id = qs.student_id AND qs.status = 'submitted'
+             LEFT JOIN quiz_submissions qs 
+                ON u.id = qs.student_id 
+                AND qs.status IN ('submitted','auto_submitted','graded')
              WHERE b.teacher_id = ? AND u.role = 'student'
              GROUP BY u.id, u.first_name, u.last_name, u.email, b.name
              ORDER BY u.first_name ASC`,
@@ -334,7 +340,7 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
 
         // Get detailed quiz scores for each student
         const studentsWithScores = await Promise.all(students.map(async (student) => {
-            const quizScores = await req.db.all(
+            const quizScoresRaw = await req.db.all(
                 `SELECT 
                     q.title as quiz_title,
                     qs.total_score as score,
@@ -344,14 +350,23 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
                  JOIN quizzes q ON qs.quiz_id = q.id
                  JOIN quiz_batches qb ON q.id = qb.quiz_id
                  JOIN batches b ON qb.batch_id = b.id
-                 WHERE qs.student_id = ? AND b.teacher_id = ? AND qs.status = 'submitted'
+                 WHERE qs.student_id = ? AND b.teacher_id = ? AND qs.status IN ('submitted','auto_submitted','graded')
                  ORDER BY qs.submitted_at DESC`,
                 [student.id, teacherId]
             );
 
+            const quizScores = (quizScoresRaw || []).map(s => ({
+                ...s,
+                // Coerce numeric fields that may arrive as strings from Postgres
+                score: s.score != null ? Number(s.score) : null,
+                max_score: s.max_score != null ? Number(s.max_score) : null,
+            }));
+
             return {
                 ...student,
-                quiz_scores: quizScores || []
+                // Ensure average_score is numeric
+                average_score: Number(student.average_score || 0),
+                quiz_scores: quizScores
             };
         }));
 
@@ -398,7 +413,7 @@ router.put('/:id/reset-password', [
 
         // Update password in database
         await req.db.run(
-            "UPDATE users SET password_hash = ?, must_change_password = ?, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = DATETIME('now', '+90 days'), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = ?, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = NOW() + INTERVAL '90 days', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             [newPasswordHash, mustChange ? 1 : 0, id]
         );
 

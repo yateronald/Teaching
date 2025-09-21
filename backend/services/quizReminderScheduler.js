@@ -30,7 +30,7 @@ class QuizReminderScheduler {
                 FROM quizzes q
                 LEFT JOIN users u ON q.teacher_id = u.id
                 WHERE q.status = 'published'
-                AND datetime(q.start_date) BETWEEN datetime(?) AND datetime(?)
+                AND q.start_date BETWEEN $1 AND $2
                 AND q.id NOT IN (
                     SELECT quiz_id FROM quiz_reminders_sent WHERE quiz_id = q.id
                 )

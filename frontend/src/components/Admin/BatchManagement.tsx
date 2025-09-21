@@ -127,6 +127,56 @@ const BatchManagement: React.FC = () => {
         }
     };
 
+    const handleEdit = async (batch: Batch) => {
+        setEditingBatch(batch);
+        form.setFieldsValue({
+            name: batch.name,
+            french_level: batch.french_level,
+            teacher_id: batch.teacher_id,
+            dateRange: [
+                dayjs(batch.start_date),
+                dayjs(batch.end_date)
+            ],
+        });
+        // Prefill defaults from batch details endpoint if available
+        try {
+            // Fetch timetable for this batch
+            const ttRes = await apiCall(`/batches/${batch.id}/timetable`);
+            if (ttRes.ok) {
+                const tt = await ttRes.json();
+                if (Array.isArray(tt) && tt.length > 0) {
+                    const days = tt.map((e: any) => e.day_of_week);
+                    setSelectedDays(days);
+                    setScheduleType(days.length === 7 ? 'all' : (days.length === 5 && days.includes(1) && days.includes(5) ? 'workdays' : 'custom'));
+                    setScheduleMode('different');
+                    // Normalize entries to expected shape
+                    const normalized = tt.map((e: any) => ({
+                        day_of_week: Number(e.day_of_week),
+                        start_time: e.start_time,
+                        end_time: e.end_time,
+                        timezone: e.timezone || 'UTC',
+                        location_mode: e.location_mode || 'physical',
+                        location: e.location || '',
+                        link: e.link || ''
+                    }));
+                    setTimetableEntries(normalized);
+                } else {
+                    setSelectedDays([]);
+                    setTimetableEntries([]);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to prefill timetable', e);
+        }
+        setModalVisible(true);
+    };
+
+    const handleAdd = () => {
+        setEditingBatch(null);
+        form.resetFields();
+        setModalVisible(true);
+    };
+
     const handleSubmit = async (values: any) => {
         try {
             const baseData: any = {
@@ -136,13 +186,26 @@ const BatchManagement: React.FC = () => {
                 // Send ISO8601 strings to match backend validator
                 start_date: values.dateRange[0].toDate().toISOString(),
                 end_date: values.dateRange[1].toDate().toISOString(),
-                // Timetable data
+                // Defaults for timetable
                 timezone: values.timezone || 'UTC',
                 default_location_mode: values.default_location_mode || 'physical',
                 default_location: values.default_location,
                 default_link: values.default_link,
-                timetable: timetableEntries
             };
+
+            // Only attach timetable if there are entries
+            const hasTimetable = Array.isArray(timetableEntries) && timetableEntries.length > 0;
+            if (hasTimetable) {
+                baseData.timetable = timetableEntries.map(e => ({
+                    day_of_week: e.day_of_week,
+                    start_time: e.start_time,
+                    end_time: e.end_time,
+                    timezone: e.timezone,
+                    location_mode: e.location_mode,
+                    location: e.location,
+                    link: e.link,
+                }));
+            }
 
             const endpoint = editingBatch ? `/batches/${editingBatch.id}` : '/batches';
             const method = editingBatch ? 'PUT' : 'POST';
@@ -185,6 +248,23 @@ const BatchManagement: React.FC = () => {
             }
         } catch (error) {
             message.error('Error saving batch');
+        }
+    };
+
+    const handleDelete = async (batchId: number) => {
+        try {
+            const response = await apiCall(`/batches/${batchId}`, {
+                method: 'DELETE',
+            });
+
+            if (response.ok) {
+                message.success('Batch deleted successfully');
+                fetchBatches();
+            } else {
+                message.error('Failed to delete batch');
+            }
+        } catch (error) {
+            message.error('Error deleting batch');
         }
     };
 
@@ -262,45 +342,6 @@ const BatchManagement: React.FC = () => {
             );
         }
     };
-
-    const handleDelete = async (batchId: number) => {
-        try {
-            const response = await apiCall(`/batches/${batchId}`, {
-                method: 'DELETE',
-            });
-
-            if (response.ok) {
-                message.success('Batch deleted successfully');
-                fetchBatches();
-            } else {
-                message.error('Failed to delete batch');
-            }
-        } catch (error) {
-            message.error('Error deleting batch');
-        }
-    };
-
-    const handleEdit = (batch: Batch) => {
-        setEditingBatch(batch);
-        form.setFieldsValue({
-            name: batch.name,
-            french_level: batch.french_level,
-            teacher_id: batch.teacher_id,
-            dateRange: [
-                dayjs(batch.start_date),
-                dayjs(batch.end_date)
-            ],
-        });
-        setModalVisible(true);
-    };
-
-    const handleAdd = () => {
-        setEditingBatch(null);
-        form.resetFields();
-        setModalVisible(true);
-    };
-
-
 
     // Helper to format duration as days only
     const formatDaysOnly = (startISO: string, endISO: string) => {

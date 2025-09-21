@@ -32,7 +32,10 @@ interface BatchAggregate {
   pass_rate: number; // percentage
 }
 
-const toFixed = (v: number | null | undefined, d = 2) => (v == null ? 0 : Number(v.toFixed(d)));
+const toFixed = (v: number | null | undefined, d = 2) => {
+  if (v == null || isNaN(Number(v))) return 0;
+  return Number(Number(v).toFixed(d));
+};
 
 // Grade helpers
 const gradeFromPercent = (p: number) => {
@@ -124,8 +127,8 @@ const StudentMarksheet: React.FC = () => {
   );
 
   const totals = useMemo(() => {
-    const totalScore = completedResults.reduce((s, r) => s + (r.score || 0), 0);
-    const maxScore = completedResults.reduce((s, r) => s + (r.max_score || 0), 0);
+    const totalScore = completedResults.reduce((s, r) => s + (Number(r.score) || 0), 0);
+    const maxScore = completedResults.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
     return { totalScore: toFixed(totalScore), maxScore: toFixed(maxScore) };
   }, [completedResults]);
 
@@ -134,14 +137,20 @@ const StudentMarksheet: React.FC = () => {
       return { total: 0, average: 0, best: 0, grade: '—' };
     }
     const total = completedResults.length;
-    const avg = completedResults.reduce((s, r) => s + (r.percentage || 0), 0) / total;
-    const best = Math.max(...completedResults.map(r => r.percentage || 0));
+    
+    // Calculate average as total score obtained / total possible score
+    const totalScoreObtained = completedResults.reduce((s, r) => s + (Number(r.score) || 0), 0);
+    const totalPossibleScore = completedResults.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
+    const avg = totalPossibleScore > 0 ? (totalScoreObtained / totalPossibleScore) * 100 : 0;
+    
+    const validPercentages = completedResults.map(r => Number(r.percentage) || 0).filter(p => !isNaN(p));
+    const best = validPercentages.length > 0 ? Math.max(...validPercentages) : 0;
     const grade = gradeFromPercent(avg);
     return { total, average: toFixed(avg), best: toFixed(best), grade };
   }, [completedResults]);
 
   const batchAggregates: BatchAggregate[] = useMemo(() => {
-    const map = new Map<string, BatchAggregate>();
+    const map = new Map<string, BatchAggregate & { total_score: number; total_max_score: number }>();
     for (const r of filteredResults) {
       const key = String(r.batch_id ?? 'unassigned');
       if (!map.has(key)) {
@@ -155,15 +164,24 @@ const StudentMarksheet: React.FC = () => {
           lowest_percentage: 100,
           last_quiz_date: null,
           pass_rate: 0,
+          total_score: 0,
+          total_max_score: 0,
         });
       }
       const agg = map.get(key)!;
       agg.quizzes_count += 1;
       if (!r.results_locked && r.percentage != null) {
         agg.completed_count += 1;
-        agg.average_percentage += r.percentage || 0;
-        agg.best_percentage = Math.max(agg.best_percentage, r.percentage || 0);
-        agg.lowest_percentage = Math.min(agg.lowest_percentage, r.percentage || 0);
+        const percentage = Number(r.percentage) || 0;
+        const score = Number(r.score) || 0;
+        const maxScore = Number(r.max_score) || 0;
+        
+        // Accumulate total scores for proper average calculation
+        agg.total_score += score;
+        agg.total_max_score += maxScore;
+        
+        agg.best_percentage = Math.max(agg.best_percentage, percentage);
+        agg.lowest_percentage = Math.min(agg.lowest_percentage, percentage);
         if (r.submitted_at) {
           if (!agg.last_quiz_date || dayjs(r.submitted_at).isAfter(dayjs(agg.last_quiz_date))) {
             agg.last_quiz_date = r.submitted_at;
@@ -174,12 +192,15 @@ const StudentMarksheet: React.FC = () => {
 
     const arr: BatchAggregate[] = [];
     map.forEach((agg) => {
-      if (agg.completed_count > 0) {
-        agg.average_percentage = toFixed(agg.average_percentage / agg.completed_count);
+      if (agg.completed_count > 0 && agg.total_max_score > 0) {
+        // Calculate average as total score obtained / total possible score
+        agg.average_percentage = toFixed((agg.total_score / agg.total_max_score) * 100);
       } else {
         agg.average_percentage = 0;
       }
-      arr.push(agg);
+      // Remove the temporary properties before adding to array
+      const { total_score, total_max_score, ...finalAgg } = agg;
+      arr.push(finalAgg);
     });
 
     return arr.sort((a, b) => (b.average_percentage - a.average_percentage));
@@ -211,14 +232,23 @@ const StudentMarksheet: React.FC = () => {
       title: 'Average',
       dataIndex: 'average_percentage',
       key: 'avg',
-      render: (v: number) => (
-        <span>
-          <b>{v.toFixed(2)}%</b>
-          <div style={{ width: 120 }}>
-            <Progress percent={Number(v.toFixed(2))} size="small" status={v >= 50 ? 'success' : 'exception'} showInfo={false} />
-          </div>
-        </span>
-      ),
+      render: (v: number) => {
+        const grade = gradeFromPercent(v || 0);
+        const color = gradeColor(grade);
+        return (
+          <span>
+            <b style={{ color }}>{v.toFixed(2)}%</b>
+            <div style={{ width: 120 }}>
+              <Progress 
+                percent={Number(v.toFixed(2))} 
+                size="small" 
+                strokeColor={color}
+                showInfo={false} 
+              />
+            </div>
+          </span>
+        );
+      },
       sorter: (a: BatchAggregate, b: BatchAggregate) => a.average_percentage - b.average_percentage,
       defaultSortOrder: 'descend' as const,
     },

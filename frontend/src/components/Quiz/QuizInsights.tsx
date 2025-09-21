@@ -55,7 +55,9 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
         const flat: StudentRow[] = (data?.batch_results||[]).flatMap((b:any)=>
           (b.students||[]).map((s:any)=>({
             student_id: s.id, name: s.name, email: s.email,
-            percentage: s.percentage ?? null, score: s.score ?? null, max_score: s.max_score ?? null,
+            percentage: s.percentage ? parseFloat(s.percentage) : null, 
+            score: s.score ? parseFloat(s.score) : null, 
+            max_score: s.max_score ? parseFloat(s.max_score) : null,
             submitted_at: s.submitted_at ?? null, time_taken_minutes: s.time_taken_minutes ?? null,
             status: s.status, batch_id: b.batch_id, batch_name: b.batch_name
           }))
