@@ -110,7 +110,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
 
     // histogram
     const hist = bins.slice(0,-1).map((_,i)=>({ bin: `${bins[i]}-${bins[i+1]}`, count: valid.filter(v => {
-      const p = v.max_score > 0 ? (v.total_score as number / v.max_score) * 100 : 0; 
+      const p = (v.max_score && v.max_score > 0) ? (v.total_score as number / v.max_score) * 100 : 0; 
       return p >= bins[i] && p <= (i === bins.length-2 ? bins[i+1] : bins[i+1] - 0.0001);
     }).length }));
 

@@ -10,12 +10,10 @@ import {
     Space,
     Typography,
     Tag,
-    Popconfirm,
     Card,
     Divider,
     Switch,
-    Dropdown,
-    Menu
+    Dropdown
 } from 'antd';
 import {
     PlusOutlined,
