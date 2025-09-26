@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Card, Typography, message, Spin } from 'antd';
+import { Form, Input, Button, Typography, message, Spin } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ASSET_PATHS } from '../../utils/assets';
-import { brandingUtils, BRAND_CONFIG, COLOR_COMBINATIONS } from '../../utils/branding';
+import { brandingUtils, BRAND_CONFIG } from '../../utils/branding';
 import PasswordResetModal from './PasswordResetModal';
 import AccountDisabledModal from './AccountDisabledModal';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 interface LoginForm {
     email: string;
