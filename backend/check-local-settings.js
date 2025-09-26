@@ -1,13 +1,14 @@
 const { Client } = require('pg');
+require('dotenv').config();
 
 async function checkLocalAttendanceSettings() {
   // Local PostgreSQL connection
   const client = new Client({
-    host: 'localhost',
-    port: 5432,
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
     database: 'Teaching',
-    user: 'postgres',
-    password: '10108924',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
     ssl: false
   });
   

@@ -2,6 +2,7 @@ const sqlite3 = require('sqlite3').verbose();
 const { Client } = require('pg');
 const path = require('path');
 const fs = require('fs');
+require('dotenv').config();
 
 class DataMigrator {
     constructor(sqlitePath, postgresConfig) {
@@ -260,11 +261,11 @@ class DataMigrator {
 async function migrateData() {
     const sqlitePath = path.join(__dirname, '../database/french_teaching.db');
     const postgresConfig = {
-        user: 'postgres',
-        host: 'localhost',
-        database: 'Teaching',
-        password: '10108924',
-        port: 5432,
+        user: process.env.DB_USER || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
+        database: process.env.DB_NAME || 'Teaching',
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
     };
     
     if (!fs.existsSync(sqlitePath)) {

@@ -1,13 +1,14 @@
 const nodemailer = require('nodemailer');
+require('dotenv').config();
 
 // Hostinger SMTP Configuration
-const transporter = nodemailer.createTransport({
-  host: 'smtp.hostinger.com',
-  port: 465,
-  secure: true, // true for 465, false for other ports
+const transporter = nodemailer.createTransporter({
+  host: process.env.EMAIL_HOST || 'smtp.hostinger.com',
+  port: process.env.EMAIL_PORT || 465,
+  secure: process.env.EMAIL_SECURE === 'true' || true, // true for 465, false for other ports
   auth: {
-    user: 'support@learnfrenchwithnatives.com',
-    pass: 'yate1999Y@'
+    user: process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com',
+    pass: process.env.EMAIL_PASS
   },
   tls: {
     rejectUnauthorized: false
@@ -291,6 +292,13 @@ Contact us:
 
 async function sendWelcomeEmail() {
   try {
+    // Check for required environment variables
+    if (!process.env.EMAIL_PASS) {
+      console.error('❌ EMAIL_PASS environment variable is not set');
+      console.log('Please add EMAIL_PASS to your .env file');
+      return;
+    }
+    
     console.log('🚀 Testing Hostinger email configuration...');
     
     // Verify connection

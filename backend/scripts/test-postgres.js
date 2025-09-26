@@ -1,13 +1,14 @@
 const { Client } = require('pg');
+require('dotenv').config();
 
 async function testPostgreSQLConnection() {
     // PostgreSQL connection configuration
     const config = {
-        user: 'postgres',
-        host: 'localhost',
+        user: process.env.DB_USER || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
         database: 'postgres', // Default database to test connection
-        password: '10108924',
-        port: 5432,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
     };
 
     console.log('🔍 Testing PostgreSQL connection...');

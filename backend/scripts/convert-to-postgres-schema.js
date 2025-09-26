@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
+require('dotenv').config();
 
 class SQLiteToPostgreSQLConverter {
     constructor() {
@@ -346,11 +347,11 @@ async function convertAndCreateSchema() {
 
     // PostgreSQL connection configuration
     const postgresConfig = {
-        user: 'postgres',
-        host: 'localhost',
-        database: 'Teaching',
-        password: '10108924',
-        port: 5432,
+        user: process.env.DB_USER || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
+        database: process.env.DB_NAME || 'Teaching',
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
     };
 
     console.log('\n🚀 Executing schema in PostgreSQL...');

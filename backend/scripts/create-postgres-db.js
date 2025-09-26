@@ -1,13 +1,14 @@
 const { Client } = require('pg');
+require('dotenv').config();
 
 async function createTeachingDatabase() {
     // PostgreSQL connection configuration for initial setup
     const adminConfig = {
-        user: 'postgres',
-        host: 'localhost',
+        user: process.env.DB_USER || 'postgres',
+        host: process.env.DB_HOST || 'localhost',
         database: 'postgres', // Connect to default database first
-        password: '10108924',
-        port: 5432,
+        password: process.env.DB_PASSWORD,
+        port: process.env.DB_PORT || 5432,
     };
 
     console.log('🏗️  Creating PostgreSQL Teaching database...');
