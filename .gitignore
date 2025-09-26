@@ -1,2 +1,5 @@
 .env
 .env.postgres
+backend/.env
+backend/.env.postgres
+frontend/.env
