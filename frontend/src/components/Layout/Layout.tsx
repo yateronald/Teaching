@@ -55,6 +55,11 @@ const Layout: React.FC = () => {
                     key: '/timetable',
                     icon: <CalendarOutlined />,
                     label: 'Teacher Timetable',
+                },
+                {
+                    key: '/attendance',
+                    icon: <BarChartOutlined />,
+                    label: 'Attendance Management',
                 }
             );
         }

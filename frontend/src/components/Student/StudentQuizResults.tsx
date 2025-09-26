@@ -400,7 +400,7 @@ const StudentQuizResults: React.FC = () => {
                 ) : (
                     <Table
                         columns={columns}
-                        dataSource={results}
+                        dataSource={Array.isArray(results) ? results : []}
                         rowKey="id"
                         pagination={{
                             pageSize: 10,

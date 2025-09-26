@@ -41,6 +41,43 @@ function generateTempPassword(len = 10) {
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { role, search } = req.query;
+        
+        // If requesting students, include batch information
+        if (role === 'student') {
+            let sql = `
+                SELECT DISTINCT
+                    u.id, u.username, u.email, u.role, u.first_name, u.last_name, u.created_at, u.is_active, u.failed_login_attempts
+                FROM users u
+                WHERE u.role = 'student'
+            `;
+            let params = [];
+            
+            if (search) {
+                sql += ' AND (u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ? OR u.username LIKE ?)';
+                const searchTerm = `%${search}%`;
+                params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+            }
+            
+            sql += ' ORDER BY u.created_at DESC';
+            
+            const students = await req.db.all(sql, params);
+            
+            // Get batch information for each student
+            for (const student of students) {
+                const batches = await req.db.all(`
+                    SELECT b.id, b.name, b.french_level
+                    FROM batches b
+                    JOIN batch_students bs ON b.id = bs.batch_id
+                    WHERE bs.student_id = ?
+                    ORDER BY b.name
+                `, [student.id]);
+                student.batches = batches;
+            }
+            
+            return res.json(students);
+        }
+        
+        // For non-student roles, use the original logic
         let sql = 'SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts FROM users';
         let params = [];
         

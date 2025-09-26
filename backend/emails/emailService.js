@@ -407,6 +407,22 @@ async function sendMeetingCancellation({
     return await sendEmail(transporter, mailOptions);
 }
 
+async function sendAccessCodeEmail({ to, subject, html, text }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+
+    const mailOptions = {
+        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(transporter, mailOptions);
+}
+
 module.exports = {
     sendEmailChangeVerification,
     sendEmailChangeNotifications,
@@ -421,5 +437,6 @@ module.exports = {
     sendClassScheduleNotification,
     sendClassReminder,
     sendMeetingUpdate,
-    sendMeetingCancellation
+    sendMeetingCancellation,
+    sendAccessCodeEmail
 };

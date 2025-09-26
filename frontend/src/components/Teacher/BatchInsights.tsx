@@ -195,7 +195,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     return (
       <Table
         columns={[{title:'Quiz',dataIndex:'quiz'},{title:'Score',dataIndex:'score'},{title:'Percentage',dataIndex:'percent'},{title:'Submitted At',dataIndex:'submitted_at'}]}
-        dataSource={rows}
+        dataSource={Array.isArray(rows) ? rows : []}
         pagination={false}
         size="small"
       />
@@ -357,7 +357,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
         <Table
           rowKey={(r:any)=>`rank-${r.student_id}`}
           columns={columns as any}
-          dataSource={metrics.ranking.map((r, idx)=>({ ...r, rank: idx+1 }))}
+          dataSource={Array.isArray(metrics.ranking) ? metrics.ranking.map((r, idx)=>({ ...r, rank: idx+1 })) : []}
           expandable={{ expandedRowRender }}
           pagination={{ pageSize: 8, showSizeChanger: true }}
         />

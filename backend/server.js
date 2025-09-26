@@ -16,6 +16,8 @@ const batchRoutes = require('./routes/batches');
 const quizRoutes = require('./routes/quizzes');
 const resourceRoutes = require('./routes/resources');
 const scheduleRoutes = require('./routes/schedules');
+const attendanceRoutes = require('./routes/attendance');
+const AttendanceService = require('./services/attendanceService');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -55,6 +57,7 @@ app.use('/api/batches', batchRoutes);
 app.use('/api/quizzes', quizRoutes);
 app.use('/api/resources', resourceRoutes);
 app.use('/api/schedules', scheduleRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -255,25 +258,27 @@ async function reconcileOverdueQuizzes(db) {
 async function startServer() {
     try {
         await database.initialize();
-        
+
+        const attendanceService = new AttendanceService(database);
         // Initialize quiz reminder scheduler
         const quizReminderScheduler = new QuizReminderScheduler(database);
         console.log('📅 Quiz reminder scheduler initialized');
-        
         // Initialize class reminder service
         reminderService.start();
         console.log('📅 Class reminder service initialized');
-        
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
-
         // Start periodic auto-reconciliation job and run once on startup
         if (!reconcileTimer) {
             reconcileTimer = setInterval(() => {
                 reconcileOverdueQuizzes(database).catch((e) => console.error('Auto-reconcile tick failed:', e));
+                attendanceService.autoEndExpiredSessions().catch((e) => console.error('Auto-end sessions failed:', e));
+                attendanceService.autoProcessAbsentStudents().catch((e) => console.error('Auto-process absences failed:', e));
             }, AUTO_RECONCILE_INTERVAL_MS);
             reconcileOverdueQuizzes(database).catch(() => {});
+            attendanceService.autoEndExpiredSessions().catch(() => {});
+            attendanceService.autoProcessAbsentStudents().catch(() => {});
         }
     } catch (error) {
         console.error('Failed to start server:', error);

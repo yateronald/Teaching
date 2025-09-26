@@ -8,6 +8,7 @@ import TeacherDashboard from './components/Teacher/TeacherDashboard';
 import StudentDashboard from './components/Student/StudentDashboard';
 import UserManagement from './components/Admin/UserManagement';
 import BatchManagement from './components/Admin/BatchManagement';
+import AttendanceManagement from './components/Admin/AttendanceManagement';
 import TeacherBatches from './components/Teacher/TeacherBatches';
 import QuizManagement from './components/Teacher/QuizManagement';
 import ResourceManagement from './components/Teacher/ResourceManagement';
@@ -70,6 +71,11 @@ function App() {
                 <Route path="timetable" element={
                   <ProtectedRoute requiredRole="admin">
                     <AdminTimetable />
+                  </ProtectedRoute>
+                } />
+                <Route path="attendance" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AttendanceManagement />
                   </ProtectedRoute>
                 } />
                 <Route path="batches/:batchId/insights" element={

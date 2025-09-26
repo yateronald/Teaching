@@ -35,7 +35,6 @@ import BatchInsights from './BatchInsights';
 // Removed duplicate antd import (consolidated above)
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 interface Batch {
     id: number;
@@ -258,44 +257,59 @@ const TeacherBatches: React.FC = () => {
             </Row>
 
             <Card>
-                <Tabs defaultActiveKey="active">
-                    <TabPane tab={`Active (${activeBatches.length})`} key="active">
-                        <Table
-                            columns={columns}
-                            dataSource={activeBatches}
-                            rowKey="id"
-                            loading={loading}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                            }}
-                        />
-                    </TabPane>
-                    <TabPane tab={`Completed (${completedBatches.length})`} key="completed">
-                        <Table
-                            columns={columns}
-                            dataSource={completedBatches}
-                            rowKey="id"
-                            loading={loading}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                            }}
-                        />
-                    </TabPane>
-                    <TabPane tab={`Inactive (${inactiveBatches.length})`} key="inactive">
-                        <Table
-                            columns={columns}
-                            dataSource={inactiveBatches}
-                            rowKey="id"
-                            loading={loading}
-                            pagination={{
-                                pageSize: 10,
-                                showSizeChanger: true,
-                            }}
-                        />
-                    </TabPane>
-                </Tabs>
+                <Tabs 
+                    defaultActiveKey="active"
+                    items={[
+                        {
+                            key: 'active',
+                            label: `Active (${activeBatches.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={activeBatches}
+                                    rowKey="id"
+                                    loading={loading}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                    }}
+                                />
+                            )
+                        },
+                        {
+                            key: 'completed',
+                            label: `Completed (${completedBatches.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={completedBatches}
+                                    rowKey="id"
+                                    loading={loading}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                    }}
+                                />
+                            )
+                        },
+                        {
+                            key: 'inactive',
+                            label: `Inactive (${inactiveBatches.length})`,
+                            children: (
+                                <Table
+                                    columns={columns}
+                                    dataSource={inactiveBatches}
+                                    rowKey="id"
+                                    loading={loading}
+                                    pagination={{
+                                        pageSize: 10,
+                                        showSizeChanger: true,
+                                    }}
+                                />
+                            )
+                        }
+                    ]}
+                />
             </Card>
 
             <Modal

@@ -230,12 +230,70 @@ CREATE TABLE schedules (
     end_time TIMESTAMP NOT NULL,
     type TEXT NOT NULL,
     batch_id INTEGER NOT NULL,
+    teacher_id INTEGER,
+    subject TEXT,
+    topic TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     location_mode TEXT NOT NULL DEFAULT 'physical',
     location TEXT,
     link TEXT,
     status TEXT NOT NULL DEFAULT 'scheduled',
-    CONSTRAINT fk_schedules_batch_id FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
+    CONSTRAINT fk_schedules_batch_id FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_schedules_teacher_id FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+
+-- Table: user_batches (relationship table for users and batches)
+CREATE TABLE user_batches (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    batch_id INTEGER NOT NULL,
+    enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_user_batches_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_batches_batch_id FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+    CONSTRAINT uk_user_batches_1 UNIQUE (user_id, batch_id)
+);
+
+
+-- Table: attendance (attendance records table)
+CREATE TABLE attendance (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL,
+    student_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'absent',
+    check_in_time TIMESTAMP,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_attendance_session_id FOREIGN KEY (session_id) REFERENCES class_sessions(id) ON DELETE CASCADE,
+    CONSTRAINT fk_attendance_student_id FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT uk_attendance_session_student UNIQUE (session_id, student_id)
+);
+
+
+-- Table: class_sessions
+CREATE TABLE class_sessions (
+    id SERIAL PRIMARY KEY,
+    schedule_id INTEGER NOT NULL,
+    batch_id INTEGER NOT NULL,
+    teacher_id INTEGER NOT NULL,
+    session_date DATE NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    access_code VARCHAR(8),
+    code_generated_at TIMESTAMP,
+    code_expires_at TIMESTAMP,
+    session_started_at TIMESTAMP,
+    session_ended_at TIMESTAMP,
+    status TEXT NOT NULL DEFAULT 'scheduled',
+    subject TEXT,
+    topic TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_class_sessions_schedule_id FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE,
+    CONSTRAINT fk_class_sessions_batch_id FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+    CONSTRAINT fk_class_sessions_teacher_id FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT uk_class_sessions_schedule_date UNIQUE (schedule_id, session_date)
 );
 
 

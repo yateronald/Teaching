@@ -12,7 +12,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 import BatchStudentInsight from './BatchStudentInsight';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
+// Removed deprecated TabPane extraction
 
 interface Schedule {
   id: number;
@@ -110,39 +110,52 @@ const BatchInsightsAdmin: React.FC = () => {
       </Space>
       <Text type="secondary">Administrator view</Text>
 
-      <Tabs defaultActiveKey="insights">
-        <TabPane tab="Insights" key="insights">
-          <BatchInsights batchId={batchId} />
-        </TabPane>
-        <TabPane tab={<span><CalendarOutlined /> Schedule</span>} key="schedule">
-          <Card title="Batch Calendar">
-            {loading ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 240 }}>
-                <Spin />
-              </div>
-            ) : (
-              <FullCalendar
-                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                initialView="dayGridMonth"
-                headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
-                height={720}
-                events={events}
-                editable={false}
-                selectable={false}
-                dayMaxEvents={true}
-                eventClick={handleEventClick}
-                eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true } as any}
-              />
-            )}
-          </Card>
-          <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-            <InfoCircleOutlined /> This calendar shows all class meetings, quizzes, and events scheduled for this batch.
-          </Typography.Paragraph>
-        </TabPane>
-        <TabPane tab="Student Insight" key="student-insight">
-          <BatchStudentInsight batchId={batchId} />
-        </TabPane>
-      </Tabs>
+      <Tabs 
+        defaultActiveKey="insights"
+        items={[
+          {
+            key: 'insights',
+            label: 'Insights',
+            children: <BatchInsights batchId={batchId} />
+          },
+          {
+            key: 'schedule',
+            label: <span><CalendarOutlined /> Schedule</span>,
+            children: (
+              <>
+                <Card title="Batch Calendar">
+                  {loading ? (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 240 }}>
+                      <Spin />
+                    </div>
+                  ) : (
+                    <FullCalendar
+                      plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                      initialView="dayGridMonth"
+                      headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
+                      height={720}
+                      events={events}
+                      editable={false}
+                      selectable={false}
+                      dayMaxEvents={true}
+                      eventClick={handleEventClick}
+                      eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true } as any}
+                    />
+                  )}
+                </Card>
+                <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
+                  <InfoCircleOutlined /> This calendar shows all class meetings, quizzes, and events scheduled for this batch.
+                </Typography.Paragraph>
+              </>
+            )
+          },
+          {
+            key: 'student-insight',
+            label: 'Student Insight',
+            children: <BatchStudentInsight batchId={batchId} />
+          }
+        ]}
+      />
 
       <Modal
         open={viewModalVisible}

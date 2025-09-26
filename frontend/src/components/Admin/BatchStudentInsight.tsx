@@ -42,8 +42,8 @@ const BatchStudentInsight: React.FC<BatchStudentInsightProps> = ({ batchId }) =>
           return;
         }
         const data = await res.json();
-        const studentsData: StudentWithMetrics[] = data.students || [];
-        const quizAgg: QuizAgg[] = (data.quizzes || []).map((q: any) => ({ quiz_id: q.quiz_id, quiz_title: q.quiz_title }));
+        const studentsData: StudentWithMetrics[] = Array.isArray(data.students) ? data.students : [];
+        const quizAgg: QuizAgg[] = Array.isArray(data.quizzes) ? data.quizzes.map((q: any) => ({ quiz_id: q.quiz_id, quiz_title: q.quiz_title })) : [];
         setStudents(studentsData);
         setQuizzes(quizAgg);
         if (studentsData.length && !selectedStudentId) setSelectedStudentId(studentsData[0].id);

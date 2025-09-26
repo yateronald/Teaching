@@ -16,7 +16,11 @@ import {
     Modal,
     Space,
     Descriptions,
-    Spin
+    Spin,
+    Input,
+    Alert,
+    Form,
+    Tooltip
 } from 'antd';
 import {
     CalendarOutlined,
@@ -28,7 +32,9 @@ import {
     CheckCircleOutlined,
     ExclamationCircleOutlined,
     VideoCameraOutlined,
-    GlobalOutlined
+    GlobalOutlined,
+    LoginOutlined,
+    KeyOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -42,7 +48,6 @@ import interactionPlugin from '@fullcalendar/interaction';
 // import '@fullcalendar/timegrid/index.css';
 
 const { Title, Text } = Typography;
-const { TabPane } = Tabs;
 
 interface Schedule {
     id: number;
@@ -81,6 +86,14 @@ const StudentSchedule: React.FC = () => {
     const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
     const { apiCall } = useAuth();
 
+    // Attendance-related state
+    const [joinClassModalVisible, setJoinClassModalVisible] = useState(false);
+    const [selectedScheduleForJoin, setSelectedScheduleForJoin] = useState<Schedule | null>(null);
+    const [joiningClass, setJoiningClass] = useState(false);
+    const [accessCode, setAccessCode] = useState('');
+    const [sessionStatus, setSessionStatus] = useState<any>(null);
+    const [form] = Form.useForm();
+
     // Track joined meetings locally to show a "JOINED" badge after user joins
     const [joinedMap, setJoinedMap] = useState<Record<number, string>>(() => {
         try {
@@ -91,7 +104,28 @@ const StudentSchedule: React.FC = () => {
         }
     });
 
-    const hasJoined = (id: number) => Boolean(joinedMap[id]);
+    // Track server-side join status
+    const [serverJoinedMap, setServerJoinedMap] = useState<Record<number, boolean>>({});
+
+    const hasJoined = (id: number) => Boolean(joinedMap[id]) || Boolean(serverJoinedMap[id]);
+
+    // Check server-side join status for a schedule
+    const checkServerJoinStatus = async (scheduleId: number) => {
+        try {
+            const response = await apiCall(`/attendance/sessions/${scheduleId}/status`);
+            if (response.ok) {
+                const status = await response.json();
+                setServerJoinedMap(prev => ({
+                    ...prev,
+                    [scheduleId]: status.alreadyJoined || false
+                }));
+                return status.alreadyJoined || false;
+            }
+        } catch (error) {
+            console.error('Error checking server join status:', error);
+        }
+        return false;
+    };
     
     const markJoined = (id: number) => {
         const next = { ...joinedMap, [id]: dayjs().toISOString() };
@@ -164,6 +198,14 @@ const StudentSchedule: React.FC = () => {
                     };
                 });
                 setSchedules(normalized);
+                
+                // Check server-side join status for all class schedules
+                for (const schedule of normalized) {
+                    if (schedule.type === 'class') {
+                        await checkServerJoinStatus(schedule.id);
+                    }
+                }
+                
                 setStats(computeStats(normalized));
             } else {
                 message.error('Failed to fetch schedule');
@@ -301,7 +343,6 @@ const StudentSchedule: React.FC = () => {
 
     // Helper function to check if user can join the meeting (5 minutes before start time and not ended)
 
-
     // Enhanced canJoinMeeting that uses schedule object
     const canJoinMeetingSchedule = (schedule: Schedule): boolean => {
         const meetingDateTime = dayjs(`${schedule.date} ${schedule.start_time}`);
@@ -312,12 +353,148 @@ const StudentSchedule: React.FC = () => {
         return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime) && !isScheduleEnded(schedule);
     };
 
-    // Helper function to get secure meeting link (only when authorized)
-    const getSecureMeetingLink = (schedule: Schedule): string | null => {
-        if (!schedule.link || !canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)) {
-            return null;
+
+
+    // Handle join class button click
+    const handleJoinClass = async (schedule: Schedule) => {
+        setSelectedScheduleForJoin(schedule);
+        
+        // Check session status first
+        await checkSessionStatus(schedule.id);
+        
+        // Get the session status to check if already joined
+        try {
+            const response = await apiCall(`/attendance/sessions/${schedule.id}/status`);
+            if (response.ok) {
+                const status = await response.json();
+                
+                // If student has already joined and there's a meeting link, redirect directly
+                if (status.alreadyJoined && schedule.link) {
+                    message.success('You have already joined this class. Opening meeting link...');
+                    markJoined(schedule.id);
+                    window.open(schedule.link, '_blank');
+                    return;
+                }
+                
+                // If already joined but no meeting link, show success message
+                if (status.alreadyJoined) {
+                    message.success('You have already joined this class.');
+                    markJoined(schedule.id);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('Error checking join status:', error);
         }
-        return schedule.link;
+        
+        // If not joined yet, show the access code modal
+        setJoinClassModalVisible(true);
+        setAccessCode('');
+        form.resetFields();
+    };
+
+    // Check session status for a schedule
+    const checkSessionStatus = async (scheduleId: number) => {
+        try {
+            const response = await apiCall(`/attendance/sessions/${scheduleId}/status`);
+            if (response.ok) {
+                const status = await response.json();
+                setSessionStatus(status);
+            } else {
+                setSessionStatus(null);
+            }
+        } catch (error) {
+            console.error('Error checking session status:', error);
+            setSessionStatus(null);
+        }
+    };
+
+    // Handle access code submission
+    const handleSubmitAccessCode = async () => {
+        if (!selectedScheduleForJoin || !accessCode.trim()) {
+            message.error('Please enter the access code');
+            return;
+        }
+
+        setJoiningClass(true);
+        try {
+            let sessionId: number | null = null;
+            let lastResponseData: any = null;
+
+            // Prefer the session status endpoint result (checked when opening the modal)
+            if (sessionStatus?.canJoin && sessionStatus?.sessionId) {
+                sessionId = sessionStatus.sessionId;
+                console.log('Using sessionId from status endpoint:', sessionId);
+            }
+
+            if (!sessionId) {
+                // Fallback: query sessions by schedule only (no date filter to avoid mismatches)
+                const listResp = await apiCall(`/attendance/sessions?schedule_id=${selectedScheduleForJoin.id}`);
+                if (!listResp.ok) {
+                    throw new Error('Failed to fetch sessions for this schedule');
+                }
+
+                const responseData = await listResp.json();
+                lastResponseData = responseData;
+                const sessions = responseData.sessions || [];
+
+                // Debug logging
+                console.log('API Response (fallback):', responseData);
+                console.log('Sessions found:', sessions);
+                console.log('Looking for schedule_id:', selectedScheduleForJoin.id);
+                console.log('Selected schedule:', selectedScheduleForJoin);
+
+                // Prefer an active session
+                const active = sessions.find((s: any) =>
+                    Number(s.schedule_id) === Number(selectedScheduleForJoin.id) &&
+                    (s.status === 'in_progress' || s.status === 'started')
+                ) || sessions.find((s: any) => Number(s.schedule_id) === Number(selectedScheduleForJoin.id));
+
+                sessionId = active?.id ?? null;
+            }
+
+            if (!sessionId) {
+                console.log('No session found. Available sessions:', (lastResponseData?.sessions || []).map((s: any) => ({ id: s.id, schedule_id: s.schedule_id, status: s.status })));
+                throw new Error('No active session found for this class');
+            }
+
+            // Join the session with access code
+            const joinResponse = await apiCall(`/attendance/sessions/${sessionId}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accessCode: accessCode.trim().toUpperCase() })
+            });
+
+            if (joinResponse.ok) {
+                const result = await joinResponse.json();
+                message.success(`Successfully joined class! Attendance marked as ${result.status}`);
+                
+                // Mark as joined locally
+                markJoined(selectedScheduleForJoin.id);
+                
+                // Open meeting link if available
+                if (selectedScheduleForJoin.link) {
+                    window.open(selectedScheduleForJoin.link, '_blank', 'noopener,noreferrer');
+                }
+                
+                // Close modal
+                setJoinClassModalVisible(false);
+                setAccessCode('');
+                setSelectedScheduleForJoin(null);
+                form.resetFields();
+                
+                // Refresh schedules to update status
+                fetchSchedules();
+            } else {
+                const error = await joinResponse.json();
+                message.error(error.error || 'Failed to join class');
+            }
+        } catch (error) {
+            console.error('Error joining class:', error);
+            message.error('Error joining class. Please try again.');
+        } finally {
+            setJoiningClass(false);
+        }
     };
 
 
@@ -427,13 +604,29 @@ const StudentSchedule: React.FC = () => {
                                         {isScheduleEnded(nextClass) ? 'Ended' : (canJoinMeetingSchedule(nextClass) ? 'Join Now' : 'Join soon')}
                                     </Button>
                                 ) : null}
+                                {nextClass.type === 'class' && (
+                                    <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
+                                        <Button 
+                                            type="primary"
+                                            icon={<LoginOutlined />}
+                                            onClick={() => handleJoinClass(nextClass)}
+                                            disabled={hasJoined(nextClass.id) || isScheduleEnded(nextClass)}
+                                            style={{
+                                                backgroundColor: hasJoined(nextClass.id) ? '#52c41a' : '#1890ff',
+                                                borderColor: hasJoined(nextClass.id) ? '#52c41a' : '#1890ff'
+                                            }}
+                                        >
+                                            {hasJoined(nextClass.id) ? 'Joined' : 'Join Class'}
+                                        </Button>
+                                    </Tooltip>
+                                )}
                                 <Button 
                                     ghost
                                     onClick={() => handleViewDetails(nextClass)}
                                 >
                                     Details
                                 </Button>
-                                {hasJoined(nextClass.id) ? <Tag color="success">JOINED</Tag> : null}
+                                {hasJoined(nextClass.id) ? <Tag color="success">ATTENDED</Tag> : null}
                             </Space>
                         </Col>
                     </Row>
@@ -464,44 +657,124 @@ const StudentSchedule: React.FC = () => {
                     </Card>
                 </Col>
                 <Col span={8}>
-                    <Tabs defaultActiveKey="today" size="small">
-                        <TabPane tab={`Today (${todaySchedules.length})`} key="today">
-                            <Card size="small">
-                                {loading ? (
-                                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                                        <Spin size="large" />
-                                        <div style={{ marginTop: 8 }}>Loading today's schedule...</div>
-                                    </div>
-                                ) : todaySchedules.length > 0 ? (
-                                    <Timeline>
-                                        {todaySchedules
-                                            .sort((a, b) => a.start_time.localeCompare(b.start_time))
-                                            .map(schedule => (
-                                                <Timeline.Item
-                                                    key={schedule.id}
-                                                    dot={getStatusIcon(getEffectiveStatus(schedule))}
-                                                    color={getStatusColor(getEffectiveStatus(schedule))}
-                                                >
-                                                    <div 
+                    <Tabs 
+                        defaultActiveKey="today" 
+                        size="small"
+                        items={[
+                            {
+                                key: 'today',
+                                label: `Today (${todaySchedules.length})`,
+                                children: (
+                                    <Card size="small">
+                                        {loading ? (
+                                            <div style={{ textAlign: 'center', padding: '20px' }}>
+                                                <Spin size="large" />
+                                                <div style={{ marginTop: 8 }}>Loading today's schedule...</div>
+                                            </div>
+                                        ) : todaySchedules.length > 0 ? (
+                                            <Timeline>
+                                                {todaySchedules
+                                                    .sort((a, b) => a.start_time.localeCompare(b.start_time))
+                                                    .map(schedule => (
+                                                        <Timeline.Item
+                                                            key={schedule.id}
+                                                            dot={getStatusIcon(getEffectiveStatus(schedule))}
+                                                            color={getStatusColor(getEffectiveStatus(schedule))}
+                                                        >
+                                                            <div 
+                                                                style={{ cursor: 'pointer' }}
+                                                                onClick={() => handleViewDetails(schedule)}
+                                                            >
+                                                                <Text strong>{formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}</Text>
+                                                                <br />
+                                                                <Text>{schedule.title}</Text>
+                                                                <br />
+                                                                <Space size="small" wrap>
+                                                                    {schedule.location_mode === 'online' ? (
+                                                                        <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
+                                                                    ) : (
+                                                                        <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
+                                                                    )}
+                                                                    <Tag color={getTypeColor(schedule.type)}>
+                                                                        {schedule.type.toUpperCase()}
+                                                                    </Tag>
+                                                                    {hasJoined(schedule.id) ? <Tag color="success">ATTENDED</Tag> : null}
+                                                                    {schedule.type === 'class' && (
+                                                                        <Button
+                                                                            size="small"
+                                                                            type="primary"
+                                                                            icon={<LoginOutlined />}
+                                                                            disabled={hasJoined(schedule.id) || isScheduleEnded(schedule)}
+                                                                            style={{
+                                                                                backgroundColor: hasJoined(schedule.id) ? '#52c41a' : '#1890ff',
+                                                                                borderColor: hasJoined(schedule.id) ? '#52c41a' : '#1890ff'
+                                                                            }}
+                                                                            onClick={(e) => {
+                                                                                (e as any).stopPropagation();
+                                                                                handleJoinClass(schedule);
+                                                                            }}
+                                                                        >
+                                                                            {hasJoined(schedule.id) ? 'Joined' : 'Join Class'}
+                                                                        </Button>
+                                                                    )}
+                                                                    {schedule.link ? (
+                                                                        <Button
+                                                                            size="small"
+                                                                            type="primary"
+                                                                            disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
+                                                                            style={{
+                                                                                backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                                borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
+                                                                                color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
+                                                                            }}
+                                                                            onClick={(e) => {
+                                                                        (e as any).stopPropagation();
+                                                                        if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
+                                                                            handleJoinClass(schedule);
+                                                                        }
+                                                                    }}
+                                                                        >
+                                                                            {isScheduleEnded(schedule) ? 'Ended' : 'Join Meeting'}
+                                                                        </Button>
+                                                                    ) : null}
+                                                                </Space>
+                                                            </div>
+                                                        </Timeline.Item>
+                                                    ))
+                                                }
+                                            </Timeline>
+                                        ) : (
+                                            <Empty 
+                                                description="No classes today" 
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                            />
+                                        )}
+                                    </Card>
+                                )
+                            },
+                            {
+                                key: 'upcoming',
+                                label: `Upcoming (${upcomingSchedules.slice(0, 10).length})`,
+                                children: (
+                                    <Card size="small">
+                                        {loading ? (
+                                            <div style={{ textAlign: 'center', padding: '20px' }}>
+                                                <Spin size="large" />
+                                                <div style={{ marginTop: 8 }}>Loading upcoming classes...</div>
+                                            </div>
+                                        ) : upcomingSchedules.slice(0, 10).length > 0 ? (
+                                            <List
+                                                size="small"
+                                                dataSource={upcomingSchedules.slice(0, 10)}
+                                                renderItem={(schedule) => (
+                                                    <List.Item 
                                                         style={{ cursor: 'pointer' }}
                                                         onClick={() => handleViewDetails(schedule)}
-                                                    >
-                                                        <Text strong>{formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}</Text>
-                                                        <br />
-                                                        <Text>{schedule.title}</Text>
-                                                        <br />
-                                                        <Space size="small" wrap>
-                                                            {schedule.location_mode === 'online' ? (
-                                                                <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
-                                                            ) : (
-                                                                <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
-                                                            )}
-                                                            <Tag color={getTypeColor(schedule.type)}>
-                                                                {schedule.type.toUpperCase()}
-                                                            </Tag>
-                                                            {hasJoined(schedule.id) ? <Tag color="success">JOINED</Tag> : null}
-                                                            {schedule.link ? (
+                                                        actions={[
+                                                            hasJoined(schedule.id) ? (<Tag color="success" key="joined">JOINED</Tag>) : null,
+                                                            schedule.link ? (
                                                                 <Button
+                                                                    key="join"
                                                                     size="small"
                                                                     type="primary"
                                                                     disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
@@ -513,174 +786,124 @@ const StudentSchedule: React.FC = () => {
                                                                     onClick={(e) => {
                                                                         (e as any).stopPropagation();
                                                                         if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
-                                                                            markJoined(schedule.id);
-                                                                            window.open(schedule.link as string, '_blank');
+                                                                            handleJoinClass(schedule);
                                                                         }
                                                                     }}
                                                                 >
                                                                     {isScheduleEnded(schedule) ? 'Ended' : 'Join'}
                                                                 </Button>
-                                                            ) : null}
-                                                        </Space>
-                                                    </div>
-                                                </Timeline.Item>
-                                            ))
-                                        }
-                                    </Timeline>
-                                ) : (
-                                    <Empty 
-                                        description="No classes today" 
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                    />
-                                )}
-                            </Card>
-                        </TabPane>
-                        
-                        <TabPane tab={`Upcoming (${upcomingSchedules.slice(0, 10).length})`} key="upcoming">
-                            <Card size="small">
-                                {loading ? (
-                                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                                        <Spin size="large" />
-                                        <div style={{ marginTop: 8 }}>Loading upcoming classes...</div>
-                                    </div>
-                                ) : upcomingSchedules.slice(0, 10).length > 0 ? (
-                                    <List
-                                        size="small"
-                                        dataSource={upcomingSchedules.slice(0, 10)}
-                                        renderItem={(schedule) => (
-                                            <List.Item 
-                                                style={{ cursor: 'pointer' }}
-                                                onClick={() => handleViewDetails(schedule)}
-                                                actions={[
-                                                    hasJoined(schedule.id) ? (<Tag color="success" key="joined">JOINED</Tag>) : null,
-                                                    schedule.link ? (
-                                                        <Button
-                                                            key="join"
-                                                            size="small"
-                                                            type="primary"
-                                                            disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
-                                                            style={{
-                                                                backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
-                                                            }}
-                                                            onClick={(e) => {
-                                                                (e as any).stopPropagation();
-                                                                if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
-                                                                    markJoined(schedule.id);
-                                                                    window.open(schedule.link as string, '_blank');
-                                                                }
-                                                            }}
-                                                        >
-                                                            {isScheduleEnded(schedule) ? 'Ended' : 'Join'}
-                                                        </Button>
-                                                    ) : null
-                                                ].filter(Boolean) as any}
-                                            >
-                                                <List.Item.Meta
-                                                    avatar={
-                                                        <Avatar 
-                                                            style={{ backgroundColor: getTypeColor(schedule.type) }}
-                                                            icon={<BookOutlined />}
+                                                            ) : null
+                                                        ].filter(Boolean) as any}
+                                                    >
+                                                        <List.Item.Meta
+                                                            avatar={
+                                                                <Avatar 
+                                                                    style={{ backgroundColor: getTypeColor(schedule.type) }}
+                                                                    icon={<BookOutlined />}
+                                                                />
+                                                            }
+                                                            title={
+                                                                <Space>
+                                                                    <Text strong>{schedule.title}</Text>
+                                                                    <Tag color={getTypeColor(schedule.type)}>
+                                                                        {schedule.type.toUpperCase()}
+                                                                    </Tag>
+                                                                </Space>
+                                                            }
+                                                            description={
+                                                                <div>
+                                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                                                        {dayjs(schedule.date).format('MMM DD')} • {formatTime(schedule.start_time)}
+                                                                    </Text>
+                                                                    <br />
+                                                                    <Space size="small">
+                                                                        {schedule.location_mode === 'online' ? (
+                                                                            <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
+                                                                        ) : (
+                                                                            <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
+                                                                        )}
+                                                                    </Space>
+                                                                </div>
+                                                            }
                                                         />
-                                                    }
-                                                    title={
-                                                        <Space>
-                                                            <Text strong>{schedule.title}</Text>
-                                                            <Tag color={getTypeColor(schedule.type)}>
-                                                                {schedule.type.toUpperCase()}
-                                                            </Tag>
-                                                        </Space>
-                                                    }
-                                                    description={
-                                                        <div>
-                                                            <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                {dayjs(schedule.date).format('MMM DD')} • {formatTime(schedule.start_time)}
-                                                            </Text>
-                                                            <br />
-                                                            <Space size="small">
-                                                                {schedule.location_mode === 'online' ? (
-                                                                    <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
-                                                                ) : (
-                                                                    <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
-                                                                )}
-                                                            </Space>
-                                                        </div>
-                                                    }
-                                                />
-                                            </List.Item>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty 
+                                                description="No upcoming classes" 
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                            />
                                         )}
-                                    />
-                                ) : (
-                                    <Empty 
-                                        description="No upcoming classes" 
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                    />
-                                )}
-                            </Card>
-                        </TabPane>
-                        
-                        <TabPane tab={`This Week (${thisWeekSchedules.length})`} key="week">
-                            <Card size="small">
-                                {loading ? (
-                                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                                        <Spin size="large" />
-                                        <div style={{ marginTop: 8 }}>Loading this week's schedule...</div>
-                                    </div>
-                                ) : thisWeekSchedules.length > 0 ? (
-                                    <List
-                                        size="small"
-                                        dataSource={thisWeekSchedules
-                                            .sort((a, b) => {
-                                                const dateTimeA = dayjs(`${a.date} ${a.start_time}`);
-                                                const dateTimeB = dayjs(`${b.date} ${b.start_time}`);
-                                                return dateTimeA.valueOf() - dateTimeB.valueOf();
-                                            })
-                                        }
-                                        renderItem={(schedule) => (
-                                            <List.Item 
-                                                style={{ cursor: 'pointer' }}
-                                                onClick={() => handleViewDetails(schedule)}
-                                            >
-                                                <List.Item.Meta
-                                                    avatar={
-                                                        <Avatar 
-                                                            style={{ backgroundColor: getStatusColor(getEffectiveStatus(schedule)) }}
-                                                            icon={getStatusIcon(getEffectiveStatus(schedule))}
+                                    </Card>
+                                )
+                            },
+                            {
+                                key: 'week',
+                                label: `This Week (${thisWeekSchedules.length})`,
+                                children: (
+                                    <Card size="small">
+                                        {loading ? (
+                                            <div style={{ textAlign: 'center', padding: '20px' }}>
+                                                <Spin size="large" />
+                                                <div style={{ marginTop: 8 }}>Loading this week's schedule...</div>
+                                            </div>
+                                        ) : thisWeekSchedules.length > 0 ? (
+                                            <List
+                                                size="small"
+                                                dataSource={thisWeekSchedules
+                                                    .sort((a, b) => {
+                                                        const dateTimeA = dayjs(`${a.date} ${a.start_time}`);
+                                                        const dateTimeB = dayjs(`${b.date} ${b.start_time}`);
+                                                        return dateTimeA.valueOf() - dateTimeB.valueOf();
+                                                    })
+                                                }
+                                                renderItem={(schedule) => (
+                                                    <List.Item 
+                                                        style={{ cursor: 'pointer' }}
+                                                        onClick={() => handleViewDetails(schedule)}
+                                                    >
+                                                        <List.Item.Meta
+                                                            avatar={
+                                                                <Avatar 
+                                                                    style={{ backgroundColor: getStatusColor(getEffectiveStatus(schedule)) }}
+                                                                    icon={getStatusIcon(getEffectiveStatus(schedule))}
+                                                                />
+                                                            }
+                                                            title={
+                                                                <Space>
+                                                                    <Text strong>{schedule.title}</Text>
+                                                                    <Tag color={getStatusColor(getEffectiveStatus(schedule))}>
+                                                                        {getEffectiveStatus(schedule).toUpperCase()}
+                                                                    </Tag>
+                                                                </Space>
+                                                            }
+                                                            description={
+                                                                <div>
+                                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                                                                        {dayjs(schedule.date).format('ddd, MMM DD')} • {formatTime(schedule.start_time)}
+                                                                    </Text>
+                                                                    <br />
+                                                                    <Text type="secondary" style={{ fontSize: '11px' }}>
+                                                                        <TeamOutlined /> {schedule.teacher_name}
+                                                                    </Text>
+                                                                </div>
+                                                            }
                                                         />
-                                                    }
-                                                    title={
-                                                        <Space>
-                                                            <Text strong>{schedule.title}</Text>
-                                                            <Tag color={getStatusColor(getEffectiveStatus(schedule))}>
-                                                                {getEffectiveStatus(schedule).toUpperCase()}
-                                                            </Tag>
-                                                        </Space>
-                                                    }
-                                                    description={
-                                                        <div>
-                                                            <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                {dayjs(schedule.date).format('ddd, MMM DD')} • {formatTime(schedule.start_time)}
-                                                            </Text>
-                                                            <br />
-                                                            <Text type="secondary" style={{ fontSize: '11px' }}>
-                                                                <TeamOutlined /> {schedule.teacher_name}
-                                                            </Text>
-                                                        </div>
-                                                    }
-                                                />
-                                            </List.Item>
+                                                    </List.Item>
+                                                )}
+                                            />
+                                        ) : (
+                                            <Empty 
+                                                description="No classes this week" 
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                            />
                                         )}
-                                    />
-                                ) : (
-                                    <Empty 
-                                        description="No classes this week" 
-                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                    />
-                                )}
-                            </Card>
-                        </TabPane>
-                    </Tabs>
+                                    </Card>
+                                )
+                            }
+                        ]}
+                    />
                 </Col>
             </Row>
 
@@ -701,10 +924,8 @@ const StudentSchedule: React.FC = () => {
                                 color: isScheduleEnded(selectedSchedule) ? '#00000040' : (canJoinMeetingSchedule(selectedSchedule) ? '#fff' : '#00000040')
                             }}
                             onClick={() => {
-                                const meetingLink = getSecureMeetingLink(selectedSchedule);
-                                if (meetingLink && !isScheduleEnded(selectedSchedule)) {
-                                    markJoined(selectedSchedule.id);
-                                    window.open(meetingLink, '_blank');
+                                if (canJoinMeetingSchedule(selectedSchedule) && !isScheduleEnded(selectedSchedule)) {
+                                    handleJoinClass(selectedSchedule);
                                 }
                             }}
                         >
@@ -757,6 +978,147 @@ const StudentSchedule: React.FC = () => {
                             </Descriptions.Item>
                         </Descriptions>
                     </>
+                )}
+            </Modal>
+
+            {/* Join Class Modal */}
+            <Modal
+                title="Join Class"
+                open={joinClassModalVisible}
+                onCancel={() => {
+                    if (!joiningClass) {
+                        setJoinClassModalVisible(false);
+                        setSelectedScheduleForJoin(null);
+                        setAccessCode('');
+                        setSessionStatus(null);
+                        form.resetFields();
+                    }
+                }}
+                footer={null}
+                width={500}
+                closable={!joiningClass}
+                maskClosable={!joiningClass}
+            >
+                {selectedScheduleForJoin && (
+                    <div>
+                        {/* Class Information */}
+                        <div style={{ marginBottom: 24 }}>
+                            <h3 style={{ marginBottom: 16, color: '#1890ff' }}>
+                                📚 {selectedScheduleForJoin.title}
+                            </h3>
+                            <Row gutter={16}>
+                                <Col span={12}>
+                                    <p><strong>Batch:</strong> {selectedScheduleForJoin.batch_name}</p>
+                                    <p><strong>Teacher:</strong> {selectedScheduleForJoin.teacher_name}</p>
+                                </Col>
+                                <Col span={12}>
+                                    <p><strong>Date:</strong> {dayjs(selectedScheduleForJoin.date).format('MMMM D, YYYY')}</p>
+                                    <p><strong>Time:</strong> {selectedScheduleForJoin.start_time} - {selectedScheduleForJoin.end_time}</p>
+                                </Col>
+                            </Row>
+                        </div>
+
+                        {/* Session Status Alert */}
+                        {sessionStatus ? (
+                            sessionStatus.canJoin ? (
+                                <Alert
+                                    message="Class Session Active"
+                                    description="Your teacher has started the class session. Enter the access code you received via email to join and mark your attendance."
+                                    type="success"
+                                    showIcon
+                                    style={{ marginBottom: 24 }}
+                                />
+                            ) : (
+                                <Alert
+                                    message="Cannot Join Class"
+                                    description={sessionStatus.reason || 'Class session is not available for joining at this time.'}
+                                    type="warning"
+                                    showIcon
+                                    style={{ marginBottom: 24 }}
+                                />
+                            )
+                        ) : (
+                            <Alert
+                                message="Waiting for Teacher"
+                                description="The teacher has not started the class session yet. You will receive an email with the access code once the session begins."
+                                type="info"
+                                showIcon
+                                style={{ marginBottom: 24 }}
+                            />
+                        )}
+
+                        {/* Access Code Form */}
+                        {sessionStatus?.canJoin && (
+                            <Form
+                                form={form}
+                                layout="vertical"
+                                onFinish={handleSubmitAccessCode}
+                            >
+                                <Form.Item
+                                    label="Access Code"
+                                    name="accessCode"
+                                    rules={[
+                                        { required: true, message: 'Please enter the access code' },
+                                        { len: 6, message: 'Access code must be 6 characters' }
+                                    ]}
+                                >
+                                    <Input
+                                        size="large"
+                                        placeholder="Enter 6-digit access code"
+                                        value={accessCode}
+                                        onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
+                                        maxLength={6}
+                                        style={{
+                                            textAlign: 'center',
+                                            fontSize: '18px',
+                                            letterSpacing: '4px',
+                                            fontFamily: 'monospace'
+                                        }}
+                                        prefix={<KeyOutlined />}
+                                    />
+                                </Form.Item>
+
+                                <Form.Item style={{ marginBottom: 0, textAlign: 'center' }}>
+                                    <Space size="large">
+                                        <Button
+                                            onClick={() => setJoinClassModalVisible(false)}
+                                            disabled={joiningClass}
+                                        >
+                                            Cancel
+                                        </Button>
+                                        <Button
+                                            type="primary"
+                                            htmlType="submit"
+                                            loading={joiningClass}
+                                            disabled={!accessCode.trim() || accessCode.length !== 6}
+                                            size="large"
+                                            style={{
+                                                background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                                                border: 'none'
+                                            }}
+                                        >
+                                            {joiningClass ? 'Joining Class...' : 'Join Class'}
+                                        </Button>
+                                    </Space>
+                                </Form.Item>
+                            </Form>
+                        )}
+
+                        {/* Instructions */}
+                        <Alert
+                            message="How to Join"
+                            description={
+                                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                    <li>Wait for your teacher to start the class session</li>
+                                    <li>Check your email for the access code</li>
+                                    <li>Enter the 6-digit code above</li>
+                                    <li>Your attendance will be automatically recorded</li>
+                                </ul>
+                            }
+                            type="info"
+                            style={{ marginTop: 16 }}
+                        />
+                    </div>
                 )}
             </Modal>
         </div>

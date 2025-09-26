@@ -26,12 +26,13 @@ class PostgreSQLDatabase {
         // Support both local PostgreSQL and Neon PostgreSQL
         const isProduction = process.env.NODE_ENV === 'production';
         const isNeon = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('neon');
+        const sslmodeRequire = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require');
         
         if (process.env.DATABASE_URL) {
             // Use DATABASE_URL for Neon or other cloud PostgreSQL services
             return {
                 connectionString: process.env.DATABASE_URL,
-                ssl: isNeon ? { rejectUnauthorized: false } : false
+                ssl: (isNeon || sslmodeRequire) ? { rejectUnauthorized: false } : undefined
             };
         } else {
             // Use individual connection parameters for local PostgreSQL
@@ -229,3 +230,13 @@ if (require.main === module) {
     
     test();
 }
+
+// Ensure PostgreSQL numeric types are parsed as JavaScript numbers
+const { types } = require('pg');
+// OID 1700 = NUMERIC/DECIMAL -> parse as float
+types.setTypeParser(1700, (val) => (val === null ? null : parseFloat(val)));
+// OID 20 = INT8 -> parse safely as integer (may overflow JS number if very large)
+types.setTypeParser(20, (val) => (val === null ? null : parseInt(val, 10)));
+// OID 700 = float4, 701 = float8
+types.setTypeParser(700, (val) => (val === null ? null : parseFloat(val)));
+types.setTypeParser(701, (val) => (val === null ? null : parseFloat(val)));
