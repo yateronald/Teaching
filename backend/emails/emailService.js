@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
-const { createEmailTransport, sendEmail } = require('./transport');
+// Use the new Brevo service instead of transport
+const { sendEmail } = require('./brevoService');
 const { buildEmailChangeVerificationTemplate } = require('./templates/emailChangeVerification');
 const { buildPasswordResetOTPTemplate } = require('./templates/passwordResetOTP');
 const { buildPasswordResetSuccessTemplate } = require('./templates/passwordResetSuccess');
@@ -16,7 +17,19 @@ const { buildClassReminderTemplate } = require('./templates/classReminder');
 const { buildMeetingUpdateTemplate } = require('./templates/meetingUpdate');
 const { buildMeetingCancellationTemplate } = require('./templates/meetingCancellation');
 
-const transporter = createEmailTransport();
+// Helper function to create consistent sender email format
+function getFromEmail() {
+    const emailFrom = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com';
+    const emailFromName = process.env.EMAIL_FROM_NAME || 'Learn French with Natives';
+    
+    // If EMAIL_FROM already contains a name in "Name <email>" format, use it as-is
+    if (emailFrom.includes('<') && emailFrom.includes('>')) {
+        return emailFrom;
+    }
+    
+    // Otherwise, construct the format
+    return `${emailFromName} <${emailFrom}>`;
+}
 
 function resolveLogoFile() {
     // Prefer frontend/src/assets/Logo.png, fallback to frontend/public/assets/Logo.png
@@ -36,7 +49,7 @@ async function sendEmailChangeVerification({ to, username, oldEmail, newEmail, c
     const { subject, html, text } = buildEmailChangeVerificationTemplate({ username, oldEmail, newEmail, code, logoCid });
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
@@ -44,7 +57,7 @@ async function sendEmailChangeVerification({ to, username, oldEmail, newEmail, c
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 function buildSimpleHtmlWrapper(title, contentHtml) {
@@ -52,7 +65,7 @@ function buildSimpleHtmlWrapper(title, contentHtml) {
 }
 
 async function sendEmailChangeNotifications({ oldEmail, newEmail, username }) {
-    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const from = getFromEmail();
     const logoPath = resolveLogoFile();
     const logoCid = 'brand-logo@lfwn';
 
@@ -63,77 +76,72 @@ async function sendEmailChangeNotifications({ oldEmail, newEmail, username }) {
 
     const attachments = logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : [];
     const results = [];
-    results.push(await sendEmail(transporter, { from, to: oldEmail, subject: oldSubject, html: oldHtml, text: oldText, attachments }));
-    results.push(await sendEmail(transporter, { from, to: newEmail, subject: newSubject, html: newHtml, text: newText, attachments }));
+    results.push(await sendEmail({ from, to: oldEmail, subject: oldSubject, html: oldHtml, text: oldText, attachments }));
+    results.push(await sendEmail({ from, to: newEmail, subject: newSubject, html: newHtml, text: newText, attachments }));
     return results;
 }
 
-async function sendPasswordResetOTP({ to, username, code }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
-    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, code, logoCid });
+async function sendPasswordResetOTP({ to, username, otp }) {
+    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, otp });
+
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
-    return await sendEmail(transporter, mailOptions);
+
+    return await sendEmail(mailOptions);
 }
 
 async function sendPasswordResetSuccess({ to, username }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
-    const { subject, html, text } = buildPasswordResetSuccessTemplate({ username, logoCid });
+    const { subject, html, text } = buildPasswordResetSuccessTemplate({ username });
+
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
-    return await sendEmail(transporter, mailOptions);
+
+    return await sendEmail(mailOptions);
 }
 
-// New: batch assignment/enrollment emails
-async function sendBatchAssignmentToTeacher({ to, teacherName, batchName, frenchLevel, startDate, endDate, schedules }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
-    const { subject, html, text } = buildBatchAssignmentTeacherTemplate({ teacherName, batchName, frenchLevel, startDate, endDate, schedules, logoCid, studentCount: arguments[0]?.studentCount });
+async function sendBatchAssignmentToTeacher({ to, teacherName, batchName, studentCount, startDate, endDate }) {
+    const { subject, html, text } = buildBatchAssignmentTeacherTemplate({ teacherName, batchName, studentCount, startDate, endDate });
+
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
-    return await sendEmail(transporter, mailOptions);
+
+    return await sendEmail(mailOptions);
 }
 
-async function sendBatchEnrollmentToStudent({ to, studentName, batchName, frenchLevel, startDate, endDate, schedules }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
-    const { subject, html, text } = buildBatchEnrollmentStudentTemplate({ studentName, batchName, frenchLevel, startDate, endDate, schedules, logoCid, studentCount: arguments[0]?.studentCount });
+async function sendBatchEnrollmentToStudent({ to, studentName, batchName, teacherName, startDate, endDate }) {
+    const { subject, html, text } = buildBatchEnrollmentStudentTemplate({ studentName, batchName, teacherName, startDate, endDate });
+
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
-    return await sendEmail(transporter, mailOptions);
+
+    return await sendEmail(mailOptions);
 }
 
 // New: Welcome email for newly created users (admin-created)
 async function sendWelcomeEmail({ to, username, tempPassword }) {
     const logoPath = resolveLogoFile();
     const logoCid = 'brand-logo@lfwn';
-    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const from = getFromEmail();
     const appBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
     const loginUrl = `${appBase}/login`;
 
@@ -147,14 +155,14 @@ async function sendWelcomeEmail({ to, username, tempPassword }) {
         text,
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Admin-initiated password reset notification with temp password
 async function sendAdminPasswordReset({ to, username, tempPassword }) {
     const logoPath = resolveLogoFile();
     const logoCid = 'brand-logo@lfwn';
-    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const from = getFromEmail();
     const appBase = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
     const loginUrl = `${appBase}/login`;
 
@@ -168,14 +176,14 @@ async function sendAdminPasswordReset({ to, username, tempPassword }) {
         text,
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Quiz notification email when quiz is published
 async function sendQuizNotification({ to, studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints }) {
     const logoPath = resolveLogoFile();
     const logoCid = 'brand-logo@lfwn';
-    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
+    const from = getFromEmail();
 
     const { subject, html, text } = buildQuizNotificationTemplate({ 
         studentName, 
@@ -197,36 +205,22 @@ async function sendQuizNotification({ to, studentName, quizName, teacherName, ba
         text,
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Quiz reminder email 5 minutes before quiz starts
-async function sendQuizReminder({ to, studentName, quizName, teacherName, batchName, duration, startDate, totalPoints, quizUrl }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
-    const from = `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`;
-
-    const { subject, html, text } = buildQuizReminderTemplate({ 
-        studentName, 
-        quizName, 
-        teacherName, 
-        batchName, 
-        duration, 
-        startDate, 
-        totalPoints, 
-        quizUrl, 
-        logoCid 
-    });
+async function sendQuizReminder({ to, studentName, quizTitle, dueDate, quizLink }) {
+    const { subject, html, text } = buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink });
 
     const mailOptions = {
-        from,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
-    return await sendEmail(transporter, mailOptions);
+
+    return await sendEmail(mailOptions);
 }
 
 // New: Class schedule notification to students
@@ -264,7 +258,7 @@ async function sendClassScheduleNotification({
     });
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
@@ -272,7 +266,7 @@ async function sendClassScheduleNotification({
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Class reminder to students (5 minutes before)
@@ -306,7 +300,7 @@ async function sendClassReminder({
     });
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
@@ -314,7 +308,7 @@ async function sendClassReminder({
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Meeting update notification
@@ -352,7 +346,7 @@ async function sendMeetingUpdate({
     });
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
@@ -360,7 +354,7 @@ async function sendMeetingUpdate({
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 // New: Meeting cancellation notification
@@ -396,7 +390,7 @@ async function sendMeetingCancellation({
     });
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
@@ -404,23 +398,31 @@ async function sendMeetingCancellation({
         attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
-async function sendAccessCodeEmail({ to, subject, html, text }) {
-    const logoPath = resolveLogoFile();
-    const logoCid = 'brand-logo@lfwn';
+async function sendAccessCodeEmail({ to, username, accessCode, expiresAt }) {
+    const subject = 'Your Access Code — Learn French with Natives';
+    
+    const html = `
+        <h2>Your Access Code</h2>
+        <p>Hello ${username},</p>
+        <p>Your access code is: <strong>${accessCode}</strong></p>
+        <p>This code expires at: ${expiresAt}</p>
+        <p>Best regards,<br>Learn French with Natives Team</p>
+    `;
+    
+    const text = `Your Access Code\n\nHello ${username},\n\nYour access code is: ${accessCode}\n\nThis code expires at: ${expiresAt}\n\nBest regards,\nLearn French with Natives Team`;
 
     const mailOptions = {
-        from: `Learn French with Natives <${process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com'}>`,
+        from: getFromEmail(),
         to,
         subject,
         html,
-        text,
-        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+        text
     };
 
-    return await sendEmail(transporter, mailOptions);
+    return await sendEmail(mailOptions);
 }
 
 module.exports = {

@@ -19,6 +19,7 @@
     "npm": ">=8.0.0"
   },
   "dependencies": {
+    "@getbrevo/brevo": "^3.0.1",
     "bcryptjs": "^3.0.2",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
@@ -33,6 +34,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^6.10.1",
     "pg": "^8.16.3",
+    "sib-api-v3-sdk": "^8.5.0",
     "sqlite3": "^5.1.7"
   },
   "devDependencies": {
