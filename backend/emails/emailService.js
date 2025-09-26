@@ -81,8 +81,8 @@ async function sendEmailChangeNotifications({ oldEmail, newEmail, username }) {
     return results;
 }
 
-async function sendPasswordResetOTP({ to, username, otp }) {
-    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, otp });
+async function sendPasswordResetOTP({ to, username, code }) {
+    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, code });
 
     const mailOptions = {
         from: getFromEmail(),
