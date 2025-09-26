@@ -45,16 +45,22 @@ const createEmailTransport = () => {
             user,
             pass
         },
-        // Additional settings for better reliability
-        pool: true,
-        maxConnections: 100,
-        maxMessages: 100,
-        rateLimit: 100, // Max ~10 emails per second
-        connectionTimeout: 60000, // 60 seconds
-        socketTimeout: 60000,
-        // For some providers on 587, you may need relaxed TLS during STARTTLS negotiation
-        tls: secure ? undefined : { rejectUnauthorized: false },
-        debug: process.env.NODE_ENV === 'development'
+        // Improved settings for better reliability and timeout handling
+        pool: false, // Disable connection pooling to avoid timeout issues
+        maxConnections: 1,
+        maxMessages: 1,
+        connectionTimeout: 30000, // Reduced to 30 seconds
+        greetingTimeout: 30000, // 30 seconds for greeting
+        socketTimeout: 30000, // 30 seconds for socket operations
+        // Enhanced TLS settings for better compatibility
+        tls: {
+            rejectUnauthorized: false,
+            ciphers: 'SSLv3',
+            secureProtocol: 'TLSv1_2_method'
+        },
+        // Enable debug logging to help diagnose issues
+        debug: process.env.NODE_ENV === 'development',
+        logger: process.env.NODE_ENV === 'development'
     });
 
     // Verify connection on creation (best-effort)
