@@ -21,7 +21,7 @@ const SibApiV3Sdk = require('sib-api-v3-sdk');
 // Brevo API configuration
 const createEmailTransport = () => {
     // Use the Brevo API key - can be set via environment variable or use the provided one
-    const apiKey = process.env.BREVO_API_KEY || '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';
+    const apiKey = process.env.BREVO_API_KEY ;
     const fromEmail = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com';
     const fromName = process.env.EMAIL_FROM_NAME || 'French Learning Platform';
     
