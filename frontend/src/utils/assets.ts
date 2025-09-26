@@ -33,6 +33,7 @@ export const ASSET_PATHS = {
   },
   // Example placeholders for organizing other assets
   IMAGES: {
+    FR_BACKGROUND: getAssetPath('assets/fr.jpeg'), // French background image
     // EXAMPLE_BG: getAssetPath('images/example-bg.jpg'), // public/images/example-bg.jpg
   },
   VIDEOS: {
