@@ -1,117 +1,63 @@
-// Load env with fallback to backend/.env or backend/.env.postgres
-const fs = require('fs');
-const path = require('path');
-(() => {
-  const backendRoot = path.join(__dirname, '..');
-  const envPath = fs.existsSync(path.join(backendRoot, '.env'))
-    ? path.join(backendRoot, '.env')
-    : (fs.existsSync(path.join(backendRoot, '.env.postgres'))
-        ? path.join(backendRoot, '.env.postgres')
-        : null);
-  if (envPath) {
-    require('dotenv').config({ path: envPath });
-    console.log(`Loaded environment from ${path.basename(envPath)}`);
-  } else {
-    require('dotenv').config();
-  }
-})();
 const nodemailer = require('nodemailer');
 
-// Hostinger SMTP configuration with secure handling of credentials
 const createEmailTransport = () => {
-    const user = process.env.EMAIL_USER; // must be provided via env
-    const pass = process.env.EMAIL_PASS; // must be provided via env
+  const user = process.env.EMAIL_USER; // e.g. no-reply@yourdomain.com
+  const pass = process.env.EMAIL_PASS;
 
-    if (!user || !pass) {
-        // Fallback to JSON transport in development-like scenarios to avoid leaking credentials
-        console.warn('Email credentials are missing (EMAIL_USER/EMAIL_PASS). Using JSON transport (emails will NOT actually be sent).');
-        const transporter = nodemailer.createTransport({
-            jsonTransport: true
-        });
-        return transporter;
-    }
+  if (!user || !pass) {
+    console.warn(
+      'Email credentials missing (EMAIL_USER/EMAIL_PASS). Using JSON transport (no emails sent).'
+    );
+    return nodemailer.createTransport({ jsonTransport: true });
+  }
 
-    const host = process.env.EMAIL_HOST || 'smtp.hostinger.com';
-    const port = Number(process.env.EMAIL_PORT) || 465;
-    const secure = typeof process.env.EMAIL_SECURE !== 'undefined'
-        ? String(process.env.EMAIL_SECURE).toLowerCase() === 'true'
-        : port === 465; // default secure for 465, STARTTLS for 587
+  const host = process.env.EMAIL_HOST || 'smtp.hostinger.com';
 
-    const transporter = nodemailer.createTransport({
-        host,
-        port,
-        secure, // Use SSL/TLS for 465, otherwise STARTTLS
-        auth: {
-            user,
-            pass
-        },
-        // Improved settings for better reliability and timeout handling
-        pool: false, // Disable connection pooling to avoid timeout issues
-        maxConnections: 1,
-        maxMessages: 1,
-        connectionTimeout: 30000, // Reduced to 30 seconds
-        greetingTimeout: 30000, // 30 seconds for greeting
-        socketTimeout: 30000, // 30 seconds for socket operations
-        // Enhanced TLS settings for better compatibility
-        tls: {
-            rejectUnauthorized: false,
-            ciphers: 'SSLv3',
-            secureProtocol: 'TLSv1_2_method'
-        },
-        // Enable debug logging to help diagnose issues
-        debug: process.env.NODE_ENV === 'development',
-        logger: process.env.NODE_ENV === 'development'
-    });
+  // Prefer 587 (STARTTLS). Use 465 only if you must.
+  const port = Number(process.env.EMAIL_PORT || 587);
+  const secure = port === 465; // true for 465, false for 587
 
-    // Verify connection on creation (best-effort)
-    transporter.verify((error, success) => {
-        if (error) {
-            console.error('Email transport verification failed:', error.message);
-        } else {
-            console.log('✅ Email transport ready for messages');
-        }
-    });
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+    // conservative timeouts (Render can be slower on cold starts)
+    connectionTimeout: 20000,
+    greetingTimeout: 20000,
+    socketTimeout: 20000,
+    // DO NOT add custom tls ciphers/protocols; let Node/Nodemailer negotiate
+    // requireTLS helps ensure STARTTLS is used on 587
+    requireTLS: !secure && true,
+    pool: false,
+    maxConnections: 1,
+    maxMessages: 1,
+    logger: process.env.NODE_ENV === 'development',
+    debug: process.env.NODE_ENV === 'development',
+  });
 
-    return transporter;
+  // Avoid verify() in production – it often times out on PaaS networks
+  if (process.env.EMAIL_VERIFY === 'true') {
+    transporter.verify().then(
+      () => console.log('✅ SMTP ready'),
+      (err) => console.warn('SMTP verify failed (continuing):', err.message)
+    );
+  }
+
+  return transporter;
 };
 
-// Enhanced send function with error handling and logging
 const sendEmail = async (transporter, mailOptions) => {
-    try {
-        const isJsonTransport = (transporter && (
-            (transporter.options && transporter.options.jsonTransport) ||
-            (transporter.transporter && transporter.transporter.name === 'JSON')
-        ));
-        if (isJsonTransport) {
-            console.warn('Using JSON transport — emails will NOT be delivered. Set EMAIL_USER/EMAIL_PASS (and optionally EMAIL_HOST/EMAIL_PORT/EMAIL_SECURE).');
-        }
+  try {
+    // Make sure "from" matches the authenticated mailbox or an allowed alias
+    if (!mailOptions.from) mailOptions.from = process.env.EMAIL_USER;
 
-        console.log(`📧 Sending email to: ${Array.isArray(mailOptions.to) ? mailOptions.to.length + ' recipient(s)' : mailOptions.to}`);
-        console.log(`📧 Subject: ${mailOptions.subject}`);
-        
-        const info = await transporter.sendMail(mailOptions);
-        
-        console.log('✅ Email processed by transport');
-        if (info && info.messageId) {
-            console.log(`📧 Message ID: ${info.messageId}`);
-        }
-        if (info && info.response) {
-            console.log(`📧 Response: ${info.response}`);
-        }
-        if (isJsonTransport && info) {
-            try {
-                console.log('📦 JSON transport output:', typeof info === 'object' ? JSON.stringify(info) : String(info));
-            } catch (_) { /* noop */ }
-        }
-        
-        return { success: true, messageId: info && info.messageId, response: info && info.response };
-    } catch (error) {
-        console.error('❌ Email sending failed:', error.message);
-        return { success: false, error: error.message };
-    }
+    const info = await transporter.sendMail(mailOptions);
+    return { success: true, messageId: info.messageId, response: info.response };
+  } catch (err) {
+    console.error('❌ Email sending failed:', err.message);
+    return { success: false, error: err.message };
+  }
 };
 
-module.exports = {
-    createEmailTransport,
-    sendEmail
-};
+module.exports = { createEmailTransport, sendEmail };
