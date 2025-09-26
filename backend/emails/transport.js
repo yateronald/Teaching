@@ -1,63 +1,222 @@
+// Load env with fallback to backend/.env or backend/.env.postgres
+const fs = require('fs');
+const path = require('path');
+(() => {
+  const backendRoot = path.join(__dirname, '..');
+  const envPath = fs.existsSync(path.join(backendRoot, '.env'))
+    ? path.join(backendRoot, '.env')
+    : (fs.existsSync(path.join(backendRoot, '.env.postgres'))
+        ? path.join(backendRoot, '.env.postgres')
+        : null);
+  if (envPath) {
+    require('dotenv').config({ path: envPath });
+    console.log(`Loaded environment from ${path.basename(envPath)}`);
+  } else {
+    require('dotenv').config();
+  }
+})();
 const nodemailer = require('nodemailer');
 
+// Hostinger SMTP configuration optimized for Render
 const createEmailTransport = () => {
-  const user = process.env.EMAIL_USER; // e.g. no-reply@yourdomain.com
-  const pass = process.env.EMAIL_PASS;
+    const user = process.env.EMAIL_USER;
+    const pass = process.env.EMAIL_PASS;
+    
+    // Log environment status (without exposing credentials)
+    console.log('🔧 Email Configuration Status:');
+    console.log(`  - EMAIL_USER: ${user ? '✅ Set' : '❌ Missing'}`);
+    console.log(`  - EMAIL_PASS: ${pass ? '✅ Set' : '❌ Missing'}`);
+    console.log(`  - EMAIL_HOST: ${process.env.EMAIL_HOST || 'smtp.hostinger.com (default)'}`);
+    console.log(`  - EMAIL_PORT: ${process.env.EMAIL_PORT || '465 (default)'}`);
+    console.log(`  - Environment: ${process.env.NODE_ENV || 'production'}`);
 
-  if (!user || !pass) {
-    console.warn(
-      'Email credentials missing (EMAIL_USER/EMAIL_PASS). Using JSON transport (no emails sent).'
-    );
-    return nodemailer.createTransport({ jsonTransport: true });
-  }
+    if (!user || !pass) {
+        console.error('❌ CRITICAL: Email credentials are missing!');
+        console.error('Please set EMAIL_USER and EMAIL_PASS environment variables in Render dashboard.');
+        
+        // In production, throw an error instead of using JSON transport
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error('Email credentials (EMAIL_USER/EMAIL_PASS) are required in production');
+        }
+        
+        // Development fallback
+        console.warn('Using JSON transport for development (emails will NOT be sent)');
+        return nodemailer.createTransport({
+            jsonTransport: true
+        });
+    }
 
-  const host = process.env.EMAIL_HOST || 'smtp.hostinger.com';
+    // Hostinger SMTP settings
+    const host = process.env.EMAIL_HOST || 'smtp.hostinger.com';
+    const port = parseInt(process.env.EMAIL_PORT || '465', 10);
+    
+    // For Hostinger, use these specific settings:
+    // Port 465: SSL/TLS (secure: true)
+    // Port 587: STARTTLS (secure: false)
+    const secure = port === 465;
 
-  // Prefer 587 (STARTTLS). Use 465 only if you must.
-  const port = Number(process.env.EMAIL_PORT || 587);
-  const secure = port === 465; // true for 465, false for 587
+    console.log(`📧 Configuring transport: ${host}:${port} (secure: ${secure})`);
 
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: { user, pass },
-    // conservative timeouts (Render can be slower on cold starts)
-    connectionTimeout: 20000,
-    greetingTimeout: 20000,
-    socketTimeout: 20000,
-    // DO NOT add custom tls ciphers/protocols; let Node/Nodemailer negotiate
-    // requireTLS helps ensure STARTTLS is used on 587
-    requireTLS: !secure && true,
-    pool: false,
-    maxConnections: 1,
-    maxMessages: 1,
-    logger: process.env.NODE_ENV === 'development',
-    debug: process.env.NODE_ENV === 'development',
-  });
+    const transportConfig = {
+        host,
+        port,
+        secure,
+        auth: {
+            user,
+            pass
+        },
+        // Optimized settings for Render deployment
+        connectionTimeout: 60000, // Increased to 60 seconds for Render
+        greetingTimeout: 30000,
+        socketTimeout: 60000,
+        // Disable connection pooling to avoid issues
+        pool: false,
+        maxConnections: 1,
+        maxMessages: Infinity,
+        rateLimit: false,
+        // TLS settings for production
+        tls: {
+            // For production, enable certificate validation
+            rejectUnauthorized: process.env.NODE_ENV === 'production' 
+                ? process.env.EMAIL_REJECT_UNAUTHORIZED !== 'false' 
+                : false,
+            // Remove deprecated cipher settings
+            minVersion: 'TLSv1.2',
+            // Allow self-signed certificates if explicitly configured
+            ...(process.env.EMAIL_ALLOW_SELF_SIGNED === 'true' && {
+                rejectUnauthorized: false
+            })
+        },
+        // Debug settings
+        debug: process.env.EMAIL_DEBUG === 'true',
+        logger: process.env.EMAIL_DEBUG === 'true'
+    };
 
-  // Avoid verify() in production – it often times out on PaaS networks
-  if (process.env.EMAIL_VERIFY === 'true') {
-    transporter.verify().then(
-      () => console.log('✅ SMTP ready'),
-      (err) => console.warn('SMTP verify failed (continuing):', err.message)
-    );
-  }
+    // If using port 587, ensure STARTTLS is properly configured
+    if (port === 587) {
+        transportConfig.secure = false;
+        transportConfig.requireTLS = true;
+    }
 
-  return transporter;
+    const transporter = nodemailer.createTransport(transportConfig);
+
+    // Verify connection with better error handling
+    const verifyConnection = async () => {
+        try {
+            await transporter.verify();
+            console.log('✅ Email transport verified and ready');
+            return true;
+        } catch (error) {
+            console.error('❌ Email transport verification failed:', error.message);
+            
+            // Provide specific guidance based on error
+            if (error.message.includes('ECONNREFUSED')) {
+                console.error('📍 Connection refused. Check if the SMTP server allows connections from Render\'s IP addresses.');
+            } else if (error.message.includes('ETIMEDOUT')) {
+                console.error('📍 Connection timeout. The SMTP port might be blocked or the server is unreachable.');
+            } else if (error.message.includes('AUTH')) {
+                console.error('📍 Authentication failed. Verify your EMAIL_USER and EMAIL_PASS credentials.');
+            } else if (error.message.includes('self signed certificate')) {
+                console.error('📍 Certificate issue. You may need to set EMAIL_ALLOW_SELF_SIGNED=true');
+            }
+            
+            return false;
+        }
+    };
+
+    // Run verification asynchronously
+    verifyConnection();
+
+    return transporter;
 };
 
-const sendEmail = async (transporter, mailOptions) => {
-  try {
-    // Make sure "from" matches the authenticated mailbox or an allowed alias
-    if (!mailOptions.from) mailOptions.from = process.env.EMAIL_USER;
+// Enhanced send function with retry logic
+const sendEmail = async (transporter, mailOptions, retries = 3) => {
+    const attempt = async (attemptNumber) => {
+        try {
+            // Check if using JSON transport
+            const isJsonTransport = transporter.transporter?.name === 'JSON' || 
+                                   transporter.options?.jsonTransport;
+            
+            if (isJsonTransport) {
+                console.warn('📧 Using JSON transport - email will NOT be sent');
+                const info = await transporter.sendMail(mailOptions);
+                return { success: true, messageId: info.messageId, jsonOutput: info };
+            }
 
-    const info = await transporter.sendMail(mailOptions);
-    return { success: true, messageId: info.messageId, response: info.response };
-  } catch (err) {
-    console.error('❌ Email sending failed:', err.message);
-    return { success: false, error: err.message };
-  }
+            console.log(`📧 Attempt ${attemptNumber}: Sending email`);
+            console.log(`  To: ${Array.isArray(mailOptions.to) ? mailOptions.to.join(', ') : mailOptions.to}`);
+            console.log(`  Subject: ${mailOptions.subject}`);
+            
+            // Add default from address if not provided
+            const enrichedMailOptions = {
+                ...mailOptions,
+                from: mailOptions.from || process.env.EMAIL_FROM || process.env.EMAIL_USER
+            };
+            
+            const info = await transporter.sendMail(enrichedMailOptions);
+            
+            console.log('✅ Email sent successfully');
+            console.log(`  Message ID: ${info.messageId}`);
+            if (info.response) {
+                console.log(`  Server response: ${info.response}`);
+            }
+            
+            return { 
+                success: true, 
+                messageId: info.messageId, 
+                response: info.response,
+                attempt: attemptNumber 
+            };
+            
+        } catch (error) {
+            console.error(`❌ Attempt ${attemptNumber} failed:`, error.message);
+            
+            // If this was not the last attempt, retry
+            if (attemptNumber < retries) {
+                const delay = attemptNumber * 2000; // Progressive delay
+                console.log(`⏳ Retrying in ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return attempt(attemptNumber + 1);
+            }
+            
+            // Final failure
+            console.error('❌ All email send attempts failed');
+            return { 
+                success: false, 
+                error: error.message,
+                code: error.code,
+                attempts: attemptNumber 
+            };
+        }
+    };
+    
+    return attempt(1);
 };
 
-module.exports = { createEmailTransport, sendEmail };
+// Helper function to test email configuration
+const testEmailConfiguration = async () => {
+    console.log('🧪 Testing email configuration...');
+    
+    try {
+        const transporter = createEmailTransport();
+        
+        // Try to verify the connection
+        const verified = await transporter.verify();
+        
+        if (verified) {
+            console.log('✅ Email configuration test passed!');
+            return true;
+        }
+    } catch (error) {
+        console.error('❌ Email configuration test failed:', error.message);
+        return false;
+    }
+};
+
+// Export functions
+module.exports = {
+    createEmailTransport,
+    sendEmail,
+    testEmailConfiguration
+};
