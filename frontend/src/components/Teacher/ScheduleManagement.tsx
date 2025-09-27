@@ -498,8 +498,18 @@ const ScheduleManagement: React.FC = () => {
                 // Send emails to students
                 await sendCodeToStudents(data.sessionId, data.accessCode);
                 
-                // Refresh active sessions to ensure UI is updated
+                // Refresh only the active sessions state (row-specific refresh)
                 await fetchActiveSessions();
+                
+                // Close the modal after successful generation
+                setTimeout(() => {
+                    setStartClassModalVisible(false);
+                    setGeneratedCode('');
+                    setCodeExpiresAt('');
+                    setSessionId(null);
+                    setSelectedScheduleForStart(null);
+                }, 1500); // Give user time to see the success message
+                
             } else {
                 const error = await response.json();
                 message.error(error.error || 'Failed to start class session');
