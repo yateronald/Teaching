@@ -23,28 +23,56 @@ class PostgreSQLDatabase {
     }
 
     getConfig() {
-        // Support both local PostgreSQL and Neon PostgreSQL
+        // Support local PostgreSQL and Aiven PostgreSQL
         const isProduction = process.env.NODE_ENV === 'production';
-        const isNeon = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('neon');
-        const sslmodeRequire = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require');
+        // const isNeon = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('neon');
+        // const sslmodeRequire = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('sslmode=require');
+        const isAiven = process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud.com');
+        const useSSL = process.env.DB_SSL === 'true' || isAiven;
         
-        if (process.env.DATABASE_URL) {
-            // Use DATABASE_URL for Neon or other cloud PostgreSQL services
-            return {
-                connectionString: process.env.DATABASE_URL,
-                ssl: (isNeon || sslmodeRequire) ? { rejectUnauthorized: false } : undefined
-            };
-        } else {
-            // Use individual connection parameters for local PostgreSQL
-            return {
+        // Commented out Neon support - using only Aiven
+        // if (process.env.DATABASE_URL) {
+        //     // Use DATABASE_URL for Neon or other cloud PostgreSQL services
+        //     return {
+        //         connectionString: process.env.DATABASE_URL,
+        //         ssl: (isNeon || sslmodeRequire) ? { rejectUnauthorized: false } : undefined
+        //     };
+        // } else {
+            // Use individual connection parameters
+            const config = {
                 user: process.env.DB_USER || 'postgres',
                 host: process.env.DB_HOST || 'localhost',
                 database: process.env.DB_NAME || 'Teaching',
                 password: process.env.DB_PASSWORD,
-                port: parseInt(process.env.DB_PORT || '5432'),
-                ssl: false
+                port: parseInt(process.env.DB_PORT || '5432')
             };
-        }
+
+            // Configure SSL for Aiven or other SSL-required connections
+            if (useSSL) {
+                if (isAiven) {
+                    // Aiven PostgreSQL with certificate file
+                    const certPath = path.join(__dirname, '..', 'cert', 'ca.pem');
+                    try {
+                        const ca = fs.readFileSync(certPath, 'utf8');
+                        config.ssl = {
+                            rejectUnauthorized: true,
+                            ca: ca
+                        };
+                        console.log('✅ Using Aiven SSL certificate from cert/ca.pem');
+                    } catch (error) {
+                        console.warn('⚠️  Could not read SSL certificate file, falling back to basic SSL');
+                        config.ssl = { rejectUnauthorized: false };
+                    }
+                } else {
+                    // Generic SSL configuration
+                    config.ssl = { rejectUnauthorized: false };
+                }
+            } else {
+                config.ssl = false;
+            }
+
+            return config;
+        // }
     }
 
     async initialize() {

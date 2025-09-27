@@ -6,10 +6,37 @@ async function testPostgreSQLConnection() {
     const config = {
         user: process.env.DB_USER || 'postgres',
         host: process.env.DB_HOST || 'localhost',
-        database: 'postgres', // Default database to test connection
+        database: process.env.DB_NAME || 'postgres', // Use configured database name
         password: process.env.DB_PASSWORD,
-        port: process.env.DB_PORT || 5432,
+        port: parseInt(process.env.DB_PORT || '5432'),
     };
+
+    // Add SSL configuration for Aiven or other cloud providers
+    const isAiven = process.env.DB_HOST && process.env.DB_HOST.includes('aivencloud.com');
+    const useSSL = process.env.DB_SSL === 'true' || isAiven;
+    
+    if (useSSL) {
+        if (isAiven) {
+            // Aiven PostgreSQL with certificate file
+            const fs = require('fs');
+            const path = require('path');
+            const certPath = path.join(__dirname, '..', 'cert', 'ca.pem');
+            try {
+                const ca = fs.readFileSync(certPath, 'utf8');
+                config.ssl = {
+                    rejectUnauthorized: true,
+                    ca: ca
+                };
+                console.log('✅ Using Aiven SSL certificate from cert/ca.pem');
+            } catch (error) {
+                console.warn('⚠️  Could not read SSL certificate file, falling back to basic SSL');
+                config.ssl = { rejectUnauthorized: false };
+            }
+        } else {
+            // Generic SSL configuration
+            config.ssl = { rejectUnauthorized: false };
+        }
+    }
 
     console.log('🔍 Testing PostgreSQL connection...');
     console.log(`Host: ${config.host}:${config.port}`);
