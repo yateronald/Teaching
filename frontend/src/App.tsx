@@ -23,6 +23,7 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
 import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
 import AdminTimetable from './components/Admin/AdminTimetable';
+import AdminSettings from './components/Admin/AdminSettings';
 import { BRAND_CONFIG } from './utils/branding';
 import ForcePasswordChange from './components/Auth/ForcePasswordChange';
 
@@ -76,6 +77,11 @@ function App() {
                 <Route path="attendance" element={
                   <ProtectedRoute requiredRole="admin">
                     <AttendanceManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="settings" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AdminSettings />
                   </ProtectedRoute>
                 } />
                 <Route path="batches/:batchId/insights" element={

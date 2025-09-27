@@ -60,6 +60,11 @@ const Layout: React.FC = () => {
                     key: '/attendance',
                     icon: <BarChartOutlined />,
                     label: 'Attendance Management',
+                },
+                {
+                    key: '/settings',
+                    icon: <SettingOutlined />,
+                    label: 'Admin Settings',
                 }
             );
         }
