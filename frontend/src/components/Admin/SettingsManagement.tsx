@@ -23,15 +23,6 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
-interface Setting {
-    id: number;
-    setting_key: string;
-    setting_value: string;
-    description: string;
-    created_at: string;
-    updated_at: string;
-}
-
 interface SettingsData {
     code_length: number;
     code_expiry_minutes: number;
@@ -42,10 +33,9 @@ interface SettingsData {
 }
 
 const SettingsManagement: React.FC = () => {
-    const [settings, setSettings] = useState<Setting[]>([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [form] = Form.useForm();
+    const [form] = Form.useForm<SettingsData>();
     const { apiCall, user, isAdmin, isAuthenticated } = useAuth();
 
     // Check if user is authenticated and has admin privileges
@@ -74,35 +64,35 @@ const SettingsManagement: React.FC = () => {
 
     useEffect(() => {
         fetchSettings();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const fetchSettings = async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/settings');
-            if (response.ok) {
-                const result = await response.json();
-                const data = result.data || [];
-                setSettings(data);
-                
-                // Convert settings array to form values
-                const formValues: any = {};
-                data.forEach((setting: Setting) => {
-                    if (setting.setting_key === 'require_code_for_attendance') {
-                        formValues[setting.setting_key] = setting.setting_value === 'true';
-                    } else {
-                        formValues[setting.setting_key] = parseInt(setting.setting_value) || setting.setting_value;
-                    }
-                });
-                
-                form.setFieldsValue(formValues);
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.error || errorData.message || 'Failed to fetch settings');
+            // Use formatted endpoint to get typed values and auto-seed defaults
+            const response = await apiCall('/settings/formatted');
+            if (!response.ok) {
+                const errorData = await safeJson(response);
+                throw new Error(errorData?.error || errorData?.message || 'Failed to fetch settings');
             }
+            const result = await response.json();
+            const data = (result?.data || {}) as Partial<SettingsData>;
+
+            // Apply defaults if missing
+            const withDefaults: SettingsData = {
+                code_length: toNumber(data.code_length, 6),
+                code_expiry_minutes: toNumber(data.code_expiry_minutes, 30),
+                early_start_minutes: toNumber(data.early_start_minutes, 5),
+                late_join_minutes: toNumber(data.late_join_minutes, 10),
+                auto_end_minutes: toNumber(data.auto_end_minutes, 0),
+                require_code_for_attendance: toBoolean(data.require_code_for_attendance, false)
+            };
+
+            form.setFieldsValue(withDefaults);
         } catch (error) {
             console.error('Error fetching settings:', error);
-            message.error('Failed to fetch settings');
+            message.error(error instanceof Error ? error.message : 'Failed to fetch settings');
         } finally {
             setLoading(false);
         }
@@ -111,27 +101,29 @@ const SettingsManagement: React.FC = () => {
     const handleSave = async (values: SettingsData) => {
         setSaving(true);
         try {
-            // Update each setting individually
-            const updatePromises = Object.entries(values).map(async ([key, value]) => {
-                const response = await apiCall(`/settings/key/${key}`, {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ setting_value: value.toString() }),
-                });
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.error || errorData.message || `Failed to update ${key}`);
-                }
-                
-                return response.json();
+            // Use bulk endpoint to update all settings at once
+            const payload = {
+                code_length: values.code_length,
+                code_expiry_minutes: values.code_expiry_minutes,
+                early_start_minutes: values.early_start_minutes,
+                late_join_minutes: values.late_join_minutes,
+                auto_end_minutes: values.auto_end_minutes,
+                require_code_for_attendance: values.require_code_for_attendance
+            };
+
+            const response = await apiCall('/settings/bulk', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
 
-            await Promise.all(updatePromises);
+            if (!response.ok) {
+                const errorData = await safeJson(response);
+                throw new Error(errorData?.error || errorData?.message || 'Failed to update settings');
+            }
+
             message.success('Settings updated successfully');
-            fetchSettings(); // Refresh the settings
+            await fetchSettings();
         } catch (error) {
             console.error('Error updating settings:', error);
             message.error(error instanceof Error ? error.message : 'Failed to update settings');
@@ -140,9 +132,22 @@ const SettingsManagement: React.FC = () => {
         }
     };
 
-    const getSettingByKey = (key: string): Setting | undefined => {
-        return settings.find(setting => setting.setting_key === key);
-    };
+    function toNumber(val: any, def: number): number {
+        const n = Number(val);
+        return Number.isFinite(n) ? n : def;
+    }
+    function toBoolean(val: any, def: boolean): boolean {
+        if (val === true || val === 'true') return true;
+        if (val === false || val === 'false') return false;
+        return def;
+    }
+    async function safeJson(response: Response): Promise<any | null> {
+        try {
+            return await response.json();
+        } catch {
+            return null;
+        }
+    }
 
     return (
         <div style={{ padding: '24px' }}>
@@ -178,7 +183,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="code_length"
                                         label="Access Code Length"
-                                        help={getSettingByKey('code_length')?.description}
                                         rules={[
                                             { required: true, message: 'Please enter code length' },
                                             { type: 'number', min: 4, max: 10, message: 'Code length must be between 4 and 10' }
@@ -195,7 +199,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="code_expiry_minutes"
                                         label="Code Expiry (Minutes)"
-                                        help={getSettingByKey('code_expiry_minutes')?.description}
                                         rules={[
                                             { required: true, message: 'Please enter expiry time' },
                                             { type: 'number', min: 1, max: 120, message: 'Expiry time must be between 1 and 120 minutes' }
@@ -212,7 +215,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="require_code_for_attendance"
                                         label="Require Code for Attendance"
-                                        help={getSettingByKey('require_code_for_attendance')?.description}
                                         valuePropName="checked"
                                     >
                                         <Switch />
@@ -225,7 +227,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="early_start_minutes"
                                         label="Early Start (Minutes)"
-                                        help={getSettingByKey('early_start_minutes')?.description}
                                         rules={[
                                             { required: true, message: 'Please enter early start time' },
                                             { type: 'number', min: 0, max: 60, message: 'Early start must be between 0 and 60 minutes' }
@@ -242,7 +243,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="late_join_minutes"
                                         label="Late Join (Minutes)"
-                                        help={getSettingByKey('late_join_minutes')?.description}
                                         rules={[
                                             { required: true, message: 'Please enter late join time' },
                                             { type: 'number', min: 0, max: 60, message: 'Late join must be between 0 and 60 minutes' }
@@ -259,7 +259,6 @@ const SettingsManagement: React.FC = () => {
                                     <Form.Item
                                         name="auto_end_minutes"
                                         label="Auto End (Minutes)"
-                                        help={getSettingByKey('auto_end_minutes')?.description}
                                         rules={[
                                             { required: true, message: 'Please enter auto end time' },
                                             { type: 'number', min: 0, max: 120, message: 'Auto end must be between 0 and 120 minutes' }
