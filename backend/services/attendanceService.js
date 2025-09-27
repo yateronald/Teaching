@@ -94,9 +94,9 @@ class AttendanceService {
 
             // Create attendance records for all students in the batch
             const students = await this.db.all(`
-                SELECT ub.user_id as student_id 
-                FROM user_batches ub 
-                WHERE ub.batch_id = ?
+                SELECT bs.student_id 
+                FROM batch_students bs 
+                WHERE bs.batch_id = ?
             `, [schedule.batch_id]);
 
             for (const student of students) {
@@ -215,8 +215,8 @@ class AttendanceService {
             const students = await this.db.all(`
                 SELECT u.id, u.first_name, u.last_name, u.email
                 FROM users u
-                JOIN user_batches ub ON u.id = ub.user_id
-                WHERE ub.batch_id = ? AND u.role = 'student' AND u.is_active = true
+                JOIN batch_students bs ON u.id = bs.student_id
+                WHERE bs.batch_id = ? AND u.role = 'student' AND u.is_active = true
             `, [schedule.batch_id]);
 
             // Get teacher details
@@ -329,8 +329,8 @@ class AttendanceService {
 
             // Verify student is enrolled in this batch
             const enrollment = await this.db.get(`
-                SELECT id FROM user_batches 
-                WHERE batch_id = ? AND user_id = ?
+                SELECT id FROM batch_students 
+                WHERE batch_id = ? AND student_id = ?
             `, [session.batch_id, studentId]);
 
             if (!enrollment) {
@@ -439,11 +439,11 @@ class AttendanceService {
             
             // Check if student is enrolled in the batch for this schedule
             const enrollment = await this.db.get(`
-                SELECT ub.id, s.batch_id, s.title, s.start_time, s.end_time, b.name as batch_name
+                SELECT bs.id, s.batch_id, s.title, s.start_time, s.end_time, b.name as batch_name
                 FROM schedules s
                 JOIN batches b ON s.batch_id = b.id
-                JOIN user_batches ub ON b.id = ub.batch_id
-                WHERE s.id = ? AND ub.user_id = ?
+                JOIN batch_students bs ON b.id = bs.batch_id
+                WHERE s.id = ? AND bs.student_id = ?
             `, [scheduleId, studentId]);
 
             if (!enrollment) {

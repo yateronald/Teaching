@@ -825,11 +825,25 @@ router.post('/sessions/:sessionId/join', authenticateToken, studentOnly, async (
             return res.status(400).json({ error: 'Session is not active' });
         }
 
-        // Check if student is enrolled in the batch
-        const enrollment = await db.get(`
-            SELECT id FROM user_batches 
-            WHERE user_id = $1 AND batch_id = $2
-        `, [studentId, session.batch_id]);
+        // Check if student is enrolled in the batch (support both batch_students and legacy user_batches)
+        let enrollment = null;
+        try {
+            // Primary: batch_students table (student_id, batch_id)
+            enrollment = await db.get(`
+                SELECT id FROM batch_students 
+                WHERE student_id = $1 AND batch_id = $2
+            `, [studentId, session.batch_id]);
+        } catch (err) {
+            // Fallback: legacy user_batches table (user_id, batch_id)
+            try {
+                enrollment = await db.get(`
+                    SELECT id FROM user_batches 
+                    WHERE user_id = $1 AND batch_id = $2
+                `, [studentId, session.batch_id]);
+            } catch (err2) {
+                console.error('Enrollment check error:', err2?.message || err2);
+            }
+        }
 
         if (!enrollment) {
             return res.status(403).json({ error: 'You are not enrolled in this batch' });
