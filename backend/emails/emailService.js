@@ -89,7 +89,8 @@ async function sendPasswordResetOTP({ to, username, code }) {
         to,
         subject,
         html,
-        text
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
     return await sendEmail(mailOptions);
@@ -103,14 +104,26 @@ async function sendPasswordResetSuccess({ to, username }) {
         to,
         subject,
         html,
-        text
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
     };
 
     return await sendEmail(mailOptions);
 }
 
-async function sendBatchAssignmentToTeacher({ to, teacherName, batchName, studentCount, startDate, endDate }) {
-    const { subject, html, text } = buildBatchAssignmentTeacherTemplate({ teacherName, batchName, studentCount, startDate, endDate });
+async function sendBatchAssignmentToTeacher({ to, teacherName, batchName, frenchLevel, startDate, endDate, schedules, studentCount }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildBatchAssignmentTeacherTemplate({ 
+        teacherName, 
+        batchName, 
+        frenchLevel, 
+        startDate, 
+        endDate, 
+        schedules, 
+        logoCid, 
+        studentCount 
+    });
 
     const mailOptions = {
         from: getFromEmail(),
@@ -123,15 +136,32 @@ async function sendBatchAssignmentToTeacher({ to, teacherName, batchName, studen
     return await sendEmail(mailOptions);
 }
 
-async function sendBatchEnrollmentToStudent({ to, studentName, batchName, teacherName, startDate, endDate }) {
-    const { subject, html, text } = buildBatchEnrollmentStudentTemplate({ studentName, batchName, teacherName, startDate, endDate });
+async function sendBatchEnrollmentToStudent({ to, studentName, batchName, teacherName, frenchLevel, startDate, endDate, schedules, studentCount }) {
+    const logoPath = resolveLogoFile();
+    const logoCid = logoPath ? 'logo' : null;
+    
+    const { subject, html, text } = buildBatchEnrollmentStudentTemplate({ 
+        studentName, 
+        batchName, 
+        frenchLevel,
+        startDate, 
+        endDate, 
+        schedules,
+        logoCid,
+        studentCount
+    });
 
     const mailOptions = {
         from: getFromEmail(),
         to,
         subject,
         html,
-        text
+        text,
+        attachments: logoPath ? [{
+            filename: 'logo.png',
+            path: logoPath,
+            cid: 'logo'
+        }] : []
     };
 
     return await sendEmail(mailOptions);
@@ -401,19 +431,7 @@ async function sendMeetingCancellation({
     return await sendEmail(mailOptions);
 }
 
-async function sendAccessCodeEmail({ to, username, accessCode, expiresAt }) {
-    const subject = 'Your Access Code — Learn French with Natives';
-    
-    const html = `
-        <h2>Your Access Code</h2>
-        <p>Hello ${username},</p>
-        <p>Your access code is: <strong>${accessCode}</strong></p>
-        <p>This code expires at: ${expiresAt}</p>
-        <p>Best regards,<br>Learn French with Natives Team</p>
-    `;
-    
-    const text = `Your Access Code\n\nHello ${username},\n\nYour access code is: ${accessCode}\n\nThis code expires at: ${expiresAt}\n\nBest regards,\nLearn French with Natives Team`;
-
+async function sendAccessCodeEmail({ to, subject, html, text }) {
     const mailOptions = {
         from: getFromEmail(),
         to,

@@ -457,6 +457,7 @@ router.post('/', [
                         to: s.email,
                         studentName: `${s.first_name || ''} ${s.last_name || ''}`.trim(),
                         batchName: name,
+                        teacherName: teacherRow ? `${teacherRow.first_name || ''} ${teacherRow.last_name || ''}`.trim() : 'TBD',
                         frenchLevel: french_level,
                         startDate: start_date,
                         endDate: end_date,
