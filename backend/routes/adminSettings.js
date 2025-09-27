@@ -4,6 +4,15 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
 const adminOnly = authorizeRoles('admin');
 
+// Debug route to test if the route is accessible
+router.get('/debug', (req, res) => {
+  res.json({ 
+    message: 'Admin Settings route is working!', 
+    timestamp: new Date().toISOString(),
+    path: req.path 
+  });
+});
+
 // GET /api/admin/settings - list all settings
 router.get('/', authenticateToken, adminOnly, async (req, res) => {
   try {
