@@ -17,6 +17,7 @@ const quizRoutes = require('./routes/quizzes');
 const resourceRoutes = require('./routes/resources');
 const scheduleRoutes = require('./routes/schedules');
 const attendanceRoutes = require('./routes/attendance');
+const adminSettingsRoutes = require('./routes/adminSettings');
 const AttendanceService = require('./services/attendanceService');
 
 const app = express();
@@ -54,6 +55,8 @@ app.use('/api/quizzes', quizRoutes);
 app.use('/api/resources', resourceRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/attendance', attendanceRoutes);
+app.use('/api/admin/settings', adminSettingsRoutes);
+
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
