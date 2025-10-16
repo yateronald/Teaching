@@ -228,6 +228,15 @@ router.put('/:id', [
             return res.status(404).json({ error: 'User not found' });
         }
 
+        // Prevent self-deactivation for logged-in admin
+        const targetIdForUpdate = parseInt(id, 10);
+        if (
+            req.user && req.user.role === 'admin' && targetIdForUpdate === req.user.id &&
+            typeof is_active === 'boolean' && is_active === false
+        ) {
+            return res.status(400).json({ error: 'You cannot deactivate your own admin account.' });
+        }
+
         // Check for duplicate username/email (excluding current user)
         if (username || email) {
             const duplicateCheck = await req.db.get(
@@ -303,6 +312,12 @@ router.put('/:id', [
 router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
+        const targetId = parseInt(id, 10);
+
+        // Prevent self-deletion for logged-in admin
+        if (req.user && req.user.role === 'admin' && targetId === req.user.id) {
+            return res.status(400).json({ error: 'You cannot delete your own admin account.' });
+        }
 
         // Check if user exists
         const existingUser = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);

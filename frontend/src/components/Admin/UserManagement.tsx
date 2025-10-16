@@ -60,6 +60,9 @@ const UserManagement: React.FC = () => {
     // Watch the is_active field to update Switch color reactively
     const isActiveValue = Form.useWatch('is_active', form);
 
+    // When editing own admin account, freeze Account Status control
+    const isOwnAdminEdit = !!editingUser && editingUser.role === 'admin' && user?.id === editingUser.id;
+
     // Check if user is authenticated and has admin privileges
     if (!isAuthenticated) {
         return (
@@ -118,6 +121,11 @@ const UserManagement: React.FC = () => {
             const method = editingUser ? 'PUT' : 'POST';
             
             const payload = { ...values };
+            const isEditingSelfAdmin = !!editingUser && editingUser.role === 'admin' && user?.id === editingUser.id;
+            if (isEditingSelfAdmin) {
+                // Do not allow changing Account Status for own admin account
+                delete (payload as any).is_active;
+            }
             if (!editingUser) {
                 // Remove password field; backend will auto-generate 10-char password and email it
                 delete (payload as any).password;
@@ -151,6 +159,11 @@ const UserManagement: React.FC = () => {
     };
 
     const handleDelete = async (userId: number) => {
+        // Prevent self-deletion for logged-in admin
+        if (isAdmin && user?.id === userId) {
+            message.warning('You cannot delete your own admin account.');
+            return;
+        }
         try {
             const response = await apiCall(`/users/${userId}`, {
                 method: 'DELETE',
@@ -203,10 +216,18 @@ const UserManagement: React.FC = () => {
         setPasswordModalVisible(true);
     };
 
-    const handleToggleStatus = async (user: User) => {
+    const handleToggleStatus = async (targetUser: User) => {
+        // Prevent self-deactivation for logged-in admin
+        if (isAdmin && targetUser?.role === 'admin' && user?.id === targetUser.id) {
+            // If attempting to deactivate own admin account
+            if (targetUser.is_active) {
+                message.warning('You cannot deactivate your own admin account.');
+                return;
+            }
+        }
         try {
-            const newStatus = !user.is_active;
-            const response = await apiCall(`/users/${user.id}`, {
+            const newStatus = !targetUser.is_active;
+            const response = await apiCall(`/users/${targetUser.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ is_active: newStatus }),
@@ -368,6 +389,7 @@ const UserManagement: React.FC = () => {
             fixed: 'right',
             align: 'center',
             render: (_, record) => {
+                const isOwnAdmin = record.role === 'admin' && user?.id === record.id;
                 const menuItems: MenuProps['items'] = [
                     {
                         key: 'edit',
@@ -394,7 +416,12 @@ const UserManagement: React.FC = () => {
                                 {record.is_active ? 'Deactivate User' : 'Activate User'}
                             </span>
                         ),
+                        disabled: isOwnAdmin,
                         onClick: () => {
+                            if (isOwnAdmin) {
+                                message.warning('You cannot deactivate your own admin account.');
+                                return;
+                            }
                             Modal.confirm({
                                 title: `${record.is_active ? 'Deactivate' : 'Activate'} User`,
                                 content: `Are you sure you want to ${record.is_active ? 'deactivate' : 'activate'} ${record.first_name} ${record.last_name}?`,
@@ -417,7 +444,12 @@ const UserManagement: React.FC = () => {
                         key: 'delete',
                         icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
                         label: <span style={{ color: '#ff4d4f' }}>Delete User</span>,
+                        disabled: isOwnAdmin,
                         onClick: () => {
+                            if (isOwnAdmin) {
+                                message.warning('You cannot delete your own admin account.');
+                                return;
+                            }
                             Modal.confirm({
                                 title: 'Delete User',
                                 content: `Are you sure you want to delete ${record.first_name} ${record.last_name}? This action cannot be undone.`,
@@ -619,6 +651,7 @@ const UserManagement: React.FC = () => {
                             <Switch 
                                 checkedChildren="Active" 
                                 unCheckedChildren="Disabled"
+                                disabled={isOwnAdminEdit}
                                 style={{ backgroundColor: isActiveValue ? '#52c41a' : '#ff4d4f' }}
                             />
                         </Form.Item>
