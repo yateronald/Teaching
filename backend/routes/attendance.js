@@ -388,7 +388,7 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
                     LEFT JOIN attendance a ON cs2.id = a.session_id
                     LEFT JOIN schedules s2 ON cs2.schedule_id = s2.id
                     GROUP BY s2.id, s2.batch_id
-                ) session_stats ON cs3.id = session_stats.schedule_id
+                ) session_stats ON s3.id = session_stats.schedule_id
                 WHERE s3.type = 'class'
                 GROUP BY s3.batch_id
             ) attendance_stats ON b.id = attendance_stats.batch_id
