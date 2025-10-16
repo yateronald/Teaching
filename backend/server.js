@@ -27,7 +27,11 @@ const PORT = process.env.PORT || 5000;
 const corsOptions = {
     origin: [
         'https://learnfrenchwithnatives.com',
-        
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://localhost:5175',
+        'http://localhost:5177',
+        'http://localhost:3000'
     ],
     credentials: true,
     optionsSuccessStatus: 200
@@ -56,7 +60,6 @@ app.use('/api/resources', resourceRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
-
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

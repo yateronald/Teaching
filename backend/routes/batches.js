@@ -12,6 +12,7 @@ router.get('/', authenticateToken, async (req, res) => {
         let sql = `
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
+                b.timezone, b.default_location_mode, b.default_location, b.default_link,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
                 COUNT(DISTINCT bs.student_id) as student_count
             FROM batches b
@@ -26,7 +27,7 @@ router.get('/', authenticateToken, async (req, res) => {
             params.push(req.user.id);
         }
         
-        sql += ' GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, u.id, u.first_name, u.last_name ORDER BY b.created_at DESC';
+        sql += ' GROUP BY b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, b.timezone, b.default_location_mode, b.default_location, b.default_link, u.id, u.first_name, u.last_name ORDER BY b.created_at DESC';
         
         const batches = await req.db.all(sql, params);
         res.json(batches);
@@ -268,6 +269,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const batch = await req.db.get(`
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at,
+                b.timezone, b.default_location_mode, b.default_location, b.default_link,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM batches b
             LEFT JOIN users u ON b.teacher_id = u.id
@@ -332,7 +334,7 @@ router.post('/', [
             end_date, 
             student_ids,
             timezone = 'UTC',
-            default_location_mode = 'physical',
+            default_location_mode = 'online',
             default_location,
             default_link,
             timetable = []
@@ -602,7 +604,7 @@ router.put('/:id', [
                         schedule.start_time,
                         schedule.end_time,
                         schedule.timezone || timezone || existingBatch.timezone || 'UTC',
-                        schedule.location_mode || default_location_mode || existingBatch.default_location_mode || 'physical',
+                        schedule.location_mode || default_location_mode || existingBatch.default_location_mode || 'online',
                         typeof schedule.location !== 'undefined' ? schedule.location : (typeof default_location !== 'undefined' ? default_location : existingBatch.default_location),
                         typeof schedule.link !== 'undefined' ? schedule.link : (typeof default_link !== 'undefined' ? default_link : existingBatch.default_link)
                     ]
@@ -614,6 +616,7 @@ router.put('/:id', [
         const updatedBatch = await req.db.get(`
             SELECT 
                 b.id, b.name, b.french_level, b.start_date, b.end_date, b.created_at, b.updated_at,
+                b.timezone, b.default_location_mode, b.default_location, b.default_link,
                 u.id as teacher_id, u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM batches b
             LEFT JOIN users u ON b.teacher_id = u.id
@@ -882,7 +885,7 @@ router.put('/:id/timetable', [
                     schedule.start_time,
                     schedule.end_time,
                     schedule.timezone || 'UTC',
-                    schedule.location_mode || 'physical',
+                    schedule.location_mode || 'online',
                     schedule.location,
                     schedule.link
                 ]

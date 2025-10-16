@@ -44,6 +44,10 @@ interface Batch {
     end_date: string;
     student_count: number;
     created_at: string;
+    timezone?: string;
+    default_location_mode?: string;
+    default_location?: string;
+    default_link?: string;
 }
 
 interface Person {
@@ -73,7 +77,7 @@ const BatchManagement: React.FC = () => {
         start_time: '09:00',
         end_time: '10:00',
         timezone: 'UTC',
-        location_mode: 'physical',
+        location_mode: 'online',
         location: '',
         link: ''
     });
@@ -137,6 +141,10 @@ const BatchManagement: React.FC = () => {
                 dayjs(batch.start_date),
                 dayjs(batch.end_date)
             ],
+            timezone: batch.timezone || 'UTC',
+            default_location_mode: batch.default_location_mode || 'online',
+            default_location: batch.default_location || '',
+            default_link: batch.default_link || '',
         });
         // Prefill defaults from batch details endpoint if available
         try {
@@ -155,7 +163,7 @@ const BatchManagement: React.FC = () => {
                         start_time: e.start_time,
                         end_time: e.end_time,
                         timezone: e.timezone || 'UTC',
-                        location_mode: e.location_mode || 'physical',
+                        location_mode: e.location_mode || 'online',
                         location: e.location || '',
                         link: e.link || ''
                     }));
@@ -237,7 +245,7 @@ const BatchManagement: React.FC = () => {
                     start_time: '09:00',
                     end_time: '10:00',
                     timezone: 'UTC',
-                    location_mode: 'physical',
+                    location_mode: 'online',
                     location: '',
                     link: ''
                 });
@@ -552,7 +560,7 @@ const BatchManagement: React.FC = () => {
                             <Form.Item
                                 name="default_location_mode"
                                 label="Default Location Mode"
-                                initialValue="physical"
+                                initialValue="online"
                             >
                                 <Select>
                                     <Option value="physical">Physical</Option>

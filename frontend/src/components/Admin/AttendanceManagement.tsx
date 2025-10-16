@@ -18,6 +18,7 @@ import {
     Spin,
     Badge,
     Empty,
+    Skeleton,
     message,
     Divider
 } from 'antd';
@@ -174,6 +175,7 @@ const AttendanceManagement: React.FC = () => {
     const [teacherPerformance, setTeacherPerformance] = useState<TeacherPerformance[]>([]);
     const [batchPerformance, setBatchPerformance] = useState<BatchPerformance[]>([]);
     const [sessionStudentData, setSessionStudentData] = useState<SessionStudent[]>([]);
+    const [sessionStudentLoading, setSessionStudentLoading] = useState<boolean>(false);
     
     // Filters
     const [selectedBatch, setSelectedBatch] = useState<number | null>(null);
@@ -453,9 +455,12 @@ const AttendanceManagement: React.FC = () => {
     const fetchSessionStudentData = async () => {
         try {
             if (!selectedStudentForSession) {
+                setSessionStudentLoading(false);
                 setSessionStudentData([]);
                 return;
             }
+
+            setSessionStudentLoading(true);
 
             const params = new URLSearchParams();
             params.append('student_id', selectedStudentForSession.toString());
@@ -469,10 +474,15 @@ const AttendanceManagement: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 setSessionStudentData(data.data || []);
+            } else {
+                setSessionStudentData([]);
             }
         } catch (error) {
             console.error('Error fetching session student data:', error);
             setSessionStudentData([]);
+        } finally {
+            // Small delay to smooth the transition
+            setTimeout(() => setSessionStudentLoading(false), 150);
         }
     };
 
@@ -956,12 +966,22 @@ const AttendanceManagement: React.FC = () => {
             title: 'Attendance Rate',
             dataIndex: 'avg_attendance_rate',
             key: 'avg_attendance_rate',
-            render: (rate: number) => (
-                <Progress 
-                    percent={Math.round(rate)} 
-                    status={rate >= 80 ? 'success' : rate >= 60 ? 'normal' : 'exception'}
-                />
-            ),
+            render: (rate: number) => {
+                const normalized = Number.isFinite(rate) ? (rate <= 1 ? rate * 100 : rate) : 0;
+                const percent = Math.round(Math.min(Math.max(normalized, 0), 100));
+                const status = percent >= 80 ? 'success' : percent >= 60 ? 'normal' : 'exception';
+                return (
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                        <Progress 
+                            percent={percent}
+                            status={status}
+                            size="small"
+                            style={{ width: 120 }}
+                        />
+                        <Text type="secondary" style={{ marginLeft: 8 }}>{percent}%</Text>
+                    </span>
+                );
+            },
             sorter: (a: BatchAttendance, b: BatchAttendance) => a.avg_attendance_rate - b.avg_attendance_rate,
         },
     ];
@@ -1049,13 +1069,22 @@ const AttendanceManagement: React.FC = () => {
             title: 'Avg Attendance',
             dataIndex: 'avg_attendance_rate',
             key: 'avg_attendance_rate',
-            render: (rate: number) => (
-                <Progress 
-                    percent={Math.round(rate ?? 0)} 
-                    status={(rate ?? 0) >= 80 ? 'success' : (rate ?? 0) >= 60 ? 'normal' : 'exception'}
-                    size="small"
-                />
-            ),
+            render: (rate: number) => {
+                const normalized = Number.isFinite(rate) ? (rate <= 1 ? rate * 100 : rate) : 0;
+                const percent = Math.round(Math.min(Math.max(normalized, 0), 100));
+                const status = percent >= 80 ? 'success' : percent >= 60 ? 'normal' : 'exception';
+                return (
+                    <span style={{ display: 'flex', alignItems: 'center' }}>
+                        <Progress 
+                            percent={percent} 
+                            status={status}
+                            size="small"
+                            style={{ width: 120 }}
+                        />
+                        <Text type="secondary" style={{ marginLeft: 8 }}>{percent}%</Text>
+                    </span>
+                );
+            },
             sorter: (a: BatchPerformance, b: BatchPerformance) => (a.avg_attendance_rate ?? 0) - (b.avg_attendance_rate ?? 0),
         },
         {
@@ -1735,14 +1764,43 @@ const AttendanceManagement: React.FC = () => {
                                             image={Empty.PRESENTED_IMAGE_SIMPLE}
                                         />
                                     ) : (
-                                        <Table
-                                            columns={sessionStudentColumns}
-                                            dataSource={Array.isArray(sessionStudentData) ? sessionStudentData : []}
-                                            rowKey="schedule_id"
-                                            pagination={{ pageSize: 10, showSizeChanger: true, showQuickJumper: true }}
-                                            loading={loading}
-                                            scroll={{ y: 400, x: 'max-content' }}
-                                        />
+                                        <div style={{ position: 'relative', minHeight: 260 }}>
+                                            {sessionStudentLoading && (
+                                                <div style={{ position: 'absolute', inset: 0 }}>
+                                                    <Card style={{ marginTop: 8 }} bodyStyle={{ padding: 16 }}>
+                                                        {[...Array(6)].map((_, idx) => (
+                                                            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '18% 18% 14% 14% 18% 18%', gap: 16, marginBottom: 12 }}>
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                                <Skeleton.Input active size="small" style={{ width: '100%', height: 20 }} />
+                                                            </div>
+                                                        ))}
+                                                    </Card>
+                                                </div>
+                                            )}
+
+                                            {!sessionStudentLoading && (Array.isArray(sessionStudentData) && sessionStudentData.length > 0) && (
+                                                <div style={{ opacity: 1, transition: 'opacity 0.3s ease' }}>
+                                                    <Table
+                                                        columns={sessionStudentColumns}
+                                                        dataSource={sessionStudentData}
+                                                        rowKey="schedule_id"
+                                                        pagination={{ pageSize: 10, showSizeChanger: true, showQuickJumper: true }}
+                                                        scroll={{ y: 400, x: 'max-content' }}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {!sessionStudentLoading && (Array.isArray(sessionStudentData) && sessionStudentData.length === 0) && (
+                                                <Empty
+                                                    description="No data for selected student and date range"
+                                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                />
+                                            )}
+                                        </div>
                                     )}
                                 </Card>
                             )

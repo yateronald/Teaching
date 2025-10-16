@@ -273,22 +273,22 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
             batchParamIndex++;
         }
         if (date_from) {
-            batchConditions.push(`cs.start_time::date >= $${batchParamIndex}::date`);
+            batchConditions.push(`b.start_date::date >= $${batchParamIndex}::date`);
             batchParams.push(date_from);
             batchParamIndex++;
         }
         if (date_to) {
-            batchConditions.push(`cs.start_time::date <= $${batchParamIndex}::date`);
+            batchConditions.push(`b.end_date::date <= $${batchParamIndex}::date`);
             batchParams.push(date_to);
             batchParamIndex++;
         }
         if (teacher_id) {
-            batchConditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = $${batchParamIndex})`);
+            batchConditions.push(`b.teacher_id = $${batchParamIndex}`);
             batchParams.push(parseInt(teacher_id));
             batchParamIndex++;
         }
         if (req.user.role === 'teacher') {
-            batchConditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = $${batchParamIndex})`);
+            batchConditions.push(`b.teacher_id = $${batchParamIndex}`);
             batchParams.push(req.user.id);
             batchParamIndex++;
         }
@@ -320,26 +320,83 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
                 b.start_date,
                 b.end_date,
                 CONCAT(t.first_name, ' ', t.last_name) as teacher_name,
-                COUNT(DISTINCT ub.user_id)::int as total_students,
-                COUNT(DISTINCT s.id)::int as total_sessions,
-                COUNT(DISTINCT CASE WHEN s.end_time <= NOW() THEN s.id END)::int as completed_sessions,
-                CASE 
-                    WHEN COUNT(DISTINCT s.id) > 0 AND COUNT(DISTINCT ub.user_id) > 0 THEN
-                        ROUND(
-                            (COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::numeric * 100.0) / 
-                            NULLIF(COUNT(DISTINCT s.id) * COUNT(DISTINCT ub.user_id), 0), 2
-                        )
-                    ELSE 0 
-                END::float8 as avg_attendance_rate
+                COALESCE(student_counts.total_students, 0)::int as total_students,
+                COALESCE(session_counts.total_sessions, 0)::int as total_sessions,
+                COALESCE(session_counts.completed_sessions, 0)::int as completed_sessions,
+                COALESCE(attendance_stats.avg_attendance_rate, 0)::float8 as avg_attendance_rate
             FROM batches b
             JOIN users t ON b.teacher_id = t.id
-            LEFT JOIN user_batches ub ON b.id = ub.batch_id
-            LEFT JOIN users u ON ub.user_id = u.id AND u.role = 'student'
-            LEFT JOIN schedules s ON b.id = s.batch_id AND s.type = 'class'
-            LEFT JOIN class_sessions cs ON s.id = cs.schedule_id
-            LEFT JOIN attendance a ON cs.id = a.session_id AND a.student_id = u.id
+            
+            -- Get student counts for each batch (prefer batch_students, fallback to user_batches)
+            LEFT JOIN (
+                SELECT 
+                    b2.id as batch_id,
+                    COALESCE(bs_counts.total_students, ub_counts.total_students, 0) as total_students
+                FROM batches b2
+                LEFT JOIN (
+                    SELECT bs.batch_id, COUNT(DISTINCT bs.student_id) as total_students
+                    FROM batch_students bs
+                    GROUP BY bs.batch_id
+                ) bs_counts ON bs_counts.batch_id = b2.id
+                LEFT JOIN (
+                    SELECT ub.batch_id, COUNT(DISTINCT u.id) as total_students
+                    FROM user_batches ub 
+                    JOIN users u ON ub.user_id = u.id AND u.role = 'student'
+                    GROUP BY ub.batch_id
+                ) ub_counts ON ub_counts.batch_id = b2.id
+            ) student_counts ON b.id = student_counts.batch_id
+            
+            -- Get session counts for each batch
+            LEFT JOIN (
+                SELECT 
+                    s.batch_id,
+                    COUNT(DISTINCT s.id) as total_sessions,
+                    COUNT(DISTINCT CASE WHEN s.end_time <= NOW() THEN s.id END) as completed_sessions
+                FROM schedules s
+                WHERE s.type = 'class'
+                GROUP BY s.batch_id
+            ) session_counts ON b.id = session_counts.batch_id
+            
+            -- Get attendance statistics for each batch: average per-session attendance rate
+            LEFT JOIN (
+                SELECT 
+                    s3.batch_id,
+                    ROUND(
+                        AVG(
+                            CASE WHEN session_stats.total_enrolled > 0 THEN
+                                (session_stats.attended_count * 100.0 / session_stats.total_enrolled)
+                            ELSE 0 END
+                        ), 2
+                    ) as avg_attendance_rate
+                FROM schedules s3
+                LEFT JOIN class_sessions cs3 ON s3.id = cs3.schedule_id
+                LEFT JOIN (
+                    SELECT 
+                        s2.id as schedule_id,
+                        s2.batch_id,
+                        COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END) as attended_count,
+                        CASE 
+                            WHEN EXISTS (SELECT 1 FROM batch_students bs2 WHERE bs2.batch_id = s2.batch_id) THEN
+                                (SELECT COUNT(DISTINCT bs2.student_id) FROM batch_students bs2 WHERE bs2.batch_id = s2.batch_id)
+                            ELSE 
+                                (SELECT COUNT(DISTINCT u3.id) 
+                                 FROM user_batches ub3 
+                                 JOIN users u3 ON ub3.user_id = u3.id AND u3.role = 'student'
+                                 WHERE ub3.batch_id = s2.batch_id)
+                        END as total_enrolled
+                    FROM class_sessions cs2
+                    LEFT JOIN attendance a ON cs2.id = a.session_id
+                    LEFT JOIN schedules s2 ON cs2.schedule_id = s2.id
+                    GROUP BY s2.id, s2.batch_id
+                ) session_stats ON cs3.id = session_stats.schedule_id
+                WHERE s3.type = 'class'
+                GROUP BY s3.batch_id
+            ) attendance_stats ON b.id = attendance_stats.batch_id
+            
             ${whereClause}
-            GROUP BY b.id, b.name, b.start_date, b.end_date, t.first_name, t.last_name
+            GROUP BY b.id, b.name, b.start_date, b.end_date, t.first_name, t.last_name, 
+                     student_counts.total_students, session_counts.total_sessions, 
+                     session_counts.completed_sessions, attendance_stats.avg_attendance_rate
             ORDER BY ${sortColumn} ${String(sort_order || 'asc').toUpperCase()}
             LIMIT $${batchParamIndex} OFFSET $${batchParamIndex + 1}
         `, [...batchParams, parseInt(limit), parseInt(offset)]);
@@ -582,10 +639,25 @@ router.get('/sessions', authenticateToken, async (req, res) => {
                     ELSE 
                         ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - cs.start_time)) / 60)
                 END as duration_minutes,
-                -- Count total enrolled students
-                (SELECT COUNT(*) FROM batch_students bs2 
-                 JOIN users u2 ON bs2.student_id = u2.id 
-                 WHERE bs2.batch_id = b.id AND u2.role = 'student') as total_students,
+                -- Count total enrolled students (prefer batch_students, fallback to legacy user_batches)
+                (
+                  CASE 
+                    WHEN (
+                      SELECT COUNT(*) FROM batch_students bs2 
+                      JOIN users u2 ON bs2.student_id = u2.id 
+                      WHERE bs2.batch_id = b.id AND u2.role = 'student'
+                    ) > 0 THEN (
+                      SELECT COUNT(*) FROM batch_students bs2 
+                      JOIN users u2 ON bs2.student_id = u2.id 
+                      WHERE bs2.batch_id = b.id AND u2.role = 'student'
+                    )
+                    ELSE (
+                      SELECT COUNT(*) FROM user_batches ub2 
+                      JOIN users u3 ON ub2.user_id = u3.id 
+                      WHERE ub2.batch_id = b.id AND u3.role = 'student'
+                    )
+                  END
+                ) as total_students,
                 -- Count attendance records
                 COUNT(a.id) as attendance_records,
                 COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
@@ -593,10 +665,31 @@ router.get('/sessions', authenticateToken, async (req, res) => {
                 COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late_count,
                 -- Calculate attendance rate
                 ROUND(
-                    (COUNT(CASE WHEN a.status = 'present' THEN 1 END) * 100.0 / 
-                     NULLIF((SELECT COUNT(*) FROM batch_students bs2 
-                             JOIN users u2 ON bs2.student_id = u2.id 
-                             WHERE bs2.batch_id = b.id AND u2.role = 'student'), 0)), 2
+                  (
+                    COUNT(CASE WHEN a.status = 'present' THEN 1 END) * 100.0 /
+                    NULLIF(
+                      (
+                        CASE 
+                          WHEN (
+                            SELECT COUNT(*) FROM batch_students bs2 
+                            JOIN users u2 ON bs2.student_id = u2.id 
+                            WHERE bs2.batch_id = b.id AND u2.role = 'student'
+                          ) > 0 THEN (
+                            SELECT COUNT(*) FROM batch_students bs2 
+                            JOIN users u2 ON bs2.student_id = u2.id 
+                            WHERE bs2.batch_id = b.id AND u2.role = 'student'
+                          )
+                          ELSE (
+                            SELECT COUNT(*) FROM user_batches ub2 
+                            JOIN users u3 ON ub2.user_id = u3.id 
+                            WHERE ub2.batch_id = b.id AND u3.role = 'student'
+                          )
+                        END
+                      ),
+                      0
+                    )
+                  ),
+                  2
                 ) as attendance_rate
             FROM class_sessions cs
             JOIN schedules s ON cs.schedule_id = s.id
@@ -2590,7 +2683,7 @@ router.get('/session-student', authenticateToken, teacherOrAdmin, async (req, re
             CROSS JOIN users u
             JOIN batches b ON s.batch_id = b.id
             JOIN users t ON b.teacher_id = t.id
-            JOIN user_batches ub ON ub.batch_id = b.id AND ub.user_id = u.id
+            JOIN batch_students bs ON bs.batch_id = b.id AND bs.student_id = u.id
             LEFT JOIN class_sessions cs ON cs.schedule_id = s.id
             LEFT JOIN attendance a ON a.session_id = cs.id AND a.student_id = u.id
             ${whereClause}
@@ -2643,26 +2736,49 @@ router.get('/batch-sessions/:batchId', authenticateToken, teacherOrAdmin, async 
                     WHEN s.start_time <= NOW() AND s.end_time > NOW() THEN 'in_progress'
                     ELSE 'scheduled'
                 END as session_status,
-                COUNT(DISTINCT ub.user_id) as total_students,
+                CASE 
+                    WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                        (SELECT COUNT(DISTINCT bs.student_id) FROM batch_students bs WHERE bs.batch_id = b.id)
+                    ELSE 
+                        (SELECT COUNT(DISTINCT ub2.user_id)
+                         FROM user_batches ub2 
+                         JOIN users u2 ON ub2.user_id = u2.id AND u2.role = 'student'
+                         WHERE ub2.batch_id = b.id)
+                END as total_students,
                 COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
                 COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late_count,
                 COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
                 CASE 
-                    WHEN COUNT(DISTINCT ub.user_id) > 0 THEN
+                    WHEN CASE 
+                        WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                            (SELECT COUNT(DISTINCT bs.student_id) FROM batch_students bs WHERE bs.batch_id = b.id)
+                        ELSE 
+                            (SELECT COUNT(DISTINCT ub2.user_id)
+                             FROM user_batches ub2 
+                             JOIN users u2 ON ub2.user_id = u2.id AND u2.role = 'student'
+                             WHERE ub2.batch_id = b.id)
+                    END > 0 THEN
                         ROUND(
                             (COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::numeric * 100.0) / 
-                            COUNT(DISTINCT ub.user_id), 2
+                            CASE 
+                                WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                                    (SELECT COUNT(DISTINCT bs.student_id) FROM batch_students bs WHERE bs.batch_id = b.id)
+                                ELSE 
+                                    (SELECT COUNT(DISTINCT ub2.user_id)
+                                     FROM user_batches ub2 
+                                     JOIN users u2 ON ub2.user_id = u2.id AND u2.role = 'student'
+                                     WHERE ub2.batch_id = b.id)
+                            END, 2
                         )
                     ELSE 0 
                 END as attendance_rate
             FROM schedules s
             JOIN batches b ON s.batch_id = b.id
-            LEFT JOIN user_batches ub ON ub.batch_id = b.id
-            LEFT JOIN users u ON ub.user_id = u.id AND u.role = 'student'
             LEFT JOIN class_sessions cs ON cs.schedule_id = s.id
-            LEFT JOIN attendance a ON a.session_id = cs.id AND a.student_id = u.id
+            -- Count attendance directly from session; do not depend on user_batches membership
+            LEFT JOIN attendance a ON a.session_id = cs.id
             WHERE s.batch_id = $1 AND s.type = 'class' ${batchFilter}
-            GROUP BY s.id, s.title, s.start_time, s.end_time
+            GROUP BY s.id, s.title, s.start_time, s.end_time, b.id
             ORDER BY s.start_time ASC
         `;
 
@@ -2743,14 +2859,19 @@ router.get('/reports/batch-performance', authenticateToken, teacherOrAdmin, asyn
                 ) as session_start_rate,
                 
                 -- Total enrolled students
-                COUNT(DISTINCT ub.user_id) as total_students,
+                CASE 
+                    WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                        (SELECT COUNT(DISTINCT bs.student_id) FROM batch_students bs WHERE bs.batch_id = b.id)
+                    ELSE 
+                        COUNT(DISTINCT student.id)
+                END as total_students,
                 
                 -- Average attendance rate across all sessions
                 ROUND(
                     AVG(
                         CASE 
                             WHEN session_stats.total_enrolled > 0 THEN
-                                (session_stats.present_count * 100.0 / session_stats.total_enrolled)
+                                ((session_stats.attended_count) * 100.0 / session_stats.total_enrolled)
                             ELSE 0 
                         END
                     ), 2
@@ -2765,14 +2886,20 @@ router.get('/reports/batch-performance', authenticateToken, teacherOrAdmin, asyn
             LEFT JOIN (
                 SELECT 
                     cs2.id as session_id,
-                    COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
-                    COUNT(DISTINCT ub2.user_id) as total_enrolled
+                    COUNT(CASE WHEN a.status IN ('present','late') THEN 1 END) as attended_count,
+                    CASE 
+                        WHEN EXISTS (SELECT 1 FROM batch_students bs2 WHERE bs2.batch_id = s2.batch_id) THEN
+                            (SELECT COUNT(DISTINCT bs2.student_id) FROM batch_students bs2 WHERE bs2.batch_id = s2.batch_id)
+                        ELSE 
+                            (SELECT COUNT(DISTINCT u3.id) 
+                             FROM user_batches ub3 
+                             JOIN users u3 ON ub3.user_id = u3.id AND u3.role = 'student'
+                             WHERE ub3.batch_id = s2.batch_id)
+                    END as total_enrolled
                 FROM class_sessions cs2
                 LEFT JOIN attendance a ON cs2.id = a.session_id
                 LEFT JOIN schedules s2 ON cs2.schedule_id = s2.id
-                LEFT JOIN user_batches ub2 ON s2.batch_id = ub2.batch_id
-                LEFT JOIN users u2 ON ub2.user_id = u2.id AND u2.role = 'student'
-                GROUP BY cs2.id
+                GROUP BY cs2.id, s2.batch_id
             ) session_stats ON cs.id = session_stats.session_id
             ${whereClause}
             GROUP BY b.id, b.name, b.french_level, u.first_name, u.last_name, u.email
@@ -2841,9 +2968,14 @@ router.get('/reports/batch-sessions/:batchId', authenticateToken, teacherOrAdmin
                 END as duration_minutes,
                 
                 -- Total enrolled students for this batch
-                (SELECT COUNT(*) FROM user_batches ub2 
-                 JOIN users u2 ON ub2.user_id = u2.id 
-                 WHERE ub2.batch_id = b.id AND u2.role = 'student') as total_students,
+                CASE 
+                    WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                        (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.id)
+                    ELSE 
+                        (SELECT COUNT(*) FROM user_batches ub2 
+                         JOIN users u2 ON ub2.user_id = u2.id 
+                         WHERE ub2.batch_id = b.id AND u2.role = 'student')
+                END as total_students,
                 
                 -- Attendance statistics
                 COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
@@ -2853,13 +2985,23 @@ router.get('/reports/batch-sessions/:batchId', authenticateToken, teacherOrAdmin
                 -- Attendance percentage
                 ROUND(
                     CASE 
-                        WHEN (SELECT COUNT(*) FROM user_batches ub2 
-                              JOIN users u2 ON ub2.user_id = u2.id 
-                              WHERE ub2.batch_id = b.id AND u2.role = 'student') > 0 THEN
+                        WHEN CASE 
+                            WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                                (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.id)
+                            ELSE 
+                                (SELECT COUNT(*) FROM user_batches ub2 
+                                 JOIN users u2 ON ub2.user_id = u2.id 
+                                 WHERE ub2.batch_id = b.id AND u2.role = 'student')
+                        END > 0 THEN
                             (COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END) * 100.0 / 
-                             (SELECT COUNT(*) FROM user_batches ub2 
-                              JOIN users u2 ON ub2.user_id = u2.id 
-                              WHERE ub2.batch_id = b.id AND u2.role = 'student'))
+                             CASE 
+                                WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                                    (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.id)
+                                ELSE 
+                                    (SELECT COUNT(*) FROM user_batches ub2 
+                                     JOIN users u2 ON ub2.user_id = u2.id 
+                                     WHERE ub2.batch_id = b.id AND u2.role = 'student')
+                             END)
                         ELSE 0 
                     END, 2
                 ) as attendance_percentage

@@ -301,7 +301,7 @@ class Database {
                 start_time TEXT NOT NULL,
                 end_time TEXT NOT NULL,
                 timezone TEXT NOT NULL DEFAULT 'UTC',
-                location_mode TEXT NOT NULL CHECK (location_mode IN ('online', 'physical')) DEFAULT 'physical',
+                location_mode TEXT NOT NULL CHECK (location_mode IN ('online', 'physical')) DEFAULT 'online',
                 location TEXT,
                 link TEXT,
                 is_active BOOLEAN DEFAULT TRUE,
@@ -322,7 +322,7 @@ class Database {
             batchUpdates.push("ALTER TABLE batches ADD COLUMN timezone TEXT DEFAULT 'UTC'");
         }
         if (!batchColumnNames.includes('default_location_mode')) {
-            batchUpdates.push("ALTER TABLE batches ADD COLUMN default_location_mode TEXT DEFAULT 'physical'");
+            batchUpdates.push("ALTER TABLE batches ADD COLUMN default_location_mode TEXT DEFAULT 'online'");
         }
         if (!batchColumnNames.includes('default_location')) {
             batchUpdates.push("ALTER TABLE batches ADD COLUMN default_location TEXT");
