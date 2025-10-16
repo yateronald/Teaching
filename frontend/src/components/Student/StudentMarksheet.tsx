@@ -115,6 +115,14 @@ const StudentMarksheet: React.FC = () => {
 
   const isAllSelected = selectedBatches.includes('all') || selectedBatches.length === 0;
 
+  // Show Performance by Batch only when 'All Batches' is selected
+  // or when more than two specific batches are selected.
+  const showPerformanceByBatch = useMemo(() => {
+    if (isAllSelected) return true;
+    const countSpecific = selectedBatches.filter(v => v !== 'all').length;
+    return countSpecific > 2; // more than two
+  }, [isAllSelected, selectedBatches]);
+
   const filteredResults = useMemo(() => {
     if (isAllSelected) return results;
     const setVals = new Set(selectedBatches);
@@ -381,19 +389,21 @@ const StudentMarksheet: React.FC = () => {
         </Card>
       </div>
 
-      {/* Per-batch breakdown - always visible, respects filters */}
-      <Card title="Performance by Batch" style={{ marginBottom: 24 }}>
-        {batchAggregates.length === 0 ? (
-          <Empty description="No quiz results available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <Table
-            columns={columns as any}
-            dataSource={batchAggregates}
-            rowKey={(r) => String(r.batch_id ?? 'unassigned')}
-            pagination={{ pageSize: 5, showSizeChanger: true }}
-          />
-        )}
-      </Card>
+      {/* Per-batch breakdown - conditional visibility per request */}
+      {showPerformanceByBatch && (
+        <Card title="Performance by Batch" style={{ marginBottom: 24 }}>
+          {batchAggregates.length === 0 ? (
+            <Empty description="No quiz results available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          ) : (
+            <Table
+              columns={columns as any}
+              dataSource={batchAggregates}
+              rowKey={(r) => String(r.batch_id ?? 'unassigned')}
+              pagination={{ pageSize: 5, showSizeChanger: true }}
+            />
+          )}
+        </Card>
+      )}
 
       {/* Quiz breakdown */}
       <Card title="Quiz Breakdown">
