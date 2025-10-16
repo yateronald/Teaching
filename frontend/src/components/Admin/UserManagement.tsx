@@ -48,6 +48,7 @@ interface User {
 const UserManagement: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(false);
+    const [submitLoading, setSubmitLoading] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [passwordModalVisible, setPasswordModalVisible] = useState(false);
     const [passwordResetLoading, setPasswordResetLoading] = useState(false);
@@ -116,6 +117,7 @@ const UserManagement: React.FC = () => {
     };
 
     const handleSubmit = async (values: any) => {
+        setSubmitLoading(true);
         try {
             const endpoint = editingUser ? `/users/${editingUser.id}` : '/users';
             const method = editingUser ? 'PUT' : 'POST';
@@ -123,8 +125,9 @@ const UserManagement: React.FC = () => {
             const payload = { ...values };
             const isEditingSelfAdmin = !!editingUser && editingUser.role === 'admin' && user?.id === editingUser.id;
             if (isEditingSelfAdmin) {
-                // Do not allow changing Account Status for own admin account
+                // Do not allow changing Account Status or Role for own admin account
                 delete (payload as any).is_active;
+                delete (payload as any).role;
             }
             if (!editingUser) {
                 // Remove password field; backend will auto-generate 10-char password and email it
@@ -155,6 +158,8 @@ const UserManagement: React.FC = () => {
             } else {
                 message.error('Error while saving user');
             }
+        } finally {
+            setSubmitLoading(false);
         }
     };
 
@@ -550,12 +555,16 @@ const UserManagement: React.FC = () => {
                 title={editingUser ? 'Edit User' : 'Add User'}
                 open={modalVisible}
                 onCancel={() => {
-                    setModalVisible(false);
-                    form.resetFields();
-                    setEditingUser(null);
+                    if (!submitLoading) {
+                        setModalVisible(false);
+                        form.resetFields();
+                        setEditingUser(null);
+                    }
                 }}
                 footer={null}
                 width={600}
+                maskClosable={!submitLoading}
+                closable={!submitLoading}
             >
                 <Form
                     form={form}
@@ -612,7 +621,7 @@ const UserManagement: React.FC = () => {
                             label="Role"
                             rules={[{ required: true, message: 'Please select a role!' }]}
                         >
-                            <Select placeholder="Select role">
+                            <Select placeholder="Select role" disabled={isOwnAdminEdit}>
                                 <Option value="admin">
                                     <Space>
                                         <Tag color="red">Admin</Tag>
@@ -678,15 +687,26 @@ const UserManagement: React.FC = () => {
 
                     <Form.Item style={{ marginBottom: 0 }}>
                         <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                            <Button onClick={() => {
-                                setModalVisible(false);
-                                form.resetFields();
-                                setEditingUser(null);
-                            }}>
+                            <Button 
+                                onClick={() => {
+                                    setModalVisible(false);
+                                    form.resetFields();
+                                    setEditingUser(null);
+                                }}
+                                disabled={submitLoading}
+                            >
                                 Cancel
                             </Button>
-                            <Button type="primary" htmlType="submit">
-                                {editingUser ? 'Update User' : 'Create User'}
+                            <Button 
+                                type="primary" 
+                                htmlType="submit"
+                                loading={submitLoading}
+                                disabled={submitLoading}
+                            >
+                                {submitLoading 
+                                    ? (editingUser ? 'Updating...' : 'Creating...') 
+                                    : (editingUser ? 'Update User' : 'Create User')
+                                }
                             </Button>
                         </Space>
                     </Form.Item>
