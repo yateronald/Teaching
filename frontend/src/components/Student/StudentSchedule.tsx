@@ -140,7 +140,11 @@ const StudentSchedule: React.FC = () => {
         const now = dayjs();
         const total = items.length;
         const upcoming = items.filter((s) => dayjs(`${s.date} ${s.start_time}`).isAfter(now)).length;
-        const completed = items.filter((s) => s.status === 'completed').length;
+        // Count completed sessions as either explicitly marked 'completed' or those that have ended by time
+        const completed = items.filter((s) => {
+            const effective = getEffectiveStatus(s);
+            return effective === 'completed' || effective === 'ended';
+        }).length;
         const startOfWeek = now.startOf('week');
         const endOfWeek = now.endOf('week');
         const thisWeek = items.filter((s) => {
@@ -584,26 +588,7 @@ const StudentSchedule: React.FC = () => {
                         </Col>
                         <Col span={6} style={{ textAlign: 'right' }}>
                             <Space>
-                                {nextClass.link ? (
-                                    <Button
-                                        type="primary"
-                                        onClick={(e) => {
-                                            (e as any).stopPropagation?.();
-                                            if (canJoinMeetingSchedule(nextClass) && !isScheduleEnded(nextClass)) {
-                                                markJoined(nextClass.id);
-                                                window.open(nextClass.link as string, '_blank');
-                                            }
-                                        }}
-                                        disabled={!canJoinMeetingSchedule(nextClass) || isScheduleEnded(nextClass)}
-                                        style={{
-                                            backgroundColor: isScheduleEnded(nextClass) ? '#d9d9d9' : (canJoinMeetingSchedule(nextClass) ? '#1890ff' : '#d9d9d9'),
-                                            borderColor: isScheduleEnded(nextClass) ? '#d9d9d9' : (canJoinMeetingSchedule(nextClass) ? '#1890ff' : '#d9d9d9'),
-                                            color: isScheduleEnded(nextClass) ? '#00000040' : '#fff'
-                                        }}
-                                    >
-                                        {isScheduleEnded(nextClass) ? 'Ended' : (canJoinMeetingSchedule(nextClass) ? 'Join Now' : 'Join soon')}
-                                    </Button>
-                                ) : null}
+                                {/* Removed direct "Join Now" button to enforce code-based join */}
                                 {nextClass.type === 'class' && (
                                     <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
                                         <Button 

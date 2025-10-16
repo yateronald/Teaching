@@ -14,6 +14,7 @@ import {
     Tooltip,
     Empty,
     Input,
+    Form,
     Segmented,
     Select,
     Space,
@@ -280,6 +281,119 @@ const StudentDashboard: React.FC = () => {
             message.error('Failed to fetch data');
         } finally {
             setLoading(false);
+        }
+    };
+
+    // ===== Join-with-code flow (mirror of My Schedule) =====
+    const [joinClassModalVisible, setJoinClassModalVisible] = useState(false);
+    const [selectedScheduleForJoin, setSelectedScheduleForJoin] = useState<Schedule | null>(null);
+    const [accessCode, setAccessCode] = useState('');
+    const [joiningClass, setJoiningClass] = useState(false);
+    const [sessionStatus, setSessionStatus] = useState<any>(null);
+    const [form] = Form.useForm();
+
+    const checkSessionStatus = async (scheduleId: number) => {
+        try {
+            const response = await apiCall(`/attendance/sessions/${scheduleId}/status`);
+            if (response.ok) {
+                const status = await response.json();
+                setSessionStatus(status);
+                if (!status.canJoin) {
+                    message.warning(status.reason || 'Class not started or access code expired');
+                }
+                return status;
+            }
+        } catch (error) {
+            console.error('Error checking session status:', error);
+        }
+        return null;
+    };
+
+    const handleJoinFromDashboard = async (schedule: Schedule) => {
+        setSelectedScheduleForJoin(schedule);
+
+        // Check session status first
+        const status = await checkSessionStatus(schedule.id);
+
+        // If already joined and meeting link exists, open it directly
+        if (status?.alreadyJoined && schedule.link) {
+            message.success('You have already joined this class. Opening meeting link...');
+            window.open(schedule.link, '_blank');
+            return;
+        }
+
+        // If can join, show access code modal
+        if (status?.canJoin) {
+            setJoinClassModalVisible(true);
+            setAccessCode('');
+            form.resetFields();
+            return;
+        }
+
+        // Not joinable yet
+        message.info(status?.reason || 'Teacher has not started the class or code not available yet');
+    };
+
+    const handleSubmitAccessCode = async () => {
+        if (!selectedScheduleForJoin || !accessCode.trim()) {
+            message.error('Please enter the access code');
+            return;
+        }
+
+        setJoiningClass(true);
+        try {
+            let sessionId: number | null = null;
+            let lastResponseData: any = null;
+
+            if (sessionStatus?.canJoin && sessionStatus?.sessionId) {
+                sessionId = sessionStatus.sessionId;
+            }
+
+            if (!sessionId) {
+                const listResp = await apiCall(`/attendance/sessions?schedule_id=${selectedScheduleForJoin.id}`);
+                if (!listResp.ok) {
+                    throw new Error('Failed to fetch sessions for this schedule');
+                }
+                const responseData = await listResp.json();
+                lastResponseData = responseData;
+                const sessions = responseData.sessions || [];
+                const active = sessions.find((s: any) =>
+                    Number(s.schedule_id) === Number(selectedScheduleForJoin.id) &&
+                    (s.status === 'in_progress' || s.status === 'started')
+                ) || sessions.find((s: any) => Number(s.schedule_id) === Number(selectedScheduleForJoin.id));
+                sessionId = active?.id ?? null;
+            }
+
+            if (!sessionId) {
+                console.log('No session found. Available sessions:', (lastResponseData?.sessions || []).map((s: any) => ({ id: s.id, schedule_id: s.schedule_id, status: s.status })));
+                throw new Error('No active session found for this class');
+            }
+
+            const joinResponse = await apiCall(`/attendance/sessions/${sessionId}/join`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ accessCode: accessCode.trim().toUpperCase() })
+            });
+
+            if (joinResponse.ok) {
+                const result = await joinResponse.json();
+                message.success(`Successfully joined class! Attendance marked as ${result.status}`);
+                setJoinClassModalVisible(false);
+                setSelectedScheduleForJoin(null);
+                setAccessCode('');
+                // Open meeting link if available
+                if (selectedScheduleForJoin?.link) {
+                    window.open(selectedScheduleForJoin.link, '_blank');
+                }
+                return;
+            }
+
+            const err = await joinResponse.json().catch(() => ({}));
+            message.error(err?.error || 'Invalid or expired access code');
+        } catch (error: any) {
+            message.error(error?.message || 'Failed to join class');
+        } finally {
+            setJoiningClass(false);
         }
     };
 
@@ -896,12 +1010,7 @@ const StudentDashboard: React.FC = () => {
                                                             type="primary"
                                                             size="small"
                                                             icon={<VideoCameraOutlined />}
-                                                            onClick={() => {
-                                                                if (schedule.link) {
-                                                                    window.open(schedule.link, '_blank');
-                                                                    message.success('Joining the meeting...');
-                                                                }
-                                                            }}
+                                                            onClick={() => handleJoinFromDashboard(schedule)}
                                                             style={{
                                                                 background: 'linear-gradient(135deg, #52c41a 0%, #389e0d 100%)',
                                                                 borderColor: '#52c41a',
@@ -937,7 +1046,7 @@ const StudentDashboard: React.FC = () => {
                             boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
                         }}
                     >
-                        {loading ? (
+        {loading ? (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
                                 <Spin size="large" />
                                 <Text style={{ marginLeft: 12 }}>Loading quizzes...</Text>
@@ -1123,7 +1232,41 @@ const StudentDashboard: React.FC = () => {
                     </Card>
                 </Col>
             </Row>
-
+            {/* Join Class Modal */}
+            <Modal
+                title="Join Class"
+                open={joinClassModalVisible}
+                onCancel={() => setJoinClassModalVisible(false)}
+                footer={null}
+                destroyOnClose
+            >
+                <div style={{ marginBottom: 12 }}>
+                    <Text>
+                        {sessionStatus?.canJoin
+                            ? 'Enter the access code provided by your teacher.'
+                            : (sessionStatus?.reason || 'The class has not started yet.')}
+                    </Text>
+                </div>
+                <Form form={form} layout="vertical" onFinish={handleSubmitAccessCode}>
+                    <Form.Item
+                        label="Access Code"
+                        name="accessCode"
+                        rules={[{ required: true, message: 'Please enter the access code' }]}
+                    >
+                        <Input
+                            placeholder="e.g. ABC123"
+                            value={accessCode}
+                            onChange={(e) => setAccessCode(e.target.value)}
+                        />
+                    </Form.Item>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <Button onClick={() => setJoinClassModalVisible(false)}>Cancel</Button>
+                        <Button type="primary" htmlType="submit" loading={joiningClass}>
+                            Join
+                        </Button>
+                    </div>
+                </Form>
+            </Modal>
 
         </div>
     );

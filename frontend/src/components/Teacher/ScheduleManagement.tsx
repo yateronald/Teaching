@@ -89,7 +89,7 @@ interface Batch {
 }
 
 const ScheduleManagement: React.FC = () => {
-    const { message } = App.useApp();
+    const { message, notification } = App.useApp();
     const [schedules, setSchedules] = useState<Schedule[]>([]);
     const [batches, setBatches] = useState<Batch[]>([]);
     const [loading, setLoading] = useState(false);
@@ -493,7 +493,12 @@ const ScheduleManagement: React.FC = () => {
                 // Mark this schedule as having an active session
                 setActiveSessions(prev => new Set(prev).add(selectedScheduleForStart.id));
                 
-                message.success('Class session started! Access code generated and sent to students.');
+                // Notify success prominently (single notification)
+                notification?.success({
+                    message: 'Access code generated successfully',
+                    description: `Code: ${data.accessCode} • Expires: ${dayjs(data.expiresAt).format('MMM D, YYYY HH:mm')}`,
+                    placement: 'topRight'
+                });
                 
                 // Send emails to students
                 await sendCodeToStudents(data.sessionId, data.accessCode);
@@ -501,14 +506,8 @@ const ScheduleManagement: React.FC = () => {
                 // Refresh only the active sessions state (row-specific refresh)
                 await fetchActiveSessions();
                 
-                // Close the modal after successful generation
-                setTimeout(() => {
-                    setStartClassModalVisible(false);
-                    setGeneratedCode('');
-                    setCodeExpiresAt('');
-                    setSessionId(null);
-                    setSelectedScheduleForStart(null);
-                }, 1500); // Give user time to see the success message
+                // Auto-close the modal after successful code generation
+                setStartClassModalVisible(false);
                 
             } else {
                 const error = await response.json();

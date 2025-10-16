@@ -2152,24 +2152,44 @@ router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, r
         `, scheduleParams);
         const totalSessions = totalScheduledSessionsResult.total_sessions || 0;
 
-        // Total present, absent, late counts (filtered)
+        // Total present and late counts (filtered)
         const attendanceCountsResult = await db.get(`
             SELECT
                 COUNT(CASE WHEN a.status = 'present' THEN 1 END) AS total_present,
-                COUNT(CASE WHEN a.status = 'absent' THEN 1 END) AS total_absent,
                 COUNT(CASE WHEN a.status = 'late' THEN 1 END) AS total_late
             FROM attendance a
             ${attendanceWhereClause}
         `, attendanceParams);
         const totalPresent = attendanceCountsResult.total_present || 0;
-        const totalAbsent = attendanceCountsResult.total_absent || 0;
         const totalLate = attendanceCountsResult.total_late || 0;
 
-        // Overall attendance percentage
+        // Compute total enrolled across filtered sessions
+        // We sum enrolled students per session (by session's batch), respecting filters in sessionWhereClause
+        const enrolledTotalsResult = await db.get(`
+            SELECT COALESCE(SUM(
+                CASE 
+                    WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = s.batch_id) THEN
+                        (SELECT COUNT(DISTINCT bs.student_id) FROM batch_students bs WHERE bs.batch_id = s.batch_id)
+                    ELSE
+                        (SELECT COUNT(DISTINCT ub.user_id)
+                         FROM user_batches ub 
+                         JOIN users u ON ub.user_id = u.id AND u.role = 'student'
+                         WHERE ub.batch_id = s.batch_id)
+                END
+            ), 0) AS enrolled_total
+            FROM class_sessions cs
+            JOIN schedules s ON cs.schedule_id = s.id
+            ${sessionWhereClause}
+        `, sessionParams);
+        const enrolledTotal = enrolledTotalsResult.enrolled_total || 0;
+
+        // Derive absent as enrolled minus present+late (includes explicit 'absent' and missing records)
+        const totalAbsent = Math.max(0, (enrolledTotal - totalPresent - totalLate));
+
+        // Overall attendance percentage based on enrolled
         let overallAttendancePercentage = 0;
-        const totalAttendanceRecords = totalPresent + totalAbsent + totalLate;
-        if (totalAttendanceRecords > 0) {
-            overallAttendancePercentage = parseFloat(((totalPresent + totalLate) * 100.0 / totalAttendanceRecords).toFixed(2));
+        if (enrolledTotal > 0) {
+            overallAttendancePercentage = parseFloat(((totalPresent + totalLate) * 100.0 / enrolledTotal).toFixed(2));
         }
 
         // Total teachers (filtered if needed)
