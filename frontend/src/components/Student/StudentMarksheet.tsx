@@ -325,137 +325,196 @@ const StudentMarksheet: React.FC = () => {
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: 16 }}>
-        <Title level={2}><BarChartOutlined /> Marksheet</Title>
-        <Paragraph type="secondary">
-          Overview of your performance across batches. Only completed quizzes with available results are included.
-        </Paragraph>
-      </div>
+    <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
+      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+        <div style={{ marginBottom: 24, textAlign: 'center' }}>
+          <Title level={2} style={{ color: '#1a1a1a', marginBottom: 8 }}>Academic Performance Report</Title>
+          <Paragraph type="secondary" style={{ fontSize: '16px', color: '#666' }}>
+            Comprehensive overview of your quiz performance across all enrolled batches
+          </Paragraph>
+        </div>
 
-      {error && (
-        <Alert type="error" message="Failed to load results" description={error} showIcon style={{ marginBottom: 16 }} />
-      )}
+        {error && (
+          <Alert type="error" message="Failed to load results" description={error} showIcon style={{ marginBottom: 20, borderRadius: '8px' }} />
+        )}
 
-      {/* Controls */}
-      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Space size={12} wrap>
-          <Text strong>Filter by Batch:</Text>
-          <Select
-            mode="multiple"
-            value={selectedBatches}
-            onChange={(vals) => {
-              if (vals.includes('all')) setSelectedBatches(['all']);
-              else setSelectedBatches(vals);
+        {/* Controls */}
+        <Card style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Text strong style={{ color: '#1a1a1a' }}>Filter by Batch:</Text>
+              <Select
+                mode="multiple"
+                value={selectedBatches}
+                onChange={(vals) => {
+                  if (vals.includes('all')) setSelectedBatches(['all']);
+                  else setSelectedBatches(vals);
+                }}
+                options={batchOptions}
+                style={{ minWidth: 280 }}
+                placeholder="Select batches"
+                maxTagCount="responsive"
+              />
+            </div>
+            <Button
+              type="primary"
+              icon={<BarChartOutlined />}
+              disabled={!canAnalyze}
+              onClick={() => setAnalyzerOpen(true)}
+              style={{ borderRadius: '6px' }}
+            >
+              Analyze Performance
+            </Button>
+          </div>
+        </Card>
+
+        {/* Summary Statistics */}
+        <div style={{ marginBottom: 32 }}>
+          <Text strong style={{ fontSize: '18px', color: '#1a1a1a', display: 'block', marginBottom: 16 }}>Performance Summary</Text>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 20,
             }}
-            options={batchOptions}
-            style={{ minWidth: 260 }}
-            placeholder="Select batches"
-            maxTagCount="responsive"
-          />
-        </Space>
-        <Button type="primary" icon={<BarChartOutlined />} disabled={!canAnalyze} onClick={() => setAnalyzerOpen(true)}>
-          Analyze
-        </Button>
-      </div>
-
-      {/* Summary grid on one row for large screens */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 16,
-          marginBottom: 24,
-        }}
-      >
-        <Card><Statistic title="Completed Quizzes" value={overall.total} prefix={<CheckCircleOutlined />} /></Card>
-        <Card><Statistic title="Average Score" value={overall.average} suffix="%" prefix={<DashboardOutlined />} /></Card>
-        <Card><Statistic title="Best Score" value={overall.best} suffix="%" prefix={<RiseOutlined />} /></Card>
-        <Card>
-          <div>
-            <Text type="secondary">Grade</Text>
-            <div style={{ marginTop: 8 }}>
-              {overall.grade === '—' ? <Text type="secondary">—</Text> : <Tag color={gradeColor(overall.grade)} style={{ fontSize: 16, padding: '2px 8px' }}>{overall.grade}</Tag>}
-            </div>
+          >
+            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+              <Statistic
+                title={<span style={{ color: '#666', fontSize: '14px' }}>Completed Quizzes</span>}
+                value={overall.total}
+                prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+              />
+            </Card>
+            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+              <Statistic
+                title={<span style={{ color: '#666', fontSize: '14px' }}>Average Score</span>}
+                value={overall.average}
+                suffix="%"
+                prefix={<DashboardOutlined style={{ color: '#1890ff' }} />}
+                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+              />
+            </Card>
+            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+              <Statistic
+                title={<span style={{ color: '#666', fontSize: '14px' }}>Best Score</span>}
+                value={overall.best}
+                suffix="%"
+                prefix={<RiseOutlined style={{ color: '#faad14' }} />}
+                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+              />
+            </Card>
+            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+              <div>
+                <Text style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: 8 }}>Overall Grade</Text>
+                <div style={{ fontSize: '28px', fontWeight: '600', color: '#1a1a1a' }}>
+                  {overall.grade === '—' ? <Text type="secondary" style={{ fontSize: '24px' }}>—</Text> : (
+                    <Tag
+                      color={gradeColor(overall.grade)}
+                      style={{
+                        fontSize: '18px',
+                        padding: '4px 12px',
+                        borderRadius: '6px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      {overall.grade}
+                    </Tag>
+                  )}
+                </div>
+              </div>
+            </Card>
+            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+              <div>
+                <Text style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: 8 }}>Total Score</Text>
+                <div style={{ fontSize: '28px', fontWeight: '600', color: '#1a1a1a' }}>
+                  {totals.totalScore}/{totals.maxScore}
+                </div>
+              </div>
+            </Card>
           </div>
-        </Card>
-        <Card>
-          <div>
-            <Text type="secondary">Total Score</Text>
-            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 6 }}>
-              {totals.totalScore}/{totals.maxScore}
-            </div>
-          </div>
-        </Card>
-      </div>
+        </div>
 
-      {/* Per-batch breakdown - conditional visibility per request */}
-      {showPerformanceByBatch && (
-        <Card title="Performance by Batch" style={{ marginBottom: 24 }}>
-          {batchAggregates.length === 0 ? (
-            <Empty description="No quiz results available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        {/* Performance by Batch */}
+        {showPerformanceByBatch && (
+          <Card
+            title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>Performance by Batch</span>}
+            style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}
+          >
+            {batchAggregates.length === 0 ? (
+              <Empty description="No quiz results available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            ) : (
+              <Table
+                columns={columns as any}
+                dataSource={batchAggregates}
+                rowKey={(r) => String(r.batch_id ?? 'unassigned')}
+                pagination={{ pageSize: 5, showSizeChanger: true }}
+                style={{ borderRadius: '6px' }}
+              />
+            )}
+          </Card>
+        )}
+
+        {/* Detailed Quiz Results */}
+        <Card
+          title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>Detailed Quiz Results</span>}
+          style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}
+        >
+          {breakdownResults.length === 0 ? (
+            <Empty description="No completed quizzes to display" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           ) : (
             <Table
-              columns={columns as any}
-              dataSource={batchAggregates}
-              rowKey={(r) => String(r.batch_id ?? 'unassigned')}
-              pagination={{ pageSize: 5, showSizeChanger: true }}
+              columns={breakdownColumns as any}
+              dataSource={breakdownResults}
+              rowKey={(r) => String(r.id)}
+              pagination={{ pageSize: 8, showSizeChanger: true }}
+              style={{ borderRadius: '6px' }}
             />
           )}
         </Card>
-      )}
 
-      {/* Quiz breakdown */}
-      <Card title="Quiz Breakdown">
-        {breakdownResults.length === 0 ? (
-          <Empty description="No completed quizzes to display" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        ) : (
-          <Table
-            columns={breakdownColumns as any}
-            dataSource={breakdownResults}
-            rowKey={(r) => String(r.id)}
-            pagination={{ pageSize: 8, showSizeChanger: true }}
-          />
-        )}
-      </Card>
-
-      {/* Analyzer Modal */}
-      <Modal
-        title="Batch Analyzer"
-        open={analyzerOpen}
-        width={900}
-        onCancel={() => setAnalyzerOpen(false)}
-        footer={<Button onClick={() => setAnalyzerOpen(false)}>Close</Button>}
-      >
-        {!canAnalyze ? (
-          <Alert type="info" showIcon message="Select at least two batches to analyze" />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
-            <div>
-              <Text strong>Average Score by Batch</Text>
-              <BarChart
-                height={300}
-                xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
-                series={[{ data: selectedAggregates.map(a => toFixed(a.average_percentage)), color: '#1677ff', label: 'Average %' }]}
-              />
+        {/* Performance Analyzer Modal */}
+        <Modal
+          title={<span style={{ color: '#1a1a1a', fontSize: '18px', fontWeight: '600' }}>Performance Analysis</span>}
+          open={analyzerOpen}
+          width={900}
+          onCancel={() => setAnalyzerOpen(false)}
+          footer={<Button onClick={() => setAnalyzerOpen(false)} style={{ borderRadius: '6px' }}>Close</Button>}
+          style={{ borderRadius: '8px' }}
+        >
+          {!canAnalyze ? (
+            <Alert type="info" showIcon message="Select at least two batches to analyze" style={{ borderRadius: '6px' }} />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
+              <div>
+                <Text strong style={{ color: '#1a1a1a', fontSize: '16px', marginBottom: 16, display: 'block' }}>Average Score by Batch</Text>
+                <BarChart
+                  height={300}
+                  xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
+                  series={[{ data: selectedAggregates.map(a => toFixed(a.average_percentage)), color: '#1890ff', label: 'Average %' }]}
+                />
+              </div>
+              <div>
+                <Text strong style={{ color: '#1a1a1a', fontSize: '16px', marginBottom: 16, display: 'block' }}>Completion Rate by Batch</Text>
+                <BarChart
+                  height={300}
+                  xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
+                  series={[{ data: selectedAggregates.map(a => a.quizzes_count ? toFixed((a.completed_count / a.quizzes_count) * 100) : 0), color: '#52c41a', label: 'Completion %' }]}
+                />
+              </div>
             </div>
-            <div>
-              <Text strong>Completion Rate by Batch</Text>
-              <BarChart
-                height={300}
-                xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
-                series={[{ data: selectedAggregates.map(a => a.quizzes_count ? toFixed((a.completed_count / a.quizzes_count) * 100) : 0), color: '#52c41a', label: 'Completion %' }]}
-              />
-            </div>
-          </div>
-        )}
-      </Modal>
+          )}
+        </Modal>
 
-      {/* Info note */}
-      <div style={{ marginTop: 12 }}>
-        <Tooltip title="Results may be locked until the quiz end date as decided by your teacher.">
-          <Text type="secondary"><CalendarOutlined /> If a quiz is still active, it won't appear in the averages until results are released.</Text>
-        </Tooltip>
+        {/* Footer Information */}
+        <div style={{ marginTop: 20, textAlign: 'center' }}>
+          <Tooltip title="Results may be locked until the quiz end date as decided by your teacher.">
+            <Text type="secondary" style={{ fontSize: '14px' }}>
+              <CalendarOutlined style={{ marginRight: 8 }} />
+              Quiz results are released according to your teacher's schedule
+            </Text>
+          </Tooltip>
+        </div>
       </div>
     </div>
   );
