@@ -257,7 +257,7 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
                   const q = (input || '').toLowerCase().trim();
                   const lbl = String(option?.label ?? '').toLowerCase();
                   const keys = Array.isArray((option as any)?.keywords) ? (option as any).keywords.map((k: any) => String(k).toLowerCase()) : [];
-                  return lbl.includes(q) || keys.some(k => k.includes(q));
+                  return lbl.includes(q) || keys.some((k: string) => k.includes(q));
                 }}
                 style={{ width: '100%' }}
                 dropdownStyle={{ minWidth: '300px' }}
