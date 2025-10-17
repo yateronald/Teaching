@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout as AntLayout, Menu, Avatar, Dropdown, Button, Typography, Space } from 'antd';
 import {
     DashboardOutlined,
@@ -30,6 +30,47 @@ const Layout: React.FC = () => {
     const { user, logout, isAdmin, isTeacher, isStudent } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Map route pathnames to human-friendly page titles
+    const getPageTitle = (path: string): string => {
+        const TITLE_MAP: Record<string, string> = {
+            // Common
+            '/profile': 'Profile',
+
+            // Admin
+            '/dashboard': 'Dashboard',
+            '/users': 'User Management',
+            '/batches': 'Batch Management',
+            '/timetable': 'Teacher Timetable',
+            '/attendance': 'Attendance Management',
+            '/settings': 'Admin Settings',
+
+            // Teacher
+            '/teacher-dashboard': 'Dashboard',
+            '/teacher-batches': 'My Batches',
+            '/quiz-management': 'Quiz Management',
+            '/resources': 'Resources',
+            '/schedules': 'Schedule',
+
+            // Student
+            '/student-dashboard': 'Dashboard',
+            '/my-quizzes': 'My Quizzes',
+            '/my-results': 'My Results',
+            '/my-marksheet': 'Marksheet',
+            '/my-resources': 'Resources',
+            '/my-schedule': 'My Schedule',
+        };
+
+        if (/^\/batches\/[\w-]+\/insights/.test(path)) return 'Batch Insights';
+        // Exact match or fallback to first segment
+        return TITLE_MAP[path] || TITLE_MAP['/' + path.split('/')[1]] || 'Dashboard';
+    };
+
+    // Update document title whenever the route changes
+    useEffect(() => {
+        const title = getPageTitle(location.pathname);
+        document.title = title;
+    }, [location.pathname]);
 
     const getMenuItems = (): MenuItem[] => {
         const items: MenuItem[] = [];

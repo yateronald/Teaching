@@ -33,6 +33,9 @@ const Login: React.FC = () => {
     const from = location.state?.from?.pathname || '/';
 
     useEffect(() => {
+        // Set tab title for login page
+        document.title = 'Learn French';
+
         // Ensure brand CSS variables are ready on the public route as well
         brandingUtils.applyCSSVariables();
     }, []);
