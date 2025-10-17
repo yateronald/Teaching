@@ -2999,7 +2999,18 @@ router.get('/reports/batch-sessions/:batchId', authenticateToken, teacherOrAdmin
                 
                 -- Attendance statistics
                 COUNT(CASE WHEN a.status = 'present' THEN 1 END) as present_count,
-                COUNT(CASE WHEN a.status = 'absent' THEN 1 END) as absent_count,
+                -- Derive absent count from total enrolled minus (present + late)
+                (
+                    CASE 
+                        WHEN EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = b.id) THEN
+                            (SELECT COUNT(*) FROM batch_students bs WHERE bs.batch_id = b.id)
+                        ELSE 
+                            (SELECT COUNT(*) FROM user_batches ub2 
+                             JOIN users u2 ON ub2.user_id = u2.id 
+                             WHERE ub2.batch_id = b.id AND u2.role = 'student')
+                    END
+                    - COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)
+                ) as absent_count,
                 COUNT(CASE WHEN a.status = 'late' THEN 1 END) as late_count,
                 
                 -- Attendance percentage
