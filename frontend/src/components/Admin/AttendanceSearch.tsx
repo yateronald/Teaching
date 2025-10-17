@@ -72,6 +72,29 @@ const AttendanceSearch: React.FC = () => {
         }
     };
 
+    const normalizeResults = (items: any[]): SearchResult[] => {
+        return (Array.isArray(items) ? items : []).map((item: any) => {
+            const type = item.type || item.result_type || 'student';
+            const name =
+                type === 'student' || type === 'teacher'
+                    ? `${item.first_name ?? ''} ${item.last_name ?? ''}`.trim()
+                    : item.name ?? item.subject ?? item.topic ?? '';
+            return {
+                type: type as SearchResult['type'],
+                id: item.id,
+                name,
+                email: item.email,
+                batch_name: item.batch_name,
+                teacher_name: item.teacher_name,
+                session_date: item.session_date ?? item.start_time,
+                attendance_rate: item.attendance_rate,
+                total_sessions: item.total_sessions,
+                present_sessions: item.present_count ?? item.present_sessions,
+                relevance_score: typeof item.relevance_score === 'number' ? item.relevance_score : 0,
+            };
+        });
+    };
+
     const handleSearch = async () => {
         if (!searchQuery.trim()) {
             message.warning('Please enter a search query');
@@ -81,17 +104,26 @@ const AttendanceSearch: React.FC = () => {
         setLoading(true);
         try {
             const params = new URLSearchParams();
-            params.append('q', searchQuery);
-            if (searchType !== 'all') params.append('type', searchType);
-            if (minAttendance !== null) params.append('min_attendance', minAttendance.toString());
-            if (maxAttendance !== null) params.append('max_attendance', maxAttendance.toString());
+            // Backend expects 'query' not 'q'
+            params.append('query', searchQuery);
+            // Map singular UI type to backend categories
+            if (searchType !== 'all') {
+                const backendType = searchType; // values set via Select: 'all' | 'students' | 'teachers' | 'batches' | 'sessions'
+                params.append('type', backendType);
+            }
+            if (minAttendance !== null) params.append('min_attendance_rate', minAttendance.toString());
+            if (maxAttendance !== null) params.append('max_attendance_rate', maxAttendance.toString());
             if (batchFilter) params.append('batch_id', batchFilter.toString());
 
             const response = await apiCall(`/attendance/search?${params}`);
             if (response.ok) {
                 const data = await response.json();
-                setSearchResults(Array.isArray(data.results) ? data.results : []);
-                message.success(`Found ${data.results?.length || 0} results`);
+                // Choose category array based on current type selection
+                const categoryKey = searchType === 'all' ? 'all' : searchType; // matches backend keys
+                const raw = data.results?.[categoryKey] || [];
+                const normalized = normalizeResults(raw);
+                setSearchResults(normalized);
+                message.success(`Found ${Array.isArray(raw) ? raw.length : 0} results`);
             } else {
                 setSearchResults([]);
                 message.error('Search failed');
@@ -261,10 +293,10 @@ const AttendanceSearch: React.FC = () => {
                             style={{ width: '100%' }}
                         >
                             <Option value="all">All Types</Option>
-                            <Option value="student">Students</Option>
-                            <Option value="teacher">Teachers</Option>
-                            <Option value="batch">Batches</Option>
-                            <Option value="session">Sessions</Option>
+                            <Option value="students">Students</Option>
+                            <Option value="teachers">Teachers</Option>
+                            <Option value="batches">Batches</Option>
+                            <Option value="sessions">Sessions</Option>
                         </Select>
                     </Col>
                     <Col span={3}>

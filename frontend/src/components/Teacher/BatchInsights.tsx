@@ -65,8 +65,18 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
     } finally { setLoading(false); }
   };
 
-  const studentOptions = useMemo(() => students.map(s => ({ label: `${s.first_name} ${s.last_name}`, value: s.id })), [students]);
-  const quizOptions = useMemo(() => quizzes.map(q => ({ label: q.quiz_title, value: q.quiz_id })), [quizzes]);
+  // Build options with keywords to enable robust searching
+  const studentOptions = useMemo(() => students.map(s => ({
+    label: `${s.first_name} ${s.last_name}`,
+    value: s.id,
+    // add email and name parts for search
+    keywords: [`${s.first_name} ${s.last_name}`, s.first_name, s.last_name, s.email]
+  })), [students]);
+
+  const quizOptions = useMemo(() => quizzes.map(q => ({
+    label: q.quiz_title,
+    value: q.quiz_id
+  })), [quizzes]);
 
   const filteredBreakdown = useMemo(() => {
     // Flatten rows enriched with student info for filtering
@@ -238,10 +248,17 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
                 mode="multiple"
                 allowClear
                 placeholder="All students"
-                options={studentOptions}
+                options={studentOptions as any}
                 value={selectedStudentIds}
                 onChange={setSelectedStudentIds}
                 showSearch
+                optionFilterProp="label"
+                filterOption={(input, option) => {
+                  const q = (input || '').toLowerCase().trim();
+                  const lbl = String(option?.label ?? '').toLowerCase();
+                  const keys = Array.isArray((option as any)?.keywords) ? (option as any).keywords.map((k: any) => String(k).toLowerCase()) : [];
+                  return lbl.includes(q) || keys.some(k => k.includes(q));
+                }}
                 style={{ width: '100%' }}
                 dropdownStyle={{ minWidth: '300px' }}
               />
@@ -257,6 +274,13 @@ const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
                 options={quizOptions}
                 value={selectedQuizIds}
                 onChange={setSelectedQuizIds}
+                showSearch
+                optionFilterProp="label"
+                filterOption={(input, option) => {
+                  const q = (input || '').toLowerCase().trim();
+                  const lbl = String(option?.label ?? '').toLowerCase();
+                  return lbl.includes(q);
+                }}
                 style={{ width: '100%' }}
                 dropdownStyle={{ minWidth: '300px' }}
               />

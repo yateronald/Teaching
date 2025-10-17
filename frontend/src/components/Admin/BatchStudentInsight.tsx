@@ -56,7 +56,7 @@ const BatchStudentInsight: React.FC<BatchStudentInsightProps> = ({ batchId }) =>
     if (batchId) void load();
   }, [batchId]);
 
-  const studentOptions = useMemo(() => students.map(s => ({ label: `${s.first_name} ${s.last_name}`, value: s.id })), [students]);
+  const studentOptions = useMemo(() => students.map(s => ({ label: `${s.first_name} ${s.last_name}`.trim(), value: s.id, keywords: `${s.email}` })), [students]);
   const current = useMemo(() => students.find(s => s.id === selectedStudentId) || null, [students, selectedStudentId]);
 
   // Helper function to format numbers - show whole numbers without .00
@@ -124,11 +124,21 @@ const BatchStudentInsight: React.FC<BatchStudentInsightProps> = ({ batchId }) =>
                   <Select
                     showSearch
                     placeholder="Select a student"
-                    options={studentOptions}
+                    options={studentOptions as any}
                     value={selectedStudentId as any}
                     onChange={setSelectedStudentId}
                     style={{ width: '100%' }}
                     allowClear={false}
+                    optionFilterProp="label"
+                    filterOption={(input, option) => {
+                      const label = String(option?.label ?? '').toLowerCase();
+                      const keywords = String((option as any)?.keywords ?? '').toLowerCase();
+                      const query = input.toLowerCase();
+                      return label.includes(query) || keywords.includes(query);
+                    }}
+                    notFoundContent={
+                      students.length === 0 ? 'No students available' : 'No matching students'
+                    }
                   />
                 </Space>
               </Col>
