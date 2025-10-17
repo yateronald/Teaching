@@ -113,6 +113,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const [quizForm] = Form.useForm();
     const [questionForm] = Form.useForm();
 
+    // Freeze editing when the quiz has ended
+    const isEnded = Boolean(quiz?.end_date) && dayjs().isAfter(dayjs(quiz.end_date as string));
+
     useEffect(() => {
         if (user?.id) {
             fetchBatches();
@@ -232,6 +235,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const handleQuizSave = async (values: any, publishNow: boolean = false) => {
+        if (isEnded) {
+            message.warning('This quiz has ended. Editing is locked.');
+            return;
+        }
         if (quiz.questions.length === 0) {
             message.error('Please add at least one question');
             return;
@@ -356,6 +363,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const handleAddQuestion = () => {
+        if (isEnded) {
+            message.warning('This quiz has ended. You cannot add questions.');
+            return;
+        }
         setEditingQuestion(null);
         setEditingIndex(-1);
         setQuestionModalVisible(true);
@@ -363,6 +374,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const handleEditQuestion = (question: Question, index: number) => {
+        if (isEnded) {
+            message.warning('This quiz has ended. You cannot edit questions.');
+            return;
+        }
         setEditingQuestion(question);
         setEditingIndex(index);
         setQuestionModalVisible(true);
@@ -383,6 +398,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const handleQuestionSave = (values: any) => {
+        if (isEnded) {
+            message.warning('This quiz has ended. Editing is locked.');
+            return;
+        }
         // Validate question based on type
         if (values.question_type === 'mcq_single' || values.question_type === 'mcq_multiple') {
             if (!values.options || values.options.length < 2) {
@@ -435,6 +454,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const handleDeleteQuestion = (index: number) => {
+        if (isEnded) {
+            message.warning('This quiz has ended. You cannot delete questions.');
+            return;
+        }
         const updatedQuestions = quiz.questions.filter((_, i) => i !== index);
         setQuiz(prev => ({ ...prev, questions: updatedQuestions }));
         message.success('Question deleted successfully');
@@ -467,6 +490,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         type="link" 
                         icon={<EditOutlined />}
                         onClick={() => handleEditQuestion(question, index)}
+                        disabled={isEnded}
                     >
                         Edit
                     </Button>,
@@ -475,8 +499,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         onConfirm={() => handleDeleteQuestion(index)}
                         okText="Yes"
                         cancelText="No"
+                        disabled={isEnded}
                     >
-                        <Button type="link" danger icon={<DeleteOutlined />}>
+                        <Button type="link" danger icon={<DeleteOutlined />} disabled={isEnded}>
                             Delete
                         </Button>
                     </Popconfirm>
@@ -625,6 +650,15 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 {quizId ? 'Edit Quiz' : 'Create New Quiz'}
             </Title>
 
+            {isEnded && (
+                <Alert
+                    type="warning"
+                    message="This quiz has ended. Editing is frozen."
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                />
+            )}
+
             <Row gutter={24}>
                 <Col xs={24} lg={16}>
                     {/* Quiz Details Form */}
@@ -633,6 +667,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                             form={quizForm}
                             layout="vertical"
                             onFinish={(values) => handleQuizSave(values, false)}
+                            disabled={isEnded}
                             initialValues={{
                                 title: quiz.title,
                                 description: quiz.description,
@@ -797,6 +832,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         htmlType="submit" 
                                         loading={loading}
                                         icon={<SaveOutlined />}
+                                        disabled={isEnded}
                                     >
                                         Save as Draft
                                     </Button>
@@ -809,6 +845,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                                 handleQuizSave(values, true);
                                             });
                                         }}
+                                        disabled={isEnded}
                                     >
                                         {quizId ? 'Update & Publish' : 'Save & Publish'}
                                     </Button>
@@ -825,6 +862,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 type="primary" 
                                 icon={<PlusOutlined />}
                                 onClick={handleAddQuestion}
+                                disabled={isEnded}
                             >
                                 Add Question
                             </Button>

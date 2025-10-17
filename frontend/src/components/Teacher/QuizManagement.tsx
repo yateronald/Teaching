@@ -364,14 +364,22 @@ const QuizManagement: React.FC = () => {
             fixed: 'right',
             align: 'center',
             render: (_, record) => {
+                const now = dayjs();
+                const hasEnded = record.status === 'published' && record.end_date && now.isAfter(dayjs(record.end_date));
+
                 const items = [
                     { key: 'insights', label: 'Insights', icon: <BarChartOutlined /> },
                     { key: 'results', label: 'Results', icon: <FileTextOutlined /> },
-                    { key: 'edit', label: 'Edit Quiz', icon: <EditOutlined /> },
+                    // Hide Edit when quiz has ended (freeze editing)
+                    ...(!hasEnded ? [{ key: 'edit', label: 'Edit Quiz', icon: <EditOutlined /> }] : []),
                     { key: 'delete', label: 'Delete Quiz', icon: <DeleteOutlined />, danger: true as any },
                 ];
 
                 const onMenuClick = ({ key }: { key: string }) => {
+                    if (key === 'edit' && hasEnded) {
+                        message.warning('This quiz has ended and cannot be edited.');
+                        return;
+                    }
                     switch (key) {
                         case 'insights':
                             setSelectedQuizId(record.id);

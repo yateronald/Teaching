@@ -299,7 +299,8 @@ const ScheduleManagement: React.FC = () => {
                 location_mode: item.location_mode || 'physical',
                 link: item.link || null,
                 type: (item.type as any) || 'class',
-                status: (item.status as any) || 'scheduled',
+                // Normalize backend status casing to keep comparisons consistent
+                status: (item.status ? (item.status.toLowerCase() as any) : 'scheduled'),
                 created_at: item.created_at,
             };
         });
@@ -1005,7 +1006,7 @@ const ScheduleManagement: React.FC = () => {
         dayjs(schedule.date).isAfter(dayjs(), 'day')
     );
     const completedSchedules = schedules.filter(schedule => 
-        schedule.status === 'completed'
+        ['ended', 'completed'].includes(getEffectiveStatus(schedule))
     );
 
     return (
