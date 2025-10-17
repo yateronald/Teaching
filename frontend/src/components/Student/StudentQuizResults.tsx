@@ -94,7 +94,7 @@ const StudentQuizResults: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedResult, setSelectedResult] = useState<DetailedResult | null>(null);
-    const [detailLoading, setDetailLoading] = useState(false);
+    const [loadingQuizId, setLoadingQuizId] = useState<number | null>(null);
     const { apiCall } = useAuth();
 
     useEffect(() => {
@@ -119,7 +119,7 @@ const StudentQuizResults: React.FC = () => {
     };
 
     const fetchDetailedResult = async (quizId: number) => {
-        setDetailLoading(true);
+        setLoadingQuizId(quizId);
         try {
             const response = await apiCall(`/quizzes/${quizId}/student-results`);
 
@@ -133,7 +133,7 @@ const StudentQuizResults: React.FC = () => {
         } catch (error) {
             console.error('Error fetching detailed result:', error);
         } finally {
-            setDetailLoading(false);
+            setLoadingQuizId(null);
         }
     };
 
@@ -314,7 +314,7 @@ const StudentQuizResults: React.FC = () => {
                         type="primary"
                         icon={<EyeOutlined />}
                         onClick={() => !record.results_locked && fetchDetailedResult(record.quiz_id)}
-                        loading={detailLoading}
+                        loading={loadingQuizId === record.quiz_id}
                         disabled={!!record.results_locked}
                     >
                         View Details
