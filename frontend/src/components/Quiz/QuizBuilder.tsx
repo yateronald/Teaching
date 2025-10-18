@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { 
-    Card, 
-    Button, 
-    Form, 
-    Input, 
-    Select, 
-    InputNumber, 
-    Space, 
-    Typography, 
-    Divider, 
-    Row, 
+import {
+    Card,
+    Button,
+    Form,
+    Input,
+    Select,
+    InputNumber,
+    Space,
+    Typography,
+    Divider,
+    Row,
     Col,
     message,
     Modal,
-    List,
     Tag,
     Popconfirm,
     Alert,
     DatePicker,
     Checkbox,
-    Tooltip
+    Tooltip,
+    Collapse
 } from 'antd';
 import {
     PlusOutlined,
@@ -109,6 +109,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const [editingIndex, setEditingIndex] = useState<number>(-1);
     const [totalMarks, setTotalMarks] = useState<number | null>(null);
     const [equalizeMarks, setEqualizeMarks] = useState(false);
+    const [formResetKey, setFormResetKey] = useState(0);
     
     const [quizForm] = Form.useForm();
     const [questionForm] = Form.useForm();
@@ -122,6 +123,43 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         }
         if (quizId) {
             fetchQuiz();
+        } else {
+            // Reset form and state when creating a new quiz (no quizId)
+            const emptyQuiz: Quiz = {
+                title: '',
+                description: '',
+                instructions: '',
+                batch_ids: [],
+                duration_minutes: 30,
+                start_date: undefined,
+                end_date: undefined,
+                randomize_questions: false,
+                randomize_options: false,
+                questions: [],
+                status: 'draft',
+                total_marks: undefined
+            };
+            setQuiz(emptyQuiz);
+            setTotalMarks(null);
+            setEqualizeMarks(false);
+            
+            // Increment reset key to force form remount
+            setFormResetKey(prev => prev + 1);
+            
+            // Force reset the forms
+            quizForm.resetFields();
+            quizForm.setFieldsValue({
+                title: '',
+                description: '',
+                instructions: '',
+                batch_ids: [],
+                duration_minutes: 30,
+                quiz_dates: undefined,
+                randomize_questions: false,
+                randomize_options: false,
+                total_marks: undefined
+            });
+            questionForm.resetFields();
         }
     }, [quizId, user?.id]);
 
@@ -482,80 +520,218 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
             }
         };
 
-        return (
-            <List.Item
-                key={index}
-                actions={[
-                    <Button 
-                        type="link" 
+        const header = (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '4px 0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+                    <div style={{
+                        backgroundColor: '#1890ff',
+                        color: 'white',
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontWeight: '600',
+                        fontSize: '14px',
+                        flexShrink: 0
+                    }}>
+                        {index + 1}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <Text
+                            strong
+                            style={{
+                                fontSize: '15px',
+                                color: '#1a1a1a',
+                                display: 'block',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            {question.question_text}
+                        </Text>
+                    </div>
+                    <Space size={8} style={{ flexShrink: 0, marginLeft: 12 }}>
+                        <Tag
+                            color={getQuestionTypeColor(question.question_type)}
+                            style={{
+                                margin: 0,
+                                padding: '4px 12px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            {getQuestionTypeName(question.question_type)}
+                        </Tag>
+                        <Tag
+                            color="purple"
+                            style={{
+                                margin: 0,
+                                padding: '4px 12px',
+                                fontSize: '12px',
+                                borderRadius: '6px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            {question.marks} pts
+                        </Tag>
+                    </Space>
+                </div>
+                <Space size={8} style={{ marginLeft: 16, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                    <Button
                         icon={<EditOutlined />}
-                        onClick={() => handleEditQuestion(question, index)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditQuestion(question, index);
+                        }}
                         disabled={isEnded}
+                        size="small"
+                        style={{ borderRadius: '6px' }}
                     >
                         Edit
-                    </Button>,
+                    </Button>
                     <Popconfirm
-                        title="Are you sure you want to delete this question?"
-                        onConfirm={() => handleDeleteQuestion(index)}
+                        title="Delete Question?"
+                        description="Are you sure you want to delete this question?"
+                        onConfirm={(e) => {
+                            e?.stopPropagation();
+                            handleDeleteQuestion(index);
+                        }}
+                        onCancel={(e) => e?.stopPropagation()}
                         okText="Yes"
                         cancelText="No"
                         disabled={isEnded}
                     >
-                        <Button type="link" danger icon={<DeleteOutlined />} disabled={isEnded}>
+                        <Button
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={isEnded}
+                            size="small"
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ borderRadius: '6px' }}
+                        >
                             Delete
                         </Button>
                     </Popconfirm>
-                ]}
+                </Space>
+            </div>
+        );
+
+        return (
+            <Collapse.Panel
+                key={index}
+                header={header}
+                style={{
+                    marginBottom: 12,
+                    borderRadius: '8px',
+                    border: '1px solid #e8e8e8',
+                    overflow: 'hidden'
+                }}
             >
-                <List.Item.Meta
-                    title={
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text strong>Question {index + 1}</Text>
-                            <Space>
-                                <Tag color={getQuestionTypeColor(question.question_type)}>
-                                    {getQuestionTypeName(question.question_type)}
-                                </Tag>
-                                <Tag color="purple">{question.marks} pts</Tag>
-                            </Space>
+                <div style={{ padding: '12px 0' }}>
+                    <div style={{ marginBottom: 16 }}>
+                        <Text strong style={{ fontSize: '15px', color: '#1a1a1a', display: 'block' }}>
+                            {question.question_text}
+                        </Text>
+                    </div>
+                    
+                    {(question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') && question.options && (
+                        <div style={{
+                            marginTop: 16,
+                            backgroundColor: '#f8f9fa',
+                            padding: '16px',
+                            borderRadius: '8px',
+                            border: '1px solid #e8e8e8'
+                        }}>
+                            <Text type="secondary" style={{ fontSize: '13px', fontWeight: '600', marginBottom: 12, display: 'block' }}>
+                                Answer Options:
+                            </Text>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {question.options.map((option, optIndex) => (
+                                    <div
+                                        key={optIndex}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            padding: '10px 14px',
+                                            backgroundColor: option.is_correct ? '#f6ffed' : 'white',
+                                            border: `2px solid ${option.is_correct ? '#52c41a' : '#e8e8e8'}`,
+                                            borderRadius: '6px'
+                                        }}
+                                    >
+                                        <span style={{
+                                            width: '28px',
+                                            height: '28px',
+                                            borderRadius: '50%',
+                                            backgroundColor: option.is_correct ? '#52c41a' : '#d9d9d9',
+                                            color: 'white',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            marginRight: '12px',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            flexShrink: 0
+                                        }}>
+                                            {String.fromCharCode(65 + optIndex)}
+                                        </span>
+                                        <Text
+                                            style={{
+                                                color: option.is_correct ? '#52c41a' : '#1a1a1a',
+                                                fontWeight: option.is_correct ? '600' : '400',
+                                                fontSize: '14px',
+                                                flex: 1
+                                            }}
+                                        >
+                                            {option.option_text}
+                                            {option.is_correct && <span style={{ marginLeft: 8 }}>✓</span>}
+                                        </Text>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
-                    }
-                    description={
-                        <div>
-                            <Text>{question.question_text}</Text>
-                            {(question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') && question.options && (
-                                <div style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Options:</Text>
-                                    <ul style={{ marginTop: 4, marginBottom: 0 }}>
-                                        {question.options.map((option, optIndex) => (
-                                            <li key={optIndex}>
-                                                <Text 
-                                                    type={option.is_correct ? 'success' : 'secondary'}
-                                                    strong={option.is_correct}
-                                                >
-                                                    {option.option_text}
-                                                    {option.is_correct && ' ✓'}
-                                                </Text>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            )}
-                            {question.question_type === 'yes_no' && (
-                                <div style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Correct Answer: </Text>
-                                    <Text strong type="success">{question.correct_answer === 'yes' ? 'Yes' : 'No'}</Text>
-                                </div>
-                            )}
-                            {(question.question_type as any) === 'boolean' && (
-                                <div style={{ marginTop: 8 }}>
-                                    <Text type="secondary">Correct Answer: </Text>
-                                    <Text strong type="success">{question.correct_answer === 'true' ? 'True' : 'False'}</Text>
-                                </div>
-                            )}
+                    )}
+                    
+                    {question.question_type === 'yes_no' && (
+                        <div style={{
+                            marginTop: 16,
+                            backgroundColor: '#f6ffed',
+                            padding: '14px 16px',
+                            borderRadius: '8px',
+                            border: '2px solid #b7eb8f',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12
+                        }}>
+                            <Text type="secondary" style={{ fontSize: '14px', fontWeight: '500' }}>Correct Answer:</Text>
+                            <Tag color="success" style={{ fontSize: '14px', padding: '4px 16px', borderRadius: '6px', fontWeight: '600', margin: 0 }}>
+                                {question.correct_answer === 'yes' ? '✓ Yes' : '✗ No'}
+                            </Tag>
                         </div>
-                    }
-                />
-            </List.Item>
+                    )}
+                    
+                    {(question.question_type as any) === 'boolean' && (
+                        <div style={{
+                            marginTop: 16,
+                            backgroundColor: '#f6ffed',
+                            padding: '14px 16px',
+                            borderRadius: '8px',
+                            border: '2px solid #b7eb8f',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12
+                        }}>
+                            <Text type="secondary" style={{ fontSize: '14px', fontWeight: '500' }}>Correct Answer:</Text>
+                            <Tag color="success" style={{ fontSize: '14px', padding: '4px 16px', borderRadius: '6px', fontWeight: '600', margin: 0 }}>
+                                {question.correct_answer === 'true' ? 'True' : 'False'}
+                            </Tag>
+                        </div>
+                    )}
+                </div>
+            </Collapse.Panel>
         );
     };
 
@@ -606,37 +782,89 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         };
 
         return (
-            <div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {options.map((option, index) => (
-                    <div key={index} style={{ display: 'flex', marginBottom: 8, alignItems: 'center' }}>
+                    <div
+                        key={index}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            padding: '12px',
+                            backgroundColor: option.is_correct ? '#f6ffed' : 'white',
+                            border: `2px solid ${option.is_correct ? '#52c41a' : '#d9d9d9'}`,
+                            borderRadius: '8px',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            backgroundColor: option.is_correct ? '#52c41a' : '#f0f0f0',
+                            color: option.is_correct ? 'white' : '#666',
+                            fontWeight: '600',
+                            fontSize: '13px',
+                            flexShrink: 0
+                        }}>
+                            {String.fromCharCode(65 + index)}
+                        </div>
                         <Checkbox
                             checked={option.is_correct}
                             onChange={(e) => handleCorrectChange(index, e.target.checked)}
-                            style={{ marginRight: 8 }}
+                            style={{
+                                flexShrink: 0,
+                                transform: 'scale(1.1)'
+                            }}
                         />
                         <Input
-                            placeholder={`Option ${index + 1}`}
+                            placeholder={`Enter option ${index + 1}...`}
                             value={option.option_text}
                             onChange={(e) => handleOptionChange(index, e.target.value)}
-                            style={{ flex: 1 }}
+                            style={{
+                                flex: 1,
+                                borderRadius: '6px',
+                                border: 'none',
+                                backgroundColor: 'transparent',
+                                fontSize: '14px',
+                                fontWeight: option.is_correct ? '600' : '400'
+                            }}
+                            size="large"
                         />
                         {options.length > 2 && (
-                            <Button 
-                                type="link" 
-                                danger 
-                                icon={<MinusCircleOutlined />}
+                            <Button
+                                type="text"
+                                danger
+                                icon={<MinusCircleOutlined style={{ fontSize: '18px' }} />}
                                 onClick={() => removeOption(index)}
+                                style={{
+                                    flexShrink: 0,
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '6px'
+                                }}
                             />
                         )}
                     </div>
                 ))}
-                <Button 
-                    type="dashed" 
+                <Button
+                    type="dashed"
                     onClick={addOption}
                     icon={<PlusOutlined />}
-                    style={{ width: '100%' }}
+                    style={{
+                        width: '100%',
+                        height: '44px',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        marginTop: '8px'
+                    }}
+                    size="large"
                 >
-                    Add Option
+                    Add Another Option
                 </Button>
             </div>
         );
@@ -664,20 +892,21 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     {/* Quiz Details Form */}
                     <Card title="Quiz Details" style={{ marginBottom: 24 }}>
                         <Form
+                            key={quizId ? `edit-${quizId}` : `new-${formResetKey}`}
                             form={quizForm}
                             layout="vertical"
                             onFinish={(values) => handleQuizSave(values, false)}
                             disabled={isEnded}
                             initialValues={{
-                                title: quiz.title,
-                                description: quiz.description,
-                                instructions: quiz.instructions,
-                                batch_ids: quiz.batch_ids,
-                                duration_minutes: quiz.duration_minutes,
-                                quiz_dates: quiz.start_date && quiz.end_date ? [dayjs(quiz.start_date), dayjs(quiz.end_date)] : undefined,
-                                randomize_questions: quiz.randomize_questions,
-                                randomize_options: quiz.randomize_options,
-                                total_marks: quiz.total_marks
+                                title: '',
+                                description: '',
+                                instructions: '',
+                                batch_ids: [],
+                                duration_minutes: 30,
+                                quiz_dates: undefined,
+                                randomize_questions: false,
+                                randomize_options: false,
+                                total_marks: undefined
                             }}
                         >
                             <Row gutter={16}>
@@ -855,18 +1084,33 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     </Card>
 
                     {/* Questions List */}
-                    <Card 
-                        title="Questions" 
+                    <Card
+                        title={
+                            <span style={{ color: '#1a1a1a', fontSize: '18px', fontWeight: '600' }}>
+                                📝 Questions ({quiz.questions.length})
+                            </span>
+                        }
                         extra={
-                            <Button 
-                                type="primary" 
+                            <Button
+                                type="primary"
                                 icon={<PlusOutlined />}
                                 onClick={handleAddQuestion}
                                 disabled={isEnded}
+                                style={{
+                                    borderRadius: '6px',
+                                    fontWeight: '500',
+                                    height: '36px'
+                                }}
                             >
                                 Add Question
                             </Button>
                         }
+                        style={{
+                            borderRadius: '8px',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                            border: '1px solid #e8e8e8'
+                        }}
+                        bodyStyle={{ padding: '24px' }}
                     >
                         {quiz.questions.length === 0 ? (
                             <Alert
@@ -874,13 +1118,19 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 description="Click 'Add Question' to start building your quiz."
                                 type="info"
                                 showIcon
+                                style={{ borderRadius: '6px' }}
                             />
                         ) : (
-                            <List
-                                itemLayout="vertical"
-                                dataSource={quiz.questions}
-                                renderItem={(question, index) => renderQuestionPreview(question, index)}
-                            />
+                            <Collapse
+                                accordion
+                                style={{
+                                    backgroundColor: 'transparent',
+                                    border: 'none'
+                                }}
+                                expandIconPosition="end"
+                            >
+                                {quiz.questions.map((question, index) => renderQuestionPreview(question, index))}
+                            </Collapse>
                         )}
                     </Card>
                 </Col>
@@ -932,7 +1182,16 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 
             {/* Question Modal */}
             <Modal
-                title={editingQuestion ? 'Edit Question' : 'Add New Question'}
+                title={
+                    <div style={{
+                        fontSize: '18px',
+                        fontWeight: '600',
+                        color: '#1a1a1a',
+                        padding: '4px 0'
+                    }}>
+                        {editingQuestion ? '✏️ Edit Question' : '➕ Add New Question'}
+                    </div>
+                }
                 open={questionModalVisible}
                 onCancel={() => {
                     setQuestionModalVisible(false);
@@ -940,51 +1199,85 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 }}
                 footer={null}
                 width={700}
+                centered
+                style={{ top: 20 }}
+                bodyStyle={{
+                    maxHeight: 'calc(100vh - 200px)',
+                    overflowY: 'auto',
+                    padding: '24px'
+                }}
             >
                 <Form
+                    key={editingIndex >= 0 ? `edit-${editingIndex}` : 'new-question'}
                     form={questionForm}
                     layout="vertical"
                     onFinish={handleQuestionSave}
                 >
-                    <Form.Item
-                        name="question_text"
-                        label="Question Text"
-                        rules={[{ required: true, message: 'Please enter question text' }]}
-                    >
-                        <TextArea rows={3} placeholder="Enter your question" />
-                    </Form.Item>
+                    <div style={{
+                        backgroundColor: '#f8f9fa',
+                        padding: '16px',
+                        borderRadius: '8px',
+                        marginBottom: 20,
+                        border: '1px solid #e8e8e8'
+                    }}>
+                        <Form.Item
+                            name="question_text"
+                            label={<span style={{ color: '#1a1a1a', fontWeight: '600', fontSize: '14px' }}>Question Text</span>}
+                            rules={[{ required: true, message: 'Please enter question text' }]}
+                            style={{ marginBottom: 0 }}
+                        >
+                            <TextArea
+                                rows={3}
+                                placeholder="Enter your question here..."
+                                style={{
+                                    borderRadius: '6px',
+                                    fontSize: '14px'
+                                }}
+                            />
+                        </Form.Item>
+                    </div>
 
                     <Row gutter={16}>
                         <Col span={16}>
                             <Form.Item
                                 name="question_type"
-                                label="Question Type"
+                                label={<span style={{ color: '#1a1a1a', fontWeight: '600', fontSize: '14px' }}>Question Type</span>}
                                 rules={[{ required: true, message: 'Please select question type' }]}
                             >
-                                <Select placeholder="Select question type">
-                                    <Option value="mcq_single">Multiple Choice (Single Answer)</Option>
-                                    <Option value="mcq_multiple">Multiple Choice (Multiple Answers)</Option>
-                                    <Option value="yes_no">Yes/No Question</Option>
+                                <Select
+                                    placeholder="Select question type"
+                                    style={{ borderRadius: '6px' }}
+                                    size="large"
+                                >
+                                    <Option value="mcq_single">📋 Multiple Choice (Single Answer)</Option>
+                                    <Option value="mcq_multiple">☑️ Multiple Choice (Multiple Answers)</Option>
+                                    <Option value="yes_no">✓ Yes/No Question</Option>
                                 </Select>
                             </Form.Item>
                         </Col>
                         <Col span={8}>
                             <Form.Item
                                 name="marks"
-                                label="Marks"
+                                label={<span style={{ color: '#1a1a1a', fontWeight: '600', fontSize: '14px' }}>Points</span>}
                                 rules={[
                                     { required: true, message: 'Please enter marks' },
                                     { type: 'number', min: 1, message: 'Must be at least 1 mark' }
                                 ]}
                             >
-                                <InputNumber min={1} max={100} style={{ width: '100%' }} />
+                                <InputNumber
+                                    min={1}
+                                    max={100}
+                                    style={{ width: '100%', borderRadius: '6px' }}
+                                    size="large"
+                                    placeholder="Points"
+                                />
                             </Form.Item>
                         </Col>
                     </Row>
 
                     <Form.Item
                         noStyle
-                        shouldUpdate={(prevValues, currentValues) => 
+                        shouldUpdate={(prevValues, currentValues) =>
                             prevValues.question_type !== currentValues.question_type
                         }
                     >
@@ -993,45 +1286,74 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                             
                             if (questionType === 'mcq_single' || questionType === 'mcq_multiple') {
                                 return (
-                                    <Form.Item
-                                        name="options"
-                                        label="Answer Options"
-                                        rules={[
-                                            { required: true, message: 'Please add at least 2 options' },
-                                            {
-                                                validator: (_, value) => {
-                                                    if (!value || value.length < 2) {
-                                                        return Promise.reject('Please add at least 2 options');
-                                                    }
-                                                    const correctOptions = value.filter((opt: QuestionOption) => opt.is_correct);
-                                                    if (questionType === 'mcq_single' && correctOptions.length !== 1) {
-                                                        return Promise.reject('Single choice MCQ must have exactly one correct answer');
-                                                    }
-                                                    if (questionType === 'mcq_multiple' && correctOptions.length === 0) {
-                                                        return Promise.reject('Multiple choice MCQ must have at least one correct answer');
-                                                    }
-                                                    return Promise.resolve();
-                                                }
+                                    <div style={{
+                                        backgroundColor: '#f8f9fa',
+                                        padding: '16px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e8e8e8'
+                                    }}>
+                                        <Form.Item
+                                            name="options"
+                                            label={
+                                                <div style={{ marginBottom: 8 }}>
+                                                    <span style={{ color: '#1a1a1a', fontWeight: '600', fontSize: '14px' }}>
+                                                        Answer Options
+                                                    </span>
+                                                    <Text type="secondary" style={{ fontSize: '12px', marginLeft: 8 }}>
+                                                        (Check the correct answer{questionType === 'mcq_multiple' ? 's' : ''})
+                                                    </Text>
+                                                </div>
                                             }
-                                        ]}
-                                    >
-                                        <OptionsInput allowMultiple={questionType === 'mcq_multiple'} />
-                                    </Form.Item>
+                                            rules={[
+                                                { required: true, message: 'Please add at least 2 options' },
+                                                {
+                                                    validator: (_, value) => {
+                                                        if (!value || value.length < 2) {
+                                                            return Promise.reject('Please add at least 2 options');
+                                                        }
+                                                        const correctOptions = value.filter((opt: QuestionOption) => opt.is_correct);
+                                                        if (questionType === 'mcq_single' && correctOptions.length !== 1) {
+                                                            return Promise.reject('Single choice MCQ must have exactly one correct answer');
+                                                        }
+                                                        if (questionType === 'mcq_multiple' && correctOptions.length === 0) {
+                                                            return Promise.reject('Multiple choice MCQ must have at least one correct answer');
+                                                        }
+                                                        return Promise.resolve();
+                                                    }
+                                                }
+                                            ]}
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <OptionsInput allowMultiple={questionType === 'mcq_multiple'} />
+                                        </Form.Item>
+                                    </div>
                                 );
                             }
                             
                             if (questionType === 'yes_no') {
                                 return (
-                                    <Form.Item
-                                        name="correct_answer"
-                                        label="Correct Answer"
-                                        rules={[{ required: true, message: 'Please select correct answer' }]}
-                                    >
-                                        <Select placeholder="Select correct answer">
-                                            <Option value="yes">Yes</Option>
-                                            <Option value="no">No</Option>
-                                        </Select>
-                                    </Form.Item>
+                                    <div style={{
+                                        backgroundColor: '#f8f9fa',
+                                        padding: '16px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #e8e8e8'
+                                    }}>
+                                        <Form.Item
+                                            name="correct_answer"
+                                            label={<span style={{ color: '#1a1a1a', fontWeight: '600', fontSize: '14px' }}>Correct Answer</span>}
+                                            rules={[{ required: true, message: 'Please select correct answer' }]}
+                                            style={{ marginBottom: 0 }}
+                                        >
+                                            <Select
+                                                placeholder="Select correct answer"
+                                                size="large"
+                                                style={{ borderRadius: '6px' }}
+                                            >
+                                                <Option value="yes">✓ Yes</Option>
+                                                <Option value="no">✗ No</Option>
+                                            </Select>
+                                        </Form.Item>
+                                    </div>
                                 );
                             }
                             
@@ -1039,13 +1361,28 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         }}
                     </Form.Item>
 
+                    <Divider style={{ margin: '24px 0' }} />
+
                     <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                        <Space>
-                            <Button onClick={() => setQuestionModalVisible(false)}>
+                        <Space size={12}>
+                            <Button
+                                onClick={() => setQuestionModalVisible(false)}
+                                size="large"
+                                style={{ borderRadius: '6px', minWidth: '100px' }}
+                            >
                                 Cancel
                             </Button>
-                            <Button type="primary" htmlType="submit">
-                                {editingQuestion ? 'Update Question' : 'Add Question'}
+                            <Button
+                                type="primary"
+                                htmlType="submit"
+                                size="large"
+                                style={{
+                                    borderRadius: '6px',
+                                    minWidth: '140px',
+                                    fontWeight: '600'
+                                }}
+                            >
+                                {editingQuestion ? '✓ Update Question' : '➕ Add Question'}
                             </Button>
                         </Space>
                     </Form.Item>

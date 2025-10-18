@@ -136,16 +136,22 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
 
                 if (data?.status === 'in_progress') {
                     // Restore saved answers on resume (only if we don't already have local answers)
-                    if (Array.isArray(data.answers)) {
+                    if (Array.isArray(data.answers) && quiz?.questions) {
+                        // Get valid question IDs from current quiz
+                        const validQuestionIds = new Set(quiz.questions.map(q => q.id));
+                        
                         setAnswers(prev => {
                             if (prev && prev.length > 0) return prev; // don't override ongoing edits
-                            return data.answers.map((a: any) => ({
-                                question_id: Number(a.question_id),
-                                answer_text: a.answer_text ?? undefined,
-                                selected_options: Array.isArray(a.selected_options)
-                                    ? a.selected_options.map((n: any) => Number(n))
-                                    : (a.selected_options ? JSON.parse(a.selected_options) : undefined)
-                            }));
+                            // Filter to only include answers for questions in current quiz
+                            return data.answers
+                                .filter((a: any) => validQuestionIds.has(Number(a.question_id)))
+                                .map((a: any) => ({
+                                    question_id: Number(a.question_id),
+                                    answer_text: a.answer_text ?? undefined,
+                                    selected_options: Array.isArray(a.selected_options)
+                                        ? a.selected_options.map((n: any) => Number(n))
+                                        : (a.selected_options ? JSON.parse(a.selected_options) : undefined)
+                                }));
                         });
                     }
 
@@ -269,6 +275,8 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
             setTotalTimeSeconds(seconds);
             setTimeLeft(seconds);
             setQuizStarted(true);
+            // Clear any stale answers from previous quiz attempts
+            setAnswers([]);
             setQuiz(prev => (prev ? { ...prev, duration_minutes: duration } : prev));
             // Mark the first question as visited
             const firstQ = (data?.quiz?.questions ?? quiz?.questions)?.[0] || quiz?.questions?.[0];
@@ -466,7 +474,13 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     // Compute answered set for nav panel coloring
     const answeredSet = new Set(
         answers
-            .filter(a => (a.answer_text && a.answer_text !== '') || (Array.isArray(a.selected_options) && a.selected_options.length > 0))
+            .filter(a => {
+                // Only count answers for questions that exist in the quiz
+                const questionExists = quiz?.questions?.some(q => q.id === a.question_id);
+                if (!questionExists) return false;
+                // Check if answer has content
+                return (a.answer_text && a.answer_text !== '') || (Array.isArray(a.selected_options) && a.selected_options.length > 0);
+            })
             .map(a => a.question_id)
     );
 
@@ -481,11 +495,42 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         onChange={(e) => handleAnswerChange(question, e.target.value)}
                         style={{ width: '100%' }}
                     >
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            {question.options?.map((option) => (
-                                <Radio key={option.id} value={option.id} style={{ fontSize: 16 }}>
-                                    {option.option_text}
-                                </Radio>
+                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                            {question.options?.map((option, idx) => (
+                                <div
+                                    key={option.id}
+                                    style={{
+                                        padding: '16px 20px',
+                                        backgroundColor: currentAnswer === option.id ? '#e6f7ff' : '#fafafa',
+                                        border: `2px solid ${currentAnswer === option.id ? '#1890ff' : '#e8e8e8'}`,
+                                        borderRadius: '8px',
+                                        transition: 'all 0.3s',
+                                        cursor: 'pointer'
+                                    }}
+                                    onClick={() => handleAnswerChange(question, option.id)}
+                                >
+                                    <Radio value={option.id} style={{ fontSize: 16, width: '100%' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                            <span style={{
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                width: '28px',
+                                                height: '28px',
+                                                borderRadius: '50%',
+                                                backgroundColor: currentAnswer === option.id ? '#1890ff' : '#d9d9d9',
+                                                color: 'white',
+                                                fontWeight: '600',
+                                                fontSize: '13px'
+                                            }}>
+                                                {String.fromCharCode(65 + idx)}
+                                            </span>
+                                            <span style={{ flex: 1, fontWeight: currentAnswer === option.id ? '500' : '400' }}>
+                                                {option.option_text}
+                                            </span>
+                                        </div>
+                                    </Radio>
+                                </div>
                             ))}
                         </Space>
                     </Radio.Group>
@@ -493,21 +538,60 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
             case 'mcq_multiple':
                 return (
                     <div style={{ width: '100%' }}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            {question.options?.map((option) => (
-                                <Checkbox
-                                    key={option.id}
-                                    checked={(currentAnswer as number[]).includes(option.id)}
-                                    onChange={(e) => {
-                                        const selected = new Set<number>(currentAnswer as number[]);
-                                        if (e.target.checked) selected.add(option.id); else selected.delete(option.id);
-                                        handleAnswerChange(question, Array.from(selected));
-                                    }}
-                                    style={{ fontSize: 16 }}
-                                >
-                                    {option.option_text}
-                                </Checkbox>
-                            ))}
+                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                            {question.options?.map((option, idx) => {
+                                const isSelected = (currentAnswer as number[]).includes(option.id);
+                                return (
+                                    <div
+                                        key={option.id}
+                                        style={{
+                                            padding: '16px 20px',
+                                            backgroundColor: isSelected ? '#e6f7ff' : '#fafafa',
+                                            border: `2px solid ${isSelected ? '#1890ff' : '#e8e8e8'}`,
+                                            borderRadius: '8px',
+                                            transition: 'all 0.3s',
+                                            cursor: 'pointer'
+                                        }}
+                                        onClick={() => {
+                                            const selected = new Set<number>(currentAnswer as number[]);
+                                            if (isSelected) selected.delete(option.id);
+                                            else selected.add(option.id);
+                                            handleAnswerChange(question, Array.from(selected));
+                                        }}
+                                    >
+                                        <Checkbox
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                                const selected = new Set<number>(currentAnswer as number[]);
+                                                if (e.target.checked) selected.add(option.id);
+                                                else selected.delete(option.id);
+                                                handleAnswerChange(question, Array.from(selected));
+                                            }}
+                                            style={{ fontSize: 16, width: '100%' }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                <span style={{
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    width: '28px',
+                                                    height: '28px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: isSelected ? '#1890ff' : '#d9d9d9',
+                                                    color: 'white',
+                                                    fontWeight: '600',
+                                                    fontSize: '13px'
+                                                }}>
+                                                    {String.fromCharCode(65 + idx)}
+                                                </span>
+                                                <span style={{ flex: 1, fontWeight: isSelected ? '500' : '400' }}>
+                                                    {option.option_text}
+                                                </span>
+                                            </div>
+                                        </Checkbox>
+                                    </div>
+                                );
+                            })}
                         </Space>
                     </div>
                 );
@@ -518,9 +602,41 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         onChange={(e) => handleAnswerChange(question, e.target.value)}
                         style={{ width: '100%' }}
                     >
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            <Radio value="yes" style={{ fontSize: 16 }}>Yes</Radio>
-                            <Radio value="no" style={{ fontSize: 16 }}>No</Radio>
+                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                            <div
+                                style={{
+                                    padding: '16px 20px',
+                                    backgroundColor: currentAnswer === 'yes' ? '#e6f7ff' : '#fafafa',
+                                    border: `2px solid ${currentAnswer === 'yes' ? '#1890ff' : '#e8e8e8'}`,
+                                    borderRadius: '8px',
+                                    transition: 'all 0.3s',
+                                    cursor: 'pointer'
+                                }}
+                                onClick={() => handleAnswerChange(question, 'yes')}
+                            >
+                                <Radio value="yes" style={{ fontSize: 16, width: '100%' }}>
+                                    <span style={{ fontWeight: currentAnswer === 'yes' ? '600' : '400', fontSize: '16px' }}>
+                                        ✓ Yes
+                                    </span>
+                                </Radio>
+                            </div>
+                            <div
+                                style={{
+                                    padding: '16px 20px',
+                                    backgroundColor: currentAnswer === 'no' ? '#e6f7ff' : '#fafafa',
+                                    border: `2px solid ${currentAnswer === 'no' ? '#1890ff' : '#e8e8e8'}`,
+                                    borderRadius: '8px',
+                                    transition: 'all 0.3s',
+                                    cursor: 'pointer'
+                                }}
+                                onClick={() => handleAnswerChange(question, 'no')}
+                            >
+                                <Radio value="no" style={{ fontSize: 16, width: '100%' }}>
+                                    <span style={{ fontWeight: currentAnswer === 'no' ? '600' : '400', fontSize: '16px' }}>
+                                        ✗ No
+                                    </span>
+                                </Radio>
+                            </div>
                         </Space>
                     </Radio.Group>
                 );
@@ -639,7 +755,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
 
     const currentQ = quiz.questions?.[currentQuestion];
     const questionsLength = quiz.questions?.length ?? 0;
-    const progress = questionsLength ? (((currentQuestion + 1) / questionsLength) * 100) : 0;
+    const progress = questionsLength ? Number((((currentQuestion + 1) / questionsLength) * 100).toFixed(2)) : 0;
     const answeredQuestions = answeredSet.size;
 
     // Guard against quizzes with no questions
@@ -656,126 +772,239 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     }
 
     return (
-        <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
+        <div style={{ backgroundColor: '#f8f9fa', minHeight: 'auto' }}>
             {contextHolder}
-            {/* Header with timer and progress */}
-            <Card style={{ marginBottom: 20 }}>
-                <Row justify="space-between" align="middle">
-                    <Col>
-                        <Title level={4} style={{ margin: 0 }}>{quiz.title}</Title>
-                        <Text type="secondary">
-                            Question {currentQuestion + 1} of {questionsLength}
-                        </Text>
-                    </Col>
-                    <Col>
-                        <Statistic
-                            title="Time Remaining"
-                            value={formatTime(timeLeft)}
-                            valueStyle={{ color: getTimeColor(), fontSize: 24 }}
-                            prefix={<ClockCircleOutlined />}
-                        />
-                    </Col>
-                </Row>
-                
-                <Progress 
-                    percent={progress} 
-                    strokeColor="#1890ff"
-                    style={{ marginTop: 16 }}
-                />
-                
-                {/* Question navigation panel */}
-                {questionsLength > 0 && (
-                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {quiz.questions.map((q, idx) => {
-                            const isCurrent = idx === currentQuestion;
-                            const isAnswered = answeredSet.has(q.id);
-                            const isVisited = visitedQuestions.has(q.id);
-                            let bg = '#d9d9d9'; // gray for unvisited (default)
-                            let color = '#000';
-                            if (isCurrent) { bg = '#fa8c16'; color = '#fff'; } // orange current
-                            else if (isAnswered) { bg = '#52c41a'; color = '#fff'; } // green saved
-                            else if (!isVisited) { bg = '#d9d9d9'; color = '#000'; } // gray unvisited
-                            
-                            return (
+            {/* Fixed Timer Header */}
+            <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 100,
+                backgroundColor: 'white',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                borderBottom: '2px solid #e8e8e8'
+            }}>
+                <div style={{ maxWidth: 1200, margin: '0 auto', padding: '12px 20px' }}>
+                    <Row justify="space-between" align="middle" gutter={[16, 8]}>
+                        <Col xs={24} sm={12} md={10}>
+                            <Title level={4} style={{ margin: 0, color: '#1a1a1a', fontSize: '18px' }}>
+                                {quiz.title}
+                            </Title>
+                            <Text style={{ color: '#666', fontSize: '13px' }}>
+                                Q{currentQuestion + 1}/{questionsLength} • {answeredQuestions} answered
+                            </Text>
+                        </Col>
+                        <Col xs={12} sm={6} md={5} style={{ textAlign: 'center' }}>
+                            <div style={{
+                                backgroundColor: timeLeft < 60 ? '#fff2e8' : '#e6f7ff',
+                                padding: '6px 12px',
+                                borderRadius: '8px',
+                                border: `2px solid ${getTimeColor()}`,
+                                display: 'inline-block'
+                            }}>
+                                <ClockCircleOutlined style={{ fontSize: '14px', color: getTimeColor() }} />
+                                <div style={{
+                                    fontSize: '18px',
+                                    fontWeight: '700',
+                                    color: getTimeColor(),
+                                    fontFamily: 'monospace'
+                                }}>
+                                    {formatTime(timeLeft)}
+                                </div>
+                            </div>
+                        </Col>
+                        <Col xs={12} sm={6} md={4}>
+                            <Progress
+                                type="circle"
+                                percent={progress}
+                                strokeColor={{
+                                    '0%': '#1890ff',
+                                    '100%': '#52c41a'
+                                }}
+                                width={60}
+                                format={() => `${progress.toFixed(0)}%`}
+                            />
+                        </Col>
+                        <Col xs={24} md={5}>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
+                                    {quiz.questions.map((q, idx) => {
+                                        const isCurrent = idx === currentQuestion;
+                                        const isAnswered = answeredSet.has(q.id);
+                                        const isVisited = visitedQuestions.has(q.id);
+                                        let bg = isAnswered ? '#52c41a' : (isCurrent ? '#1890ff' : (isVisited ? '#ffd591' : '#d9d9d9'));
+                                        
+                                        return (
+                                            <Button
+                                                key={q.id}
+                                                size="small"
+                                                style={{
+                                                    width: 28,
+                                                    height: 28,
+                                                    padding: 0,
+                                                    backgroundColor: bg,
+                                                    color: '#fff',
+                                                    border: 'none',
+                                                    borderRadius: '4px',
+                                                    fontWeight: '600',
+                                                    fontSize: '11px',
+                                                    minWidth: '28px'
+                                                }}
+                                                onClick={() => setCurrentQuestion(idx)}
+                                            >
+                                                {idx + 1}
+                                            </Button>
+                                        );
+                                    })}
+                                </div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap', alignItems: 'center' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 9, height: 9, backgroundColor: '#1890ff', borderRadius: '2px', flexShrink: 0 }}></div>
+                                        <span style={{ fontSize: '9px', color: '#666' }}>Cur</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 9, height: 9, backgroundColor: '#52c41a', borderRadius: '2px', flexShrink: 0 }}></div>
+                                        <span style={{ fontSize: '9px', color: '#666' }}>Done</span>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 9, height: 9, backgroundColor: '#ffd591', borderRadius: '2px', flexShrink: 0 }}></div>
+                                        <span style={{ fontSize: '9px', color: '#666' }}>Seen</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </Col>
+                    </Row>
+                </div>
+            </div>
+
+            <div style={{ maxWidth: 1200, margin: '16px auto 0', padding: '0 20px 0' }}>
+                {/* Question Card */}
+                <Card
+                    style={{
+                        borderRadius: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                        border: '1px solid #e8e8e8'
+                    }}
+                    bodyStyle={{ padding: '20px' }}
+                >
+                    <div style={{ marginBottom: 12 }}>
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 12,
+                            paddingBottom: 10,
+                            borderBottom: '2px solid #f0f0f0'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{
+                                    backgroundColor: '#1890ff',
+                                    color: 'white',
+                                    width: '36px',
+                                    height: '36px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: '700',
+                                    fontSize: '16px'
+                                }}>
+                                    {currentQuestion + 1}
+                                </div>
+                                <Title level={4} style={{ margin: 0, color: '#1a1a1a', fontSize: '18px' }}>
+                                    Question {currentQuestion + 1}
+                                </Title>
+                            </div>
+                            <div style={{
+                                backgroundColor: '#f0f5ff',
+                                padding: '6px 14px',
+                                borderRadius: '6px',
+                                border: '1px solid #adc6ff'
+                            }}>
+                                <Text strong style={{ color: '#1890ff', fontSize: '15px' }}>
+                                    {formatNumber(currentQ.points ?? 0)} pts
+                                </Text>
+                            </div>
+                        </div>
+                        
+                        <div style={{
+                            backgroundColor: '#fafafa',
+                            padding: '16px',
+                            borderRadius: '8px',
+                            border: '1px solid #e8e8e8',
+                            marginBottom: 12
+                        }}>
+                            <Paragraph style={{
+                                fontSize: 16,
+                                lineHeight: 1.5,
+                                color: '#1a1a1a',
+                                margin: 0,
+                                fontWeight: '500'
+                            }}>
+                                {currentQ.question_text}
+                            </Paragraph>
+                        </div>
+                    </div>
+
+                    <div style={{ marginBottom: 12 }}>
+                        {renderQuestion(currentQ)}
+                    </div>
+
+                    {/* Navigation buttons */}
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        paddingTop: 12,
+                        borderTop: '2px solid #f0f0f0'
+                    }}>
+                        <Button
+                            onClick={previousQuestion}
+                            disabled={currentQuestion === 0}
+                            size="large"
+                            style={{
+                                borderRadius: '8px',
+                                minWidth: '110px',
+                                fontWeight: '500'
+                            }}
+                        >
+                            ← Previous
+                        </Button>
+                        
+                        <Space>
+                            {currentQuestion === questionsLength - 1 ? (
                                 <Button
-                                    key={q.id}
-                                    size="small"
+                                    type="primary"
+                                    danger
+                                    size="large"
+                                    onClick={() => setShowConfirmModal(true)}
+                                    disabled={submitting}
                                     style={{
-                                        width: 32,
-                                        height: 32,
-                                        padding: 0,
-                                        backgroundColor: bg,
-                                        color,
-                                        border: isCurrent ? '2px solid #d46b08' : '1px solid #ccc',
+                                        borderRadius: '8px',
+                                        minWidth: '130px',
+                                        fontWeight: '600',
+                                        height: '42px'
                                     }}
-                                    onClick={() => setCurrentQuestion(idx)}
-                                    disabled={submitting || quizCompleted}
                                 >
-                                    {idx + 1}
+                                    Submit Quiz
                                 </Button>
-                            );
-                        })}
+                            ) : (
+                                <Button
+                                    type="primary"
+                                    size="large"
+                                    onClick={nextQuestion}
+                                    style={{
+                                        borderRadius: '8px',
+                                        minWidth: '110px',
+                                        fontWeight: '500',
+                                        height: '42px'
+                                    }}
+                                >
+                                    Next →
+                                </Button>
+                            )}
+                        </Space>
                     </div>
-                )}
-                
-                <div style={{ marginTop: 8, textAlign: 'center' }}>
-                    <Text type="secondary">
-                        {answeredQuestions} of {questionsLength} questions answered
-                    </Text>
-                </div>
-            </Card>
-
-            {/* Question Card */}
-            <Card>
-                <div style={{ marginBottom: 24 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                        <Title level={5} style={{ margin: 0 }}>
-                            Question {currentQuestion + 1}
-                        </Title>
-                        <Text strong style={{ color: '#1890ff' }}>
-                            {currentQ.points ?? 0} {(currentQ.points ?? 0) === 1 ? 'point' : 'points'}
-                        </Text>
-                    </div>
-                    
-                    <Paragraph style={{ fontSize: 18, lineHeight: 1.6 }}>
-                        {currentQ.question_text}
-                    </Paragraph>
-                </div>
-
-                <div style={{ marginBottom: 32 }}>
-                    {renderQuestion(currentQ)}
-                </div>
-
-                {/* Navigation buttons */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Button 
-                        onClick={previousQuestion}
-                        disabled={currentQuestion === 0}
-                    >
-                        Previous
-                    </Button>
-                    
-                    <Space>
-                        {currentQuestion === questionsLength - 1 ? (
-                            <Button 
-                                type="primary" 
-                                danger
-                                onClick={() => setShowConfirmModal(true)}
-                                disabled={submitting}
-                            >
-                                Submit Quiz
-                            </Button>
-                        ) : (
-                            <Button 
-                                type="primary"
-                                onClick={nextQuestion}
-                            >
-                                Next
-                            </Button>
-                        )}
-                    </Space>
-                </div>
-            </Card>
+                </Card>
 
             {/* Quiz Results Display */}
             {quizCompleted && quizResults && (
@@ -885,31 +1114,32 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                 </Card>
             )}
 
-            {/* Submit Confirmation Modal */}
-            <Modal
-                title="Submit Quiz"
-                open={showConfirmModal}
-                onOk={() => submitQuiz(false)}
-                onCancel={() => setShowConfirmModal(false)}
-                okText="Submit"
-                cancelText="Cancel"
-                confirmLoading={submitting}
-            >
-                <div>
-                    <WarningOutlined style={{ color: '#fa8c16', marginRight: 8 }} />
-                    <Text>Are you sure you want to submit your quiz?</Text>
-                </div>
-                <div style={{ marginTop: 16 }}>
-                    <Text type="secondary">
-                        You have answered {answeredQuestions} out of {questionsLength} questions.
-                        {answeredQuestions < questionsLength && (
-                            <span style={{ color: '#fa8c16' }}>
-                                {' '}Unanswered questions will be marked as incorrect.
-                            </span>
-                        )}
-                    </Text>
-                </div>
-            </Modal>
+                {/* Submit Confirmation Modal */}
+                <Modal
+                    title="Submit Quiz"
+                    open={showConfirmModal}
+                    onOk={() => submitQuiz(false)}
+                    onCancel={() => setShowConfirmModal(false)}
+                    okText="Submit"
+                    cancelText="Cancel"
+                    confirmLoading={submitting}
+                >
+                    <div>
+                        <WarningOutlined style={{ color: '#fa8c16', marginRight: 8 }} />
+                        <Text>Are you sure you want to submit your quiz?</Text>
+                    </div>
+                    <div style={{ marginTop: 16 }}>
+                        <Text type="secondary">
+                            You have answered {answeredQuestions} out of {questionsLength} questions.
+                            {answeredQuestions < questionsLength && (
+                                <span style={{ color: '#fa8c16' }}>
+                                    {' '}Unanswered questions will be marked as incorrect.
+                                </span>
+                            )}
+                        </Text>
+                    </div>
+                </Modal>
+            </div>
         </div>
     );
 });

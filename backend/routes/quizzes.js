@@ -730,7 +730,7 @@ router.post('/:id/auto-save', [
         
         // Get submission
         const submission = await req.db.get(`
-            SELECT * FROM quiz_submissions 
+            SELECT * FROM quiz_submissions
             WHERE quiz_id = ? AND student_id = ? AND status = 'in_progress'
         `, [id, req.user.id]);
         
@@ -738,12 +738,24 @@ router.post('/:id/auto-save', [
             return res.status(400).json({ error: 'No active quiz session found' });
         }
         
-        // Save progress
+        // Get all valid question IDs for this quiz
+        const validQuestions = await req.db.all(
+            'SELECT id FROM questions WHERE quiz_id = ?',
+            [id]
+        );
+        const validQuestionIds = new Set(validQuestions.map(q => q.id));
+        
+        // Filter answers to only include valid question IDs
+        const validAnswers = answers.filter(answer =>
+            answer.question_id && validQuestionIds.has(answer.question_id)
+        );
+        
+        // Save progress with only valid answers
         await req.db.run(`
-            UPDATE quiz_submissions 
+            UPDATE quiz_submissions
             SET auto_saved_data = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        `, [JSON.stringify(answers), submission.id]);
+        `, [JSON.stringify(validAnswers), submission.id]);
         
         res.json({ message: 'Progress saved successfully' });
         
@@ -768,7 +780,7 @@ router.post('/:id/submit', [
         
         // Get submission
         const submission = await req.db.get(`
-            SELECT * FROM quiz_submissions 
+            SELECT * FROM quiz_submissions
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
         
@@ -780,24 +792,36 @@ router.post('/:id/submit', [
             return res.status(400).json({ error: 'Quiz already submitted' });
         }
         
+        // Get all valid question IDs for this quiz
+        const validQuestions = await req.db.all(
+            'SELECT id FROM questions WHERE quiz_id = ?',
+            [id]
+        );
+        const validQuestionIds = new Set(validQuestions.map(q => q.id));
+        
+        // Filter answers to only include valid question IDs
+        const validAnswers = answers.filter(answer =>
+            answer.question_id && validQuestionIds.has(answer.question_id)
+        );
+        
         // Calculate time taken
         const startTime = new Date(submission.started_at);
         const endTime = new Date();
         const timeTaken = Math.round((endTime - startTime) / (1000 * 60)); // minutes
         
-        // Save answers
-        for (const answer of answers) {
+        // Save only valid answers
+        for (const answer of validAnswers) {
             await req.db.run(`
                 INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                 VALUES (?, ?, ?, ?)
                 ON CONFLICT (submission_id, question_id)
-                DO UPDATE SET 
+                DO UPDATE SET
                   answer_text = EXCLUDED.answer_text,
                   selected_options = EXCLUDED.selected_options,
                   updated_at = CURRENT_TIMESTAMP
             `, [
-                submission.id, 
-                answer.question_id, 
+                submission.id,
+                answer.question_id,
                 answer.answer_text || null,
                 answer.selected_options ? JSON.stringify(answer.selected_options) : null
             ]);
@@ -883,19 +907,31 @@ router.get('/:id/status', authenticateToken, async (req, res) => {
             let answers = [];
             try { answers = submission.auto_saved_data ? JSON.parse(submission.auto_saved_data) : []; } catch { answers = []; }
 
-            for (const answer of answers) {
+            // Get all valid question IDs for this quiz
+            const validQuestions = await req.db.all(
+                'SELECT id FROM questions WHERE quiz_id = ?',
+                [id]
+            );
+            const validQuestionIds = new Set(validQuestions.map(q => q.id));
+            
+            // Filter answers to only include valid question IDs
+            const validAnswers = answers.filter(answer =>
+                answer.question_id && validQuestionIds.has(answer.question_id)
+            );
+
+            for (const answer of validAnswers) {
                 await req.db.run(`
                     INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT (submission_id, question_id)
-                    DO UPDATE SET 
+                    DO UPDATE SET
                       answer_text = EXCLUDED.answer_text,
                       selected_options = EXCLUDED.selected_options,
                       updated_at = CURRENT_TIMESTAMP
                 `, [
-                    submission.id, 
-                    answer.question_id, 
-                    answer.answer_text || null, 
+                    submission.id,
+                    answer.question_id,
+                    answer.answer_text || null,
                     answer.selected_options ? JSON.stringify(answer.selected_options) : null
                 ]);
             }

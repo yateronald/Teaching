@@ -504,144 +504,232 @@ const StudentSchedule: React.FC = () => {
 
 
     return (
-        <div>
-            <div style={{ marginBottom: 16 }}>
-                <Title level={2}>
-                    <CalendarOutlined /> My Schedule
-                </Title>
-            </div>
+        <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
+            <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+                <div style={{ marginBottom: 24, textAlign: 'center' }}>
+                    <Title level={2} style={{ color: '#1a1a1a', marginBottom: 8 }}>
+                        <CalendarOutlined /> My Class Schedule
+                    </Title>
+                    <Text style={{ fontSize: '16px', color: '#666' }}>
+                        View and manage your upcoming classes, meetings, and academic events
+                    </Text>
+                </div>
 
-            <Spin spinning={loading} tip="Loading schedule statistics...">
-                {stats && (
-                    <Row gutter={16} style={{ marginBottom: 16 }}>
-                        <Col span={6}>
-                            <Card>
-                                <Statistic
-                                    title="Total Classes"
-                                    value={stats.total_classes ?? 0}
-                                    prefix={<BookOutlined />}
-                                    valueStyle={{ color: '#1677ff' }}
-                                />
-                            </Card>
-                        </Col>
-                        <Col span={6}>
-                            <Card>
-                                <Statistic
-                                    title="This Week"
-                                    value={stats.this_week_classes ?? 0}
-                                    prefix={<CalendarOutlined />}
-                                    valueStyle={{ color: '#52c41a' }}
-                                />
-                            </Card>
-                        </Col>
-                        <Col span={6}>
-                            <Card>
-                                <Statistic
-                                    title="Upcoming"
-                                    value={stats.upcoming_classes ?? 0}
-                                    prefix={<ClockCircleOutlined />}
-                                    valueStyle={{ color: '#faad14' }}
-                                />
-                            </Card>
-                        </Col>
-                        <Col span={6}>
-                            <Card>
-                                <Statistic
-                                    title="Completed"
-                                    value={stats.completed_classes ?? 0}
-                                    prefix={<CheckCircleOutlined />}
-                                    valueStyle={{ color: '#52c41a' }}
-                                />
-                            </Card>
-                        </Col>
-                    </Row>
-                )}
-            </Spin>
+                <Spin spinning={loading} tip="Loading schedule statistics...">
+                    {stats && (
+                        <div style={{ marginBottom: 24 }}>
+                            <Row gutter={[16, 16]}>
+                                <Col xs={24} sm={12} lg={6}>
+                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+                                        <Statistic
+                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Total Classes</span>}
+                                            value={stats.total_classes ?? 0}
+                                            prefix={<BookOutlined style={{ color: '#1890ff' }} />}
+                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+                                        />
+                                    </Card>
+                                </Col>
+                                <Col xs={24} sm={12} lg={6}>
+                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+                                        <Statistic
+                                            title={<span style={{ color: '#666', fontSize: '14px' }}>This Week</span>}
+                                            value={stats.this_week_classes ?? 0}
+                                            prefix={<CalendarOutlined style={{ color: '#52c41a' }} />}
+                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+                                        />
+                                    </Card>
+                                </Col>
+                                <Col xs={24} sm={12} lg={6}>
+                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+                                        <Statistic
+                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Upcoming</span>}
+                                            value={stats.upcoming_classes ?? 0}
+                                            prefix={<ClockCircleOutlined style={{ color: '#faad14' }} />}
+                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+                                        />
+                                    </Card>
+                                </Col>
+                                <Col xs={24} sm={12} lg={6}>
+                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
+                                        <Statistic
+                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Completed</span>}
+                                            value={stats.completed_classes ?? 0}
+                                            prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
+                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
+                                        />
+                                    </Card>
+                                </Col>
+                            </Row>
+                        </div>
+                    )}
+                </Spin>
 
-            {nextClass && (
-                <Card 
-                    style={{ marginBottom: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
-                    bodyStyle={{ color: 'white' }}
-                >
-                    <Row align="middle">
-                        <Col span={18}>
-                            <Title level={4} style={{ color: 'white', margin: 0 }}>
-                                <ClockCircleOutlined /> Next Class
-                            </Title>
-                            <div style={{ marginTop: 8 }}>
-                                <Text style={{ color: 'white', fontSize: '16px', fontWeight: 'bold' }}>
-                                    {nextClass.title}
-                                </Text>
-                                <br />
-                                <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
-                                    {dayjs(nextClass.date).format('dddd, MMMM DD')} at {formatTime(nextClass.start_time)}
-                                </Text>
-                                <br />
-                                <Text style={{ color: 'rgba(255,255,255,0.8)' }}>
-                                    {nextClass.location_mode === 'online' ? (
-                                        <><VideoCameraOutlined /> Online • <TeamOutlined /> {nextClass.teacher_name}</>
-                                    ) : (
-                                        <><EnvironmentOutlined /> {nextClass.location} • <TeamOutlined /> {nextClass.teacher_name}</>
+                {nextClass && (
+                    <Card
+                        style={{
+                            marginBottom: 24,
+                            background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
+                            borderRadius: '12px',
+                            boxShadow: '0 4px 12px rgba(24, 144, 255, 0.3)',
+                            border: 'none'
+                        }}
+                        bodyStyle={{ padding: '24px' }}
+                    >
+                        <Row align="middle" gutter={[16, 16]}>
+                            <Col xs={24} md={16}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: 12 }}>
+                                    <ClockCircleOutlined style={{ fontSize: '24px', color: 'white' }} />
+                                    <Title level={4} style={{ color: 'white', margin: 0 }}>
+                                        Next Class
+                                    </Title>
+                                </div>
+                                <div>
+                                    <Text style={{ color: 'white', fontSize: '18px', fontWeight: '600', display: 'block', marginBottom: 8 }}>
+                                        {nextClass.title}
+                                    </Text>
+                                    <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: '15px', display: 'block', marginBottom: 4 }}>
+                                        📅 {dayjs(nextClass.date).format('dddd, MMMM DD')} at {formatTime(nextClass.start_time)}
+                                    </Text>
+                                    <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: '15px', display: 'block' }}>
+                                        {nextClass.location_mode === 'online' ? (
+                                            <><VideoCameraOutlined /> Online Meeting • <TeamOutlined /> {nextClass.teacher_name}</>
+                                        ) : (
+                                            <><EnvironmentOutlined /> {nextClass.location} • <TeamOutlined /> {nextClass.teacher_name}</>
+                                        )}
+                                    </Text>
+                                </div>
+                            </Col>
+                            <Col xs={24} md={8} style={{ textAlign: 'right' }}>
+                                <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                                    {nextClass.type === 'class' && (
+                                        <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
+                                            <Button
+                                                type="primary"
+                                                size="large"
+                                                icon={<LoginOutlined />}
+                                                onClick={() => handleJoinClass(nextClass)}
+                                                disabled={hasJoined(nextClass.id) || isScheduleEnded(nextClass)}
+                                                style={{
+                                                    width: '100%',
+                                                    backgroundColor: hasJoined(nextClass.id) ? '#52c41a' : 'white',
+                                                    borderColor: hasJoined(nextClass.id) ? '#52c41a' : 'white',
+                                                    color: hasJoined(nextClass.id) ? 'white' : '#1890ff',
+                                                    fontWeight: '600',
+                                                    height: '42px',
+                                                    borderRadius: '8px'
+                                                }}
+                                            >
+                                                {hasJoined(nextClass.id) ? 'Joined' : 'Join Class'}
+                                            </Button>
+                                        </Tooltip>
                                     )}
-                                </Text>
-                            </div>
-                        </Col>
-                        <Col span={6} style={{ textAlign: 'right' }}>
-                            <Space>
-                                {/* Removed direct "Join Now" button to enforce code-based join */}
-                                {nextClass.type === 'class' && (
-                                    <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
-                                        <Button 
-                                            type="primary"
-                                            icon={<LoginOutlined />}
-                                            onClick={() => handleJoinClass(nextClass)}
-                                            disabled={hasJoined(nextClass.id) || isScheduleEnded(nextClass)}
-                                            style={{
-                                                backgroundColor: hasJoined(nextClass.id) ? '#52c41a' : '#1890ff',
-                                                borderColor: hasJoined(nextClass.id) ? '#52c41a' : '#1890ff'
-                                            }}
-                                        >
-                                            {hasJoined(nextClass.id) ? 'Joined' : 'Join Class'}
-                                        </Button>
-                                    </Tooltip>
-                                )}
-                                <Button 
-                                    ghost
-                                    onClick={() => handleViewDetails(nextClass)}
-                                >
-                                    Details
-                                </Button>
-                                {hasJoined(nextClass.id) ? <Tag color="success">ATTENDED</Tag> : null}
-                            </Space>
-                        </Col>
-                    </Row>
-                </Card>
-            )}
-
-            {/* FullCalendar (read-only) */}
-            <Row gutter={16}>
-                <Col span={16}>
-                    <Card title="Calendar View">
-                        <FullCalendar
-                            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                            initialView="dayGridMonth"
-                            headerToolbar={{
-                                left: 'prev,next today',
-                                center: 'title',
-                                right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                            }}
-                            height={720}
-                            events={events}
-                            editable={false}
-                            selectable={false}
-                            selectMirror={false}
-                            dayMaxEvents={true}
-                            eventClick={handleEventClick}
-                            eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true }}
-                        />
+                                    <Button
+                                        size="large"
+                                        onClick={() => handleViewDetails(nextClass)}
+                                        style={{
+                                            width: '100%',
+                                            backgroundColor: 'rgba(255,255,255,0.2)',
+                                            borderColor: 'white',
+                                            color: 'white',
+                                            fontWeight: '600',
+                                            height: '42px',
+                                            borderRadius: '8px'
+                                        }}
+                                    >
+                                        View Details
+                                    </Button>
+                                    {hasJoined(nextClass.id) && (
+                                        <Tag color="success" style={{ fontSize: '13px', padding: '4px 12px', borderRadius: '6px' }}>
+                                            ✓ ATTENDED
+                                        </Tag>
+                                    )}
+                                </Space>
+                            </Col>
+                        </Row>
                     </Card>
-                </Col>
-                <Col span={8}>
+                )}
+
+                {/* Calendar Section */}
+                <Row gutter={[16, 16]}>
+                    <Col xs={24} lg={16}>
+                        <Card
+                            title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>📅 Calendar View</span>}
+                            style={{
+                                borderRadius: '12px',
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                                border: '1px solid #e8e8e8',
+                                overflow: 'hidden'
+                            }}
+                            bodyStyle={{ padding: '16px' }}
+                        >
+                            <div style={{
+                                '& .fc': {
+                                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+                                },
+                                '& .fc-toolbar-title': {
+                                    fontSize: '20px',
+                                    fontWeight: '600',
+                                    color: '#1a1a1a'
+                                },
+                                '& .fc-button': {
+                                    borderRadius: '6px',
+                                    textTransform: 'capitalize',
+                                    fontWeight: '500'
+                                },
+                                '& .fc-button-primary': {
+                                    backgroundColor: '#1890ff',
+                                    borderColor: '#1890ff'
+                                },
+                                '& .fc-button-primary:hover': {
+                                    backgroundColor: '#096dd9',
+                                    borderColor: '#096dd9'
+                                },
+                                '& .fc-button-primary:not(:disabled):active': {
+                                    backgroundColor: '#0050b3',
+                                    borderColor: '#0050b3'
+                                },
+                                '& .fc-daygrid-day': {
+                                    transition: 'background-color 0.2s'
+                                },
+                                '& .fc-daygrid-day:hover': {
+                                    backgroundColor: '#f5f5f5'
+                                },
+                                '& .fc-day-today': {
+                                    backgroundColor: '#e6f7ff !important'
+                                },
+                                '& .fc-event': {
+                                    borderRadius: '4px',
+                                    padding: '2px 4px',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    cursor: 'pointer',
+                                    border: 'none'
+                                },
+                                '& .fc-event:hover': {
+                                    opacity: 0.85
+                                }
+                            } as any}>
+                                <FullCalendar
+                                    plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                                    initialView="dayGridMonth"
+                                    headerToolbar={{
+                                        left: 'prev,next today',
+                                        center: 'title',
+                                        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                                    }}
+                                    height={720}
+                                    events={events}
+                                    editable={false}
+                                    selectable={false}
+                                    selectMirror={false}
+                                    dayMaxEvents={true}
+                                    eventClick={handleEventClick}
+                                    eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true }}
+                                />
+                            </div>
+                        </Card>
+                    </Col>
+                    <Col xs={24} lg={8}>
                     <Tabs 
                         defaultActiveKey="today" 
                         size="small"
@@ -1106,6 +1194,7 @@ const StudentSchedule: React.FC = () => {
                     </div>
                 )}
             </Modal>
+            </div>
         </div>
     );
 };
