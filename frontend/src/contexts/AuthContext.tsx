@@ -59,7 +59,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [loading, setLoading] = useState<boolean>(true);
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
 
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://teaching-api.onrender.com/api';
 
     // Use Ant Design App context message instance to avoid static function warning
     const { message } = AntApp.useApp();
