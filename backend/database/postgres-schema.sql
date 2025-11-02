@@ -341,6 +341,40 @@ CREATE TABLE migrations (
 );
 
 
+-- Table: demo_requests
+CREATE TABLE demo_requests (
+    id SERIAL PRIMARY KEY,
+    -- Step 1: Personal Information
+    full_name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) NOT NULL,
+    phone VARCHAR(20),
+    country VARCHAR(100) NOT NULL,
+    
+    -- Step 2: French Learning Background
+    has_previous_experience VARCHAR(50) NOT NULL,
+    current_level VARCHAR(20) NOT NULL,
+    previous_study_method VARCHAR(50),
+    
+    -- Step 3: Learning Goals & Preferences
+    interested_level VARCHAR(20) NOT NULL,
+    learning_goals TEXT NOT NULL,
+    expectations TEXT,
+    
+    -- Step 4: Scheduling & Availability
+    expected_start_time VARCHAR(50) NOT NULL,
+    preferred_schedule VARCHAR(100) NOT NULL,
+    timezone VARCHAR(50),
+    
+    -- System fields
+    status VARCHAR(20) DEFAULT 'pending',
+    notes TEXT,
+    contacted_at TIMESTAMP,
+    demo_scheduled_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
 
 -- Indexes for performance optimization
 CREATE INDEX IF NOT EXISTS idx_users_failed_attempts ON users (failed_login_attempts);
@@ -403,4 +437,9 @@ CREATE INDEX IF NOT EXISTS idx_ecr_user_status ON email_change_requests (user_id
 CREATE INDEX IF NOT EXISTS idx_prr_user_code ON password_reset_requests (user_id, code);
 CREATE INDEX IF NOT EXISTS idx_prr_expires ON password_reset_requests (expires_at);
 CREATE INDEX IF NOT EXISTS idx_prr_user_status ON password_reset_requests (user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_demo_requests_email ON demo_requests (email);
+CREATE INDEX IF NOT EXISTS idx_demo_requests_status ON demo_requests (status);
+CREATE INDEX IF NOT EXISTS idx_demo_requests_created ON demo_requests (created_at);
+CREATE INDEX IF NOT EXISTS idx_demo_requests_status_created ON demo_requests (status, created_at);
 

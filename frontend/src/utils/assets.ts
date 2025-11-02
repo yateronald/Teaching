@@ -34,10 +34,13 @@ export const ASSET_PATHS = {
   // Example placeholders for organizing other assets
   IMAGES: {
     FR_BACKGROUND: getAssetPath('assets/fr.jpeg'), // French background image
+    VIDEO1_THUMBNAIL: getAssetPath('assets/video1-thumbnail.svg'), // Face-focused thumbnail for video 1
+    VIDEO2_THUMBNAIL: getAssetPath('assets/video2-thumbnail.svg'), // Face-focused thumbnail for video 2
     // EXAMPLE_BG: getAssetPath('images/example-bg.jpg'), // public/images/example-bg.jpg
   },
   VIDEOS: {
-    // INTRO: getAssetPath('videos/intro.mp4'),
+    VIDEO1: getAssetPath('assets/Video1.mp4'),
+    VIDEO2: getAssetPath('assets/Video2.mp4'),
   },
   DOCUMENTS: {
     // BROCHURE: getAssetPath('docs/brochure.pdf'),

@@ -3,13 +3,16 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout/Layout';
 import Login from './components/Auth/Login';
+import LandingPage from './components/Landing/LandingPage';
 import AdminDashboard from './components/Admin/AdminDashboard';
 import TeacherDashboard from './components/Teacher/TeacherDashboard';
 import StudentDashboard from './components/Student/StudentDashboard';
 import UserManagement from './components/Admin/UserManagement';
 import BatchManagement from './components/Admin/BatchManagement';
 import AttendanceManagement from './components/Admin/AttendanceManagement';
+import DemoRequests from './components/Admin/DemoRequests';
 import TeacherBatches from './components/Teacher/TeacherBatches';
+import AssignDemo from './components/Teacher/AssignDemo';
 import QuizManagement from './components/Teacher/QuizManagement';
 import ResourceManagement from './components/Teacher/ResourceManagement';
 import ScheduleManagement from './components/Teacher/ScheduleManagement';
@@ -42,13 +45,36 @@ function App() {
           <Router>
             <Routes>
               {/* Public Routes */}
+              <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
-              
+
+              {/* Convenience redirects for legacy/root-level paths */}
+              <Route path="/dashboard" element={<Navigate to="/app/dashboard" replace />} />
+              <Route path="/teacher-dashboard" element={<Navigate to="/app/teacher-dashboard" replace />} />
+              <Route path="/student-dashboard" element={<Navigate to="/app/student-dashboard" replace />} />
+              <Route path="/profile" element={<Navigate to="/app/profile" replace />} />
+
+              {/* Student convenience redirects */}
+              <Route path="/my-quizzes" element={<Navigate to="/app/my-quizzes" replace />} />
+              <Route path="/my-results" element={<Navigate to="/app/my-results" replace />} />
+              <Route path="/my-marksheet" element={<Navigate to="/app/my-marksheet" replace />} />
+              <Route path="/my-resources" element={<Navigate to="/app/my-resources" replace />} />
+              <Route path="/my-schedule" element={<Navigate to="/app/my-schedule" replace />} />
+              <Route path="/student-quizzes" element={<Navigate to="/app/student-quizzes" replace />} />
+              <Route path="/student-resources" element={<Navigate to="/app/student-resources" replace />} />
+              <Route path="/student-schedule" element={<Navigate to="/app/student-schedule" replace />} />
+
+              {/* Teacher convenience redirects */}
+              <Route path="/teacher-batches" element={<Navigate to="/app/teacher-batches" replace />} />
+              <Route path="/quiz-management" element={<Navigate to="/app/quiz-management" replace />} />
+              <Route path="/resources" element={<Navigate to="/app/resources" replace />} />
+              <Route path="/schedules" element={<Navigate to="/app/schedules" replace />} />
+
               {/* Protected Routes */}
-              <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route path="/app" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 {/* Default redirect based on role */}
-                <Route index element={<Navigate to="/dashboard" replace />} />
+                <Route index element={<Navigate to="/app/dashboard" replace />} />
                 
                 {/* Common Routes */}
                 <Route path="profile" element={<Profile />} />
@@ -67,6 +93,11 @@ function App() {
                 <Route path="batches" element={
                   <ProtectedRoute requiredRole="admin">
                     <BatchManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="demo-requests" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <DemoRequests />
                   </ProtectedRoute>
                 } />
                 <Route path="timetable" element={
@@ -99,6 +130,11 @@ function App() {
                 <Route path="teacher-batches" element={
                   <ProtectedRoute requiredRole="teacher">
                     <TeacherBatches />
+                  </ProtectedRoute>
+                } />
+                <Route path="assign-demo" element={
+                  <ProtectedRoute requiredRole="teacher">
+                    <AssignDemo />
                   </ProtectedRoute>
                 } />
                 <Route path="quiz-management" element={

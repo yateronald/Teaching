@@ -18,6 +18,7 @@ const resourceRoutes = require('./routes/resources');
 const scheduleRoutes = require('./routes/schedules');
 const attendanceRoutes = require('./routes/attendance');
 const adminSettingsRoutes = require('./routes/adminSettings');
+const demoRequestRoutes = require('./routes/demoRequests');
 const AttendanceService = require('./services/attendanceService');
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/resources', resourceRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
+app.use('/api/demo-requests', demoRequestRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -12,7 +12,9 @@ import {
     SettingOutlined,
     MenuFoldOutlined,
     MenuUnfoldOutlined,
-    BarChartOutlined
+    BarChartOutlined,
+    PhoneOutlined,
+    VideoCameraOutlined
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,6 +35,9 @@ const Layout: React.FC = () => {
 
     // Map route pathnames to human-friendly page titles
     const getPageTitle = (path: string): string => {
+        // Normalize nested app paths to root-level for title mapping
+        const normalizedPath = path.startsWith('/app') ? path.replace(/^\/app/, '') || '/' : path;
+
         const TITLE_MAP: Record<string, string> = {
             // Common
             '/profile': 'Profile',
@@ -41,6 +46,7 @@ const Layout: React.FC = () => {
             '/dashboard': 'Dashboard',
             '/users': 'User Management',
             '/batches': 'Batch Management',
+            '/demo-requests': 'Demo Requests',
             '/timetable': 'Teacher Timetable',
             '/attendance': 'Attendance Management',
             '/settings': 'Admin Settings',
@@ -61,9 +67,13 @@ const Layout: React.FC = () => {
             '/my-schedule': 'My Schedule',
         };
 
-        if (/^\/batches\/[\w-]+\/insights/.test(path)) return 'Batch Insights';
+        if (/^\/batches\/[\w-]+\/insights/.test(normalizedPath)) return 'Batch Insights';
         // Exact match or fallback to first segment
-        return TITLE_MAP[path] || TITLE_MAP['/' + path.split('/')[1]] || 'Dashboard';
+        return (
+            TITLE_MAP[normalizedPath] ||
+            TITLE_MAP['/' + normalizedPath.split('/')[1]] ||
+            'Dashboard'
+        );
     };
 
     // Update document title whenever the route changes
@@ -78,32 +88,37 @@ const Layout: React.FC = () => {
         if (isAdmin) {
             items.push(
                 {
-                    key: '/dashboard',
+                    key: '/app/dashboard',
                     icon: <DashboardOutlined />,
                     label: 'Dashboard',
                 },
                 {
-                    key: '/users',
+                    key: '/app/users',
                     icon: <UserOutlined />,
                     label: 'User Management',
                 },
                 {
-                    key: '/batches',
+                    key: '/app/batches',
                     icon: <TeamOutlined />,
                     label: 'Batch Management',
                 },
                 {
-                    key: '/timetable',
+                    key: '/app/demo-requests',
+                    icon: <PhoneOutlined />,
+                    label: 'Demo Requests',
+                },
+                {
+                    key: '/app/timetable',
                     icon: <CalendarOutlined />,
                     label: 'Teacher Timetable',
                 },
                 {
-                    key: '/attendance',
+                    key: '/app/attendance',
                     icon: <BarChartOutlined />,
                     label: 'Attendance Management',
                 },
                 {
-                    key: '/settings',
+                    key: '/app/settings',
                     icon: <SettingOutlined />,
                     label: 'Admin Settings',
                 }
@@ -113,27 +128,32 @@ const Layout: React.FC = () => {
         if (isTeacher) {
             items.push(
                 {
-                    key: '/teacher-dashboard',
+                    key: '/app/teacher-dashboard',
                     icon: <DashboardOutlined />,
                     label: 'Dashboard',
                 },
                 {
-                    key: '/teacher-batches',
+                    key: '/app/teacher-batches',
                     icon: <TeamOutlined />,
                     label: 'My Batches',
                 },
                 {
-                    key: '/quiz-management',
+                    key: '/app/assign-demo',
+                    icon: <VideoCameraOutlined />,
+                    label: 'Assign Demo',
+                },
+                {
+                    key: '/app/quiz-management',
                     icon: <FileTextOutlined />,
                     label: 'Quiz Management',
                 },
                 {
-                    key: '/resources',
+                    key: '/app/resources',
                     icon: <FolderOutlined />,
                     label: 'Resources',
                 },
                 {
-                    key: '/schedules',
+                    key: '/app/schedules',
                     icon: <CalendarOutlined />,
                     label: 'Schedule',
                 }
@@ -143,32 +163,32 @@ const Layout: React.FC = () => {
         if (isStudent) {
             items.push(
                 {
-                    key: '/student-dashboard',
+                    key: '/app/student-dashboard',
                     icon: <DashboardOutlined />,
                     label: 'Dashboard',
                 },
                 {
-                    key: '/my-quizzes',
+                    key: '/app/my-quizzes',
                     icon: <FileTextOutlined />,
                     label: 'My Quizzes',
                 },
                 {
-                    key: '/my-results',
+                    key: '/app/my-results',
                     icon: <BookOutlined />,
                     label: 'My Results',
                 },
                 {
-                    key: '/my-marksheet',
+                    key: '/app/my-marksheet',
                     icon: <BarChartOutlined />,
                     label: 'Marksheet',
                 },
                 {
-                    key: '/my-resources',
+                    key: '/app/my-resources',
                     icon: <FolderOutlined />,
                     label: 'Resources',
                 },
                 {
-                    key: '/my-schedule',
+                    key: '/app/my-schedule',
                     icon: <CalendarOutlined />,
                     label: 'My Schedule',
                 }
@@ -192,7 +212,7 @@ const Layout: React.FC = () => {
             key: 'profile',
             icon: <SettingOutlined />,
             label: 'Profile Settings',
-            onClick: () => navigate('/profile')
+            onClick: () => navigate('/app/profile')
         },
         {
             type: 'divider'

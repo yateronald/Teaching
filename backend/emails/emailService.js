@@ -16,6 +16,8 @@ const { buildClassScheduleNotificationTemplate } = require('./templates/classSch
 const { buildClassReminderTemplate } = require('./templates/classReminder');
 const { buildMeetingUpdateTemplate } = require('./templates/meetingUpdate');
 const { buildMeetingCancellationTemplate } = require('./templates/meetingCancellation');
+const { buildDemoScheduleStudentTemplate } = require('./templates/demoScheduleStudent');
+const { buildDemoScheduleTeacherTemplate } = require('./templates/demoScheduleTeacher');
 
 // Helper function to create consistent sender email format
 function getFromEmail() {
@@ -431,6 +433,82 @@ async function sendMeetingCancellation({
     return await sendEmail(mailOptions);
 }
 
+// New: Demo scheduling notification to students
+async function sendDemoScheduleNotificationToStudent({ 
+    to, 
+    studentName, 
+    teacherName, 
+    teacherEmail,
+    demoDate, 
+    meetingLink, 
+    notes 
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildDemoScheduleStudentTemplate({ 
+        studentName, 
+        teacherName, 
+        teacherEmail,
+        demoDate, 
+        demoTime: demoDate, // Using the same date for time formatting
+        meetingLink, 
+        notes,
+        logoCid 
+    });
+
+    const mailOptions = {
+        from: getFromEmail(),
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(mailOptions);
+}
+
+// New: Demo scheduling notification to teachers
+async function sendDemoScheduleNotificationToTeacher({ 
+    to, 
+    teacherName, 
+    studentName,
+    studentEmail,
+    studentLevel,
+    studentGoals,
+    studentExpectations,
+    demoDate, 
+    meetingLink, 
+    notes 
+}) {
+    const logoPath = resolveLogoFile();
+    const logoCid = 'brand-logo@lfwn';
+    const { subject, html, text } = buildDemoScheduleTeacherTemplate({ 
+        teacherName, 
+        studentName,
+        studentEmail,
+        studentLevel,
+        studentGoals,
+        studentExpectations,
+        demoDate, 
+        demoTime: demoDate, // Using the same date for time formatting
+        meetingLink, 
+        notes,
+        logoCid 
+    });
+
+    const mailOptions = {
+        from: getFromEmail(),
+        to,
+        subject,
+        html,
+        text,
+        attachments: logoPath ? [{ filename: 'logo.png', path: logoPath, cid: logoCid }] : []
+    };
+
+    return await sendEmail(mailOptions);
+}
+
 async function sendAccessCodeEmail({ to, subject, html, text }) {
     const mailOptions = {
         from: getFromEmail(),
@@ -458,5 +536,7 @@ module.exports = {
     sendClassReminder,
     sendMeetingUpdate,
     sendMeetingCancellation,
+    sendDemoScheduleNotificationToStudent,
+    sendDemoScheduleNotificationToTeacher,
     sendAccessCodeEmail
 };
