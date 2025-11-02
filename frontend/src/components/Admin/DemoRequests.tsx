@@ -671,10 +671,21 @@ const DemoRequests: React.FC = () => {
               placeholder="Select a teacher"
               style={{ width: '100%' }}
               showSearch
-              optionFilterProp="children"
-              filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-              }
+              filterOption={(input, option) => {
+                const teacher = teachers.find(t => t.id === option?.value);
+                if (!teacher) return false;
+                
+                const searchText = input.toLowerCase();
+                const firstName = teacher.first_name?.toLowerCase() || '';
+                const lastName = teacher.last_name?.toLowerCase() || '';
+                const email = teacher.email?.toLowerCase() || '';
+                const fullName = `${firstName} ${lastName}`.toLowerCase();
+                
+                return firstName.includes(searchText) || 
+                       lastName.includes(searchText) || 
+                       fullName.includes(searchText) ||
+                       email.includes(searchText);
+              }}
             >
               {(teachers || []).map(teacher => (
                 <Option key={teacher.id} value={teacher.id}>
