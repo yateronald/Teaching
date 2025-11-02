@@ -502,4 +502,29 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     }
 });
 
+// Delete a demo request (admin only)
+router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Ensure the record exists
+        const existing = await req.db.get('SELECT id FROM demo_requests WHERE id = $1', [id]);
+        if (!existing) {
+            return res.status(404).json({ success: false, message: 'Demo request not found' });
+        }
+
+        const result = await req.db.run('DELETE FROM demo_requests WHERE id = $1', [id]);
+
+        // Some adapters return affectedRows instead of rowCount; respond success regardless if no error thrown
+        if (result && result.rowCount === 0) {
+            return res.status(404).json({ success: false, message: 'Demo request not found' });
+        }
+
+        res.json({ success: true, message: 'Demo request deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting demo request:', error);
+        res.status(500).json({ success: false, message: 'Failed to delete demo request', error: error.message });
+    }
+});
+
 module.exports = router;

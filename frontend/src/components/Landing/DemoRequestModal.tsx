@@ -41,12 +41,63 @@ interface FormData {
   timezone: string;
 }
 
+// Commonly used timezones (IANA identifiers with friendly labels)
+const COMMON_TIMEZONES: { value: string; label: string }[] = [
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+  { value: 'GMT', label: 'GMT (Greenwich Mean Time)' },
+  { value: 'Europe/London', label: 'Europe/London (UK, GMT/UTC+0)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (France, CET/UTC+1)' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (Germany, CET/UTC+1)' },
+  { value: 'Europe/Madrid', label: 'Europe/Madrid (Spain, CET/UTC+1)' },
+  { value: 'Europe/Rome', label: 'Europe/Rome (Italy, CET/UTC+1)' },
+  { value: 'Europe/Amsterdam', label: 'Europe/Amsterdam (Netherlands, CET/UTC+1)' },
+  { value: 'Europe/Zurich', label: 'Europe/Zurich (Switzerland, CET/UTC+1)' },
+  { value: 'Europe/Moscow', label: 'Europe/Moscow (MSK/UTC+3)' },
+  { value: 'Europe/Istanbul', label: 'Europe/Istanbul (TRT/UTC+3)' },
+  { value: 'Africa/Lagos', label: 'Africa/Lagos (WAT/UTC+1)' },
+  { value: 'Africa/Cairo', label: 'Africa/Cairo (EET/UTC+2)' },
+  { value: 'Africa/Johannesburg', label: 'Africa/Johannesburg (SAST/UTC+2)' },
+  { value: 'Asia/Dubai', label: 'Asia/Dubai (GST/UTC+4)' },
+  { value: 'Asia/Tehran', label: 'Asia/Tehran (IRST/UTC+3:30)' },
+  { value: 'Asia/Karachi', label: 'Asia/Karachi (PKT/UTC+5)' },
+  { value: 'Asia/Kolkata', label: 'Asia/Kolkata (IST/UTC+5:30)' },
+  { value: 'Asia/Dhaka', label: 'Asia/Dhaka (BST/UTC+6)' },
+  { value: 'Asia/Yangon', label: 'Asia/Yangon (MMT/UTC+6:30)' },
+  { value: 'Asia/Bangkok', label: 'Asia/Bangkok (ICT/UTC+7)' },
+  { value: 'Asia/Jakarta', label: 'Asia/Jakarta (WIB/UTC+7)' },
+  { value: 'Asia/Shanghai', label: 'Asia/Shanghai (CST/UTC+8)' },
+  { value: 'Asia/Hong_Kong', label: 'Asia/Hong_Kong (HKT/UTC+8)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT/UTC+8)' },
+  { value: 'Asia/Taipei', label: 'Asia/Taipei (CST/UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST/UTC+9)' },
+  { value: 'Asia/Seoul', label: 'Asia/Seoul (KST/UTC+9)' },
+  { value: 'Asia/Manila', label: 'Asia/Manila (PHT/UTC+8)' },
+  { value: 'Australia/Perth', label: 'Australia/Perth (AWST/UTC+8)' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/UTC+10)' },
+  { value: 'Pacific/Auckland', label: 'Pacific/Auckland (NZST/UTC+12)' },
+  { value: 'America/New_York', label: 'America/New_York (ET/UTC-5)' },
+  { value: 'America/Chicago', label: 'America/Chicago (CT/UTC-6)' },
+  { value: 'America/Denver', label: 'America/Denver (MT/UTC-7)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PT/UTC-8)' },
+  { value: 'America/Phoenix', label: 'America/Phoenix (MST/UTC-7)' },
+  { value: 'America/Anchorage', label: 'America/Anchorage (AKST/UTC-9)' },
+  { value: 'Pacific/Honolulu', label: 'Pacific/Honolulu (HST/UTC-10)' },
+  { value: 'America/Toronto', label: 'America/Toronto (ET/UTC-5)' },
+  { value: 'America/Vancouver', label: 'America/Vancouver (PT/UTC-8)' },
+  { value: 'America/Mexico_City', label: 'America/Mexico_City (CST/UTC-6)' },
+  { value: 'America/Bogota', label: 'America/Bogota (COT/UTC-5)' },
+  { value: 'America/Lima', label: 'America/Lima (PET/UTC-5)' },
+  { value: 'America/Sao_Paulo', label: 'America/Sao_Paulo (BRT/UTC-3)' },
+  { value: 'America/Argentina/Buenos_Aires', label: 'America/Argentina/Buenos_Aires (ART/UTC-3)' },
+];
+
 const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) => {
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [customTimezone, setCustomTimezone] = useState('');
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
@@ -65,7 +116,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
 
   const totalSteps = 4;
   // Use the same base URL logic as AuthContext for consistency
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000/api';
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://teaching-api.onrender.com/api';
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData(prev => ({
@@ -90,12 +141,22 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
     setIsLoading(true);
     
     try {
+      if (formData.timezone === 'other' && !customTimezone.trim()) {
+        setIsLoading(false);
+        setErrorMessage('Please enter your timezone when selecting "Other".');
+        setShowErrorModal(true);
+        return;
+      }
+      const payload = {
+        ...formData,
+        timezone: formData.timezone === 'other' ? (customTimezone.trim() || '') : formData.timezone,
+      };
       const response = await fetch(`${API_BASE_URL}/demo-requests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       let result: any = null;
@@ -123,6 +184,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           preferredSchedule: '',
           timezone: ''
         });
+        setCustomTimezone('');
         setCurrentStep(1);
       } else {
         setErrorMessage(
@@ -581,7 +643,6 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                   <option value="immediately">Immediately</option>
                   <option value="within-week">Within a week</option>
                   <option value="within-month">Within a month</option>
-                  <option value="within-3months">Within 3 months</option>
                   <option value="flexible">I'm flexible</option>
                 </select>
               </div>
@@ -611,14 +672,20 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                 className="form-select"
               >
                 <option value="">Select timezone (optional)</option>
-                <option value="EST">Eastern Time (EST)</option>
-                <option value="CST">Central Time (CST)</option>
-                <option value="MST">Mountain Time (MST)</option>
-                <option value="PST">Pacific Time (PST)</option>
-                <option value="GMT">Greenwich Mean Time (GMT)</option>
-                <option value="CET">Central European Time (CET)</option>
+                {COMMON_TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
                 <option value="other">Other</option>
               </select>
+              {formData.timezone === 'other' && (
+                <input
+                  type="text"
+                  value={customTimezone}
+                  onChange={(e) => setCustomTimezone(e.target.value)}
+                  placeholder="Enter your timezone (e.g., Africa/Accra or GMT+1)"
+                  className="form-input"
+                />
+              )}
             </div>
           </div>
         );

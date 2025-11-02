@@ -31,7 +31,8 @@ import {
   SearchOutlined,
   FilterOutlined,
   ReloadOutlined,
-  MoreOutlined
+  MoreOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
@@ -258,6 +259,133 @@ const DemoRequests: React.FC = () => {
     return texts[status as keyof typeof texts] || status;
   };
 
+  // --- Timezone formatting helpers ---
+  const TZ_ABBREVIATIONS: Record<string, string> = {
+    // Specific overrides where Intl doesn't provide a short name
+    'Asia/Dhaka': 'BST', // Bangladesh Standard Time
+  };
+
+  const getTimezoneOffsetLabel = (tz: string): string => {
+    if (!tz) return '';
+    const now = new Date();
+    try {
+      // Prefer shortOffset when available (produces GMT+/-H[:MM])
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        timeZoneName: 'shortOffset'
+      }).formatToParts(now);
+      const name = parts.find(p => p.type === 'timeZoneName')?.value || '';
+      return name ? name.replace('GMT', 'UTC') : '';
+    } catch {
+      // Fallback: compute offset manually via formatToParts
+      try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+          timeZone: tz,
+          hour12: false,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        }).formatToParts(now);
+
+        const get = (t: string) => parts.find(p => p.type === t)?.value || '0';
+        const year = Number(get('year'));
+        const month = Number(get('month'));
+        const day = Number(get('day'));
+        const hour = Number(get('hour'));
+        const minute = Number(get('minute'));
+        const second = Number(get('second'));
+
+        const tzUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+        const diffMin = Math.round((tzUtcMs - now.getTime()) / 60000);
+        const sign = diffMin >= 0 ? '+' : '-';
+        const absMin = Math.abs(diffMin);
+        const h = Math.floor(absMin / 60);
+        const m = absMin % 60;
+        return `UTC${sign}${h}${m ? `:${String(m).padStart(2, '0')}` : ''}`;
+      } catch {
+        return '';
+      }
+    }
+  };
+
+  const getTimezoneAbbrev = (tz: string): string => {
+    if (!tz) return '';
+    if (TZ_ABBREVIATIONS[tz]) return TZ_ABBREVIATIONS[tz];
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        timeZoneName: 'short'
+      }).formatToParts(new Date());
+      const name = parts.find(p => p.type === 'timeZoneName')?.value || '';
+      // Use abbreviation only if it's not a generic GMT/UTC offset
+      if (name && !/^GMT[+-]/i.test(name) && !/^UTC[+-]/i.test(name)) return name;
+    } catch {}
+    return '';
+  };
+
+  const formatTimezoneDisplay = (tz?: string): string => {
+    const timeZone = (tz || '').trim();
+    if (!timeZone) return '—';
+    let offset = '';
+    let abbr = '';
+
+    // Try IANA timezone handling first
+    try {
+      offset = getTimezoneOffsetLabel(timeZone);
+      abbr = getTimezoneAbbrev(timeZone);
+    } catch {}
+
+    // Fallback for custom entries like "GMT+1" or "UTC+05:30"
+    if (!offset) {
+      const m = timeZone.match(/(?:GMT|UTC)\s*([+-]\d{1,2})(?::?(\d{2}))?/i);
+      if (m) {
+        offset = `UTC${m[1]}${m[2] ? `:${m[2]}` : ''}`;
+      }
+    }
+
+    if (abbr) return `${timeZone} (${abbr}/${offset || 'UTC'})`;
+    if (offset) return `${timeZone} (${offset})`;
+    return timeZone;
+  };
+
+  // Confirm and delete a demo request (admin only)
+  const confirmDeleteRequest = (record: DemoRequest) => {
+    Modal.confirm({
+      title: 'Delete demo request?',
+      content: `This will permanently delete the request for ${record.full_name}. This action cannot be undone.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancel',
+      onOk: async () => {
+        try {
+          const response = await apiCall(`/api/demo-requests/${record.id}`, { method: 'DELETE' });
+          if (response.ok) {
+            message.success('Demo request deleted');
+            fetchDemoRequests();
+          } else {
+            if (response.status === 404) {
+              message.warning('This demo request was not found. Refreshing list.');
+              fetchDemoRequests();
+              return;
+            }
+            let errorMsg = 'Failed to delete demo request';
+            try {
+              const error = await response.json();
+              errorMsg = error.message || error.error || errorMsg;
+            } catch {}
+            message.error(errorMsg);
+          }
+        } catch (error) {
+          console.error('Error deleting demo request:', error);
+          message.error('Failed to delete demo request');
+        }
+      }
+    });
+  };
+
   const getActionMenuItems = (record: DemoRequest): MenuProps['items'] => [
     {
       key: 'view',
@@ -293,6 +421,13 @@ const DemoRequests: React.FC = () => {
         setSelectedRequest(record);
         setStatusModalVisible(true);
       }
+    },
+    {
+      key: 'delete',
+      danger: true,
+      icon: <DeleteOutlined />,
+      label: 'Delete',
+      onClick: () => confirmDeleteRequest(record)
     }
   ];
 
@@ -574,7 +709,7 @@ const DemoRequests: React.FC = () => {
                   <p><strong>Email:</strong> {selectedRequest.email}</p>
                   <p><strong>Phone:</strong> {selectedRequest.phone}</p>
                   <p><strong>Country:</strong> {selectedRequest.country}</p>
-                  <p><strong>Timezone:</strong> {selectedRequest.timezone}</p>
+                  <p><strong>Timezone:</strong> {formatTimezoneDisplay(selectedRequest.timezone)}</p>
                 </Card>
               </Col>
               <Col span={12}>
