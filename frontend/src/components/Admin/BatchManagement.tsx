@@ -415,7 +415,7 @@ const BatchManagement: React.FC = () => {
             key: 'actions',
             render: (_, record) => (
                 <Space>
-                    <Button type="default" onClick={() => navigate(`/batches/${record.id}/insights`)}>
+                    <Button type="default" onClick={() => navigate(`/app/batches/${record.id}/insights`)}>
                         Insight
                     </Button>
                     <Button type="primary" onClick={() => handleEdit(record)}>Edit</Button>

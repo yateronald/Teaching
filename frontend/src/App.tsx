@@ -54,6 +54,8 @@ function App() {
               <Route path="/teacher-dashboard" element={<Navigate to="/app/teacher-dashboard" replace />} />
               <Route path="/student-dashboard" element={<Navigate to="/app/student-dashboard" replace />} />
               <Route path="/profile" element={<Navigate to="/app/profile" replace />} />
+              {/* Admin convenience redirects */}
+              <Route path="/batches/:batchId/insights" element={<Navigate to="/app/batches/:batchId/insights" replace />} />
 
               {/* Student convenience redirects */}
               <Route path="/my-quizzes" element={<Navigate to="/app/my-quizzes" replace />} />
