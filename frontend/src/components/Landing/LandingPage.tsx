@@ -8,7 +8,8 @@ import {
   CheckCircleOutlined,
   PlayCircleOutlined,
   StarFilled,
-  RightOutlined
+  RightOutlined,
+  LeftOutlined
 } from '@ant-design/icons';
 import { ASSET_PATHS } from '../../utils/assets';
 import DemoRequestModal from './DemoRequestModal';
@@ -28,24 +29,37 @@ const LandingPage: React.FC = () => {
 
   const testimonials: Testimonial[] = [
     {
-      name: "Sarah Johnson",
-      role: "Immigration Candidate",
-      content: "Learn French with Natives helped me achieve my TEF Canada required scores in just 3 months! The native teachers understood exactly what I needed to succeed. Their personalized approach made all the difference.",
+      name: "Aarav Sharma",
+      role: "TEF Canada Candidate",
+      content: "Scored CLB 9 in speaking! Classes were structured, patient, and truly native. Practice felt like real-life conversations—exactly what I needed.",
       rating: 5,
       exam: "TEF Canada"
     },
     {
-      name: "Michael Chen",
+      name: "Priya Patel",
+      role: "DELF B2 Graduate",
+      content: "Cleared DELF B2 on my first attempt. Mock exams and feedback were spot on. The teacher’s corrections improved my fluency fast.",
+      rating: 5,
+      exam: "DELF B2"
+    },
+    {
+      name: "Rohan Mehta",
       role: "Business Professional",
-      content: "Outstanding platform! I needed French for my job in Montreal, and the flexible scheduling with expert teachers was perfect. I'm now confidently conducting business meetings in French.",
+      content: "Needed French for clients in Quebec. Flexible scheduling and industry vocabulary focus helped me present confidently in French.",
       rating: 5
     },
     {
-      name: "Emma Rodriguez",
-      role: "DELF B2 Graduate",
-      content: "Passed my DELF B2 with flying colors thanks to Learn French with Natives! The structured curriculum and constant feedback from native speakers accelerated my learning beyond expectations.",
+      name: "Sneha Kapoor",
+      role: "Student",
+      content: "The step-by-step curriculum and native accents made learning enjoyable. Speaking clubs boosted my confidence in just weeks!",
+      rating: 5
+    },
+    {
+      name: "Arjun Iyer",
+      role: "TCF Candidate",
+      content: "Clear strategies for TCF listening and speaking. My scores improved quickly thanks to targeted feedback and daily practice.",
       rating: 5,
-      exam: "DELF B2"
+      exam: "TCF"
     }
   ];
 
@@ -306,8 +320,9 @@ const LandingPage: React.FC = () => {
               className="carousel-button prev" 
               onClick={prevTestimonial}
               aria-label="Previous testimonial"
+              title="Previous"
             >
-              ‹
+              <LeftOutlined />
             </button>
             
             <div className="testimonial-card-wrapper">
@@ -339,8 +354,9 @@ const LandingPage: React.FC = () => {
               className="carousel-button next" 
               onClick={nextTestimonial}
               aria-label="Next testimonial"
+              title="Next"
             >
-              ›
+              <RightOutlined />
             </button>
           </div>
           
