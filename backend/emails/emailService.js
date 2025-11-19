@@ -37,7 +37,9 @@ function resolveLogoFile() {
     // Prefer frontend/src/assets/Logo.png, fallback to frontend/public/assets/Logo.png
     const candidates = [
         path.join(__dirname, '..', '..', 'frontend', 'src', 'assets', 'Logo.png'),
-        path.join(__dirname, '..', '..', 'frontend', 'public', 'assets', 'Logo.png')
+        path.join(__dirname, '..', '..', 'frontend', 'public', 'assets', 'Logo.png'),
+        path.join(__dirname, '..', '..', 'frontend', 'public', 'logo.png'),
+        path.join(__dirname, '..', '..', 'frontend', 'public', 'Logo.png')
     ];
     for (const p of candidates) {
         if (fs.existsSync(p)) return p;
@@ -84,7 +86,9 @@ async function sendEmailChangeNotifications({ oldEmail, newEmail, username }) {
 }
 
 async function sendPasswordResetOTP({ to, username, code }) {
-    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, code });
+    const logoPath = resolveLogoFile();
+    const logoCid = logoPath ? 'brand-logo@lfwn' : null;
+    const { subject, html, text } = buildPasswordResetOTPTemplate({ username, code, logoCid });
 
     const mailOptions = {
         from: getFromEmail(),
@@ -99,7 +103,9 @@ async function sendPasswordResetOTP({ to, username, code }) {
 }
 
 async function sendPasswordResetSuccess({ to, username }) {
-    const { subject, html, text } = buildPasswordResetSuccessTemplate({ username });
+    const logoPath = resolveLogoFile();
+    const logoCid = logoPath ? 'brand-logo@lfwn' : null;
+    const { subject, html, text } = buildPasswordResetSuccessTemplate({ username, logoCid });
 
     const mailOptions = {
         from: getFromEmail(),

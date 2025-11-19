@@ -48,7 +48,7 @@ function buildClassScheduleNotificationTemplate({
                <span style="font-size: 18px; margin-right: 8px;">💻</span>
                <strong style="font-size: 16px;">Online Class</strong>
              </div>
-             ${link ? `<a href="${link}" target="_blank" style="color: #BFDBFE; text-decoration: underline; font-weight: 500;">Join Meeting Link</a>` : '<span style="color: #BFDBFE;">Meeting link will be provided closer to class time</span>'}
+             <span style="color: #BFDBFE;">Meeting link will be shared via the portal or by your teacher</span>
            </div>`
         : `<div style="background: linear-gradient(135deg, #10B981, #059669); color: white; padding: 16px; border-radius: 12px; margin: 16px 0;">
              <div style="display: flex; align-items: center; margin-bottom: 8px;">
@@ -154,7 +154,7 @@ Class Details:
 - French Level: ${frenchLevel || 'Not specified'}
 - Date: ${formattedDate}
 - Time: ${formattedStartTime} - ${formattedEndTime}
-- Location: ${locationMode === 'online' ? (link ? `Online - ${link}` : 'Online (link to be provided)') : (location || 'Physical location to be confirmed')}
+- Location: ${locationMode === 'online' ? 'Online' : (location || 'Physical location to be confirmed')}
 
 ${description ? `Description: ${description}` : ''}
 
