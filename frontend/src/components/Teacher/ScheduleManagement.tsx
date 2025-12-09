@@ -609,7 +609,7 @@ const ScheduleManagement: React.FC = () => {
             end_time: now.add(1, 'hour'),
             type: 'class',
             status: 'scheduled',
-            location_mode: 'physical',
+            location_mode: 'online',
         });
         setModalVisible(true);
     };
@@ -709,7 +709,7 @@ const ScheduleManagement: React.FC = () => {
                 end_time: e,
                 type: 'class',
                 status: 'scheduled',
-                location_mode: 'physical',
+                location_mode: 'online',
             });
         } else {
             const s = start.isBefore(dayjs()) ? dayjs().add(15, 'minute') : start;
@@ -720,7 +720,7 @@ const ScheduleManagement: React.FC = () => {
                 end_time: e,
                 type: 'class',
                 status: 'scheduled',
-                location_mode: 'physical',
+                location_mode: 'online',
             });
         }
         setModalVisible(true);
@@ -1238,9 +1238,9 @@ const ScheduleManagement: React.FC = () => {
                                 name="location_mode"
                                 label="Session Type"
                                 rules={[{ required: true, message: 'Please select session type!' }]}
+                                initialValue="online"
                             >
                                 <Select>
-                                    <Option value="physical">Physical</Option>
                                     <Option value="online">Online</Option>
                                 </Select>
                             </Form.Item>
