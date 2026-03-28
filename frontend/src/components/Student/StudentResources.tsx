@@ -1,509 +1,302 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-    Table,
-    Button,
-    Card,
-    message,
-    Space,
-    Typography,
-    Tag,
-    Tabs,
-    Row,
-    Col,
-    Statistic,
-    Input,
-    Select,
-    Empty,
-    List,
-    Avatar,
-
+    Card, Typography, Tag, Space, Input, Select, Row, Col, Statistic, Empty,
+    Button, Modal, Tooltip, Spin
 } from 'antd';
 import {
-    DownloadOutlined,
-    FileOutlined,
-    SearchOutlined,
-    FolderOutlined,
-    EyeOutlined,
-
-    BookOutlined,
-    TeamOutlined
+    DownloadOutlined, EyeOutlined, SearchOutlined, FolderOutlined,
+    FilePdfOutlined, VideoCameraOutlined, SoundOutlined, PictureOutlined,
+    FileTextOutlined, ExpandOutlined, CompressOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
-import relativeTime from 'dayjs/plugin/relativeTime';
 
-dayjs.extend(relativeTime);
-
-const { Title, Text, Paragraph } = Typography;
-const { TabPane } = Tabs;
-const { Search } = Input;
-const { Option } = Select;
+const { Title, Text } = Typography;
 
 interface Resource {
     id: number;
     title: string;
     description: string;
     file_name: string;
-    file_path: string;
-    file_size: number;
     file_type: string;
+    file_size: number;
     batch_id: number;
     batch_name?: string;
-    teacher_name: string;
-    is_public: boolean;
-    download_count: number;
+    teacher_first_name?: string;
+    teacher_last_name?: string;
+    category: string;
+    storage_type: string;
     created_at: string;
-    uploaded_by: number;
 }
 
-interface ResourceStats {
-    total_resources: number;
-    public_resources: number;
-    batch_resources: number;
-    total_downloads: number;
-    recent_downloads: number;
+const CAT: Record<string, { icon: React.ReactNode; color: string; label: string; bg: string }> = {
+    pdf: { icon: <FilePdfOutlined />, color: '#e74c3c', label: 'PDF', bg: '#fde8e8' },
+    video: { icon: <VideoCameraOutlined />, color: '#3498db', label: 'Video', bg: '#dbeafe' },
+    audio: { icon: <SoundOutlined />, color: '#9b59b6', label: 'Audio', bg: '#ede9fe' },
+    image: { icon: <PictureOutlined />, color: '#2ecc71', label: 'Image', bg: '#d1fae5' },
+    document: { icon: <FileTextOutlined />, color: '#f39c12', label: 'Document', bg: '#fef3c7' },
+};
+
+function fmtSize(b: number) {
+    if (!b) return '0 B';
+    const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(b) / Math.log(k));
+    return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
 }
 
 const StudentResources: React.FC = () => {
     const [resources, setResources] = useState<Resource[]>([]);
-    const [filteredResources, setFilteredResources] = useState<Resource[]>([]);
-    const [stats, setStats] = useState<ResourceStats | null>(null);
-    const [loading, setLoading] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState<string>('all');
-    const [filterBatch, setFilterBatch] = useState<string>('all');
-    const { apiCall } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [catFilter, setCatFilter] = useState('all');
+    const [batchFilter, setBatchFilter] = useState<number | null>(null);
+    const [preview, setPreview] = useState<Resource | null>(null);
+    const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+    const [previewFullscreen, setPreviewFullscreen] = useState(false);
+    const { apiCall, token } = useAuth();
+    const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
-    useEffect(() => {
-        fetchResources();
-        fetchStats();
-    }, []);
-
-    useEffect(() => {
-        filterResources();
-    }, [resources, searchTerm, filterType, filterBatch]);
-
-    const fetchResources = async () => {
+    const fetchResources = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/resources/available');
-            if (response.ok) {
-                const data = await response.json();
-                setResources(data.resources || []);
-            } else {
-                message.error('Failed to fetch resources');
-            }
-        } catch (error) {
-            message.error('Error fetching resources');
-        } finally {
-            setLoading(false);
-        }
-    };
+            const p = new URLSearchParams();
+            if (catFilter !== 'all') p.set('category', catFilter);
+            if (batchFilter) p.set('batch_id', String(batchFilter));
+            const resp = await apiCall(`/resources?${p}`);
+            if (resp.ok) setResources(await resp.json());
+        } catch {} finally { setLoading(false); }
+    }, [catFilter, batchFilter]);
 
-    const fetchStats = async () => {
+    useEffect(() => { fetchResources(); }, [fetchResources]);
+
+    /** Securely download using Authorization header */
+    const secureDownload = async (id: number, fileName: string) => {
         try {
-            const response = await apiCall('/resources/my-stats');
-            if (response.ok) {
-                const data = await response.json();
-                setStats(data.stats);
-            }
-        } catch (error) {
-            console.error('Error fetching stats:', error);
-        }
-    };
-
-    const filterResources = () => {
-        let filtered = resources;
-
-        // Search filter
-        if (searchTerm) {
-            filtered = filtered.filter(resource =>
-                resource.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                resource.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                resource.file_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                resource.teacher_name.toLowerCase().includes(searchTerm.toLowerCase())
-            );
-        }
-
-        // Type filter
-        if (filterType !== 'all') {
-            filtered = filtered.filter(resource => {
-                const fileType = resource.file_type.toLowerCase();
-                switch (filterType) {
-                    case 'document':
-                        return fileType.includes('pdf') || fileType.includes('doc') || fileType.includes('text');
-                    case 'presentation':
-                        return fileType.includes('ppt') || fileType.includes('presentation');
-                    case 'spreadsheet':
-                        return fileType.includes('xls') || fileType.includes('sheet');
-                    case 'image':
-                        return fileType.includes('image') || fileType.includes('jpg') || fileType.includes('png');
-                    case 'video':
-                        return fileType.includes('video') || fileType.includes('mp4');
-                    case 'audio':
-                        return fileType.includes('audio') || fileType.includes('mp3');
-                    case 'archive':
-                        return fileType.includes('zip') || fileType.includes('rar');
-                    default:
-                        return true;
-                }
+            const resp = await fetch(`${API}/resources/${id}/download`, {
+                headers: { 'Authorization': `Bearer ${token}` },
             });
-        }
-
-        // Batch filter
-        if (filterBatch !== 'all') {
-            if (filterBatch === 'public') {
-                filtered = filtered.filter(resource => resource.is_public);
-            } else {
-                filtered = filtered.filter(resource => resource.batch_name === filterBatch);
-            }
-        }
-
-        setFilteredResources(filtered);
+            if (!resp.ok) throw new Error('Download failed');
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 5000);
+        } catch {}
     };
 
-    const handleDownload = async (resource: Resource) => {
+    /** Open preview with secure blob */
+    const openPreview = async (r: Resource) => {
+        setPreview(r);
+        setPreviewBlobUrl(null);
         try {
-            const response = await apiCall(`/resources/${resource.id}/download`);
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = resource.file_name;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                
-                message.success('Resource downloaded successfully');
-                // Refresh resources to update download count
-                fetchResources();
-                fetchStats();
-            } else {
-                message.error('Failed to download resource');
-            }
-        } catch (error) {
-            message.error('Error downloading resource');
-        }
+            const resp = await fetch(`${API}/resources/${r.id}/preview`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            if (!resp.ok) throw new Error('Preview failed');
+            const blob = await resp.blob();
+            setPreviewBlobUrl(URL.createObjectURL(blob));
+        } catch {}
     };
 
-    const formatFileSize = (bytes: number) => {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    const closePreview = () => {
+        if (previewBlobUrl) URL.revokeObjectURL(previewBlobUrl);
+        setPreviewBlobUrl(null);
+        setPreview(null);
+        setPreviewFullscreen(false);
     };
 
-    const getFileIcon = (fileType: string) => {
-        if (fileType.includes('pdf')) return '📄';
-        if (fileType.includes('doc')) return '📝';
-        if (fileType.includes('ppt')) return '📊';
-        if (fileType.includes('xls')) return '📈';
-        if (fileType.includes('image')) return '🖼️';
-        if (fileType.includes('video')) return '🎥';
-        if (fileType.includes('audio')) return '🎵';
-        if (fileType.includes('zip') || fileType.includes('rar')) return '📦';
-        return '📁';
+    const filtered = resources.filter(r => {
+        if (search && !r.title.toLowerCase().includes(search.toLowerCase()) && !r.file_name.toLowerCase().includes(search.toLowerCase())) return false;
+        return true;
+    });
+
+    const batches = [...new Map(resources.filter(r => r.batch_id && r.batch_name).map(r => [r.batch_id, r.batch_name])).entries()]
+        .map(([id, name]) => ({ id, name }));
+
+    const stats = {
+        total: resources.length,
+        pdf: resources.filter(r => r.category === 'pdf').length,
+        video: resources.filter(r => r.category === 'video').length,
+        audio: resources.filter(r => r.category === 'audio').length,
+        document: resources.filter(r => r.category === 'document').length,
+        image: resources.filter(r => r.category === 'image').length,
     };
-
-    const getFileTypeCategory = (fileType: string) => {
-        const type = fileType.toLowerCase();
-        if (type.includes('pdf') || type.includes('doc') || type.includes('text')) return 'Document';
-        if (type.includes('ppt') || type.includes('presentation')) return 'Presentation';
-        if (type.includes('xls') || type.includes('sheet')) return 'Spreadsheet';
-        if (type.includes('image') || type.includes('jpg') || type.includes('png')) return 'Image';
-        if (type.includes('video') || type.includes('mp4')) return 'Video';
-        if (type.includes('audio') || type.includes('mp3')) return 'Audio';
-        if (type.includes('zip') || type.includes('rar')) return 'Archive';
-        return 'Other';
-    };
-
-    const columns: ColumnsType<Resource> = [
-        {
-            title: 'Resource',
-            key: 'resource',
-            render: (_, record) => (
-                <Space>
-                    <span style={{ fontSize: '20px' }}>{getFileIcon(record.file_type)}</span>
-                    <div>
-                        <Text strong>{record.title}</Text>
-                        <br />
-                        <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {record.description}
-                        </Text>
-                        <br />
-                        <Text type="secondary" style={{ fontSize: '11px' }}>
-                            {record.file_name} ({formatFileSize(record.file_size)})
-                        </Text>
-                    </div>
-                </Space>
-            ),
-        },
-        {
-            title: 'Type',
-            key: 'type',
-            render: (_, record) => (
-                <Tag color="blue">{getFileTypeCategory(record.file_type)}</Tag>
-            ),
-        },
-        {
-            title: 'Source',
-            key: 'source',
-            render: (_, record) => (
-                <div>
-                    <div>
-                        <TeamOutlined /> {record.teacher_name}
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                        {record.is_public ? (
-                            <Tag color="green">Public</Tag>
-                        ) : (
-                            <Tag color="orange">{record.batch_name}</Tag>
-                        )}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'Downloads',
-            dataIndex: 'download_count',
-            key: 'download_count',
-            render: (count: number) => count || 0,
-        },
-        {
-            title: 'Uploaded',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (date: string) => dayjs(date).format('MMM DD, YYYY'),
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, record) => (
-                <Button
-                    type="primary"
-                    size="small"
-                    icon={<DownloadOutlined />}
-                    onClick={() => handleDownload(record)}
-                >
-                    Download
-                </Button>
-            ),
-        },
-    ];
-
-    const publicResources = filteredResources.filter(resource => resource.is_public);
-    const batchResources = filteredResources.filter(resource => !resource.is_public);
-    const recentResources = filteredResources
-        .sort((a, b) => dayjs(b.created_at).valueOf() - dayjs(a.created_at).valueOf())
-        .slice(0, 10);
-
-    const uniqueBatches = Array.from(new Set(resources.map(r => r.batch_name).filter(Boolean)));
 
     return (
         <div>
-            <div style={{ marginBottom: 16 }}>
-                <Title level={2}>
-                    <FolderOutlined /> Learning Resources
-                </Title>
+            <div style={{ marginBottom: 24 }}>
+                <Title level={3} style={{ margin: 0, fontWeight: 700 }}>My Resources</Title>
+                <Text type="secondary">Learning materials shared by your teachers</Text>
             </div>
 
-            {stats && (
-                <Row gutter={16} style={{ marginBottom: 16 }}>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Total Resources"
-                                value={stats.total_resources}
-                                prefix={<BookOutlined />}
-                            />
+            {/* Stats */}
+            <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+                {[
+                    { label: 'Total', value: stats.total, icon: <FolderOutlined />, color: '#1a56db' },
+                    { label: 'PDFs', value: stats.pdf, icon: <FilePdfOutlined />, color: '#e74c3c' },
+                    { label: 'Videos', value: stats.video, icon: <VideoCameraOutlined />, color: '#3498db' },
+                    { label: 'Audio', value: stats.audio, icon: <SoundOutlined />, color: '#9b59b6' },
+                    { label: 'Docs', value: stats.document, icon: <FileTextOutlined />, color: '#f39c12' },
+                    { label: 'Images', value: stats.image, icon: <PictureOutlined />, color: '#2ecc71' },
+                ].map((s, i) => (
+                    <Col xs={12} sm={8} md={4} key={i}>
+                        <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
+                            <Statistic title={s.label} value={s.value} prefix={<span style={{ color: s.color }}>{s.icon}</span>}
+                                valueStyle={{ fontSize: 22, fontWeight: 700 }} />
                         </Card>
                     </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Public Resources"
-                                value={stats.public_resources}
-                                prefix={<TeamOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="My Downloads"
-                                value={stats.total_downloads}
-                                prefix={<DownloadOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Recent Downloads"
-                                value={stats.recent_downloads}
-                                prefix={<EyeOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                </Row>
+                ))}
+            </Row>
+
+            {/* Filters */}
+            <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', marginBottom: 20 }}>
+                <Space wrap size="middle">
+                    <Input placeholder="Search..." prefix={<SearchOutlined />} allowClear
+                        value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220, borderRadius: 8 }} />
+                    <Select value={catFilter} onChange={setCatFilter} style={{ width: 130 }}
+                        options={[{ value: 'all', label: 'All Types' }, ...Object.entries(CAT).map(([k, v]) => ({ value: k, label: v.label }))]} />
+                    <Select value={batchFilter} onChange={setBatchFilter} allowClear placeholder="All Batches" style={{ width: 160 }}
+                        options={batches.map(b => ({ value: b.id, label: b.name }))} />
+                </Space>
+            </Card>
+
+            {/* Resources List */}
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>
+            ) : filtered.length === 0 ? (
+                <Empty description="No resources available" style={{ padding: 60 }} />
+            ) : (
+                <Card style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}
+                    styles={{ body: { padding: 0 } }}>
+                    {filtered.map((r, idx) => {
+                        const cat = CAT[r.category] || CAT.document;
+                        return (
+                            <div key={r.id}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: 14,
+                                    padding: '14px 20px',
+                                    borderBottom: idx < filtered.length - 1 ? '1px solid #f0f0f0' : 'none',
+                                    cursor: 'pointer',
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = '#fafbfc')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                onClick={() => openPreview(r)}
+                            >
+                                {/* Icon */}
+                                <div style={{
+                                    width: 40, height: 40, borderRadius: 10, background: cat.bg,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 18, color: cat.color, flexShrink: 0,
+                                }}>
+                                    {cat.icon}
+                                </div>
+
+                                {/* Info */}
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <Text strong style={{ fontSize: 14, display: 'block', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {r.title}
+                                    </Text>
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                        {r.file_name} · {fmtSize(r.file_size)}
+                                    </Text>
+                                </div>
+
+                                {/* Tags */}
+                                <Space size={4} style={{ flexShrink: 0 }}>
+                                    <Tag color={cat.color} style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>{cat.label}</Tag>
+                                    {r.batch_name && <Tag color="blue" style={{ borderRadius: 6, fontSize: 11, margin: 0 }}>{r.batch_name}</Tag>}
+                                </Space>
+
+                                {/* Date + Teacher */}
+                                <Text type="secondary" style={{ fontSize: 11, flexShrink: 0, width: 80, textAlign: 'right' }}>
+                                    {dayjs(r.created_at).format('MMM DD')}
+                                </Text>
+
+                                {/* Actions */}
+                                <Space size={2} style={{ flexShrink: 0 }}>
+                                    <Tooltip title="Preview">
+                                        <Button size="small" type="text" icon={<EyeOutlined />}
+                                            onClick={(e) => { e.stopPropagation(); openPreview(r); }} />
+                                    </Tooltip>
+                                    <Tooltip title="Download">
+                                        <Button size="small" type="text" icon={<DownloadOutlined />}
+                                            onClick={(e) => { e.stopPropagation(); secureDownload(r.id, r.file_name); }} />
+                                    </Tooltip>
+                                </Space>
+                            </div>
+                        );
+                    })}
+                </Card>
             )}
 
-            <Card style={{ marginBottom: 16 }}>
-                <Row gutter={16}>
-                    <Col span={8}>
-                        <Search
-                            placeholder="Search resources..."
-                            allowClear
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            prefix={<SearchOutlined />}
-                        />
-                    </Col>
-                    <Col span={8}>
-                        <Select
-                            style={{ width: '100%' }}
-                            placeholder="Filter by type"
-                            value={filterType}
-                            onChange={setFilterType}
-                        >
-                            <Option value="all">All Types</Option>
-                            <Option value="document">Documents</Option>
-                            <Option value="presentation">Presentations</Option>
-                            <Option value="spreadsheet">Spreadsheets</Option>
-                            <Option value="image">Images</Option>
-                            <Option value="video">Videos</Option>
-                            <Option value="audio">Audio</Option>
-                            <Option value="archive">Archives</Option>
-                        </Select>
-                    </Col>
-                    <Col span={8}>
-                        <Select
-                            style={{ width: '100%' }}
-                            placeholder="Filter by source"
-                            value={filterBatch}
-                            onChange={setFilterBatch}
-                        >
-                            <Option value="all">All Sources</Option>
-                            <Option value="public">Public Resources</Option>
-                            {uniqueBatches.map(batch => (
-                                <Option key={batch} value={batch}>{batch}</Option>
-                            ))}
-                        </Select>
-                    </Col>
-                </Row>
-            </Card>
-
-            <Card>
-                <Tabs defaultActiveKey="all">
-                    <TabPane tab={`All Resources (${filteredResources.length})`} key="all">
-                        {filteredResources.length > 0 ? (
-                            <Table
-                                columns={columns}
-                                dataSource={filteredResources}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No resources found" />
+            {/* Preview Modal */}
+            <Modal
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingRight: 32 }}>
+                        <span>{preview?.title || 'Preview'}</span>
+                        <Tooltip title={previewFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+                            <Button type="text" size="small" icon={previewFullscreen ? <CompressOutlined /> : <ExpandOutlined />}
+                                onClick={() => setPreviewFullscreen(f => !f)} />
+                        </Tooltip>
+                    </div>
+                }
+                open={!!preview}
+                onCancel={closePreview}
+                width={previewFullscreen ? '100vw' : 900}
+                style={previewFullscreen ? { top: 0, maxWidth: '100vw', paddingBottom: 0 } : undefined}
+                footer={[
+                    <Button key="dl" icon={<DownloadOutlined />} onClick={() => preview && secureDownload(preview.id, preview.file_name)}>
+                        Download
+                    </Button>,
+                    <Button key="close" type="primary" onClick={closePreview}>Close</Button>,
+                ]}
+                styles={{ body: { padding: 0, minHeight: previewFullscreen ? 'calc(100vh - 120px)' : 400 } }}
+            >
+                {preview && !previewBlobUrl && (
+                    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: previewFullscreen ? 'calc(100vh - 120px)' : 400 }}>
+                        <Spin size="large" />
+                    </div>
+                )}
+                {preview && previewBlobUrl && (
+                    <div style={{ width: '100%' }}>
+                        {preview.category === 'pdf' && (
+                            <iframe src={previewBlobUrl} style={{ width: '100%', height: previewFullscreen ? 'calc(100vh - 120px)' : 600, border: 'none' }} title="PDF" />
                         )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Public (${publicResources.length})`} key="public">
-                        {publicResources.length > 0 ? (
-                            <Table
-                                columns={columns}
-                                dataSource={publicResources}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No public resources available" />
+                        {preview.category === 'video' && (
+                            <video controls style={{ width: '100%', maxHeight: previewFullscreen ? 'calc(100vh - 120px)' : 500 }} src={previewBlobUrl} />
                         )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Batch Resources (${batchResources.length})`} key="batch">
-                        {batchResources.length > 0 ? (
-                            <Table
-                                columns={columns}
-                                dataSource={batchResources}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No batch-specific resources available" />
+                        {preview.category === 'audio' && (
+                            <div style={{ padding: 48, textAlign: 'center' }}>
+                                <SoundOutlined style={{ fontSize: 56, color: '#9b59b6', marginBottom: 20 }} />
+                                <div><Text strong style={{ fontSize: 16 }}>{preview.file_name}</Text></div>
+                                <audio controls style={{ marginTop: 20, width: '80%' }} src={previewBlobUrl} />
+                            </div>
                         )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Recent (${recentResources.length})`} key="recent">
-                        {recentResources.length > 0 ? (
-                            <List
-                                itemLayout="horizontal"
-                                dataSource={recentResources}
-                                renderItem={(resource) => (
-                                    <List.Item
-                                        actions={[
-                                            <Button
-                                                key="download"
-                                                type="primary"
-                                                size="small"
-                                                icon={<DownloadOutlined />}
-                                                onClick={() => handleDownload(resource)}
-                                            >
-                                                Download
-                                            </Button>
-                                        ]}
-                                    >
-                                        <List.Item.Meta
-                                            avatar={
-                                                <Avatar 
-                                                    style={{ backgroundColor: '#1890ff' }}
-                                                    icon={<FileOutlined />}
-                                                />
-                                            }
-                                            title={
-                                                <Space>
-                                                    <span>{getFileIcon(resource.file_type)}</span>
-                                                    <Text strong>{resource.title}</Text>
-                                                    <Tag color={getFileTypeCategory(resource.file_type) === 'Document' ? 'blue' : 'green'}>
-                                                        {getFileTypeCategory(resource.file_type)}
-                                                    </Tag>
-                                                </Space>
-                                            }
-                                            description={
-                                                <div>
-                                                    <Paragraph ellipsis={{ rows: 1 }}>{resource.description}</Paragraph>
-                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                        By {resource.teacher_name} • {dayjs(resource.created_at).fromNow()} • {formatFileSize(resource.file_size)}
-                                                    </Text>
-                                                </div>
-                                            }
-                                        />
-                                    </List.Item>
-                                )}
-                            />
-                        ) : (
-                            <Empty description="No recent resources" />
+                        {preview.category === 'image' && (
+                            <img src={previewBlobUrl} alt={preview.title}
+                                style={{ width: '100%', objectFit: 'contain', maxHeight: 600 }} />
                         )}
-                    </TabPane>
-                </Tabs>
-            </Card>
+                        {preview.category === 'document' && (
+                            <div style={{ padding: 60, textAlign: 'center' }}>
+                                <FileTextOutlined style={{ fontSize: 56, color: '#f39c12', marginBottom: 16 }} />
+                                <div><Text strong style={{ fontSize: 16 }}>{preview.file_name}</Text></div>
+                                <Text type="secondary">{fmtSize(preview.file_size)}</Text>
+                                <div style={{ marginTop: 20 }}>
+                                    <Text type="secondary">Preview not available. Please download the file.</Text>
+                                </div>
+                            </div>
+                        )}
+                        {preview.description && (
+                            <div style={{ padding: '16px 24px', borderTop: '1px solid #f0f0f0' }}>
+                                <Text type="secondary" style={{ fontSize: 13 }}>{preview.description}</Text>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };

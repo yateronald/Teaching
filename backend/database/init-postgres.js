@@ -136,10 +136,14 @@ class PostgreSQLDatabase {
         try {
             const { sql: q, params: p } = this._normalizeParams(sql, params);
             const result = await this.client.query(q, p);
+            const insertedId = result.rows?.[0]?.id ?? null;
             return { 
                 rowCount: result.rowCount,
                 rows: result.rows,
-                insertId: result.rows[0]?.id || null
+                insertId: insertedId,
+                // Compatibility fields used across the codebase
+                id: insertedId,
+                lastID: insertedId
             };
         } catch (error) {
             console.error('Query error:', error.message);

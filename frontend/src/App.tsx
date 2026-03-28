@@ -42,7 +42,7 @@ function App() {
     >
       <AntApp>
         <AuthProvider>
-          <Router>
+            <Router>
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<LandingPage />} />
@@ -213,7 +213,7 @@ function App() {
                 } />
               </Route>
             </Routes>
-          </Router>
+            </Router>
         </AuthProvider>
       </AntApp>
     </ConfigProvider>

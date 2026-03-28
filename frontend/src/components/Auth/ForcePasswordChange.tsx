@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Typography, Form, Input, Button, Space, Alert } from 'antd';
-import { LockOutlined } from '@ant-design/icons';
+import { Form, Input, Button } from 'antd';
+import { LockOutlined, SafetyCertificateOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-
-const { Title, Paragraph } = Typography;
+import { ASSET_PATHS } from '../../utils/assets';
+import './ForcePasswordChange.css';
 
 const ForcePasswordChange: React.FC = () => {
   const [form] = Form.useForm();
@@ -13,7 +13,6 @@ const ForcePasswordChange: React.FC = () => {
   const { changePassword, user, isAuthenticated, loading } = useAuth();
   const [submitting, setSubmitting] = useState(false);
 
-  // Extra hardening: redirect if not authenticated or not required
   useEffect(() => {
     if (loading) return;
     if (!isAuthenticated) {
@@ -23,89 +22,124 @@ const ForcePasswordChange: React.FC = () => {
     const force = (user as any)?.force_password_change;
     if (!force) {
       const role = user?.role;
-      const dashboardPath = role === 'admin' ? '/dashboard' : role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
-      navigate(dashboardPath, { replace: true });
+      const dash = role === 'admin' ? '/dashboard' : role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
+      navigate(dash, { replace: true });
     }
   }, [loading, isAuthenticated, user, navigate, location]);
 
   const onFinish = async (values: any) => {
     setSubmitting(true);
-    const { currentPassword, newPassword } = values;
-    const result = await changePassword(currentPassword, newPassword);
+    const result = await changePassword(values.currentPassword, values.newPassword);
     setSubmitting(false);
     if (result.success) {
-      // After successful change, route user to their dashboard
       const role = user?.role;
-      const dashboardPath = role === 'admin' ? '/dashboard' : role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
+      const dash = role === 'admin' ? '/dashboard' : role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
       const from = (location.state as any)?.from?.pathname;
-      navigate(from || dashboardPath, { replace: true });
+      navigate(from || dash, { replace: true });
     }
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', padding: '24px' }}>
-      <Card style={{ width: 500, maxWidth: '100%' }}>
-        <Space size={12} direction="vertical" style={{ width: '100%' }}>
-          <Space>
-            <LockOutlined style={{ color: '#1677ff' }} />
-            <Title level={3} style={{ margin: 0 }}>Update Your Password</Title>
-          </Space>
-          <Alert
-            type="warning"
-            showIcon
-            message="Password update required"
-            description="For security reasons, you must change your password before continuing."
-          />
-          <Paragraph style={{ marginTop: 8, color: '#595959' }}>
-            Please enter your current password and choose a new one with at least 6 characters.
-          </Paragraph>
+    <div className="fpc-page">
+      <div className="fpc-container">
+        {/* Left panel */}
+        <div className="fpc-left">
+          <div className="fpc-left-bg" />
+          <div className="fpc-left-content">
+            <img src={ASSET_PATHS.LOGOS.MAIN} alt="Logo" className="fpc-logo" />
+            <h1 className="fpc-left-title">Secure Your<br />Account</h1>
+            <p className="fpc-left-desc">
+              A strong password keeps your account safe. Update it now to continue using the platform.
+            </p>
+            <div className="fpc-left-tips">
+              <div className="fpc-tip">
+                <CheckCircleFilled className="fpc-tip-icon" />
+                <span>At least 6 characters long</span>
+              </div>
+              <div className="fpc-tip">
+                <CheckCircleFilled className="fpc-tip-icon" />
+                <span>Mix letters, numbers & symbols</span>
+              </div>
+              <div className="fpc-tip">
+                <CheckCircleFilled className="fpc-tip-icon" />
+                <span>Don't reuse old passwords</span>
+              </div>
+            </div>
+          </div>
+        </div>
 
-          <Form form={form} layout="vertical" onFinish={onFinish}>
-            <Form.Item
-              name="currentPassword"
-              label="Current Password"
-              rules={[{ required: true, message: 'Please enter your current password' }, { min: 6, message: 'Password must be at least 6 characters' }]}
-            >
-              <Input.Password placeholder="Enter current password" size="large" />
-            </Form.Item>
+        {/* Right panel */}
+        <div className="fpc-right">
+          <div className="fpc-right-inner">
+            <div className="fpc-form-header">
+              <div className="fpc-header-icon">
+                <SafetyCertificateOutlined />
+              </div>
+              <h2>Update Your Password</h2>
+              <p>For security reasons, please set a new password before continuing.</p>
+            </div>
 
-            <Form.Item
-              name="newPassword"
-              label="New Password"
-              rules={[{ required: true, message: 'Please enter a new password' }, { min: 6, message: 'Password must be at least 6 characters' }]}
-            >
-              <Input.Password placeholder="Enter new password" size="large" />
-            </Form.Item>
+            <Form form={form} layout="vertical" onFinish={onFinish} className="fpc-form">
+              <Form.Item
+                name="currentPassword"
+                label="Current Password"
+                rules={[
+                  { required: true, message: 'Please enter your current password' },
+                  { min: 6, message: 'Must be at least 6 characters' },
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined className="fpc-input-icon" />}
+                  placeholder="Enter current password"
+                  className="fpc-input"
+                />
+              </Form.Item>
 
-            <Form.Item
-              name="confirmPassword"
-              label="Confirm New Password"
-              dependencies={["newPassword"]}
-              rules={[
-                { required: true, message: 'Please confirm your new password' },
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    if (!value || getFieldValue('newPassword') === value) {
-                      return Promise.resolve();
-                    }
-                    return Promise.reject(new Error('The two passwords do not match'));
-                  }
-                })
-              ]}
-            >
-              <Input.Password placeholder="Confirm new password" size="large" />
-            </Form.Item>
+              <Form.Item
+                name="newPassword"
+                label="New Password"
+                rules={[
+                  { required: true, message: 'Please enter a new password' },
+                  { min: 6, message: 'Must be at least 6 characters' },
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined className="fpc-input-icon" />}
+                  placeholder="Enter new password"
+                  className="fpc-input"
+                />
+              </Form.Item>
 
-            <Form.Item style={{ marginBottom: 0 }}>
-              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button type="primary" htmlType="submit" loading={submitting}>
-                  Change Password
+              <Form.Item
+                name="confirmPassword"
+                label="Confirm New Password"
+                dependencies={['newPassword']}
+                rules={[
+                  { required: true, message: 'Please confirm your new password' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                      return Promise.reject(new Error('Passwords do not match'));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined className="fpc-input-icon" />}
+                  placeholder="Confirm new password"
+                  className="fpc-input"
+                />
+              </Form.Item>
+
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button type="primary" htmlType="submit" loading={submitting} block className="fpc-submit-btn">
+                  Update Password
                 </Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        </Space>
-      </Card>
+              </Form.Item>
+            </Form>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -2,104 +2,73 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { body, validationResult } = require('express-validator');
-const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
+const { authenticateToken, teacherOrAdmin } = require('../middleware/auth');
+const { getKDriveService } = require('../services/kdriveService');
 
 const router = express.Router();
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadDir = path.join(__dirname, '../uploads');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename: (req, file, cb) => {
-        // Generate unique filename
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname);
-        const name = path.basename(file.originalname, ext);
-        cb(null, `${name}-${uniqueSuffix}${ext}`);
+// Use OS temp dir for multer (files are uploaded to kDrive then deleted)
+const upload = multer({
+    dest: os.tmpdir(),
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+    fileFilter: (req, file, cb) => {
+        const allowed = /jpeg|jpg|png|gif|mp4|avi|mov|webm|mp3|wav|ogg|m4a|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|zip/;
+        const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
+        if (allowed.test(ext)) return cb(null, true);
+        cb(new Error('File type not allowed'));
     }
 });
 
-// File filter for allowed types
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = {
-        'image/jpeg': '.jpg',
-        'image/png': '.png',
-        'image/gif': '.gif',
-        'video/mp4': '.mp4',
-        'video/avi': '.avi',
-        'video/mov': '.mov',
-        'audio/mpeg': '.mp3',
-        'audio/wav': '.wav',
-        'audio/ogg': '.ogg',
-        'application/pdf': '.pdf',
-        'application/msword': '.doc',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-        'application/vnd.ms-powerpoint': '.ppt',
-        'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-        'text/plain': '.txt'
-    };
-    
-    if (allowedTypes[file.mimetype]) {
-        cb(null, true);
-    } else {
-        cb(new Error('File type not allowed'), false);
-    }
-};
+/** Helper: detect category from mime type */
+function detectCategory(mimeType, fileName) {
+    if (!mimeType) return 'document';
+    if (mimeType.startsWith('video/')) return 'video';
+    if (mimeType.startsWith('audio/')) return 'audio';
+    if (mimeType.startsWith('image/')) return 'image';
+    if (mimeType === 'application/pdf') return 'pdf';
+    const ext = path.extname(fileName || '').toLowerCase();
+    if (['.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.txt'].includes(ext)) return 'document';
+    return 'document';
+}
 
-const upload = multer({ 
-    storage: storage,
-    fileFilter: fileFilter,
-    limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
-    }
-});
+/** Helper: clean up temp file */
+function cleanTemp(filePath) {
+    try { if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+}
 
-// Get all resources (filtered by role)
+// ============================================================
+// GET /api/resources — List resources (role-filtered)
+// ============================================================
 router.get('/', authenticateToken, async (req, res) => {
     try {
-        const { batch_id } = req.query;
-        
+        const { batch_id, category } = req.query;
         let sql = `
-            SELECT 
-                r.id, r.title, r.description, r.file_name, r.file_type, r.file_size, r.created_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                b.name as batch_name
+            SELECT r.id, r.title, r.description, r.file_name, r.file_type, r.file_size,
+                   r.kdrive_file_id, r.storage_type, r.category, r.created_at, r.updated_at,
+                   u.first_name AS teacher_first_name, u.last_name AS teacher_last_name,
+                   b.name AS batch_name, r.batch_id, r.teacher_id
             FROM resources r
             LEFT JOIN users u ON r.teacher_id = u.id
             LEFT JOIN batches b ON r.batch_id = b.id
         `;
-        let params = [];
-        let conditions = [];
-        
+        const conditions = [];
+        const params = [];
+        let idx = 1;
+
         if (req.user.role === 'teacher') {
-            conditions.push('r.teacher_id = ?');
+            conditions.push(`r.teacher_id = $${idx++}`);
             params.push(req.user.id);
         } else if (req.user.role === 'student') {
-            conditions.push(`
-                r.batch_id IN (
-                    SELECT batch_id FROM batch_students WHERE student_id = ?
-                )
-            `);
+            conditions.push(`r.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $${idx++})`);
             params.push(req.user.id);
         }
-        
-        if (batch_id) {
-            conditions.push('r.batch_id = ?');
-            params.push(batch_id);
-        }
-        
-        if (conditions.length > 0) {
-            sql += ' WHERE ' + conditions.join(' AND ');
-        }
-        
+        if (batch_id) { conditions.push(`r.batch_id = $${idx++}`); params.push(batch_id); }
+        if (category && category !== 'all') { conditions.push(`r.category = $${idx++}`); params.push(category); }
+        if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
         sql += ' ORDER BY r.created_at DESC';
-        
+
         const resources = await req.db.all(sql, params);
         res.json(resources);
     } catch (error) {
@@ -108,40 +77,51 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Get resource by ID
+// ============================================================
+// GET /api/resources/batch/:batchId — Resources for a batch
+// (Must be before /:id to avoid route conflict)
+// ============================================================
+router.get('/batch/:batchId', authenticateToken, async (req, res) => {
+    try {
+        const { batchId } = req.params;
+        if (req.user.role === 'teacher') {
+            const b = await req.db.get('SELECT id FROM batches WHERE id = $1 AND teacher_id = $2', [batchId, req.user.id]);
+            if (!b) return res.status(403).json({ error: 'Access denied' });
+        } else if (req.user.role === 'student') {
+            const b = await req.db.get('SELECT 1 FROM batch_students WHERE batch_id = $1 AND student_id = $2', [batchId, req.user.id]);
+            if (!b) return res.status(403).json({ error: 'Access denied' });
+        }
+        const resources = await req.db.all(`
+            SELECT r.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name
+            FROM resources r LEFT JOIN users u ON r.teacher_id = u.id
+            WHERE r.batch_id = $1 ORDER BY r.created_at DESC
+        `, [batchId]);
+        res.json(resources);
+    } catch (error) {
+        console.error('Batch resources error:', error);
+        res.status(500).json({ error: 'Failed to fetch batch resources' });
+    }
+});
+
+// ============================================================
+// GET /api/resources/:id — Single resource
+// ============================================================
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
-        const { id } = req.params;
-        
         let sql = `
-            SELECT 
-                r.id, r.title, r.description, r.file_name, r.file_path, r.file_type, r.file_size, r.created_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                b.name as batch_name
+            SELECT r.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name,
+                   b.name AS batch_name
             FROM resources r
             LEFT JOIN users u ON r.teacher_id = u.id
             LEFT JOIN batches b ON r.batch_id = b.id
-            WHERE r.id = ?
+            WHERE r.id = $1
         `;
-        let params = [id];
-        
-        // Add access control
-        if (req.user.role === 'teacher') {
-            sql += ' AND r.teacher_id = ?';
-            params.push(req.user.id);
-        } else if (req.user.role === 'student') {
-            sql += ` AND r.batch_id IN (
-                SELECT batch_id FROM batch_students WHERE student_id = ?
-            )`;
-            params.push(req.user.id);
-        }
-        
+        const params = [req.params.id];
+        if (req.user.role === 'teacher') { sql += ' AND r.teacher_id = $2'; params.push(req.user.id); }
+        else if (req.user.role === 'student') { sql += ' AND r.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $2)'; params.push(req.user.id); }
+
         const resource = await req.db.get(sql, params);
-        
-        if (!resource) {
-            return res.status(404).json({ error: 'Resource not found or access denied' });
-        }
-        
+        if (!resource) return res.status(404).json({ error: 'Resource not found' });
         res.json(resource);
     } catch (error) {
         console.error('Get resource error:', error);
@@ -149,246 +129,167 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Upload new resource (Teachers only)
+// ============================================================
+// POST /api/resources — Upload resource (Teacher/Admin)
+// ============================================================
 router.post('/', [
-    authenticateToken,
-    teacherOrAdmin,
-    upload.single('file'),
+    authenticateToken, teacherOrAdmin, upload.single('file'),
     body('title').isLength({ min: 1 }).trim(),
     body('description').optional().trim(),
     body('batch_id').optional().isInt({ min: 1 })
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            // Clean up uploaded file if validation fails
-            if (req.file) {
-                fs.unlinkSync(req.file.path);
-            }
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
-            });
-        }
-
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
+        if (!errors.isEmpty()) { cleanTemp(req.file?.path); return res.status(400).json({ error: 'Validation failed', details: errors.array() }); }
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
         const { title, description, batch_id } = req.body;
-        const teacher_id = req.user.role === 'admin' ? req.body.teacher_id : req.user.id;
+        const teacherId = req.user.role === 'admin' ? (req.body.teacher_id || req.user.id) : req.user.id;
+        const category = detectCategory(req.file.mimetype, req.file.originalname);
 
-        // Validate batch access if batch_id is provided
+        // Validate batch access
         if (batch_id) {
-            let batchCheck;
-            if (req.user.role === 'teacher') {
-                batchCheck = await req.db.get(
-                    'SELECT id FROM batches WHERE id = ? AND teacher_id = ?',
-                    [batch_id, req.user.id]
-                );
-            } else {
-                batchCheck = await req.db.get(
-                    'SELECT id FROM batches WHERE id = ?',
-                    [batch_id]
-                );
-            }
-            
-            if (!batchCheck) {
-                fs.unlinkSync(req.file.path);
-                return res.status(400).json({ error: 'Invalid batch ID or access denied' });
+            const batchSql = req.user.role === 'teacher'
+                ? 'SELECT id, name FROM batches WHERE id = $1 AND teacher_id = $2'
+                : 'SELECT id, name FROM batches WHERE id = $1';
+            const batchParams = req.user.role === 'teacher' ? [batch_id, req.user.id] : [batch_id];
+            const batch = await req.db.get(batchSql, batchParams);
+            if (!batch) { cleanTemp(req.file.path); return res.status(400).json({ error: 'Invalid batch' }); }
+        }
+
+        // Upload to kDrive
+        const kdrive = getKDriveService();
+        let kdriveFileId = null;
+        let kdriveFolderId = null;
+        let storageType = 'local';
+
+        if (kdrive.isConfigured) {
+            try {
+                // Get teacher name for folder
+                const teacher = await req.db.get('SELECT first_name, last_name FROM users WHERE id = $1', [teacherId]);
+                const teacherName = teacher ? `${teacher.first_name}_${teacher.last_name}` : 'Unknown';
+
+                // Get batch name
+                let batchName = null;
+                if (batch_id) {
+                    const batch = await req.db.get('SELECT name FROM batches WHERE id = $1', [batch_id]);
+                    batchName = batch?.name;
+                }
+
+                // Ensure folder structure: Root / Teacher_X / Batch_Y
+                const { batchFolder } = await kdrive.ensureTeacherBatchFolder(teacherId, teacherName, batch_id, batchName);
+                kdriveFolderId = batchFolder.id;
+
+                // Upload file
+                const kdriveFile = await kdrive.uploadFile(req.file.path, batchFolder.id, req.file.originalname);
+                if (kdriveFile) {
+                    kdriveFileId = kdriveFile.id;
+                    storageType = 'kdrive';
+                    console.log(`✅ kDrive: Uploaded "${req.file.originalname}" (id: ${kdriveFile.id})`);
+                }
+            } catch (kErr) {
+                console.error('kDrive upload failed, falling back to local:', kErr.response?.data || kErr.message);
+                // Fall back to local storage
             }
         }
 
-        // Save resource to database
+        // Save to database
         const result = await req.db.run(`
-            INSERT INTO resources (title, description, file_name, file_path, file_type, file_size, teacher_id, batch_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            INSERT INTO resources (title, description, file_name, file_path, file_type, file_size, teacher_id, batch_id, kdrive_file_id, kdrive_folder_id, storage_type, category)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id
         `, [
-            title,
-            description || null,
-            req.file.originalname,
-            req.file.path,
-            req.file.mimetype,
-            req.file.size,
-            teacher_id,
-            batch_id || null
+            title, description || null, req.file.originalname,
+            storageType === 'kdrive' ? null : req.file.path,
+            req.file.mimetype, req.file.size, teacherId, batch_id || null,
+            kdriveFileId, kdriveFolderId, storageType, category
         ]);
 
-        // Get created resource
+        // Clean temp file if uploaded to kDrive
+        if (storageType === 'kdrive') cleanTemp(req.file.path);
+
         const newResource = await req.db.get(`
-            SELECT 
-                r.id, r.title, r.description, r.file_name, r.file_type, r.file_size, r.created_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                b.name as batch_name
-            FROM resources r
-            LEFT JOIN users u ON r.teacher_id = u.id
-            LEFT JOIN batches b ON r.batch_id = b.id
-            WHERE r.id = ?
-        `, [result.rows[0].id]);
+            SELECT r.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, b.name AS batch_name
+            FROM resources r LEFT JOIN users u ON r.teacher_id = u.id LEFT JOIN batches b ON r.batch_id = b.id
+            WHERE r.id = $1
+        `, [result.rows ? result.rows[0].id : result.id]);
 
-        res.status(201).json({
-            message: 'Resource uploaded successfully',
-            resource: newResource
-        });
-
+        res.status(201).json({ message: 'Resource uploaded successfully', resource: newResource });
     } catch (error) {
-        // Clean up uploaded file on error
-        if (req.file) {
-            try {
-                fs.unlinkSync(req.file.path);
-            } catch (unlinkError) {
-                console.error('Error deleting file:', unlinkError);
-            }
-        }
+        cleanTemp(req.file?.path);
         console.error('Upload resource error:', error);
         res.status(500).json({ error: 'Failed to upload resource' });
     }
 });
 
-// Update resource metadata (Teachers only)
+// ============================================================
+// PUT /api/resources/:id — Update metadata (Teacher/Admin)
+// ============================================================
 router.put('/:id', [
-    authenticateToken,
-    teacherOrAdmin,
+    authenticateToken, teacherOrAdmin,
     body('title').optional().isLength({ min: 1 }).trim(),
     body('description').optional().trim(),
-    body('batch_id').optional().isInt({ min: 1 })
+    body('batch_id').optional()
 ], async (req, res) => {
     try {
-        const errors = validationResult(req);
-        if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
-            });
-        }
-
         const { id } = req.params;
+        const checkSql = req.user.role === 'teacher'
+            ? 'SELECT id FROM resources WHERE id = $1 AND teacher_id = $2'
+            : 'SELECT id FROM resources WHERE id = $1';
+        const checkParams = req.user.role === 'teacher' ? [id, req.user.id] : [id];
+        const resource = await req.db.get(checkSql, checkParams);
+        if (!resource) return res.status(404).json({ error: 'Resource not found' });
+
         const { title, description, batch_id } = req.body;
+        const updates = []; const params = []; let idx = 1;
+        if (title !== undefined) { updates.push(`title = $${idx++}`); params.push(title); }
+        if (description !== undefined) { updates.push(`description = $${idx++}`); params.push(description); }
+        if (batch_id !== undefined) { updates.push(`batch_id = $${idx++}`); params.push(batch_id || null); }
+        updates.push(`updated_at = CURRENT_TIMESTAMP`);
+        if (updates.length <= 1) return res.status(400).json({ error: 'No fields to update' });
 
-        // Check if resource exists and user has access
-        let resource;
-        if (req.user.role === 'teacher') {
-            resource = await req.db.get(
-                'SELECT id FROM resources WHERE id = ? AND teacher_id = ?',
-                [id, req.user.id]
-            );
-        } else {
-            resource = await req.db.get('SELECT id FROM resources WHERE id = ?', [id]);
-        }
-
-        if (!resource) {
-            return res.status(404).json({ error: 'Resource not found or access denied' });
-        }
-
-        // Validate batch access if batch_id is provided
-        if (batch_id !== undefined) {
-            if (batch_id) {
-                let batchCheck;
-                if (req.user.role === 'teacher') {
-                    batchCheck = await req.db.get(
-                        'SELECT id FROM batches WHERE id = ? AND teacher_id = ?',
-                        [batch_id, req.user.id]
-                    );
-                } else {
-                    batchCheck = await req.db.get(
-                        'SELECT id FROM batches WHERE id = ?',
-                        [batch_id]
-                    );
-                }
-                
-                if (!batchCheck) {
-                    return res.status(400).json({ error: 'Invalid batch ID or access denied' });
-                }
-            }
-        }
-
-        // Build update query
-        const updates = [];
-        const params = [];
-        
-        if (title !== undefined) {
-            updates.push('title = ?');
-            params.push(title);
-        }
-        if (description !== undefined) {
-            updates.push('description = ?');
-            params.push(description);
-        }
-        if (batch_id !== undefined) {
-            updates.push('batch_id = ?');
-            params.push(batch_id);
-        }
-        
-        if (updates.length === 0) {
-            return res.status(400).json({ error: 'No fields to update' });
-        }
-        
         params.push(id);
+        await req.db.run(`UPDATE resources SET ${updates.join(', ')} WHERE id = $${idx}`, params);
 
-        await req.db.run(
-            `UPDATE resources SET ${updates.join(', ')} WHERE id = ?`,
-            params
-        );
-
-        // Get updated resource
-        const updatedResource = await req.db.get(`
-            SELECT 
-                r.id, r.title, r.description, r.file_name, r.file_type, r.file_size, r.created_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                b.name as batch_name
-            FROM resources r
-            LEFT JOIN users u ON r.teacher_id = u.id
-            LEFT JOIN batches b ON r.batch_id = b.id
-            WHERE r.id = ?
+        const updated = await req.db.get(`
+            SELECT r.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, b.name AS batch_name
+            FROM resources r LEFT JOIN users u ON r.teacher_id = u.id LEFT JOIN batches b ON r.batch_id = b.id
+            WHERE r.id = $1
         `, [id]);
-
-        res.json({
-            message: 'Resource updated successfully',
-            resource: updatedResource
-        });
-
+        res.json({ message: 'Resource updated', resource: updated });
     } catch (error) {
         console.error('Update resource error:', error);
         res.status(500).json({ error: 'Failed to update resource' });
     }
 });
 
-// Delete resource (Teachers only)
+// ============================================================
+// DELETE /api/resources/:id — Delete resource (Teacher/Admin)
+// ============================================================
 router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        
-        // Check if resource exists and user has access
-        let resource;
-        if (req.user.role === 'teacher') {
-            resource = await req.db.get(
-                'SELECT file_path FROM resources WHERE id = ? AND teacher_id = ?',
-                [id, req.user.id]
-            );
-        } else {
-            resource = await req.db.get(
-                'SELECT file_path FROM resources WHERE id = ?',
-                [id]
-            );
-        }
-        
-        if (!resource) {
-            return res.status(404).json({ error: 'Resource not found or access denied' });
-        }
-        
-        // Delete file from filesystem
-        try {
-            if (fs.existsSync(resource.file_path)) {
-                fs.unlinkSync(resource.file_path);
+        const checkSql = req.user.role === 'teacher'
+            ? 'SELECT * FROM resources WHERE id = $1 AND teacher_id = $2'
+            : 'SELECT * FROM resources WHERE id = $1';
+        const checkParams = req.user.role === 'teacher' ? [id, req.user.id] : [id];
+        const resource = await req.db.get(checkSql, checkParams);
+        if (!resource) return res.status(404).json({ error: 'Resource not found' });
+
+        // Delete from kDrive
+        if (resource.storage_type === 'kdrive' && resource.kdrive_file_id) {
+            try {
+                const kdrive = getKDriveService();
+                await kdrive.deleteFile(resource.kdrive_file_id);
+                console.log(`✅ kDrive: Deleted file id ${resource.kdrive_file_id}`);
+            } catch (kErr) {
+                console.error('kDrive delete failed:', kErr.response?.data || kErr.message);
             }
-        } catch (fileError) {
-            console.error('Error deleting file:', fileError);
-            // Continue with database deletion even if file deletion fails
         }
-        
-        // Delete from database
-        await req.db.run('DELETE FROM resources WHERE id = ?', [id]);
-        
+
+        // Delete local file if exists
+        if (resource.file_path) cleanTemp(resource.file_path);
+
+        await req.db.run('DELETE FROM resources WHERE id = $1', [id]);
         res.json({ message: 'Resource deleted successfully' });
     } catch (error) {
         console.error('Delete resource error:', error);
@@ -396,97 +297,67 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
     }
 });
 
-// Download resource file
+// ============================================================
+// GET /api/resources/:id/download — Download / stream file
+// ============================================================
 router.get('/:id/download', authenticateToken, async (req, res) => {
     try {
-        const { id } = req.params;
-        
-        // Check access and get file path
-        let sql = `
-            SELECT r.file_path, r.file_name, r.file_type
-            FROM resources r
-            WHERE r.id = ?
-        `;
-        let params = [id];
-        
-        // Add access control
-        if (req.user.role === 'teacher') {
-            sql += ' AND r.teacher_id = ?';
-            params.push(req.user.id);
-        } else if (req.user.role === 'student') {
-            sql += ` AND r.batch_id IN (
-                SELECT batch_id FROM batch_students WHERE student_id = ?
-            )`;
-            params.push(req.user.id);
-        }
-        
+        let sql = 'SELECT * FROM resources WHERE id = $1';
+        const params = [req.params.id];
+        if (req.user.role === 'teacher') { sql += ' AND teacher_id = $2'; params.push(req.user.id); }
+        else if (req.user.role === 'student') { sql += ' AND batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $2)'; params.push(req.user.id); }
+
         const resource = await req.db.get(sql, params);
-        
-        if (!resource) {
-            return res.status(404).json({ error: 'Resource not found or access denied' });
+        if (!resource) return res.status(404).json({ error: 'Resource not found' });
+
+        if (resource.storage_type === 'kdrive' && resource.kdrive_file_id) {
+            const kdrive = getKDriveService();
+            res.setHeader('Content-Disposition', `attachment; filename="${resource.file_name}"`);
+            return kdrive.streamFile(resource.kdrive_file_id, res);
         }
-        
-        // Check if file exists
-        if (!fs.existsSync(resource.file_path)) {
+
+        // Local file fallback
+        if (!resource.file_path || !fs.existsSync(resource.file_path)) {
             return res.status(404).json({ error: 'File not found on server' });
         }
-        
-        // Set appropriate headers
         res.setHeader('Content-Disposition', `attachment; filename="${resource.file_name}"`);
         res.setHeader('Content-Type', resource.file_type);
-        
-        // Stream file to response
-        const fileStream = fs.createReadStream(resource.file_path);
-        fileStream.pipe(res);
-        
+        fs.createReadStream(resource.file_path).pipe(res);
     } catch (error) {
-        console.error('Download resource error:', error);
-        res.status(500).json({ error: 'Failed to download resource' });
+        console.error('Download error:', error);
+        res.status(500).json({ error: 'Failed to download' });
     }
 });
 
-// Get resources for a specific batch
-router.get('/batch/:batchId', authenticateToken, authenticated, async (req, res) => {
+// ============================================================
+// GET /api/resources/:id/preview — Stream for in-app preview (inline)
+// ============================================================
+router.get('/:id/preview', authenticateToken, async (req, res) => {
     try {
-        const { batchId } = req.params;
-        
-        // Check if user has access to this batch
-        let hasAccess = false;
-        
-        if (req.user.role === 'admin') {
-            hasAccess = true;
-        } else if (req.user.role === 'teacher') {
-            const teacherBatch = await req.db.get(
-                'SELECT id FROM batches WHERE id = ? AND teacher_id = ?',
-                [batchId, req.user.id]
-            );
-            hasAccess = !!teacherBatch;
-        } else if (req.user.role === 'student') {
-            const studentBatch = await req.db.get(
-                'SELECT 1 FROM batch_students WHERE batch_id = ? AND student_id = ?',
-                [batchId, req.user.id]
-            );
-            hasAccess = !!studentBatch;
+        let sql = 'SELECT * FROM resources WHERE id = $1';
+        const params = [req.params.id];
+        if (req.user.role === 'teacher') { sql += ' AND teacher_id = $2'; params.push(req.user.id); }
+        else if (req.user.role === 'student') { sql += ' AND batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $2)'; params.push(req.user.id); }
+
+        const resource = await req.db.get(sql, params);
+        if (!resource) return res.status(404).json({ error: 'Resource not found' });
+
+        // Set inline disposition for preview
+        res.setHeader('Content-Disposition', `inline; filename="${resource.file_name}"`);
+        if (resource.file_type) res.setHeader('Content-Type', resource.file_type);
+
+        if (resource.storage_type === 'kdrive' && resource.kdrive_file_id) {
+            const kdrive = getKDriveService();
+            return kdrive.streamFile(resource.kdrive_file_id, res);
         }
-        
-        if (!hasAccess) {
-            return res.status(403).json({ error: 'Access denied to this batch' });
+
+        if (!resource.file_path || !fs.existsSync(resource.file_path)) {
+            return res.status(404).json({ error: 'File not found' });
         }
-        
-        const resources = await req.db.all(`
-            SELECT 
-                r.id, r.title, r.description, r.file_name, r.file_type, r.file_size, r.created_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name
-            FROM resources r
-            LEFT JOIN users u ON r.teacher_id = u.id
-            WHERE r.batch_id = ?
-            ORDER BY r.created_at DESC
-        `, [batchId]);
-        
-        res.json(resources);
+        fs.createReadStream(resource.file_path).pipe(res);
     } catch (error) {
-        console.error('Get batch resources error:', error);
-        res.status(500).json({ error: 'Failed to fetch batch resources' });
+        console.error('Preview error:', error);
+        res.status(500).json({ error: 'Failed to preview' });
     }
 });
 

@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 // Database initialization - PostgreSQL only
@@ -22,7 +24,24 @@ const demoRequestRoutes = require('./routes/demoRequests');
 const AttendanceService = require('./services/attendanceService');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Setup Socket.IO with CORS
+const io = new Server(server, {
+    cors: {
+        origin: [
+            'https://learnfrenchwithnatives.com',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://localhost:5175',
+            'http://localhost:5177',
+            'http://localhost:3000'
+        ],
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE']
+    }
+});
 
 // Middleware
 const corsOptions = {
@@ -44,9 +63,11 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // Static files for uploaded resources
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Make database available to routes
+// Make database and Socket.IO instance available to routes
 app.use((req, res, next) => {
     req.db = database;
+    // Expose io so REST endpoints can emit real-time events (e.g., after uploads)
+    req.io = io;
     next();
 });
 
@@ -264,13 +285,15 @@ async function startServer() {
         await database.initialize();
 
         const attendanceService = new AttendanceService(database);
+        
         // Initialize quiz reminder scheduler
         const quizReminderScheduler = new QuizReminderScheduler(database);
         console.log('📅 Quiz reminder scheduler initialized');
         // Initialize class reminder service
         reminderService.start();
         console.log('📅 Class reminder service initialized');
-        app.listen(PORT, () => {
+        
+        server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
         // Start periodic auto-reconciliation job and run once on startup

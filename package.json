@@ -1,0 +1,45 @@
+{
+  "name": "french-teaching-saas",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plateforme SaaS Multi-Tenant d'Enseignement du Français",
+  "scripts": {
+    "dev:backend": "pnpm --filter @french-saas/backend dev",
+    "dev:frontend": "pnpm --filter @french-saas/frontend dev",
+    "build:backend": "pnpm --filter @french-saas/backend build",
+    "build:frontend": "pnpm --filter @french-saas/frontend build",
+    "build:shared": "pnpm --filter @french-saas/shared build",
+    "build": "pnpm -r build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r test",
+    "clean": "pnpm -r exec -- rm -rf dist node_modules"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "bcrypt",
+      "@nestjs/core",
+      "@swc/core",
+      "sharp",
+      "unrs-resolver",
+      "@parcel/watcher"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.3",
+    "eslint": "^9.39.3",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
+    "typescript-eslint": "^8.56.1"
+  }
+}

@@ -202,15 +202,13 @@ const StudentSchedule: React.FC = () => {
                     };
                 });
                 setSchedules(normalized);
-                
-                // Check server-side join status for all class schedules
-                for (const schedule of normalized) {
-                    if (schedule.type === 'class') {
-                        await checkServerJoinStatus(schedule.id);
-                    }
-                }
-                
                 setStats(computeStats(normalized));
+                
+                // Check server-side join status for all class schedules in parallel (not sequential)
+                const classSchedules = normalized.filter(s => s.type === 'class');
+                if (classSchedules.length > 0) {
+                    Promise.all(classSchedules.map(s => checkServerJoinStatus(s.id))).catch(() => {});
+                }
             } else {
                 message.error('Failed to fetch schedule');
             }
@@ -504,76 +502,74 @@ const StudentSchedule: React.FC = () => {
 
 
     return (
-        <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
+        <div style={{ backgroundColor: '#f8fafc', minHeight: '100vh', padding: '20px' }}>
             <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-                <div style={{ marginBottom: 24, textAlign: 'center' }}>
-                    <Title level={2} style={{ color: '#1a1a1a', marginBottom: 8 }}>
-                        <CalendarOutlined /> My Class Schedule
+                <div style={{ marginBottom: 24 }}>
+                    <Title level={3} style={{ color: '#0f172a', marginBottom: 4, fontWeight: 700 }}>
+                        My Class Schedule
                     </Title>
-                    <Text style={{ fontSize: '16px', color: '#666' }}>
-                        View and manage your upcoming classes, meetings, and academic events
+                    <Text style={{ fontSize: '14px', color: '#64748b' }}>
+                        View your upcoming classes, meetings, and academic events
                     </Text>
                 </div>
 
-                <Spin spinning={loading} tip="Loading schedule statistics...">
-                    {stats && (
-                        <div style={{ marginBottom: 24 }}>
-                            <Row gutter={[16, 16]}>
-                                <Col xs={24} sm={12} lg={6}>
-                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-                                        <Statistic
-                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Total Classes</span>}
-                                            value={stats.total_classes ?? 0}
-                                            prefix={<BookOutlined style={{ color: '#1890ff' }} />}
-                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-                                        />
-                                    </Card>
-                                </Col>
-                                <Col xs={24} sm={12} lg={6}>
-                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-                                        <Statistic
-                                            title={<span style={{ color: '#666', fontSize: '14px' }}>This Week</span>}
-                                            value={stats.this_week_classes ?? 0}
-                                            prefix={<CalendarOutlined style={{ color: '#52c41a' }} />}
-                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-                                        />
-                                    </Card>
-                                </Col>
-                                <Col xs={24} sm={12} lg={6}>
-                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-                                        <Statistic
-                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Upcoming</span>}
-                                            value={stats.upcoming_classes ?? 0}
-                                            prefix={<ClockCircleOutlined style={{ color: '#faad14' }} />}
-                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-                                        />
-                                    </Card>
-                                </Col>
-                                <Col xs={24} sm={12} lg={6}>
-                                    <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-                                        <Statistic
-                                            title={<span style={{ color: '#666', fontSize: '14px' }}>Completed</span>}
-                                            value={stats.completed_classes ?? 0}
-                                            prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                                            valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-                                        />
-                                    </Card>
-                                </Col>
-                            </Row>
-                        </div>
-                    )}
-                </Spin>
+                {stats && (
+                    <div style={{ marginBottom: 24 }}>
+                        <Row gutter={[16, 16]}>
+                            <Col xs={24} sm={12} lg={6}>
+                                <Card style={{ borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: 'none' }}>
+                                    <Statistic
+                                        title={<span style={{ color: '#64748b', fontSize: '13px', fontWeight: 500 }}>Total Classes</span>}
+                                        value={stats.total_classes ?? 0}
+                                        prefix={<BookOutlined style={{ color: '#1a56db' }} />}
+                                        valueStyle={{ color: '#0f172a', fontSize: '28px', fontWeight: '700' }}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} sm={12} lg={6}>
+                                <Card style={{ borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: 'none' }}>
+                                    <Statistic
+                                        title={<span style={{ color: '#64748b', fontSize: '13px', fontWeight: 500 }}>This Week</span>}
+                                        value={stats.this_week_classes ?? 0}
+                                        prefix={<CalendarOutlined style={{ color: '#059669' }} />}
+                                        valueStyle={{ color: '#0f172a', fontSize: '28px', fontWeight: '700' }}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} sm={12} lg={6}>
+                                <Card style={{ borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: 'none' }}>
+                                    <Statistic
+                                        title={<span style={{ color: '#64748b', fontSize: '13px', fontWeight: 500 }}>Upcoming</span>}
+                                        value={stats.upcoming_classes ?? 0}
+                                        prefix={<ClockCircleOutlined style={{ color: '#d97706' }} />}
+                                        valueStyle={{ color: '#0f172a', fontSize: '28px', fontWeight: '700' }}
+                                    />
+                                </Card>
+                            </Col>
+                            <Col xs={24} sm={12} lg={6}>
+                                <Card style={{ borderRadius: '12px', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', border: 'none' }}>
+                                    <Statistic
+                                        title={<span style={{ color: '#64748b', fontSize: '13px', fontWeight: 500 }}>Completed</span>}
+                                        value={stats.completed_classes ?? 0}
+                                        prefix={<CheckCircleOutlined style={{ color: '#059669' }} />}
+                                        valueStyle={{ color: '#0f172a', fontSize: '28px', fontWeight: '700' }}
+                                    />
+                                </Card>
+                            </Col>
+                        </Row>
+                    </div>
+                )}
 
                 {nextClass && (
                     <Card
                         style={{
                             marginBottom: 24,
-                            background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
-                            borderRadius: '12px',
-                            boxShadow: '0 4px 12px rgba(24, 144, 255, 0.3)',
+                            background: 'linear-gradient(135deg, #1a56db 0%, #1e40af 100%)',
+                            borderRadius: '16px',
+                            boxShadow: '0 4px 20px rgba(26, 86, 219, 0.25)',
                             border: 'none'
                         }}
-                        bodyStyle={{ padding: '24px' }}
+                        styles={{ body: { padding: '24px' } }}
                     >
                         <Row align="middle" gutter={[16, 16]}>
                             <Col xs={24} md={16}>
@@ -653,14 +649,14 @@ const StudentSchedule: React.FC = () => {
                 <Row gutter={[16, 16]}>
                     <Col xs={24} lg={16}>
                         <Card
-                            title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>📅 Calendar View</span>}
+                            title={<span style={{ color: '#0f172a', fontSize: '15px', fontWeight: '600' }}>📅 Calendar View</span>}
                             style={{
-                                borderRadius: '12px',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                                border: '1px solid #e8e8e8',
+                                borderRadius: '16px',
+                                boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                                border: 'none',
                                 overflow: 'hidden'
                             }}
-                            bodyStyle={{ padding: '16px' }}
+                            styles={{ body: { padding: '16px' } }}
                         >
                             <div style={{
                                 '& .fc': {

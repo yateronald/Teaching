@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Form, Input, Button, Typography, Space, Steps, message } from 'antd';
+import { Modal, Form, Input, Button, Steps, message } from 'antd';
+import {
+  LockOutlined,
+  MailOutlined,
+  CheckCircleFilled,
+  ClockCircleOutlined,
+} from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-
-const { Text, Title } = Typography;
+import './PasswordResetModal.css';
 
 interface Props {
   open: boolean;
@@ -26,25 +31,18 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
   const [resetToken, setResetToken] = useState<string | null>(null);
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
-  // Keep email in sync if parent changes
-  useEffect(() => {
-    setEmail(initialEmail || '');
-  }, [initialEmail]);
+  useEffect(() => { setEmail(initialEmail || ''); }, [initialEmail]);
 
-  // Countdown for OTP expiry
   useEffect(() => {
     if (!expiresAt || step !== 'verify') return;
     const interval = setInterval(() => {
       const diff = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
       setTimeLeft(diff);
-      if (diff <= 0) {
-        clearInterval(interval);
-      }
+      if (diff <= 0) clearInterval(interval);
     }, 1000);
     return () => clearInterval(interval);
   }, [expiresAt, step]);
 
-  // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const t = setInterval(() => setResendCooldown((s) => (s > 0 ? s - 1 : 0)), 1000);
@@ -53,6 +51,8 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
 
   const minutes = useMemo(() => Math.floor(timeLeft / 60), [timeLeft]);
   const seconds = useMemo(() => (timeLeft % 60).toString().padStart(2, '0'), [timeLeft]);
+
+  const timerClass = timeLeft <= 0 ? 'pw-reset-timer-expired' : timeLeft < 60 ? 'pw-reset-timer-warn' : '';
 
   const resetState = () => {
     setStep('request');
@@ -65,16 +65,10 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
     form.resetFields();
   };
 
-  const handleClose = () => {
-    resetState();
-    onClose();
-  };
+  const handleClose = () => { resetState(); onClose(); };
 
   const handleRequest = async () => {
-    if (!email) {
-      message.error('Please enter your email');
-      return;
-    }
+    if (!email) { message.error('Please enter your email'); return; }
     setLoading(true);
     try {
       const res = await requestPasswordReset(email);
@@ -83,27 +77,17 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
         if (res.expiresAt) setExpiresAt(res.expiresAt);
         setResendCooldown(RESEND_COOLDOWN_SEC);
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleVerify = async () => {
     const code = otpDigits.join('');
-    if (code.length !== OTP_LENGTH) {
-      message.error('Please enter the 6-digit code');
-      return;
-    }
+    if (code.length !== OTP_LENGTH) { message.error('Please enter the 6-digit code'); return; }
     setLoading(true);
     try {
       const res = await verifyPasswordReset(email, code);
-      if (res.success && res.token) {
-        setResetToken(res.token);
-        setStep('reset');
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (res.success && res.token) { setResetToken(res.token); setStep('reset'); }
+    } finally { setLoading(false); }
   };
 
   const handleResend = async () => {
@@ -115,29 +99,18 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
         setOtpDigits(Array(OTP_LENGTH).fill(''));
         if (res.expiresAt) setExpiresAt(res.expiresAt);
         setResendCooldown(RESEND_COOLDOWN_SEC);
-        // focus first box
         setTimeout(() => inputsRef.current[0]?.focus(), 0);
       }
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleCompleteReset = async (values: any) => {
-    if (!resetToken) {
-      message.error('Reset session is invalid. Please start again.');
-      setStep('request');
-      return;
-    }
+    if (!resetToken) { message.error('Reset session is invalid. Please start again.'); setStep('request'); return; }
     setLoading(true);
     try {
       const res = await completePasswordReset(email, resetToken, values.newPassword);
-      if (res.success) {
-        handleClose();
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (res.success) handleClose();
+    } finally { setLoading(false); }
   };
 
   const setDigit = (index: number, value: string) => {
@@ -145,178 +118,187 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
     const next = [...otpDigits];
     next[index] = value;
     setOtpDigits(next);
-    if (value && index < OTP_LENGTH - 1) {
-      inputsRef.current[index + 1]?.focus();
-    }
+    if (value && index < OTP_LENGTH - 1) inputsRef.current[index + 1]?.focus();
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
       inputsRef.current[index - 1]?.focus();
-      const next = [...otpDigits];
-      next[index - 1] = '';
-      setOtpDigits(next);
-      e.preventDefault();
+      const next = [...otpDigits]; next[index - 1] = ''; setOtpDigits(next); e.preventDefault();
     }
-    if (e.key === 'ArrowLeft' && index > 0) {
-      inputsRef.current[index - 1]?.focus();
-      e.preventDefault();
-    }
-    if (e.key === 'ArrowRight' && index < OTP_LENGTH - 1) {
-      inputsRef.current[index + 1]?.focus();
-      e.preventDefault();
-    }
+    if (e.key === 'ArrowLeft' && index > 0) { inputsRef.current[index - 1]?.focus(); e.preventDefault(); }
+    if (e.key === 'ArrowRight' && index < OTP_LENGTH - 1) { inputsRef.current[index + 1]?.focus(); e.preventDefault(); }
   };
 
-  const otpBoxes = (
-    <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 8, marginBottom: 8 }}>
-      {Array.from({ length: OTP_LENGTH }).map((_, idx) => (
-        <input
-          key={idx}
-          ref={(el) => { inputsRef.current[idx] = el; }}
-          value={otpDigits[idx]}
-          onChange={(e) => setDigit(idx, e.target.value.replace(/\D/g, '').slice(0, 1))}
-          onKeyDown={(e) => handleKeyDown(idx, e)}
-          inputMode="numeric"
-          maxLength={1}
-          style={{
-            width: 44,
-            height: 52,
-            textAlign: 'center' as const,
-            fontSize: 22,
-            border: '1px solid #d9d9d9',
-            borderRadius: 8,
-            outline: 'none',
-            transition: 'all 0.2s ease',
-            boxShadow: '0 2px 6px rgba(0,0,0,0.05)'
-          }}
-        />
-      ))}
-    </div>
-  );
+  const handlePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
+    if (!pasted) return;
+    const next = [...otpDigits];
+    for (let i = 0; i < pasted.length; i++) next[i] = pasted[i];
+    setOtpDigits(next);
+    const focusIdx = Math.min(pasted.length, OTP_LENGTH - 1);
+    setTimeout(() => inputsRef.current[focusIdx]?.focus(), 0);
+  };
 
-  const header = (
-    <div style={{ marginBottom: 8 }}>
-      <Title level={4} style={{ margin: 0 }}>Reset Password</Title>
-      <Text type="secondary">Secure 6-digit code via email. Expires in 10 minutes.</Text>
-    </div>
-  );
+  const stepIndex = step === 'request' ? 0 : step === 'verify' ? 1 : 2;
 
   return (
     <Modal
-      title={header}
       open={open}
       onCancel={handleClose}
       footer={null}
-      width={560}
+      width={520}
       destroyOnHidden
-      styles={{ body: { paddingTop: 8 } as any }}
+      className="pw-reset-modal"
+      title={null}
     >
-      <div style={{ marginBottom: 16 }}>
+      <div className="pw-reset-top-bar" />
+      <div className="pw-reset-body">
+        {/* Header */}
+        <div className="pw-reset-header">
+          <div className="pw-reset-header-icon">
+            <LockOutlined />
+          </div>
+          <h3>Reset Password</h3>
+          <p>
+            {step === 'request' && 'Enter your email to receive a secure verification code.'}
+            {step === 'verify' && 'Enter the 6-digit code sent to your email.'}
+            {step === 'reset' && 'Choose a strong new password for your account.'}
+          </p>
+        </div>
+
+        {/* Steps */}
         <Steps
-          current={step === 'request' ? 0 : step === 'verify' ? 1 : 2}
+          current={stepIndex}
+          size="small"
+          className="pw-reset-steps"
           items={[
             { title: 'Account' },
-            { title: 'Verify Code' },
-            { title: 'New Password' }
+            { title: 'Verify' },
+            { title: 'New Password' },
           ]}
-          size="small"
         />
+
+        {/* Step 1: Request */}
+        {step === 'request' && (
+          <Form layout="vertical" form={form} onFinish={handleRequest} initialValues={{ email }} className="pw-reset-form">
+            <Form.Item
+              label="Email address"
+              name="email"
+              rules={[
+                { required: true, message: 'Please enter your email' },
+                { type: 'email', message: 'Enter a valid email address' },
+              ]}
+            >
+              <Input
+                prefix={<MailOutlined style={{ color: '#94a3b8' }} />}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                size="large"
+              />
+            </Form.Item>
+            <div className="pw-reset-actions">
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={loading} className="pw-reset-primary-btn">
+                Send Code
+              </Button>
+            </div>
+          </Form>
+        )}
+
+        {/* Step 2: Verify OTP */}
+        {step === 'verify' && (
+          <div>
+            <div className="pw-reset-sent-banner">
+              <CheckCircleFilled />
+              <p>Code sent to <strong>{email}</strong>. Check your inbox and spam folder.</p>
+            </div>
+
+            <div className="pw-reset-otp-row" onPaste={handlePaste}>
+              {Array.from({ length: OTP_LENGTH }).map((_, idx) => (
+                <input
+                  key={idx}
+                  ref={(el) => { inputsRef.current[idx] = el; }}
+                  value={otpDigits[idx]}
+                  onChange={(e) => setDigit(idx, e.target.value.replace(/\D/g, '').slice(0, 1))}
+                  onKeyDown={(e) => handleKeyDown(idx, e)}
+                  inputMode="numeric"
+                  maxLength={1}
+                  placeholder="·"
+                  className="pw-reset-otp-input"
+                  aria-label={`Digit ${idx + 1}`}
+                />
+              ))}
+            </div>
+
+            <div className="pw-reset-verify-footer">
+              <span className={`pw-reset-timer ${timerClass}`}>
+                <ClockCircleOutlined />
+                {timeLeft > 0 ? `Expires in ${minutes}:${seconds}` : 'Code expired'}
+              </span>
+              <div className="pw-reset-verify-actions">
+                <Button type="link" onClick={handleResend} disabled={resendCooldown > 0 || loading} className="pw-reset-resend-btn">
+                  Resend{resendCooldown > 0 ? ` (${resendCooldown}s)` : ''}
+                </Button>
+                <Button size="small" onClick={() => setStep('request')} className="pw-reset-diff-email-btn">
+                  Different email
+                </Button>
+              </div>
+            </div>
+
+            <div className="pw-reset-actions">
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button type="primary" onClick={handleVerify} loading={loading} className="pw-reset-primary-btn">
+                Verify Code
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: New Password */}
+        {step === 'reset' && (
+          <Form layout="vertical" form={form} onFinish={handleCompleteReset} className="pw-reset-form">
+            <div className="pw-reset-new-pw-info">
+              <CheckCircleFilled style={{ color: '#22c55e' }} />
+              <p>Email verified for <strong>{email}</strong>. Set your new password below.</p>
+            </div>
+            <Form.Item
+              label="New Password"
+              name="newPassword"
+              rules={[
+                { required: true, message: 'Please enter a new password' },
+                { min: 6, message: 'Must be at least 6 characters' },
+              ]}
+            >
+              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder="Enter new password" />
+            </Form.Item>
+            <Form.Item
+              label="Confirm Password"
+              name="confirmPassword"
+              dependencies={['newPassword']}
+              rules={[
+                { required: true, message: 'Please confirm your password' },
+                ({ getFieldValue }) => ({
+                  validator(_, value) {
+                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
+                    return Promise.reject(new Error('Passwords do not match'));
+                  },
+                }),
+              ]}
+            >
+              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder="Confirm new password" />
+            </Form.Item>
+            <div className="pw-reset-actions">
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button type="primary" htmlType="submit" loading={loading} className="pw-reset-primary-btn">
+                Reset Password
+              </Button>
+            </div>
+          </Form>
+        )}
       </div>
-
-      {step === 'request' && (
-        <Form
-          layout="vertical"
-          form={form}
-          onFinish={handleRequest}
-          initialValues={{ email }}
-        >
-          <Form.Item
-            label="Email"
-            name="email"
-            rules={[{ required: true, message: 'Please enter your email' }, { type: 'email' }]}
-          >
-            <Input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Enter your account email"
-              size="large"
-            />
-          </Form.Item>
-
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={handleClose}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={loading}>
-              Send Code
-            </Button>
-          </Space>
-        </Form>
-      )}
-
-      {step === 'verify' && (
-        <div>
-          <div style={{
-            background: '#F6FFED',
-            border: '1px solid #B7EB8F',
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 16
-          }}>
-            <Text>If the email you entered is registered, a 6-digit code has been sent to <strong>{email}</strong>. Enter it below.</Text>
-          </div>
-          {otpBoxes}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <Text type="secondary">Expires in {minutes}:{seconds}</Text>
-            <Space>
-              <Button type="link" onClick={handleResend} disabled={resendCooldown > 0 || loading}>
-                Resend code {resendCooldown > 0 ? `(${resendCooldown}s)` : ''}
-              </Button>
-              <Button onClick={() => setStep('request')}>Use different email</Button>
-              <Button type="primary" onClick={handleVerify} loading={loading}>
-                Verify
-              </Button>
-            </Space>
-          </div>
-        </div>
-      )}
-
-      {step === 'reset' && (
-        <Form layout="vertical" form={form} onFinish={handleCompleteReset}>
-          <div style={{ marginBottom: 8 }}>
-            <Text type="secondary">Set a new password for <strong>{email}</strong>.</Text>
-          </div>
-          <Form.Item
-            label="New Password"
-            name="newPassword"
-            rules={[{ required: true, message: 'Please enter new password' }, { min: 6 }]}
-          >
-            <Input.Password size="large" placeholder="Enter new password" />
-          </Form.Item>
-          <Form.Item
-            label="Confirm Password"
-            name="confirmPassword"
-            dependencies={["newPassword"]}
-            rules={[
-              { required: true, message: 'Please confirm new password' },
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  if (!value || getFieldValue('newPassword') === value) {
-                    return Promise.resolve();
-                  }
-                  return Promise.reject(new Error('Passwords do not match'));
-                },
-              }),
-            ]}
-          >
-            <Input.Password size="large" placeholder="Confirm new password" />
-          </Form.Item>
-
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-            <Button onClick={handleClose}>Cancel</Button>
-            <Button type="primary" htmlType="submit" loading={loading}>Reset Password</Button>
-          </Space>
-        </Form>
-      )}
     </Modal>
   );
 };
