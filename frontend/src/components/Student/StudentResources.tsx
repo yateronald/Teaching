@@ -97,7 +97,9 @@ const StudentResources: React.FC = () => {
             if (!resp.ok) throw new Error('Preview failed');
             const blob = await resp.blob();
             setPreviewBlobUrl(URL.createObjectURL(blob));
-        } catch {}
+        } catch {
+            setPreviewBlobUrl('error');
+        }
     };
 
     const closePreview = () => {

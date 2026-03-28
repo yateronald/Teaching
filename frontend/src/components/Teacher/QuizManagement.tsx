@@ -1,30 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-    Table,
-    Button,
-    Modal,
-    Form,
-    Input,
-    Select,
-    message,
-    Space,
-    Typography,
-    Tag,
-    Card,
-    DatePicker,
-    InputNumber,
-    Switch,
-    Tabs,
-    Progress,
-    Dropdown
+    Table, Button, Modal, message, Space, Typography, Tag, Card, Progress,
+    Dropdown, Row, Col, Statistic, Input, Select, Empty
 } from 'antd';
 import {
-    PlusOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    FileTextOutlined,
-    BarChartOutlined,
-    MoreOutlined
+    PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined,
+    BarChartOutlined, MoreOutlined, SearchOutlined, ClockCircleOutlined,
+    CheckCircleOutlined, BookOutlined, TrophyOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizBuilder from '../Quiz/QuizBuilder';
@@ -35,12 +17,9 @@ import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import duration from 'dayjs/plugin/duration';
 
-// Extend dayjs with duration plugin
 dayjs.extend(duration);
 
-const { Title } = Typography;
-const { Option } = Select;
-const { TextArea } = Input;
+const { Title, Text } = Typography;
 
 interface Quiz {
     id: number;
@@ -50,671 +29,281 @@ interface Quiz {
     batch_name?: string;
     total_questions: number;
     duration_minutes: number;
-    max_attempts: number;
-    passing_score: number;
-    // Replace legacy flags with backend status fields
     status: 'draft' | 'published';
     start_date?: string;
     end_date?: string;
     created_at: string;
-    attempts_count?: number;
-    avg_score?: number;
-    // Added fields from backend aggregate
-    batch_names?: string; // comma-separated batch names
-    french_levels?: string; // comma-separated french levels
+    batch_names?: string;
+    french_levels?: string;
     submitted_students?: number;
     total_students?: number;
+    avg_score?: number;
+    total_marks?: number;
 }
 
-// Helper function to format numbers - show whole numbers without decimals, keep up to 2 decimal places for others
-const formatNumber = (num: number | string | null | undefined): string => {
-    // Handle null, undefined, or empty values
-    if (num === null || num === undefined || num === '') {
-        return '0';
-    }
-    
-    // Convert to number if it's a string
-    const numValue = typeof num === 'string' ? parseFloat(num) : num;
-    
-    // Handle NaN or invalid numbers
-    if (isNaN(numValue)) {
-        return '0';
-    }
-    
-    if (Number.isInteger(numValue)) {
-        return numValue.toString();
-    }
-    return numValue.toFixed(2).replace(/\.?0+$/, '');
-};
+interface Batch { id: number; name: string; }
 
-interface Batch {
-    id: number;
-    name: string;
+function fmt(n: number | string | null | undefined): string {
+    if (n == null || n === '') return '0';
+    const v = typeof n === 'string' ? parseFloat(n) : n;
+    if (isNaN(v)) return '0';
+    return Number.isInteger(v) ? v.toString() : v.toFixed(1).replace(/\.0$/, '');
+}
+
+function getStatusInfo(status: string, start?: string, end?: string) {
+    if (status !== 'published') return { color: 'default', text: 'Draft' };
+    const now = dayjs();
+    if (start && now.isBefore(dayjs(start))) return { color: 'orange', text: 'Scheduled' };
+    if (end && now.isAfter(dayjs(end))) return { color: 'red', text: 'Ended' };
+    return { color: 'green', text: 'Active' };
+}
+
+function fmtRemaining(end?: string): string {
+    if (!end) return '—';
+    const diff = dayjs(end).diff(dayjs());
+    if (diff <= 0) return 'Ended';
+    const d = dayjs.duration(diff);
+    const days = d.days();
+    if (days > 30) return `${Math.floor(days / 30)}mo ${days % 30}d`;
+    if (days >= 1) return `${days}d ${d.hours()}h`;
+    if (d.hours() >= 1) return `${d.hours()}h ${d.minutes()}m`;
+    return `${d.minutes()}m`;
 }
 
 const QuizManagement: React.FC = () => {
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [batches, setBatches] = useState<Batch[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [modalVisible, setModalVisible] = useState(false);
-    const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
-    const [quizBuilderVisible, setQuizBuilderVisible] = useState(false);
-    const [quizResultsVisible, setQuizResultsVisible] = useState(false);
-    const [quizInsightsVisible, setQuizInsightsVisible] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [batchFilter, setBatchFilter] = useState<number | null>(null);
+
+    // Modals
+    const [builderVisible, setBuilderVisible] = useState(false);
+    const [resultsVisible, setResultsVisible] = useState(false);
+    const [insightsVisible, setInsightsVisible] = useState(false);
     const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
-    const [form] = Form.useForm();
+
     const { apiCall } = useAuth();
 
-    useEffect(() => {
-        fetchQuizzes();
-        fetchBatches();
-    }, []);
-
-    const fetchQuizzes = async () => {
+    const fetchQuizzes = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await apiCall('/quizzes');
-            if (response.ok) {
-                const data = await response.json();
+            const resp = await apiCall('/quizzes');
+            if (resp.ok) {
+                const data = await resp.json();
                 const raw = Array.isArray(data) ? data : (data.quizzes || []);
-                // Normalize numeric fields so UI shows correct values
-                const normalized = (raw || []).map((q: any) => ({
+                setQuizzes(raw.map((q: any) => ({
                     ...q,
-                    total_questions: q?.total_questions != null ? Number(q.total_questions) : 0,
-                    duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0,
-                    total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined,
-                    submitted_students: q?.submitted_students != null ? Number(q.submitted_students) : 0,
-                    total_students: q?.total_students != null ? Number(q.total_students) : 0,
-                    avg_score: q?.avg_score != null ? Number(q.avg_score) : 0,
-                }));
-                setQuizzes(normalized);
-            } else {
-                message.error('Failed to fetch quizzes');
+                    total_questions: Number(q.total_questions ?? 0),
+                    duration_minutes: Number(q.duration_minutes ?? 0),
+                    total_marks: q.total_marks != null ? Number(q.total_marks) : undefined,
+                    submitted_students: Number(q.submitted_students ?? 0),
+                    total_students: Number(q.total_students ?? 0),
+                    avg_score: Number(q.avg_score ?? 0),
+                })));
             }
-        } catch (error) {
-            message.error('Error fetching quizzes');
-        } finally {
-            setLoading(false);
-        }
-    };
+        } catch { message.error('Failed to load quizzes'); }
+        finally { setLoading(false); }
+    }, []);
 
-    const fetchBatches = async () => {
+    useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
+    useEffect(() => {
+        (async () => {
+            try {
+                const resp = await apiCall('/batches');
+                if (resp.ok) setBatches(await resp.json());
+            } catch {}
+        })();
+    }, []);
+
+    const handleDelete = async (id: number) => {
         try {
-            const response = await apiCall('/batches');
-            if (response.ok) {
-                const data = await response.json();
-                setBatches(Array.isArray(data) ? data : (data.batches || []));
-            }
-        } catch (error) {
-            console.error('Error fetching batches:', error);
-        }
+            const resp = await apiCall(`/quizzes/${id}`, { method: 'DELETE' });
+            if (resp.ok) { message.success('Quiz deleted'); fetchQuizzes(); }
+            else message.error('Failed to delete quiz');
+        } catch { message.error('Error deleting quiz'); }
     };
 
-    const handleSubmit = async (values: any) => {
-        try {
-            const formData = {
-                ...values,
-                start_time: values.timeRange[0].toISOString(),
-                end_time: values.timeRange[1].toISOString(),
-            };
-            delete formData.timeRange;
-
-            const endpoint = editingQuiz ? `/quizzes/${editingQuiz.id}` : '/quizzes';
-            const method = editingQuiz ? 'PUT' : 'POST';
-            
-            const response = await apiCall(endpoint, {
-                method,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData),
-            });
-
-            if (response.ok) {
-                message.success(`Quiz ${editingQuiz ? 'updated' : 'created'} successfully`);
-                setModalVisible(false);
-                form.resetFields();
-                setEditingQuiz(null);
-                fetchQuizzes();
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.message || 'Operation failed');
-            }
-        } catch (error) {
-            message.error('Error saving quiz');
+    // Filtered quizzes
+    const filtered = quizzes.filter(q => {
+        if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false;
+        if (batchFilter && !q.batch_names?.includes(batches.find(b => b.id === batchFilter)?.name || '')) return false;
+        if (statusFilter !== 'all') {
+            const s = getStatusInfo(q.status, q.start_date, q.end_date);
+            if (statusFilter === 'draft' && q.status !== 'draft') return false;
+            if (statusFilter === 'active' && s.text !== 'Active') return false;
+            if (statusFilter === 'scheduled' && s.text !== 'Scheduled') return false;
+            if (statusFilter === 'ended' && s.text !== 'Ended') return false;
         }
-    };
+        return true;
+    });
 
-    const handleDelete = async (quizId: number) => {
-        try {
-            const response = await apiCall(`/quizzes/${quizId}`, {
-                method: 'DELETE',
-            });
-
-            if (response.ok) {
-                message.success('Quiz deleted successfully');
-                fetchQuizzes();
-            } else {
-                message.error('Failed to delete quiz');
-            }
-        } catch (error) {
-            message.error('Error deleting quiz');
-        }
-    };
-
-    const handleAdd = () => {
-        setSelectedQuizId(null);
-        setQuizBuilderVisible(true);
-    };
-
-    const getStatusColor = (status: 'draft' | 'published', start?: string, end?: string) => {
-        if (status !== 'published') return 'default'; // Draft
-        // Published quizzes: derive schedule status from dates
-        const now = dayjs();
-        const startAt = start ? dayjs(start) : null;
-        const endAt = end ? dayjs(end) : null;
-        if (startAt && now.isBefore(startAt)) return 'orange'; // Scheduled
-        if (endAt && now.isAfter(endAt)) return 'blue'; // Ended
-        return 'green'; // Active
-    };
-
-    const getStatusText = (status: 'draft' | 'published', start?: string, end?: string) => {
-        if (status !== 'published') return 'DRAFT';
-        const now = dayjs();
-        const startAt = start ? dayjs(start) : null;
-        const endAt = end ? dayjs(end) : null;
-        if (startAt && now.isBefore(startAt)) return 'SCHEDULED';
-        if (endAt && now.isAfter(endAt)) return 'ENDED';
-        return 'ACTIVE';
-    };
-
-    const formatRemainingTime = (endDate?: string) => {
-        if (!endDate) return '—';
-        
-        const now = dayjs();
-        const end = dayjs(endDate);
-        const diff = end.diff(now);
-        
-        if (diff <= 0) return 'Time is up';
-        
-        const duration = dayjs.duration(diff);
-        const days = duration.days();
-        const hours = duration.hours();
-        const minutes = duration.minutes();
-        const months = Math.floor(days / 30);
-        
-        // More than 30 days: show months and days
-        if (days > 30) {
-            const remainingDays = days % 30;
-            return `${months}mo ${remainingDays}d`;
-        }
-        
-        // Less than a month but more than a day: show days and hours
-        if (days >= 1) {
-            return `${days}d ${hours}h`;
-        }
-        
-        // Less than a day but more than an hour: show hours and minutes
-        if (hours >= 1) {
-            return `${hours}h ${minutes}m`;
-        }
-        
-        // Less than an hour: show only minutes
-        return `${minutes}m`;
+    // Stats
+    const stats = {
+        total: quizzes.length,
+        published: quizzes.filter(q => q.status === 'published').length,
+        draft: quizzes.filter(q => q.status === 'draft').length,
+        avgScore: quizzes.length > 0 ? Math.round(quizzes.reduce((s, q) => s + (q.avg_score || 0), 0) / Math.max(quizzes.filter(q => q.avg_score).length, 1)) : 0,
     };
 
     const columns: ColumnsType<Quiz> = [
         {
-            title: 'Title',
-            dataIndex: 'title',
-            key: 'title',
-            width: 180,
-            fixed: 'left',
-            ellipsis: true,
-        },
-        {
-            title: 'Batch',
-            key: 'batch',
-            width: 120,
-            ellipsis: true,
-            render: (_, record) => record.batch_names || 'N/A',
-        },
-        {
-            title: 'Level',
-            key: 'french_level',
-            width: 80,
-            ellipsis: true,
-            render: (_, record) => record.french_levels || '—',
-        },
-        {
-            title: 'Questions',
-            dataIndex: 'total_questions',
-            key: 'total_questions',
-            width: 90,
-            align: 'center',
-            render: (count: any) => Number(count ?? 0),
-        },
-        {
-            title: 'Duration',
-            dataIndex: 'duration_minutes',
-            key: 'duration_minutes',
-            width: 80,
-            align: 'center',
-            render: (minutes: number) => `${minutes} min`,
-        },
-        {
-            title: 'Attend',
-            key: 'attempts',
-            width: 100,
-            align: 'center',
-            render: (_, record) => (
-                <span>
-                    {(record.submitted_students ?? 0)} / {(record.total_students ?? 0)}
-                </span>
+            title: 'Quiz', key: 'title', width: 220,
+            render: (_, r) => (
+                <div>
+                    <Text strong style={{ fontSize: 14, display: 'block' }}>{r.title}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>{r.batch_names || '—'}</Text>
+                </div>
             ),
         },
         {
-            title: 'Avg Score',
-            dataIndex: 'avg_score',
-            key: 'avg_score',
-            width: 100,
-            align: 'center',
-            render: (score: number) => (
-                <Progress 
-                    percent={score || 0} 
-                    size="small" 
-                    format={(percent) => `${formatNumber(percent || 0)}%`}
-                />
+            title: 'Questions', dataIndex: 'total_questions', key: 'q', width: 90, align: 'center',
+            render: (v: number) => <Text strong>{v}</Text>,
+        },
+        {
+            title: 'Duration', dataIndex: 'duration_minutes', key: 'dur', width: 80, align: 'center',
+            render: (v: number) => <Text type="secondary">{v} min</Text>,
+        },
+        {
+            title: 'Submissions', key: 'sub', width: 100, align: 'center',
+            render: (_, r) => <Text>{r.submitted_students ?? 0} / {r.total_students ?? 0}</Text>,
+        },
+        {
+            title: 'Avg Score', dataIndex: 'avg_score', key: 'score', width: 130,
+            render: (v: number) => (
+                <Space size={6}>
+                    <Progress percent={v || 0} size="small" strokeColor={v >= 70 ? '#52c41a' : v >= 50 ? '#faad14' : '#ff4d4f'} style={{ width: 70 }} showInfo={false} />
+                    <Text strong style={{ fontSize: 12 }}>{fmt(v)}%</Text>
+                </Space>
             ),
         },
         {
-            title: 'Remaining Time',
-            key: 'remaining_time',
-            width: 120,
-            align: 'center',
-            render: (_, record) => {
-                const remainingTime = formatRemainingTime(record.end_date);
-                const isTimeUp = remainingTime === 'Time is up';
-                return (
-                    <span style={{ 
-                        color: isTimeUp ? '#ff4d4f' : 
-                               remainingTime.includes('m') && !remainingTime.includes('h') && !remainingTime.includes('d') ? '#faad14' : 
-                               '#52c41a' 
-                    }}>
-                        {remainingTime}
-                    </span>
-                );
+            title: 'Time Left', key: 'time', width: 100, align: 'center',
+            render: (_, r) => {
+                const t = fmtRemaining(r.end_date);
+                return <Text style={{ color: t === 'Ended' ? '#ff4d4f' : t.includes('m') && !t.includes('h') ? '#faad14' : '#52c41a', fontSize: 12 }}>{t}</Text>;
             },
         },
         {
-            title: 'Status',
-            key: 'status',
-            width: 90,
-            align: 'center',
-            render: (_, record) => (
-                <Tag color={getStatusColor(record.status, record.start_date, record.end_date)}>
-                    {getStatusText(record.status, record.start_date, record.end_date)}
-                </Tag>
-            ),
+            title: 'Status', key: 'status', width: 90, align: 'center',
+            render: (_, r) => {
+                const s = getStatusInfo(r.status, r.start_date, r.end_date);
+                return <Tag color={s.color} style={{ borderRadius: 6 }}>{s.text}</Tag>;
+            },
         },
         {
-            title: 'Actions',
-            key: 'actions',
-            width: 80,
-            fixed: 'right',
-            align: 'center',
-            render: (_, record) => {
-                const now = dayjs();
-                const hasEnded = record.status === 'published' && record.end_date && now.isAfter(dayjs(record.end_date));
-
-                const items = [
-                    { key: 'insights', label: 'Insights', icon: <BarChartOutlined /> },
-                    { key: 'results', label: 'Results', icon: <FileTextOutlined /> },
-                    // Hide Edit when quiz has ended (freeze editing)
-                    ...(!hasEnded ? [{ key: 'edit', label: 'Edit Quiz', icon: <EditOutlined /> }] : []),
-                    { key: 'delete', label: 'Delete Quiz', icon: <DeleteOutlined />, danger: true as any },
-                ];
-
-                const onMenuClick = ({ key }: { key: string }) => {
-                    if (key === 'edit' && hasEnded) {
-                        message.warning('This quiz has ended and cannot be edited.');
-                        return;
-                    }
-                    switch (key) {
-                        case 'insights':
-                            setSelectedQuizId(record.id);
-                            setQuizInsightsVisible(true);
-                            break;
-                        case 'results':
-                            setSelectedQuizId(record.id);
-                            setQuizResultsVisible(true);
-                            break;
-                        case 'edit':
-                            setSelectedQuizId(record.id);
-                            setQuizBuilderVisible(true);
-                            break;
-                        case 'delete':
-                            Modal.confirm({
-                                title: 'Delete this quiz?',
-                                content: 'This action cannot be undone.',
-                                okText: 'Delete',
-                                okType: 'danger',
-                                onOk: () => handleDelete(record.id),
-                            });
-                            break;
-                        default:
-                            break;
-                    }
-                };
-
+            title: '', key: 'actions', width: 50, align: 'center',
+            render: (_, r) => {
+                const ended = r.status === 'published' && r.end_date && dayjs().isAfter(dayjs(r.end_date));
                 return (
-                    <Dropdown
-                        menu={{ items, onClick: onMenuClick }}
-                        trigger={['click']}
-                        placement="bottomRight"
-                    >
-                        <Button
-                            type="text"
-                            size="small"
-                            icon={<MoreOutlined />}
-                            style={{ padding: '4px 8px' }}
-                        />
+                    <Dropdown menu={{
+                        items: [
+                            { key: 'insights', label: 'Insights', icon: <BarChartOutlined /> },
+                            { key: 'results', label: 'Results', icon: <FileTextOutlined /> },
+                            ...(!ended ? [{ key: 'edit', label: 'Edit', icon: <EditOutlined /> }] : []),
+                            { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true as const },
+                        ],
+                        onClick: ({ key }) => {
+                            if (key === 'insights') { setSelectedQuizId(r.id); setInsightsVisible(true); }
+                            else if (key === 'results') { setSelectedQuizId(r.id); setResultsVisible(true); }
+                            else if (key === 'edit') { setSelectedQuizId(r.id); setBuilderVisible(true); }
+                            else if (key === 'delete') Modal.confirm({ title: 'Delete this quiz?', content: 'This cannot be undone.', okText: 'Delete', okType: 'danger', onOk: () => handleDelete(r.id) });
+                        },
+                    }} trigger={['click']}>
+                        <Button type="text" size="small" icon={<MoreOutlined />} />
                     </Dropdown>
                 );
             },
         },
     ];
 
-    const activeQuizzes = quizzes.filter(quiz => {
-        const now = dayjs();
-        const start = quiz.start_date ? dayjs(quiz.start_date) : null;
-        const end = quiz.end_date ? dayjs(quiz.end_date) : null;
-        return quiz.status === 'published' && (!start || now.isAfter(start)) && (!end || now.isBefore(end));
-    });
-
-    const scheduledQuizzes = quizzes.filter(quiz => {
-        const now = dayjs();
-        const start = quiz.start_date ? dayjs(quiz.start_date) : null;
-        return quiz.status === 'published' && !!start && now.isBefore(start);
-    });
-
-    const endedQuizzes = quizzes.filter(quiz => {
-        const now = dayjs();
-        const end = quiz.end_date ? dayjs(quiz.end_date) : null;
-        return quiz.status === 'published' && !!end && now.isAfter(end);
-    });
-
     return (
         <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Title level={2}>
-                    <FileTextOutlined /> Quiz Management
-                </Title>
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={handleAdd}
-                >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div>
+                    <Title level={3} style={{ margin: 0, fontWeight: 700 }}>Quiz Management</Title>
+                    <Text type="secondary">Create and manage quizzes for your students</Text>
+                </div>
+                <Button type="primary" icon={<PlusOutlined />} size="large" onClick={() => { setSelectedQuizId(null); setBuilderVisible(true); }}
+                    style={{ borderRadius: 10, height: 44, fontWeight: 600 }}>
                     Create Quiz
                 </Button>
             </div>
 
-            <Card>
-                <Tabs 
-                    defaultActiveKey="all"
-                    items={[
-                        {
-                            key: 'all',
-                            label: `All Quizzes (${quizzes.length})`,
-                            children: (
-                                <Table
-                                    columns={columns}
-                                    dataSource={quizzes}
-                                    rowKey="id"
-                                    loading={loading}
-                                    scroll={{ x: 1000, y: 400 }}
-                                    pagination={{
-                                        pageSize: 10,
-                                        showSizeChanger: true,
-                                        showQuickJumper: true,
-                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quizzes`
-                                    }}
-                                />
-                            )
-                        },
-                        {
-                            key: 'active',
-                            label: `Active (${activeQuizzes.length})`,
-                            children: (
-                                <Table
-                                    columns={columns}
-                                    dataSource={activeQuizzes}
-                                    rowKey="id"
-                                    loading={loading}
-                                    scroll={{ x: 1000, y: 400 }}
-                                    pagination={{
-                                        pageSize: 10,
-                                        showSizeChanger: true,
-                                        showQuickJumper: true,
-                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} active quizzes`
-                                    }}
-                                />
-                            )
-                        },
-                        {
-                            key: 'scheduled',
-                            label: `Scheduled (${scheduledQuizzes.length})`,
-                            children: (
-                                <Table
-                                    columns={columns}
-                                    dataSource={scheduledQuizzes}
-                                    rowKey="id"
-                                    loading={loading}
-                                    scroll={{ x: 1000, y: 400 }}
-                                    pagination={{
-                                        pageSize: 10,
-                                        showSizeChanger: true,
-                                        showQuickJumper: true,
-                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} scheduled quizzes`
-                                    }}
-                                />
-                            )
-                        },
-                        {
-                            key: 'ended',
-                            label: `Ended (${endedQuizzes.length})`,
-                            children: (
-                                <Table
-                                    columns={columns}
-                                    dataSource={endedQuizzes}
-                                    rowKey="id"
-                                    loading={loading}
-                                    scroll={{ x: 1000, y: 400 }}
-                                    pagination={{
-                                        pageSize: 10,
-                                        showSizeChanger: true,
-                                        showQuickJumper: true,
-                                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} ended quizzes`
-                                    }}
-                                />
-                            )
-                        }
-                    ]}
-                />
+            {/* Stats */}
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                {[
+                    { label: 'Total Quizzes', value: stats.total, icon: <BookOutlined />, color: '#1a56db' },
+                    { label: 'Published', value: stats.published, icon: <CheckCircleOutlined />, color: '#52c41a' },
+                    { label: 'Drafts', value: stats.draft, icon: <ClockCircleOutlined />, color: '#94a3b8' },
+                    { label: 'Avg Score', value: `${stats.avgScore}%`, icon: <TrophyOutlined />, color: stats.avgScore >= 70 ? '#52c41a' : '#faad14' },
+                ].map((s, i) => (
+                    <Col xs={12} sm={6} key={i}>
+                        <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
+                            <Statistic title={s.label} value={s.value} prefix={<span style={{ color: s.color }}>{s.icon}</span>}
+                                valueStyle={{ fontSize: 24, fontWeight: 700 }} />
+                        </Card>
+                    </Col>
+                ))}
+            </Row>
+
+            {/* Filters */}
+            <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', marginBottom: 16 }}>
+                <Space wrap size="middle">
+                    <Input placeholder="Search quizzes..." prefix={<SearchOutlined />} allowClear
+                        value={search} onChange={e => setSearch(e.target.value)} style={{ width: 220, borderRadius: 8 }} />
+                    <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 140 }}
+                        options={[
+                            { value: 'all', label: 'All Status' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'scheduled', label: 'Scheduled' },
+                            { value: 'draft', label: 'Draft' },
+                            { value: 'ended', label: 'Ended' },
+                        ]} />
+                    <Select value={batchFilter} onChange={setBatchFilter} allowClear placeholder="All Batches" style={{ width: 160 }}
+                        options={batches.map(b => ({ value: b.id, label: b.name }))} />
+                </Space>
             </Card>
 
-            <Modal
-                title={editingQuiz ? 'Edit Quiz' : 'Create Quiz'}
-                open={modalVisible}
-                onCancel={() => {
-                    setModalVisible(false);
-                    form.resetFields();
-                    setEditingQuiz(null);
-                }}
-                footer={null}
-                width={700}
-            >
-                <Form
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleSubmit}
-                >
-                    <Form.Item
-                        name="title"
-                        label="Quiz Title"
-                        rules={[{ required: true, message: 'Please input quiz title!' }]}
-                    >
-                        <Input placeholder="Enter quiz title" />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="description"
-                        label="Description"
-                        rules={[{ required: true, message: 'Please input description!' }]}
-                    >
-                        <TextArea rows={3} placeholder="Enter quiz description" />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="batch_id"
-                        label="Batch"
-                        rules={[{ required: true, message: 'Please select a batch!' }]}
-                    >
-                        <Select placeholder="Select batch">
-                            {batches.map(batch => (
-                                <Option key={batch.id} value={batch.id}>
-                                    {batch.name}
-                                </Option>
-                            ))}
-                        </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                        name="timeRange"
-                        label="Quiz Duration"
-                        rules={[{ required: true, message: 'Please select start and end times!' }]}
-                    >
-                        <DatePicker.RangePicker 
-                            showTime 
-                            style={{ width: '100%' }}
-                            format="YYYY-MM-DD HH:mm"
-                        />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="duration_minutes"
-                        label="Time Limit (minutes)"
-                        rules={[
-                            { required: true, message: 'Please input time limit!' },
-                        ]}
-                    >
-                        <InputNumber min={1} max={300} placeholder="Enter time limit in minutes" style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="max_attempts"
-                        label="Maximum Attempts"
-                        rules={[
-                            { required: true, message: 'Please input maximum attempts!' },
-                        ]}
-                    >
-                        <InputNumber min={1} max={10} placeholder="Enter maximum attempts" style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="passing_score"
-                        label="Passing Score (%)"
-                        rules={[
-                            { required: true, message: 'Please input passing score!' },
-                        ]}
-                    >
-                        <InputNumber min={0} max={100} placeholder="Enter passing score percentage" style={{ width: '100%' }} />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="is_active"
-                        label="Active"
-                        valuePropName="checked"
-                        initialValue={true}
-                    >
-                        <Switch />
-                    </Form.Item>
-
-                    <Form.Item>
-                        <Space>
-                            <Button type="primary" htmlType="submit">
-                                {editingQuiz ? 'Update' : 'Create'}
-                            </Button>
-                            <Button onClick={() => {
-                                setModalVisible(false);
-                                form.resetFields();
-                                setEditingQuiz(null);
-                            }}>
-                                Cancel
-                            </Button>
-                        </Space>
-                    </Form.Item>
-                </Form>
-            </Modal>
+            {/* Table */}
+            <Card style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
+                <Table columns={columns} dataSource={filtered} rowKey="id" loading={loading}
+                    pagination={{ pageSize: 15, showSizeChanger: false, showTotal: (t) => `${t} quizzes` }}
+                    scroll={{ x: 900 }} size="small"
+                    locale={{ emptyText: <Empty description="No quizzes yet. Create your first one!" /> }} />
+            </Card>
 
             {/* QuizBuilder Modal */}
             <Modal
                 title={selectedQuizId ? 'Edit Quiz' : 'Create Quiz'}
-                open={quizBuilderVisible}
-                onCancel={() => {
-                    setQuizBuilderVisible(false);
-                    setSelectedQuizId(null);
-                }}
+                open={builderVisible}
+                onCancel={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
                 footer={null}
                 width={1200}
                 style={{ top: 20 }}
+                destroyOnClose
+                styles={{ body: { padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } }}
             >
-                <QuizBuilder 
+                <QuizBuilder
                     quizId={selectedQuizId?.toString()}
-                    onComplete={() => {
-                        setQuizBuilderVisible(false);
-                        setSelectedQuizId(null);
-                        fetchQuizzes(); // Refresh quiz list
-                    }}
+                    onComplete={() => { setBuilderVisible(false); setSelectedQuizId(null); fetchQuizzes(); }}
                 />
             </Modal>
 
-            {/* QuizResults Modal */}
-            <Modal
-                title="Quiz Results"
-                open={quizResultsVisible}
-                onCancel={() => {
-                    setQuizResultsVisible(false);
-                    setSelectedQuizId(null);
-                }}
-                footer={null}
-                width={1200}
-                style={{ top: 20 }}
-            >
-                {selectedQuizId && (
-                    <ErrorBoundary>
-                        <QuizResults quizId={selectedQuizId.toString()} />
-                    </ErrorBoundary>
-                )}
+            {/* Results Modal */}
+            <Modal title="Quiz Results" open={resultsVisible}
+                onCancel={() => { setResultsVisible(false); setSelectedQuizId(null); }}
+                footer={null} width={1200} style={{ top: 20 }} destroyOnClose>
+                {selectedQuizId && <ErrorBoundary><QuizResults quizId={selectedQuizId.toString()} /></ErrorBoundary>}
             </Modal>
 
-            {/* Quiz Insights Modal */}
-            <Modal
-                title="Quiz Insights"
-                open={quizInsightsVisible}
-                onCancel={() => {
-                    setQuizInsightsVisible(false);
-                    setSelectedQuizId(null);
-                }}
-                footer={null}
-                width={1200}
-                style={{ top: 20 }}
-            >
-                <ErrorBoundary>
-                    <QuizInsights
-                        quizId={selectedQuizId?.toString()}
-                    />
-                </ErrorBoundary>
+            {/* Insights Modal */}
+            <Modal title="Quiz Insights" open={insightsVisible}
+                onCancel={() => { setInsightsVisible(false); setSelectedQuizId(null); }}
+                footer={null} width={1200} style={{ top: 20 }} destroyOnClose>
+                <ErrorBoundary><QuizInsights quizId={selectedQuizId?.toString()} /></ErrorBoundary>
             </Modal>
         </div>
     );

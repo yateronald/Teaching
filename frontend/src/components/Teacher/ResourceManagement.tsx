@@ -6,7 +6,8 @@ import {
 import {
     PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined,
     FilePdfOutlined, VideoCameraOutlined, SoundOutlined, PictureOutlined,
-    FolderOutlined, EyeOutlined, SearchOutlined, CloudUploadOutlined, FileTextOutlined
+    FolderOutlined, EyeOutlined, SearchOutlined, CloudUploadOutlined, FileTextOutlined,
+    CloseCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
@@ -182,7 +183,10 @@ const ResourceManagement: React.FC = () => {
             if (!resp.ok) throw new Error('Preview failed');
             const blob = await resp.blob();
             setPreviewBlobUrl(URL.createObjectURL(blob));
-        } catch { message.error('Failed to load preview'); }
+        } catch {
+            message.error('Failed to load preview — file may not be available on this server');
+            setPreviewBlobUrl('error');
+        }
     };
 
     const closePreview = () => {
@@ -378,7 +382,14 @@ const ResourceManagement: React.FC = () => {
                         <Spin size="large" tip="Loading preview..." />
                     </div>
                 )}
-                {previewResource && previewBlobUrl && (
+                {previewResource && previewBlobUrl === 'error' && (
+                    <div style={{ padding: 60, textAlign: 'center' }}>
+                        <CloseCircleOutlined style={{ fontSize: 48, color: '#ff4d4f', marginBottom: 16 }} />
+                        <div><Text strong style={{ fontSize: 16 }}>Preview not available</Text></div>
+                        <Text type="secondary">This file was uploaded on a different server and is not accessible locally. Try downloading it instead.</Text>
+                    </div>
+                )}
+                {previewResource && previewBlobUrl && previewBlobUrl !== 'error' && (
                     <div style={{ width: '100%', minHeight: 500 }}>
                         {previewResource.category === 'pdf' && (
                             <iframe src={previewBlobUrl}

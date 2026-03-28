@@ -521,18 +521,18 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         };
 
         const header = (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '4px 0' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '6px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
                     <div style={{
-                        backgroundColor: '#1890ff',
+                        background: 'linear-gradient(135deg, #1890ff, #096dd9)',
                         color: 'white',
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '50%',
+                        width: '34px',
+                        height: '34px',
+                        borderRadius: '10px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontWeight: '600',
+                        fontWeight: '700',
                         fontSize: '14px',
                         flexShrink: 0
                     }}>
@@ -560,8 +560,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 margin: 0,
                                 padding: '4px 12px',
                                 fontSize: '12px',
-                                borderRadius: '6px',
-                                fontWeight: '500'
+                                borderRadius: '8px',
+                                fontWeight: '500',
+                                letterSpacing: '0.2px'
                             }}
                         >
                             {getQuestionTypeName(question.question_type)}
@@ -572,8 +573,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 margin: 0,
                                 padding: '4px 12px',
                                 fontSize: '12px',
-                                borderRadius: '6px',
-                                fontWeight: '500'
+                                borderRadius: '8px',
+                                fontWeight: '600',
+                                letterSpacing: '0.2px'
                             }}
                         >
                             {question.marks} pts
@@ -626,9 +628,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 header={header}
                 style={{
                     marginBottom: 12,
-                    borderRadius: '8px',
-                    border: '1px solid #e8e8e8',
-                    overflow: 'hidden'
+                    borderRadius: '10px',
+                    border: '1px solid #f0f0f0',
+                    overflow: 'hidden',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.03)'
                 }}
             >
                 <div style={{ padding: '12px 0' }}>
@@ -873,10 +876,13 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const totalPoints = quiz.questions.reduce((sum, q) => sum + q.marks, 0);
 
     return (
-        <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-            <Title level={2}>
-                {quizId ? 'Edit Quiz' : 'Create New Quiz'}
+        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '8px 0' }}>
+            <Title level={2} style={{ marginBottom: 4, fontSize: '26px', fontWeight: 700 }}>
+                {quizId ? '✏️ Edit Quiz' : '📝 Create New Quiz'}
             </Title>
+            <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginBottom: 24 }}>
+                {quizId ? 'Update your quiz details, questions, and settings' : 'Build a new quiz for your students'}
+            </Text>
 
             {isEnded && (
                 <Alert
@@ -890,7 +896,10 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
             <Row gutter={24}>
                 <Col xs={24} lg={16}>
                     {/* Quiz Details Form */}
-                    <Card title="Quiz Details" style={{ marginBottom: 24 }}>
+                    <Card
+                        title={<span style={{ fontSize: '16px', fontWeight: 600 }}>📋 Quiz Details</span>}
+                        style={{ marginBottom: 24, borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}
+                    >
                         <Form
                             key={quizId ? `edit-${quizId}` : `new-${formResetKey}`}
                             form={quizForm}
@@ -916,7 +925,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         label="Quiz Title"
                                         rules={[{ required: true, message: 'Please enter quiz title' }]}
                                     >
-                                        <Input placeholder="Enter quiz title" />
+                                        <Input placeholder="Enter quiz title" size="large" style={{ borderRadius: 8 }} />
                                     </Form.Item>
                                 </Col>
                             </Row>
@@ -926,15 +935,19 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 label="Description"
                                 rules={[{ required: true, message: 'Please enter description' }]}
                             >
-                                <TextArea rows={3} placeholder="Enter quiz description" />
+                                <TextArea rows={3} placeholder="Enter quiz description" style={{ borderRadius: 8 }} />
                             </Form.Item>
 
                             <Form.Item
                                 name="instructions"
                                 label="Instructions for Students"
                             >
-                                <TextArea rows={3} placeholder="Enter special instructions" />
+                                <TextArea rows={3} placeholder="Enter special instructions" style={{ borderRadius: 8 }} />
                             </Form.Item>
+
+                            <Divider style={{ margin: '20px 0 16px' }}>
+                                <span style={{ fontSize: '14px', fontWeight: 600, color: '#595959' }}>⚙️ Settings</span>
+                            </Divider>
 
                             <Row gutter={16}>
                                 <Col span={12}>
@@ -1018,7 +1031,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 </Col>
                             </Row>
 
-                            <Divider>Scoring Options</Divider>
+                            <Divider style={{ margin: '20px 0 16px' }}>
+                                <span style={{ fontSize: '14px', fontWeight: 600, color: '#595959' }}>💯 Scoring Options</span>
+                            </Divider>
                             
                             <Row gutter={16}>
                                 <Col span={12}>
@@ -1052,9 +1067,13 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 </Col>
                             </Row>
 
-                            <Form.Item style={{ marginBottom: 0 }}>
-                                <Space>
-                                    <Button onClick={() => navigate('/teacher-dashboard')}>
+                            <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                                    <Button
+                                        onClick={() => navigate('/teacher-dashboard')}
+                                        size="large"
+                                        style={{ borderRadius: 8, minWidth: 110, height: 42, fontWeight: 500 }}
+                                    >
                                         Cancel
                                     </Button>
                                     <Button 
@@ -1062,6 +1081,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         loading={loading}
                                         icon={<SaveOutlined />}
                                         disabled={isEnded}
+                                        size="large"
+                                        style={{ borderRadius: 8, minWidth: 140, height: 42, fontWeight: 500 }}
                                     >
                                         Save as Draft
                                     </Button>
@@ -1075,10 +1096,12 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                             });
                                         }}
                                         disabled={isEnded}
+                                        size="large"
+                                        style={{ borderRadius: 8, minWidth: 160, height: 42, fontWeight: 600 }}
                                     >
                                         {quizId ? 'Update & Publish' : 'Save & Publish'}
                                     </Button>
-                                </Space>
+                                </div>
                             </Form.Item>
                         </Form>
                     </Card>
@@ -1086,7 +1109,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     {/* Questions List */}
                     <Card
                         title={
-                            <span style={{ color: '#1a1a1a', fontSize: '18px', fontWeight: '600' }}>
+                            <span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>
                                 📝 Questions ({quiz.questions.length})
                             </span>
                         }
@@ -1097,18 +1120,18 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 onClick={handleAddQuestion}
                                 disabled={isEnded}
                                 style={{
-                                    borderRadius: '6px',
+                                    borderRadius: '8px',
                                     fontWeight: '500',
-                                    height: '36px'
+                                    height: '38px'
                                 }}
                             >
                                 Add Question
                             </Button>
                         }
                         style={{
-                            borderRadius: '8px',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                            border: '1px solid #e8e8e8'
+                            borderRadius: 12,
+                            border: 'none',
+                            boxShadow: '0 1px 8px rgba(0,0,0,0.04)'
                         }}
                         bodyStyle={{ padding: '24px' }}
                     >
@@ -1137,24 +1160,44 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 
                 <Col xs={24} lg={8}>
                     {/* Quiz Summary */}
-                    <Card title="Quiz Summary" style={{ position: 'sticky', top: 20 }}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            <div>
-                                <Text type="secondary">Total Questions:</Text>
-                                <br />
-                                <Text strong style={{ fontSize: 18 }}>{quiz.questions.length}</Text>
+                    <Card
+                        title={<span style={{ fontSize: '16px', fontWeight: 600 }}>📊 Quiz Summary</span>}
+                        style={{
+                            position: 'sticky',
+                            top: 20,
+                            borderRadius: 12,
+                            border: 'none',
+                            boxShadow: '0 1px 8px rgba(0,0,0,0.04)'
+                        }}
+                    >
+                        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '14px 16px',
+                                backgroundColor: '#f0f5ff',
+                                borderRadius: 10
+                            }}>
+                                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Questions</Text>
+                                <Text strong style={{ fontSize: 22, color: '#1890ff' }}>{quiz.questions.length}</Text>
+                            </div>
+                            
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '14px 16px',
+                                backgroundColor: '#f6ffed',
+                                borderRadius: 10
+                            }}>
+                                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Total Points</Text>
+                                <Text strong style={{ fontSize: 22, color: '#52c41a' }}>{totalPoints}</Text>
                             </div>
                             
                             <div>
-                                <Text type="secondary">Total Points:</Text>
-                                <br />
-                                <Text strong style={{ fontSize: 18 }}>{totalPoints}</Text>
-                            </div>
-                            
-                            <div>
-                                <Text type="secondary">Question Types:</Text>
-                                <br />
-                                <Space wrap>
+                                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 10 }}>Question Types</Text>
+                                <Space wrap size={6}>
                                     {['mcq_single', 'mcq_multiple', 'yes_no'].map((type) => {
                                         const count = quiz.questions.filter((q) => q.question_type === type).length;
                                         if (count > 0) {
@@ -1162,6 +1205,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                                 <Tag
                                                     key={type}
                                                     color={type === 'mcq_single' ? 'blue' : type === 'mcq_multiple' ? 'cyan' : 'orange'}
+                                                    style={{ borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 500 }}
                                                 >
                                                     {type === 'mcq_single'
                                                         ? 'Single Choice'
@@ -1173,8 +1217,30 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         }
                                         return null;
                                     })}
+                                    {quiz.questions.length === 0 && (
+                                        <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>No questions yet</Text>
+                                    )}
                                 </Space>
                             </div>
+
+                            {quiz.questions.length > 0 && (
+                                <div style={{
+                                    padding: '12px 16px',
+                                    backgroundColor: '#fffbe6',
+                                    borderRadius: 10,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 8
+                                }}>
+                                    <Text style={{ fontSize: 13 }}>
+                                        ⏱ {quiz.duration_minutes || 30} min
+                                    </Text>
+                                    <span style={{ color: '#d9d9d9' }}>|</span>
+                                    <Text style={{ fontSize: 13 }}>
+                                        📝 {quiz.questions.length} Q × ~{quiz.questions.length > 0 ? Math.round(totalPoints / quiz.questions.length * 10) / 10 : 0} pts avg
+                                    </Text>
+                                </div>
+                            )}
                         </Space>
                     </Card>
                 </Col>
@@ -1198,13 +1264,18 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     questionForm.resetFields();
                 }}
                 footer={null}
-                width={700}
+                width={720}
                 centered
                 style={{ top: 20 }}
                 bodyStyle={{
                     maxHeight: 'calc(100vh - 200px)',
                     overflowY: 'auto',
-                    padding: '24px'
+                    padding: '28px'
+                }}
+                styles={{
+                    mask: { backdropFilter: 'blur(4px)' },
+                    content: { borderRadius: 14, overflow: 'hidden' },
+                    header: { padding: '20px 28px 12px', borderBottom: 'none' }
                 }}
             >
                 <Form
@@ -1361,14 +1432,14 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         }}
                     </Form.Item>
 
-                    <Divider style={{ margin: '24px 0' }} />
+                    <Divider style={{ margin: '24px 0 20px' }} />
 
                     <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
                         <Space size={12}>
                             <Button
                                 onClick={() => setQuestionModalVisible(false)}
                                 size="large"
-                                style={{ borderRadius: '6px', minWidth: '100px' }}
+                                style={{ borderRadius: '8px', minWidth: '110px', height: 42, fontWeight: 500 }}
                             >
                                 Cancel
                             </Button>
@@ -1377,8 +1448,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 htmlType="submit"
                                 size="large"
                                 style={{
-                                    borderRadius: '6px',
-                                    minWidth: '140px',
+                                    borderRadius: '8px',
+                                    minWidth: '150px',
+                                    height: 42,
                                     fontWeight: '600'
                                 }}
                             >

@@ -164,6 +164,7 @@ router.post('/', [
         let storageType = 'local';
 
         if (kdrive.isConfigured) {
+            console.log('📤 kDrive: Uploading file to cloud...');
             try {
                 // Get teacher name for folder
                 const teacher = await req.db.get('SELECT first_name, last_name FROM users WHERE id = $1', [teacherId]);

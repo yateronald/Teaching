@@ -1,7 +1,5 @@
 const axios = require('axios');
-const FormData = require('form-data');
 const fs = require('fs');
-const path = require('path');
 
 /**
  * kDrive Service — Manages file operations on Infomaniak kDrive
@@ -14,15 +12,13 @@ const path = require('path');
  */
 class KDriveService {
     constructor() {
-        this.token = process.env.KDRIVE_TOKEN;
-        this.driveId = process.env.KDRIVE_ID;
-        this.rootFolderId = process.env.KDRIVE_FOLDER_ID;
-        this.baseUrl = `https://api.infomaniak.com/2/drive/${this.driveId}`;
-        
-        if (!this.token || !this.driveId || !this.rootFolderId) {
-            console.warn('⚠️  kDrive: Missing KDRIVE_TOKEN, KDRIVE_ID, or KDRIVE_FOLDER_ID in .env');
-        }
+        // Env vars are read lazily via getters to ensure dotenv has loaded
     }
+
+    get token() { return process.env.KDRIVE_TOKEN; }
+    get driveId() { return process.env.KDRIVE_ID; }
+    get rootFolderId() { return process.env.KDRIVE_FOLDER_ID; }
+    get baseUrl() { return `https://api.infomaniak.com/2/drive/${this.driveId}`; }
 
     get headers() {
         return {
@@ -136,16 +132,17 @@ class KDriveService {
      * @returns {object} kDrive file object with id, name, etc.
      */
     async uploadFile(localFilePath, targetFolderId, fileName) {
-        const form = new FormData();
-        form.append('file', fs.createReadStream(localFilePath), fileName);
+        const fileBuffer = fs.readFileSync(localFilePath);
+        const fileSize = fileBuffer.length;
 
         const resp = await axios.post(
-            `${this.baseUrl}/files/${targetFolderId}/upload`,
-            form,
+            `https://api.infomaniak.com/2/drive/${this.driveId}/upload?directory_id=${targetFolderId}&file_name=${encodeURIComponent(fileName)}&total_size=${fileSize}&conflict=rename`,
+            fileBuffer,
             {
                 headers: {
-                    ...form.getHeaders(),
                     'Authorization': `Bearer ${this.token}`,
+                    'Content-Type': 'application/octet-stream',
+                    'Content-Length': fileSize,
                 },
                 maxContentLength: Infinity,
                 maxBodyLength: Infinity,
