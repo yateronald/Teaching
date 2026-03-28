@@ -172,14 +172,14 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
                 cs.start_time::date as session_date,
                 cs.start_time::time as start_time,
                 cs.end_time::time as end_time,
-                COUNT(DISTINCT ub.user_id)::int as total_students,
+                COUNT(DISTINCT bs.student_id)::int as total_students,
                 COUNT(a.id)::int as attendance_records,
                 COUNT(DISTINCT CASE WHEN a.status = 'present' THEN a.student_id END)::int as present_count,
                 COUNT(DISTINCT CASE WHEN a.status = 'late' THEN a.student_id END)::int as late_count,
-                GREATEST(COUNT(DISTINCT ub.user_id) - COUNT(DISTINCT CASE WHEN a.status IN ('present','late') THEN a.student_id END), 0)::int as absent_count,
+                GREATEST(COUNT(DISTINCT bs.student_id) - COUNT(DISTINCT CASE WHEN a.status IN ('present','late') THEN a.student_id END), 0)::int as absent_count,
                 ROUND(
                     (COUNT(DISTINCT CASE WHEN a.status IN ('present','late') THEN a.student_id END)::numeric * 100) / 
-                    NULLIF(COUNT(DISTINCT ub.user_id), 0), 2
+                    NULLIF(COUNT(DISTINCT bs.student_id), 0), 2
                 )::float8 as attendance_percentage,
                 CASE WHEN cs.access_code IS NOT NULL OR cs.code_generated_at IS NOT NULL THEN true ELSE false END as code_generated,
                 CASE WHEN cs.session_started_at IS NOT NULL OR cs.status IN ('started','completed') THEN true ELSE false END as session_started
@@ -187,9 +187,8 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
             JOIN schedules s ON cs.schedule_id = s.id
             JOIN batches b ON s.batch_id = b.id
             JOIN users u ON b.teacher_id = u.id
-            LEFT JOIN user_batches ub ON b.id = ub.batch_id
-            LEFT JOIN users stu ON ub.user_id = stu.id AND stu.role = 'student'
-            LEFT JOIN attendance a ON cs.id = a.session_id AND a.student_id = stu.id
+            LEFT JOIN batch_students bs ON b.id = bs.batch_id
+            LEFT JOIN attendance a ON cs.id = a.session_id AND a.student_id = bs.student_id
             WHERE s.type = 'class'
         `;
 
@@ -497,15 +496,15 @@ router.get('/reports/students', authenticateToken, teacherOrAdmin, async (req, r
                 b.id as batch_id,
                 b.name as batch_name,
                 COUNT(DISTINCT cs.id)::int as total_sessions,
-                COUNT(CASE WHEN a.status = 'present' THEN 1 END)::int as present_count,
+                COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::int as present_count,
                 ROUND(
-                    (COUNT(CASE WHEN a.status = 'present' THEN 1 END)::numeric * 100 / 
-                     NULLIF(COUNT(a.id), 0)), 2
+                    (COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::numeric * 100 / 
+                     NULLIF(COUNT(DISTINCT cs.id), 0)), 2
                 )::float8 as attendance_rate,
                 MAX(cs.start_time::date) as last_attendance_date
             FROM users u
-            JOIN user_batches ub ON u.id = ub.user_id
-            JOIN batches b ON ub.batch_id = b.id
+            JOIN batch_students bs ON u.id = bs.student_id
+            JOIN batches b ON bs.batch_id = b.id
             LEFT JOIN schedules s ON b.id = s.batch_id AND s.type = 'class'
             LEFT JOIN class_sessions cs ON s.id = cs.schedule_id
             LEFT JOIN attendance a ON cs.id = a.session_id AND a.student_id = u.id
@@ -3227,6 +3226,38 @@ router.get('/reports/sessions-without-codes', authenticateToken, teacherOrAdmin,
             error: 'Failed to fetch sessions without codes',
             details: error.message 
         });
+    }
+});
+
+// GET /api/attendance/session-details/:sessionId — Simple endpoint for student attendance in a session
+router.get('/session-details-simple/:sessionId', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        
+        // Get the batch_id for this session
+        const session = await req.db.get(`
+            SELECT cs.id, s.batch_id FROM class_sessions cs
+            JOIN schedules s ON cs.schedule_id = s.id
+            WHERE cs.id = $1
+        `, [sessionId]);
+        
+        if (!session) return res.json({ details: [] });
+        
+        // Get ALL enrolled students in the batch, with their attendance status (or 'absent' if no record)
+        const details = await req.db.all(`
+            SELECT bs.student_id, u.first_name || ' ' || u.last_name as student_name,
+                   u.email, COALESCE(a.status, 'absent') as status, a.check_in_time
+            FROM batch_students bs
+            JOIN users u ON bs.student_id = u.id
+            LEFT JOIN attendance a ON a.session_id = $1 AND a.student_id = bs.student_id
+            WHERE bs.batch_id = $2
+            ORDER BY u.first_name, u.last_name
+        `, [sessionId, session.batch_id]);
+        
+        res.json({ details });
+    } catch (error) {
+        console.error('Error fetching session details:', error);
+        res.status(500).json({ error: 'Failed to fetch session details' });
     }
 });
 
