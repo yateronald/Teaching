@@ -50,6 +50,7 @@ const Layout: React.FC = () => {
             '/timetable': 'Teacher Timetable',
             '/attendance': 'Attendance Management',
             '/settings': 'Admin Settings',
+            '/admin-resources': 'Resources',
 
             // Teacher
             '/teacher-dashboard': 'Dashboard',
@@ -116,6 +117,11 @@ const Layout: React.FC = () => {
                     key: '/app/attendance',
                     icon: <BarChartOutlined />,
                     label: 'Attendance Management',
+                },
+                {
+                    key: '/app/admin-resources',
+                    icon: <FolderOutlined />,
+                    label: 'Resources',
                 },
                 {
                     key: '/app/settings',
