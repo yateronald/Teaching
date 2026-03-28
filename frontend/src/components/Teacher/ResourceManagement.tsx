@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Table, Button, Modal, Form, Input, Select, message, Space, Typography, Tag,
-    Popconfirm, Card, Upload, Row, Col, Statistic, Empty, Tooltip, Spin
+    Popconfirm, Card, Upload, Row, Col, Statistic, Empty, Tooltip, Spin, Progress
 } from 'antd';
 import {
-    PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined,
+    PlusOutlined, EditOutlined, DeleteOutlined, DownloadOutlined,
     FilePdfOutlined, VideoCameraOutlined, SoundOutlined, PictureOutlined,
     FolderOutlined, EyeOutlined, SearchOutlined, CloudUploadOutlined, FileTextOutlined,
     CloseCircleOutlined
@@ -65,6 +65,8 @@ const ResourceManagement: React.FC = () => {
     const [searchText, setSearchText] = useState('');
     const [filterCategory, setFilterCategory] = useState('all');
     const [filterBatch, setFilterBatch] = useState<number | null>(null);
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [uploadPhase, setUploadPhase] = useState<'idle' | 'sending' | 'cloud' | 'done'>('idle');
     const [form] = Form.useForm();
     const { apiCall, token } = useAuth();
     const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
@@ -93,6 +95,8 @@ const ResourceManagement: React.FC = () => {
     const handleUpload = async (values: any) => {
         if (!values.file?.[0]) { message.error('Please select a file'); return; }
         setUploading(true);
+        setUploadProgress(0);
+        setUploadPhase('sending');
         try {
             const formData = new FormData();
             formData.append('file', values.file[0].originFileObj);
@@ -100,22 +104,52 @@ const ResourceManagement: React.FC = () => {
             if (values.description) formData.append('description', values.description);
             if (values.batch_id) formData.append('batch_id', values.batch_id);
 
-            const resp = await fetch(`${API}/resources`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData,
+            let serverDone = false;
+            let cloudInterval: ReturnType<typeof setInterval> | null = null;
+
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('POST', `${API}/resources`);
+                xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+                xhr.upload.onloadend = () => {
+                    // Browser finished sending → server now uploads to kDrive
+                    setUploadPhase('cloud');
+                    setUploadProgress(0);
+                    let current = 0;
+                    cloudInterval = setInterval(() => {
+                        if (serverDone) { if (cloudInterval) clearInterval(cloudInterval); return; }
+                        current += Math.random() * 4 + 1;
+                        if (current > 90) current = 90;
+                        setUploadProgress(Math.round(current));
+                    }, 400);
+                };
+
+                xhr.onload = () => {
+                    serverDone = true;
+                    if (cloudInterval) clearInterval(cloudInterval);
+                    setUploadProgress(100);
+                    setUploadPhase('done');
+
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        setTimeout(() => {
+                            message.success('Uploaded to cloud successfully!');
+                            setModalVisible(false);
+                            form.resetFields();
+                            fetchResources();
+                            resolve();
+                        }, 600);
+                    } else {
+                        try { message.error(JSON.parse(xhr.responseText).error || 'Upload failed'); } catch { message.error('Upload failed'); }
+                        reject();
+                    }
+                };
+
+                xhr.onerror = () => { serverDone = true; if (cloudInterval) clearInterval(cloudInterval); message.error('Network error'); reject(); };
+                xhr.send(formData);
             });
-            if (resp.ok) {
-                message.success('Resource uploaded successfully');
-                setModalVisible(false);
-                form.resetFields();
-                fetchResources();
-            } else {
-                const err = await resp.json();
-                message.error(err.error || 'Upload failed');
-            }
-        } catch { message.error('Upload failed'); }
-        finally { setUploading(false); }
+        } catch {}
+        finally { setUploading(false); setUploadProgress(0); setUploadPhase('idle'); }
     };
 
     const handleUpdate = async (values: any) => {
@@ -323,44 +357,71 @@ const ResourceManagement: React.FC = () => {
 
             {/* Upload / Edit Modal */}
             <Modal
-                title={editingResource ? 'Edit Resource' : 'Upload Resource'}
+                title={uploading ? null : editingResource ? '✏️ Edit Resource' : '☁️ Upload Resource'}
                 open={modalVisible}
-                onCancel={() => { setModalVisible(false); setEditingResource(null); form.resetFields(); }}
+                onCancel={() => { if (!uploading) { setModalVisible(false); setEditingResource(null); form.resetFields(); } }}
                 footer={null}
-                width={520}
+                width={uploading ? 400 : 520}
                 destroyOnClose
+                closable={!uploading}
+                maskClosable={!uploading}
+                styles={{ body: { padding: uploading ? '32px 28px' : '20px 24px' } }}
             >
-                <Form form={form} layout="vertical" onFinish={editingResource ? handleUpdate : handleUpload}>
-                    <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Title is required' }]}>
-                        <Input placeholder="e.g. French Grammar Chapter 3" />
-                    </Form.Item>
-                    <Form.Item name="description" label="Description">
-                        <TextArea rows={3} placeholder="Brief description of this resource" />
-                    </Form.Item>
-                    <Form.Item name="batch_id" label="Assign to Batch">
-                        <Select allowClear placeholder="Select a batch (optional)"
-                            options={batches.map(b => ({ value: b.id, label: b.name }))} />
-                    </Form.Item>
-                    {!editingResource && (
-                        <Form.Item name="file" label="File" valuePropName="fileList"
-                            getValueFromEvent={(e) => Array.isArray(e) ? e : e?.fileList}
-                            rules={[{ required: true, message: 'Please select a file' }]}>
-                            <Upload beforeUpload={() => false} maxCount={1} accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp4,.avi,.mov,.webm,.mp3,.wav,.ogg,.m4a,.jpg,.jpeg,.png,.gif,.zip">
-                                <Button icon={<UploadOutlined />} style={{ borderRadius: 8 }}>Select File</Button>
-                                <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>Max 100MB</Text>
-                            </Upload>
+                {/* Uploading state — compact progress view */}
+                {uploading ? (
+                    <div style={{ textAlign: 'center' }}>
+                        <CloudUploadOutlined style={{ fontSize: 48, color: uploadPhase === 'done' ? '#52c41a' : '#1a56db', marginBottom: 16 }} />
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+                            {uploadPhase === 'sending' ? 'Sending file...' : uploadPhase === 'cloud' ? 'Uploading to kDrive...' : '✓ Upload complete!'}
+                        </div>
+                        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
+                            {uploadPhase === 'sending' ? 'Preparing your file for cloud storage' : uploadPhase === 'cloud' ? 'Storing securely on Infomaniak kDrive' : 'Your resource is ready'}
+                        </div>
+                        <Progress
+                            percent={uploadProgress}
+                            strokeColor={uploadPhase === 'done' ? '#52c41a' : { from: '#1a56db', to: '#7c3aed' }}
+                            style={{ maxWidth: 300, margin: '0 auto' }}
+                        />
+                    </div>
+                ) : (
+                    /* Normal form */
+                    <Form form={form} layout="vertical" onFinish={editingResource ? handleUpdate : handleUpload}>
+                        <Form.Item name="title" label={<Text strong style={{ fontSize: 13 }}>Title</Text>} rules={[{ required: true, message: 'Title is required' }]}>
+                            <Input placeholder="e.g. French Grammar Chapter 3" size="large" style={{ borderRadius: 10 }} />
                         </Form.Item>
-                    )}
-                    <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-                        <Space>
-                            <Button onClick={() => { setModalVisible(false); setEditingResource(null); }}>Cancel</Button>
-                            <Button type="primary" htmlType="submit" loading={uploading}
-                                style={{ borderRadius: 8 }}>
-                                {editingResource ? 'Save Changes' : 'Upload'}
-                            </Button>
-                        </Space>
-                    </Form.Item>
-                </Form>
+                        <Form.Item name="description" label={<Text strong style={{ fontSize: 13 }}>Description</Text>}>
+                            <TextArea rows={2} placeholder="Brief description" style={{ borderRadius: 10 }} />
+                        </Form.Item>
+                        <Form.Item name="batch_id" label={<Text strong style={{ fontSize: 13 }}>Assign to Batch</Text>}>
+                            <Select allowClear placeholder="Select a batch (optional)" size="large"
+                                options={batches.map(b => ({ value: b.id, label: b.name }))} />
+                        </Form.Item>
+                        {!editingResource && (
+                            <Form.Item name="file" label={<Text strong style={{ fontSize: 13 }}>File</Text>} valuePropName="fileList"
+                                getValueFromEvent={(e) => Array.isArray(e) ? e : e?.fileList}
+                                rules={[{ required: true, message: 'Please select a file' }]}>
+                                <Upload.Dragger beforeUpload={() => false} maxCount={1}
+                                    accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp4,.avi,.mov,.webm,.mp3,.wav,.ogg,.m4a,.jpg,.jpeg,.png,.gif,.zip"
+                                    style={{ borderRadius: 12, border: '2px dashed #d9d9d9', padding: '12px 0' }}>
+                                    <p style={{ fontSize: 28, color: '#1a56db', marginBottom: 4 }}><CloudUploadOutlined /></p>
+                                    <p style={{ fontSize: 13, fontWeight: 600, color: '#0f172a', marginBottom: 2 }}>Drag & drop or click to browse</p>
+                                    <p style={{ fontSize: 11, color: '#94a3b8' }}>PDF, DOC, PPT, MP4, MP3, images · Max 100MB</p>
+                                </Upload.Dragger>
+                            </Form.Item>
+                        )}
+                        <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                                <Button onClick={() => { setModalVisible(false); setEditingResource(null); }}
+                                    style={{ borderRadius: 10, height: 40 }}>Cancel</Button>
+                                <Button type="primary" htmlType="submit"
+                                    icon={editingResource ? <EditOutlined /> : <CloudUploadOutlined />}
+                                    style={{ borderRadius: 10, height: 40, fontWeight: 600, minWidth: 130 }}>
+                                    {editingResource ? 'Save Changes' : 'Upload to Cloud'}
+                                </Button>
+                            </div>
+                        </Form.Item>
+                    </Form>
+                )}
             </Modal>
 
             {/* Preview Modal */}
