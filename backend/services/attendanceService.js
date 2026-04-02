@@ -243,22 +243,22 @@ class AttendanceService {
             }
 
             // Send email to each student
+            // Extract HH:mm from ISO datetime strings for the email template
+            const extractTime = (isoStr) => {
+                try {
+                    const d = new Date(isoStr);
+                    if (isNaN(d.getTime())) return isoStr;
+                    return d.toTimeString().slice(0, 5); // HH:mm
+                } catch {
+                    return isoStr;
+                }
+            };
+            const formattedStartTime = extractTime(schedule.start_time);
+            const formattedEndTime = extractTime(schedule.end_time);
+
             const emailPromises = students.map(async (student) => {
                 try {
                     const studentName = `${student.first_name} ${student.last_name}`;
-                    
-                    // Debug logging to check what data we have
-                    console.log('Email template data:', {
-                        studentName,
-                        classTitle: schedule.title,
-                        teacherName,
-                        batchName: schedule.batch_name,
-                        accessCode,
-                        sessionDate,
-                        startTime: schedule.start_time,
-                        endTime: schedule.end_time,
-                        expiresAt
-                    });
                     
                     const emailTemplate = buildAccessCodeTemplate({
                         studentName,
@@ -267,10 +267,10 @@ class AttendanceService {
                         batchName: schedule.batch_name,
                         accessCode,
                         sessionDate,
-                        startTime: schedule.start_time,
-                        endTime: schedule.end_time,
+                        startTime: formattedStartTime,
+                        endTime: formattedEndTime,
                         expiresAt,
-                        joinLink: null, // Can be added later for direct join functionality
+                        joinLink: null,
                         logoCid: null
                     });
 

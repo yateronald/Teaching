@@ -69,41 +69,22 @@ const StudentResources: React.FC = () => {
 
     useEffect(() => { fetchResources(); }, [fetchResources]);
 
-    /** Securely download using Authorization header */
-    const secureDownload = async (id: number, fileName: string) => {
-        try {
-            const resp = await fetch(`${API}/resources/${id}/download`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (!resp.ok) throw new Error('Download failed');
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-        } catch {}
+    /** Securely download via token in URL */
+    const secureDownload = (id: number, fileName: string) => {
+        const url = `${API}/resources/${id}/download?token=${token}`;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
     };
 
-    /** Open preview with secure blob */
-    const openPreview = async (r: Resource) => {
+    /** Open preview with secure streaming URL */
+    const openPreview = (r: Resource) => {
         setPreview(r);
-        setPreviewBlobUrl(null);
-        try {
-            const resp = await fetch(`${API}/resources/${r.id}/preview`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (!resp.ok) throw new Error('Preview failed');
-            const blob = await resp.blob();
-            setPreviewBlobUrl(URL.createObjectURL(blob));
-        } catch {
-            setPreviewBlobUrl('error');
-        }
+        setPreviewBlobUrl(`${API}/resources/${r.id}/preview?token=${token}`);
     };
 
     const closePreview = () => {
-        if (previewBlobUrl) URL.revokeObjectURL(previewBlobUrl);
         setPreviewBlobUrl(null);
         setPreview(null);
         setPreviewFullscreen(false);

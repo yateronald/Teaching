@@ -28,13 +28,10 @@ function buildClassReminderTemplate({
     const formattedStartTime = formatTime(startTime);
     const formattedEndTime = formatTime(endTime);
     
-    // Quick access button for online classes
-    const quickAccessButton = locationMode === 'online' && link 
+    // Quick access instruction for online classes
+    const quickAccessButton = locationMode === 'online'
         ? `<div style="text-align: center; margin: 24px 0;">
-             <a href="${link}" target="_blank" 
-                style="background: linear-gradient(135deg, #EF4444, #DC2626); color: white; text-decoration: none; padding: 16px 32px; border-radius: 12px; font-weight: 700; font-size: 18px; display: inline-block; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;">
-                🚀 Join Class Now
-             </a>
+             <p style="color: #6B7280; font-size: 15px; margin-bottom: 8px;">Please log in to your dashboard to join the class.</p>
            </div>`
         : '';
 
@@ -43,7 +40,6 @@ function buildClassReminderTemplate({
         ? `<div style="background: linear-gradient(135deg, #3B82F6, #1D4ED8); color: white; padding: 16px; border-radius: 12px; margin: 16px 0; text-align: center;">
              <div style="font-size: 18px; margin-bottom: 8px;">💻</div>
              <strong style="font-size: 16px;">Online Class</strong>
-             ${link ? `<br><span style="color: #BFDBFE; font-size: 14px;">Click the button above to join</span>` : '<br><span style="color: #BFDBFE; font-size: 14px;">Meeting link should be available now</span>'}
            </div>`
         : `<div style="background: linear-gradient(135deg, #10B981, #059669); color: white; padding: 16px; border-radius: 12px; margin: 16px 0; text-align: center;">
              <div style="font-size: 18px; margin-bottom: 8px;">📍</div>
@@ -133,9 +129,7 @@ Quick Details:
 - Class: ${className}
 - Time: ${formattedStartTime} - ${formattedEndTime}
 - Batch: ${batchName}
-- Location: ${locationMode === 'online' ? (link ? `Online - ${link}` : 'Online') : (location || 'Physical location')}
-
-${locationMode === 'online' && link ? `Join now: ${link}` : ''}
+- Location: ${locationMode === 'online' ? 'Online (Join from your dashboard)' : (location || 'Physical location')}
 
 Make sure you have your materials ready!
 

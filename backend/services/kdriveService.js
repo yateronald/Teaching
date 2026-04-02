@@ -248,16 +248,35 @@ class KDriveService {
      * Proxy-stream a file from kDrive to the HTTP response
      * (avoids exposing kDrive tokens to the client)
      */
-    async streamFile(fileId, res) {
-        const resp = await axios.get(`${this.baseUrl}/files/${fileId}/download`, {
-            headers: { 'Authorization': `Bearer ${this.token}` },
-            responseType: 'stream',
-        });
-        // Forward content headers
-        if (resp.headers['content-type']) res.setHeader('Content-Type', resp.headers['content-type']);
-        if (resp.headers['content-length']) res.setHeader('Content-Length', resp.headers['content-length']);
-        if (resp.headers['content-disposition']) res.setHeader('Content-Disposition', resp.headers['content-disposition']);
-        resp.data.pipe(res);
+    async streamFile(fileId, res, reqHeaders = {}, dispositionContext = 'inline', fileName = 'file') {
+        const headers = { 'Authorization': `Bearer ${this.token}` };
+        if (reqHeaders.range) {
+            headers['Range'] = reqHeaders.range;
+        }
+
+        try {
+            const resp = await axios.get(`${this.baseUrl}/files/${fileId}/download`, {
+                headers,
+                responseType: 'stream',
+                validateStatus: (status) => status < 400 || status === 416, // handle partial 206
+            });
+
+            res.status(resp.status); // might be 206 Partial Content or 200
+
+            // Set inline/attachment disposition
+            res.setHeader('Content-Disposition', `${dispositionContext}; filename="${fileName}"`);
+
+            // Forward content headers (like Accept-Ranges, Content-Range)
+            const forwardHeaders = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
+            forwardHeaders.forEach(h => {
+                if (resp.headers[h]) res.setHeader(h, resp.headers[h]);
+            });
+
+            resp.data.pipe(res);
+        } catch (err) {
+            console.error('kDrive stream error:', err.message);
+            if (!res.headersSent) res.status(500).json({ error: 'Failed to stream from cloud' });
+        }
     }
 
     /** Sanitize a name for use as a folder name */

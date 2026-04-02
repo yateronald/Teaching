@@ -189,42 +189,22 @@ const ResourceManagement: React.FC = () => {
         setModalVisible(true);
     };
 
-    /** Securely download a file using Authorization header (no token in URL) */
-    const secureDownload = async (id: number, fileName: string) => {
-        try {
-            const resp = await fetch(`${API}/resources/${id}/download`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (!resp.ok) throw new Error('Download failed');
-            const blob = await resp.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 5000);
-        } catch { message.error('Download failed'); }
+    /** Securely download via token in URL */
+    const secureDownload = (id: number, fileName: string) => {
+        const url = `${API}/resources/${id}/download?token=${token}`;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
     };
 
-    /** Open preview modal and fetch blob URL securely */
-    const openPreview = async (r: Resource) => {
+    /** Open preview modal and set streaming URL securely */
+    const openPreview = (r: Resource) => {
         setPreviewResource(r);
-        setPreviewBlobUrl(null);
-        try {
-            const resp = await fetch(`${API}/resources/${r.id}/preview`, {
-                headers: { 'Authorization': `Bearer ${token}` },
-            });
-            if (!resp.ok) throw new Error('Preview failed');
-            const blob = await resp.blob();
-            setPreviewBlobUrl(URL.createObjectURL(blob));
-        } catch {
-            message.error('Failed to load preview — file may not be available on this server');
-            setPreviewBlobUrl('error');
-        }
+        setPreviewBlobUrl(`${API}/resources/${r.id}/preview?token=${token}`);
     };
 
     const closePreview = () => {
-        if (previewBlobUrl) URL.revokeObjectURL(previewBlobUrl);
         setPreviewBlobUrl(null);
         setPreviewResource(null);
     };

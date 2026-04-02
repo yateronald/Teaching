@@ -71,10 +71,7 @@ function buildDemoScheduleTeacherTemplate({
             </div>
 
             <div style="margin-top: 20px;">
-                <a href="${meetingLink}" 
-                   style="display: inline-block; background: #10B981; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
-                    🎥 Join Demo Class
-                </a>
+                <span style="display: inline-block; color: white; font-weight: 500; font-size: 14px; background: rgba(255,255,255,0.1); padding: 8px 16px; border-radius: 4px;">Meeting link is available in your dashboard</span>
             </div>
         </div>
 
@@ -176,7 +173,7 @@ You have been assigned a new demo class:
 ⏰ Time: ${formattedTime}
 👤 Student: ${studentName}${studentEmail ? ` (${studentEmail})` : ''}
 
-🎥 Meeting Link: ${meetingLink}
+🎥 Meeting Link: Available in your dashboard.
 
 Student Information:
 ${studentLevel ? `📊 Current Level: ${studentLevel}` : ''}

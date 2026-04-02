@@ -313,17 +313,20 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
 
         if (resource.storage_type === 'kdrive' && resource.kdrive_file_id) {
             const kdrive = getKDriveService();
+            const downloadUrl = await kdrive.getDownloadUrl(resource.kdrive_file_id);
+            if (downloadUrl) {
+                return res.redirect(downloadUrl);
+            }
+            // fallback if getDownloadUrl fails
             res.setHeader('Content-Disposition', `attachment; filename="${resource.file_name}"`);
-            return kdrive.streamFile(resource.kdrive_file_id, res);
+            return kdrive.streamFile(resource.kdrive_file_id, res, req.headers, 'attachment');
         }
 
         // Local file fallback
         if (!resource.file_path || !fs.existsSync(resource.file_path)) {
             return res.status(404).json({ error: 'File not found on server' });
         }
-        res.setHeader('Content-Disposition', `attachment; filename="${resource.file_name}"`);
-        res.setHeader('Content-Type', resource.file_type);
-        fs.createReadStream(resource.file_path).pipe(res);
+        res.download(resource.file_path, resource.file_name);
     } catch (error) {
         console.error('Download error:', error);
         res.status(500).json({ error: 'Failed to download' });
@@ -343,19 +346,23 @@ router.get('/:id/preview', authenticateToken, async (req, res) => {
         const resource = await req.db.get(sql, params);
         if (!resource) return res.status(404).json({ error: 'Resource not found' });
 
-        // Set inline disposition for preview
-        res.setHeader('Content-Disposition', `inline; filename="${resource.file_name}"`);
-        if (resource.file_type) res.setHeader('Content-Type', resource.file_type);
-
         if (resource.storage_type === 'kdrive' && resource.kdrive_file_id) {
             const kdrive = getKDriveService();
-            return kdrive.streamFile(resource.kdrive_file_id, res);
+            // Set inline disposition for preview and forward Range headers
+            return kdrive.streamFile(resource.kdrive_file_id, res, req.headers, 'inline', resource.file_name);
         }
 
         if (!resource.file_path || !fs.existsSync(resource.file_path)) {
             return res.status(404).json({ error: 'File not found' });
         }
-        fs.createReadStream(resource.file_path).pipe(res);
+        
+        // Express sendFile handles Range headers automatically
+        res.sendFile(path.resolve(resource.file_path), {
+            headers: {
+                'Content-Disposition': `inline; filename="${resource.file_name}"`,
+                'Content-Type': resource.file_type || 'application/octet-stream'
+            }
+        });
     } catch (error) {
         console.error('Preview error:', error);
         res.status(500).json({ error: 'Failed to preview' });

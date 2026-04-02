@@ -45,7 +45,7 @@ function buildMeetingUpdateTemplate({
   const locationBlock = locationMode === 'online'
     ? `<div style="background: linear-gradient(135deg, #3B82F6, #1D4ED8); color: #fff; padding: 20px; border-radius: 12px; margin: 20px 0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
          <div style="display: flex; align-items: center; margin-bottom: 12px;"><span style="font-size: 20px; margin-right: 10px;">💻</span><strong style="font-size: 16px;">Online Meeting</strong></div>
-         ${link ? `<a href="${link}" target="_blank" style="color: #BFDBFE; text-decoration: underline; font-weight: 600; font-size: 15px;">Join Meeting Link</a>` : '<span style="color: #BFDBFE; font-size: 15px;">Meeting link will be provided prior to the start time</span>'}
+         <span style="color: #BFDBFE; font-size: 15px;">Meeting link will be provided prior to the start time</span>
        </div>`
     : `<div style="background: linear-gradient(135deg, #10B981, #059669); color: #fff; padding: 20px; border-radius: 12px; margin: 20px 0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
          <div style="display: flex; align-items: center; margin-bottom: 12px;"><span style="font-size: 20px; margin-right: 10px;">📍</span><strong style="font-size: 16px;">Physical Location</strong></div>
@@ -99,7 +99,7 @@ function buildMeetingUpdateTemplate({
 
   const html = baseHtml({ subject, headerTitle: 'Meeting Update', bodyHtml, logoCid });
 
-  const text = `Meeting Update\n\nDear ${studentName || 'Student'},\n\nWe would like to inform you that the meeting details have been updated by ${teacherName} for your batch ${batchName}.\n\nUpdated Meeting Details:\n- Title: ${meetingTitle}\n- Date: ${formattedDate}\n- Time: ${formattedStart} - ${formattedEnd}\n- Location: ${locationMode === 'online' ? (link ? `Online - ${link}` : 'Online (link to follow)') : (location || 'Physical location')}\n${description ? `\nDescription: ${description}\n` : ''}\n${(Array.isArray(changes) && changes.length > 0) ? `\nSummary of updates:\n${changes.map(ch => `- ${ch.label}: ${ch.old ?? '—'} → ${ch.new ?? '—'}`).join('\n')}\n` : ''}\nIf you have any questions or concerns, please don't hesitate to contact your teacher or our support team. We appreciate your understanding.`;
+  const text = `Meeting Update\n\nDear ${studentName || 'Student'},\n\nWe would like to inform you that the meeting details have been updated by ${teacherName} for your batch ${batchName}.\n\nUpdated Meeting Details:\n- Title: ${meetingTitle}\n- Date: ${formattedDate}\n- Time: ${formattedStart} - ${formattedEnd}\n- Location: ${locationMode === 'online' ? 'Online (link to follow)' : (location || 'Physical location')}\n${description ? `\nDescription: ${description}\n` : ''}\n${(Array.isArray(changes) && changes.length > 0) ? `\nSummary of updates:\n${changes.map(ch => `- ${ch.label}: ${ch.old ?? '—'} → ${ch.new ?? '—'}`).join('\n')}\n` : ''}\nIf you have any questions or concerns, please don't hesitate to contact your teacher or our support team. We appreciate your understanding.`;
 
   return { subject, html, text };
 }

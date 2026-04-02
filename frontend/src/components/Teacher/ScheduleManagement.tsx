@@ -312,7 +312,14 @@ const ScheduleManagement: React.FC = () => {
             const response = await apiCall('/schedules');
             if (response.ok) {
                 const data = await response.json();
-                setSchedules(normalizeFromBackend(data.schedules || data || []));
+                const normalized = normalizeFromBackend(data.schedules || data || []);
+                // Sort by date and time descending (newest to oldest)
+                normalized.sort((a, b) => {
+                    const timeA = dayjs(`${a.date}T${a.start_time}`);
+                    const timeB = dayjs(`${b.date}T${b.start_time}`);
+                    return timeB.valueOf() - timeA.valueOf();
+                });
+                setSchedules(normalized);
             } else {
                 message.error('Failed to fetch schedules');
             }

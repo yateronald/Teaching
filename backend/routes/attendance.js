@@ -857,6 +857,7 @@ router.post('/sessions/:scheduleId/start', authenticateToken, teacherOnly, async
         res.json({
             success: true,
             sessionId: result.sessionId,
+            accessCode: result.accessCode,
             expiresAt: result.expiresAt,
             message: 'Class session started successfully'
         });
