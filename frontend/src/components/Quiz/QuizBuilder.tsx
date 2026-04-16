@@ -31,6 +31,7 @@ import {
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import AIQuizGenerator from './AIQuizGenerator';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -110,6 +111,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const [totalMarks, setTotalMarks] = useState<number | null>(null);
     const [equalizeMarks, setEqualizeMarks] = useState(false);
     const [formResetKey, setFormResetKey] = useState(0);
+    const [aiModalVisible, setAiModalVisible] = useState(false);
     
     const [quizForm] = Form.useForm();
     const [questionForm] = Form.useForm();
@@ -501,6 +503,32 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         message.success('Question deleted successfully');
     };
 
+    /** Handle AI-generated questions — replaces existing questions */
+    const handleAIQuestionsGenerated = (questions: Question[], title: string, description: string) => {
+        // Replace questions
+        setQuiz(prev => ({ ...prev, questions }));
+
+        // Auto-fill title and description if currently empty
+        const currentTitle = quizForm.getFieldValue('title');
+        const currentDesc = quizForm.getFieldValue('description');
+        if (!currentTitle && title) {
+            quizForm.setFieldsValue({ title });
+            setQuiz(prev => ({ ...prev, title }));
+        }
+        if (!currentDesc && description) {
+            quizForm.setFieldsValue({ description });
+            setQuiz(prev => ({ ...prev, description }));
+        }
+
+        // Update total marks from generated questions
+        const generatedTotal = questions.reduce((sum, q) => sum + q.marks, 0);
+        setTotalMarks(generatedTotal);
+        quizForm.setFieldsValue({ total_marks: generatedTotal });
+
+        setAiModalVisible(false);
+        message.success(`✨ ${questions.length} questions generated and loaded!`);
+    };
+
     const renderQuestionPreview = (question: Question, index: number) => {
         const getQuestionTypeColor = (type: string) => {
             switch (type) {
@@ -521,48 +549,49 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         };
 
         const header = (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', padding: '6px 0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
+            <div style={{ width: '100%', padding: '6px 0' }}>
+                {/* Row 1: Number badge + Question text */}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
                     <div style={{
                         background: 'linear-gradient(135deg, #1890ff, #096dd9)',
                         color: 'white',
-                        width: '34px',
-                        height: '34px',
-                        borderRadius: '10px',
+                        width: '30px',
+                        height: '30px',
+                        borderRadius: '8px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         fontWeight: '700',
-                        fontSize: '14px',
-                        flexShrink: 0
+                        fontSize: '13px',
+                        flexShrink: 0,
+                        marginTop: 1
                     }}>
                         {index + 1}
                     </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                        <Text
-                            strong
-                            style={{
-                                fontSize: '15px',
-                                color: '#1a1a1a',
-                                display: 'block',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                            }}
-                        >
-                            {question.question_text}
-                        </Text>
-                    </div>
-                    <Space size={8} style={{ flexShrink: 0, marginLeft: 12 }}>
+                    <Text
+                        strong
+                        style={{
+                            fontSize: '14px',
+                            color: '#1a1a1a',
+                            lineHeight: '1.5',
+                            wordBreak: 'break-word',
+                            flex: 1
+                        }}
+                    >
+                        {question.question_text}
+                    </Text>
+                </div>
+                {/* Row 2: Tags + Action buttons */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingLeft: 40 }}>
+                    <Space size={6} wrap={false}>
                         <Tag
                             color={getQuestionTypeColor(question.question_type)}
                             style={{
                                 margin: 0,
-                                padding: '4px 12px',
-                                fontSize: '12px',
-                                borderRadius: '8px',
+                                padding: '2px 10px',
+                                fontSize: '11px',
+                                borderRadius: '6px',
                                 fontWeight: '500',
-                                letterSpacing: '0.2px'
                             }}
                         >
                             {getQuestionTypeName(question.question_type)}
@@ -571,54 +600,53 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                             color="purple"
                             style={{
                                 margin: 0,
-                                padding: '4px 12px',
-                                fontSize: '12px',
-                                borderRadius: '8px',
+                                padding: '2px 10px',
+                                fontSize: '11px',
+                                borderRadius: '6px',
                                 fontWeight: '600',
-                                letterSpacing: '0.2px'
                             }}
                         >
                             {question.marks} pts
                         </Tag>
                     </Space>
-                </div>
-                <Space size={8} style={{ marginLeft: 16, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                    <Button
-                        icon={<EditOutlined />}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleEditQuestion(question, index);
-                        }}
-                        disabled={isEnded}
-                        size="small"
-                        style={{ borderRadius: '6px' }}
-                    >
-                        Edit
-                    </Button>
-                    <Popconfirm
-                        title="Delete Question?"
-                        description="Are you sure you want to delete this question?"
-                        onConfirm={(e) => {
-                            e?.stopPropagation();
-                            handleDeleteQuestion(index);
-                        }}
-                        onCancel={(e) => e?.stopPropagation()}
-                        okText="Yes"
-                        cancelText="No"
-                        disabled={isEnded}
-                    >
+                    <Space size={6} wrap={false} onClick={(e) => e.stopPropagation()}>
                         <Button
-                            danger
-                            icon={<DeleteOutlined />}
+                            icon={<EditOutlined />}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditQuestion(question, index);
+                            }}
                             disabled={isEnded}
                             size="small"
-                            onClick={(e) => e.stopPropagation()}
                             style={{ borderRadius: '6px' }}
                         >
-                            Delete
+                            Edit
                         </Button>
-                    </Popconfirm>
-                </Space>
+                        <Popconfirm
+                            title="Delete Question?"
+                            description="Are you sure you want to delete this question?"
+                            onConfirm={(e) => {
+                                e?.stopPropagation();
+                                handleDeleteQuestion(index);
+                            }}
+                            onCancel={(e) => e?.stopPropagation()}
+                            okText="Yes"
+                            cancelText="No"
+                            disabled={isEnded}
+                        >
+                            <Button
+                                danger
+                                icon={<DeleteOutlined />}
+                                disabled={isEnded}
+                                size="small"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ borderRadius: '6px' }}
+                            >
+                                Delete
+                            </Button>
+                        </Popconfirm>
+                    </Space>
+                </div>
             </div>
         );
 
@@ -1114,19 +1142,36 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                             </span>
                         }
                         extra={
-                            <Button
-                                type="primary"
-                                icon={<PlusOutlined />}
-                                onClick={handleAddQuestion}
-                                disabled={isEnded}
-                                style={{
-                                    borderRadius: '8px',
-                                    fontWeight: '500',
-                                    height: '38px'
-                                }}
-                            >
-                                Add Question
-                            </Button>
+                            <Space size={10}>
+                                <Button
+                                    icon={<span style={{ marginRight: 4 }}>✨</span>}
+                                    onClick={() => setAiModalVisible(true)}
+                                    disabled={isEnded}
+                                    style={{
+                                        borderRadius: '8px',
+                                        fontWeight: '600',
+                                        height: '38px',
+                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                        color: 'white',
+                                        border: 'none',
+                                    }}
+                                >
+                                    Generate with AI
+                                </Button>
+                                <Button
+                                    type="primary"
+                                    icon={<PlusOutlined />}
+                                    onClick={handleAddQuestion}
+                                    disabled={isEnded}
+                                    style={{
+                                        borderRadius: '8px',
+                                        fontWeight: '500',
+                                        height: '38px'
+                                    }}
+                                >
+                                    Add Question
+                                </Button>
+                            </Space>
                         }
                         style={{
                             borderRadius: 12,
@@ -1136,13 +1181,41 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         bodyStyle={{ padding: '24px' }}
                     >
                         {quiz.questions.length === 0 ? (
-                            <Alert
-                                message="No questions added yet"
-                                description="Click 'Add Question' to start building your quiz."
-                                type="info"
-                                showIcon
-                                style={{ borderRadius: '6px' }}
-                            />
+                            <div style={{ textAlign: 'center', padding: '32px 20px' }}>
+                                <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>
+                                <Text strong style={{ display: 'block', fontSize: 16, marginBottom: 6 }}>
+                                    No questions added yet
+                                </Text>
+                                <Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+                                    Add questions manually or generate them with AI
+                                </Text>
+                                <Space size={12}>
+                                    <Button
+                                        size="large"
+                                        onClick={() => setAiModalVisible(true)}
+                                        disabled={isEnded}
+                                        style={{
+                                            borderRadius: 10,
+                                            height: 44,
+                                            fontWeight: 600,
+                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                            color: 'white',
+                                            border: 'none',
+                                        }}
+                                    >
+                                        ✨ Generate with AI
+                                    </Button>
+                                    <Button
+                                        size="large"
+                                        icon={<PlusOutlined />}
+                                        onClick={handleAddQuestion}
+                                        disabled={isEnded}
+                                        style={{ borderRadius: 10, height: 44 }}
+                                    >
+                                        Add Manually
+                                    </Button>
+                                </Space>
+                            </div>
                         ) : (
                             <Collapse
                                 accordion
@@ -1459,6 +1532,23 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         </Space>
                     </Form.Item>
                 </Form>
+            </Modal>
+
+            {/* AI Quiz Generator Modal */}
+            <Modal
+                title={null}
+                open={aiModalVisible}
+                onCancel={() => setAiModalVisible(false)}
+                footer={null}
+                width={860}
+                style={{ top: 20 }}
+                destroyOnClose
+                styles={{ body: { padding: '24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } }}
+            >
+                <AIQuizGenerator
+                    onQuestionsGenerated={handleAIQuestionsGenerated}
+                    onCancel={() => setAiModalVisible(false)}
+                />
             </Modal>
         </div>
     );

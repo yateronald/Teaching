@@ -2,8 +2,18 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
 const { sendQuizNotification } = require('../emails/emailService');
+const { getAIQuizService } = require('../services/aiQuizService');
 
 const router = express.Router();
+
+// Fisher-Yates shuffle — produces an unbiased random permutation
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
 
 // Helper function to check if quiz is accessible to student
 const isQuizAccessible = async (db, quizId, studentId) => {
@@ -14,21 +24,21 @@ const isQuizAccessible = async (db, quizId, studentId) => {
         JOIN batch_students bs ON qb.batch_id = bs.batch_id
         WHERE q.id = ? AND bs.student_id = ? AND q.status = 'published'
     `, [quizId, studentId]);
-    
+
     if (!quiz) return { accessible: false, reason: 'Quiz not found or not published' };
-    
+
     const now = new Date();
-    
+
     // Check start date
     if (quiz.start_date && new Date(quiz.start_date) > now) {
         return { accessible: false, reason: 'Quiz has not started yet', quiz };
     }
-    
+
     // Check end date
     if (quiz.end_date && new Date(quiz.end_date) < now) {
         return { accessible: false, reason: 'Quiz has ended', quiz };
     }
-    
+
     return { accessible: true, quiz };
 };
 
@@ -70,7 +80,7 @@ const calculateQuizResults = async (db, submissionId) => {
             marksAwarded = isCorrect ? marks : 0;
         } else if (answer.question_type === 'mcq_single' || answer.question_type === 'mcq_multiple') {
             let selectedOptions = [];
-            try { selectedOptions = JSON.parse(answer.selected_options || '[]') || []; } catch {}
+            try { selectedOptions = JSON.parse(answer.selected_options || '[]') || []; } catch { }
 
             const correctOptions = await db.all(
                 'SELECT id FROM question_options WHERE question_id = ? AND is_correct = TRUE',
@@ -139,7 +149,7 @@ router.get('/', authenticateToken, async (req, res) => {
             LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id
         `;
         let params = [];
-        
+
         if (req.user.role === 'teacher') {
             sql += ' WHERE q.teacher_id = ?';
             params.push(req.user.id);
@@ -154,11 +164,11 @@ router.get('/', authenticateToken, async (req, res) => {
             `;
             params.push(req.user.id);
         }
-        
+
         sql += ' GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at, u.first_name, u.last_name ORDER BY q.created_at DESC';
-        
+
         const quizzes = await req.db.all(sql, params);
-        
+
         // For students, add submission status and accessibility info
         if (req.user.role === 'student') {
             for (let quiz of quizzes) {
@@ -167,16 +177,16 @@ router.get('/', authenticateToken, async (req, res) => {
                     FROM quiz_submissions 
                     WHERE quiz_id = ? AND student_id = ?
                 `, [quiz.id, req.user.id]);
-                
+
                 const rawStatus = submission ? submission.status : 'not_started';
-                const computedStatus = ['submitted','auto_submitted','graded'].includes(rawStatus) ? 'completed' : rawStatus;
+                const computedStatus = ['submitted', 'auto_submitted', 'graded'].includes(rawStatus) ? 'completed' : rawStatus;
                 quiz.submission_status = computedStatus;
                 quiz.submission = submission || null;
-                
+
                 const now = new Date();
                 quiz.can_start = !quiz.start_date || new Date(quiz.start_date) <= now;
                 quiz.has_ended = !!(quiz.end_date && new Date(quiz.end_date) < now);
-                
+
                 // Results visibility for students: hide until end_date has passed
                 quiz.can_view_results = !quiz.end_date || new Date(quiz.end_date) <= now;
                 if (!quiz.can_view_results && quiz.submission) {
@@ -186,7 +196,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 }
             }
         }
-        
+
         // Coerce numeric fields for Postgres compatibility so frontend tables show correct counts
         for (let quiz of quizzes) {
             quiz.batch_count = quiz.batch_count != null ? Number(quiz.batch_count) : 0;
@@ -197,7 +207,7 @@ router.get('/', authenticateToken, async (req, res) => {
             if (quiz.total_marks != null) quiz.total_marks = Number(quiz.total_marks);
             if (quiz.avg_score != null) quiz.avg_score = Number(quiz.avg_score);
         }
-        
+
         res.json(quizzes);
     } catch (error) {
         console.error('Get quizzes error:', error);
@@ -209,7 +219,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Get quiz details
         const quiz = await req.db.get(`
             SELECT 
@@ -220,16 +230,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
             LEFT JOIN users u ON q.teacher_id = u.id
             WHERE q.id = ?
         `, [id]);
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found' });
         }
-        
+
         // Check access permissions
         if (req.user.role === 'teacher' && quiz.teacher_id !== req.user.id) {
             return res.status(403).json({ error: 'Access denied' });
         }
-        
+
         if (req.user.role === 'student') {
             // Check if student has access to this quiz
             const hasAccess = await req.db.get(`
@@ -239,12 +249,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
                     SELECT 1 FROM quizzes WHERE id = ? AND status = 'published'
                 )
             `, [id, req.user.id, id]);
-            
+
             if (!hasAccess) {
                 return res.status(403).json({ error: 'Access denied' });
             }
         }
-        
+
         // Get questions with options
         const questions = await req.db.all(`
             SELECT 
@@ -253,7 +263,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             WHERE q.quiz_id = ?
             ORDER BY q.question_order
         `, [id]);
-        
+
         // Get options for MCQ questions
         for (let question of questions) {
             if (question.question_type === 'mcq' || question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
@@ -265,7 +275,36 @@ router.get('/:id', authenticateToken, async (req, res) => {
                 `, [question.id]);
             }
         }
-        
+
+        // Apply randomization for students
+        let finalQuestions = questions;
+        if (req.user.role === 'student') {
+            // Randomize question order if enabled
+            if (quiz.randomize_questions) {
+                finalQuestions = shuffleArray([...questions]);
+            }
+            // Randomize MCQ options if enabled
+            if (quiz.randomize_options) {
+                for (let question of finalQuestions) {
+                    if (question.options && question.options.length > 0) {
+                        question.options = shuffleArray([...question.options]);
+                    }
+                }
+            }
+            // Strip is_correct from options so students can't see answers
+            for (let question of finalQuestions) {
+                if (question.options) {
+                    question.options = question.options.map(opt => ({
+                        id: opt.id,
+                        option_text: opt.option_text,
+                        option_order: opt.option_order
+                    }));
+                }
+                // Don't send correct_answer to students
+                delete question.correct_answer;
+            }
+        }
+
         // Get assigned batches
         const batches = await req.db.all(`
             SELECT 
@@ -275,15 +314,65 @@ router.get('/:id', authenticateToken, async (req, res) => {
             JOIN batches b ON qb.batch_id = b.id
             WHERE qb.quiz_id = ?
         `, [id]);
-        
+
         res.json({
             ...quiz,
-            questions,
+            questions: finalQuestions,
             batches
         });
     } catch (error) {
         console.error('Get quiz error:', error);
         res.status(500).json({ error: 'Failed to fetch quiz' });
+    }
+});
+
+// ============================================================
+// AI Quiz Generation (Teachers only)
+// ============================================================
+router.post('/ai-generate', [
+    authenticateToken,
+    teacherOrAdmin,
+    body('totalQuestions').isInt({ min: 1, max: 50 }),
+    body('singleChoiceCount').isInt({ min: 0 }),
+    body('multipleChoiceCount').isInt({ min: 0 }),
+    body('yesNoCount').isInt({ min: 0 }),
+    body('totalPoints').isInt({ min: 1, max: 500 }),
+    body('userPrompt').optional().isString()
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+        }
+
+        const aiService = getAIQuizService();
+        if (!aiService.isConfigured) {
+            return res.status(503).json({ error: 'AI quiz generation is not configured. Ask your administrator to set the GEMINI_API_KEY.' });
+        }
+
+        const { totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints, userPrompt } = req.body;
+
+        // Validate that counts add up
+        const sum = singleChoiceCount + multipleChoiceCount + yesNoCount;
+        if (sum !== totalQuestions) {
+            return res.status(400).json({
+                error: `Question type counts (${singleChoiceCount} + ${multipleChoiceCount} + ${yesNoCount} = ${sum}) must equal total questions (${totalQuestions})`
+            });
+        }
+
+        const result = await aiService.generateQuiz({
+            totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints,
+            userPrompt: userPrompt || ''
+        });
+
+        res.json({
+            message: 'Quiz generated successfully',
+            ...result
+        });
+
+    } catch (error) {
+        console.error('AI quiz generation error:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate quiz with AI' });
     }
 });
 
@@ -307,15 +396,15 @@ router.post('/', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
-        const { 
+        const {
             title, description, instructions, start_date, end_date, duration_minutes,
-            randomize_questions, randomize_options, auto_submit, total_marks, questions, batch_ids 
+            randomize_questions, randomize_options, auto_submit, total_marks, questions, batch_ids
         } = req.body;
         const teacher_id = req.user.role === 'admin' ? req.body.teacher_id : req.user.id;
 
@@ -329,59 +418,59 @@ router.post('/', [
         for (let i = 0; i < questions.length; i++) {
             const question = questions[i];
             if (!question.question_text || !question.question_type || question.marks === undefined) {
-                return res.status(400).json({ 
-                    error: `Question ${i + 1}: Missing required fields (question_text, question_type, marks)` 
+                return res.status(400).json({
+                    error: `Question ${i + 1}: Missing required fields (question_text, question_type, marks)`
                 });
             }
-            
+
             if (!['mcq_single', 'mcq_multiple', 'yes_no'].includes(question.question_type)) {
-                return res.status(400).json({ 
-                    error: `Question ${i + 1}: Invalid question type. Must be mcq_single, mcq_multiple, or yes_no` 
+                return res.status(400).json({
+                    error: `Question ${i + 1}: Invalid question type. Must be mcq_single, mcq_multiple, or yes_no`
                 });
             }
-            
+
             if (question.question_type.startsWith('mcq') && (!question.options || question.options.length < 2)) {
-                return res.status(400).json({ 
-                    error: `Question ${i + 1}: MCQ must have at least 2 options` 
+                return res.status(400).json({
+                    error: `Question ${i + 1}: MCQ must have at least 2 options`
                 });
             }
-            
+
             if (question.question_type.startsWith('mcq')) {
                 const correctOptions = question.options.filter(opt => opt.is_correct);
                 if (correctOptions.length === 0) {
-                    return res.status(400).json({ 
-                        error: `Question ${i + 1}: At least one option must be marked as correct` 
+                    return res.status(400).json({
+                        error: `Question ${i + 1}: At least one option must be marked as correct`
                     });
                 }
-                
+
                 if (question.question_type === 'mcq_single' && correctOptions.length > 1) {
-                    return res.status(400).json({ 
-                        error: `Question ${i + 1}: Single choice MCQ can have only one correct answer` 
+                    return res.status(400).json({
+                        error: `Question ${i + 1}: Single choice MCQ can have only one correct answer`
                     });
                 }
             }
-            
+
             if (question.question_type === 'yes_no' && !question.correct_answer) {
-                return res.status(400).json({ 
-                    error: `Question ${i + 1}: Yes/No question must have a correct answer specified` 
+                return res.status(400).json({
+                    error: `Question ${i + 1}: Yes/No question must have a correct answer specified`
                 });
             }
-            
+
             calculatedTotalMarks += Number(question.marks);
         }
-        
+
         // Use provided total_marks or calculated total
         const finalTotalMarks = total_marks ? Number(total_marks) : calculatedTotalMarks;
 
         // Validate batch access
         let batchCheckSql = 'SELECT id FROM batches WHERE id IN (' + batch_ids.map(() => '?').join(',') + ')';
         let batchParams = [...batch_ids];
-        
+
         if (req.user.role === 'teacher') {
             batchCheckSql += ' AND teacher_id = ?';
             batchParams.push(req.user.id);
         }
-        
+
         const validBatches = await req.db.all(batchCheckSql, batchParams);
         if (validBatches.length !== batch_ids.length) {
             return res.status(400).json({ error: 'Invalid batch IDs or access denied' });
@@ -409,7 +498,7 @@ router.post('/', [
                     quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation
                 ) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
             `, [
-                quizId, question.question_text, question.question_type, i + 1, 
+                quizId, question.question_text, question.question_type, i + 1,
                 Number(question.marks), question.correct_answer || null, question.explanation || null
             ]);
 
@@ -638,7 +727,7 @@ router.put('/:id', [
         return res.json({ message: 'Quiz updated successfully', quiz: updatedQuiz });
 
     } catch (error) {
-        try { await req.db.run('ROLLBACK'); } catch {}
+        try { await req.db.run('ROLLBACK'); } catch { }
         console.error('Update quiz error:', error);
         return res.status(500).json({ error: 'Failed to update quiz' });
     }
@@ -648,39 +737,39 @@ router.put('/:id', [
 router.post('/:id/start', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can start quizzes' });
         }
-        
+
         // Check if quiz is accessible
         const accessCheck = await isQuizAccessible(req.db, id, req.user.id);
         if (!accessCheck.accessible) {
             return res.status(400).json({ error: accessCheck.reason });
         }
-        
+
         // Check if submission already exists
         const existingSubmission = await req.db.get(`
             SELECT * FROM quiz_submissions 
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
-        
+
         if (existingSubmission) {
             if (existingSubmission.status === 'submitted' || existingSubmission.status === 'auto_submitted') {
                 return res.status(400).json({ error: 'Quiz already submitted' });
             }
             if (existingSubmission.status === 'in_progress') {
-                return res.json({ 
+                return res.json({
                     message: 'Quiz already in progress',
-                    submission: existingSubmission 
+                    submission: existingSubmission
                 });
             }
         }
-        
+
         // Create or update submission
         const now = new Date().toISOString();
         let submissionId;
-        
+
         if (existingSubmission) {
             await req.db.run(`
                 UPDATE quiz_submissions 
@@ -695,20 +784,20 @@ router.post('/:id/start', authenticateToken, async (req, res) => {
             `, [id, req.user.id, now]);
             submissionId = result.rows[0].id;
         }
-        
+
         // Get quiz details for response
         const quiz = await req.db.get(`
             SELECT id, title, duration_minutes, total_marks, instructions
             FROM quizzes WHERE id = ?
         `, [id]);
-        
+
         res.json({
             message: 'Quiz started successfully',
             submission_id: submissionId,
             started_at: now,
             quiz: quiz
         });
-        
+
     } catch (error) {
         console.error('Start quiz error:', error);
         res.status(500).json({ error: 'Failed to start quiz' });
@@ -723,42 +812,42 @@ router.post('/:id/auto-save', [
     try {
         const { id } = req.params;
         const { answers } = req.body;
-        
+
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can save quiz progress' });
         }
-        
+
         // Get submission
         const submission = await req.db.get(`
             SELECT * FROM quiz_submissions
             WHERE quiz_id = ? AND student_id = ? AND status = 'in_progress'
         `, [id, req.user.id]);
-        
+
         if (!submission) {
             return res.status(400).json({ error: 'No active quiz session found' });
         }
-        
+
         // Get all valid question IDs for this quiz
         const validQuestions = await req.db.all(
             'SELECT id FROM questions WHERE quiz_id = ?',
             [id]
         );
         const validQuestionIds = new Set(validQuestions.map(q => q.id));
-        
+
         // Filter answers to only include valid question IDs
         const validAnswers = answers.filter(answer =>
             answer.question_id && validQuestionIds.has(answer.question_id)
         );
-        
+
         // Save progress with only valid answers
         await req.db.run(`
             UPDATE quiz_submissions
             SET auto_saved_data = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         `, [JSON.stringify(validAnswers), submission.id]);
-        
+
         res.json({ message: 'Progress saved successfully' });
-        
+
     } catch (error) {
         console.error('Auto-save error:', error);
         res.status(500).json({ error: 'Failed to save progress' });
@@ -773,42 +862,42 @@ router.post('/:id/submit', [
     try {
         const { id } = req.params;
         const { answers, is_auto_submit } = req.body;
-        
+
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can submit quizzes' });
         }
-        
+
         // Get submission
         const submission = await req.db.get(`
             SELECT * FROM quiz_submissions
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
-        
+
         if (!submission) {
             return res.status(400).json({ error: 'No quiz session found' });
         }
-        
+
         if (submission.status === 'submitted' || submission.status === 'auto_submitted') {
             return res.status(400).json({ error: 'Quiz already submitted' });
         }
-        
+
         // Get all valid question IDs for this quiz
         const validQuestions = await req.db.all(
             'SELECT id FROM questions WHERE quiz_id = ?',
             [id]
         );
         const validQuestionIds = new Set(validQuestions.map(q => q.id));
-        
+
         // Filter answers to only include valid question IDs
         const validAnswers = answers.filter(answer =>
             answer.question_id && validQuestionIds.has(answer.question_id)
         );
-        
+
         // Calculate time taken
         const startTime = new Date(submission.started_at);
         const endTime = new Date();
         const timeTaken = Math.round((endTime - startTime) / (1000 * 60)); // minutes
-        
+
         // Save only valid answers
         for (const answer of validAnswers) {
             await req.db.run(`
@@ -826,7 +915,7 @@ router.post('/:id/submit', [
                 answer.selected_options ? JSON.stringify(answer.selected_options) : null
             ]);
         }
-        
+
         // Update submission status
         const status = is_auto_submit ? 'auto_submitted' : 'submitted';
         await req.db.run(`
@@ -834,16 +923,16 @@ router.post('/:id/submit', [
             SET status = ?, submitted_at = CURRENT_TIMESTAMP, time_taken_minutes = ?
             WHERE id = ?
         `, [status, timeTaken, submission.id]);
-        
+
         // Calculate results automatically
         const results = await calculateQuizResults(req.db, submission.id);
-        
+
         res.json({
             message: 'Quiz submitted successfully',
             results: results,
             time_taken_minutes: timeTaken
         });
-        
+
     } catch (error) {
         console.error('Submit quiz error:', error);
         res.status(500).json({ error: 'Failed to submit quiz' });
@@ -913,7 +1002,7 @@ router.get('/:id/status', authenticateToken, async (req, res) => {
                 [id]
             );
             const validQuestionIds = new Set(validQuestions.map(q => q.id));
-            
+
             // Filter answers to only include valid question IDs
             const validAnswers = answers.filter(answer =>
                 answer.question_id && validQuestionIds.has(answer.question_id)
@@ -989,9 +1078,9 @@ router.patch('/:id/status', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
@@ -1166,7 +1255,7 @@ router.get('/:id/results', [
     try {
         const { id } = req.params;
         const { batch_id } = req.query;
-        
+
         // Check if quiz exists and belongs to teacher
         const quiz = await req.db.get(`
             SELECT q.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name
@@ -1174,20 +1263,20 @@ router.get('/:id/results', [
             JOIN users u ON q.teacher_id = u.id
             WHERE q.id = $1 AND (q.teacher_id = $2 OR $3 = 'admin')
         `, [id, req.user.id, req.user.role]);
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Get batch information
         let batchFilter = '';
         let batchParams = [id];
-        
+
         if (batch_id) {
             batchFilter = 'AND qb.batch_id = $2';
             batchParams.push(batch_id);
         }
-        
+
         // Get all students in assigned batches
         const studentsQuery = `
             SELECT DISTINCT 
@@ -1204,12 +1293,12 @@ router.get('/:id/results', [
             AND u.role = 'student'
             ORDER BY b.name, u.first_name, u.last_name
         `;
-        
+
         const students = await req.db.all(studentsQuery, batchParams);
-        
+
         // Group by batch
         const batchResults = {};
-        
+
         for (const student of students) {
             if (!batchResults[student.batch_id]) {
                 batchResults[student.batch_id] = {
@@ -1222,16 +1311,16 @@ router.get('/:id/results', [
                     students: []
                 };
             }
-            
+
             const batch = batchResults[student.batch_id];
             batch.total_students++;
-            
+
             if (student.status === 'submitted' || student.status === 'auto_submitted' || student.status === 'graded') {
                 batch.submitted_count++;
             } else {
                 batch.not_submitted_count++;
             }
-            
+
             batch.students.push({
                 id: student.id,
                 name: `${student.first_name} ${student.last_name}`,
@@ -1246,7 +1335,7 @@ router.get('/:id/results', [
                 time_taken_minutes: student.time_taken_minutes
             });
         }
-        
+
         // Calculate average scores for each batch
         Object.values(batchResults).forEach(batch => {
             const submittedStudents = batch.students.filter(s => s.percentage !== null);
@@ -1255,12 +1344,12 @@ router.get('/:id/results', [
                 batch.average_score = Math.round(totalScore / submittedStudents.length);
             }
         });
-        
+
         res.json({
             quiz: quiz,
             batch_results: Object.values(batchResults)
         });
-        
+
     } catch (error) {
         console.error('Get quiz results error:', error);
         res.status(500).json({ error: 'Failed to get quiz results' });
@@ -1274,17 +1363,17 @@ router.get('/:id/submissions/:submission_id', [
 ], async (req, res) => {
     try {
         const { id, submission_id } = req.params;
-        
+
         // Check if quiz exists and belongs to teacher
         const quiz = await req.db.get(`
             SELECT * FROM quizzes 
             WHERE id = $1 AND (teacher_id = $2 OR $3 = 'admin')
         `, [id, req.user.id, req.user.role]);
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Get submission details
         const submission = await req.db.get(`
             SELECT qs.*, u.first_name, u.last_name, u.email
@@ -1292,11 +1381,11 @@ router.get('/:id/submissions/:submission_id', [
             JOIN users u ON qs.student_id = u.id
             WHERE qs.id = $1 AND qs.quiz_id = $2
         `, [submission_id, id]);
-        
+
         if (!submission) {
             return res.status(404).json({ error: 'Submission not found' });
         }
-        
+
         // Get questions with student answers
         const questionsWithAnswers = await req.db.all(`
             SELECT 
@@ -1307,7 +1396,7 @@ router.get('/:id/submissions/:submission_id', [
             WHERE q.quiz_id = $2
             ORDER BY q.question_order
         `, [submission_id, id]);
-        
+
         // Get options for MCQ questions
         for (let question of questionsWithAnswers) {
             if (question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
@@ -1317,7 +1406,7 @@ router.get('/:id/submissions/:submission_id', [
                     WHERE question_id = $1
                     ORDER BY option_order
                 `, [question.id]);
-                
+
                 if (question.selected_options) {
                     try {
                         question.selected_options = JSON.parse(question.selected_options);
@@ -1327,7 +1416,7 @@ router.get('/:id/submissions/:submission_id', [
                 }
             }
         }
-        
+
         res.json({
             submission: {
                 ...submission,
@@ -1335,7 +1424,7 @@ router.get('/:id/submissions/:submission_id', [
             },
             questions: questionsWithAnswers
         });
-        
+
     } catch (error) {
         console.error('Get submission details error:', error);
         res.status(500).json({ error: 'Failed to get submission details' });
@@ -1346,7 +1435,7 @@ router.get('/:id/submissions/:submission_id', [
 router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Check if quiz exists and user has access
         let quiz;
         if (req.user.role === 'teacher') {
@@ -1357,14 +1446,14 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
         } else {
             quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
         }
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Begin transaction for atomic deletion
         await req.db.run('BEGIN TRANSACTION');
-        
+
         try {
             // Step 1: Delete student answers (depends on submission_id and question_id)
             await req.db.run(`
@@ -1373,10 +1462,10 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                     SELECT id FROM quiz_submissions WHERE quiz_id = ?
                 )
             `, [id]);
-            
+
             // Step 2: Delete quiz submissions (depends on quiz_id)
             await req.db.run('DELETE FROM quiz_submissions WHERE quiz_id = ?', [id]);
-            
+
             // Step 3: Delete question options (depends on question_id)
             await req.db.run(`
                 DELETE FROM question_options 
@@ -1384,19 +1473,19 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                     SELECT id FROM questions WHERE quiz_id = ?
                 )
             `, [id]);
-            
+
             // Step 4: Delete questions (depends on quiz_id)
             await req.db.run('DELETE FROM questions WHERE quiz_id = ?', [id]);
-            
+
             // Step 5: Delete quiz batch assignments (depends on quiz_id)
             await req.db.run('DELETE FROM quiz_batches WHERE quiz_id = ?', [id]);
-            
+
             // Step 6: Finally delete the quiz itself
             await req.db.run('DELETE FROM quizzes WHERE id = ?', [id]);
-            
+
             // Commit transaction
             await req.db.run('COMMIT');
-            
+
             res.json({ message: 'Quiz and all related data deleted successfully' });
         } catch (deleteError) {
             // Rollback transaction on error
@@ -1418,9 +1507,9 @@ router.post('/:id/submit', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
@@ -1451,7 +1540,7 @@ router.post('/:id/submit', [
         // Save answers
         for (const answer of answers) {
             const { question_id, answer_text, selected_options } = answer;
-            
+
             await req.db.run(`
                 INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                 VALUES (?, ?, ?, ?)
@@ -1461,9 +1550,9 @@ router.post('/:id/submit', [
                   selected_options = EXCLUDED.selected_options,
                   updated_at = CURRENT_TIMESTAMP
             `, [
-                submissionId, 
-                question_id, 
-                answer_text || null, 
+                submissionId,
+                question_id,
+                answer_text || null,
                 selected_options ? JSON.stringify(selected_options) : null
             ]);
         }
@@ -1486,7 +1575,7 @@ router.post('/:id/submit', [
 router.get('/:id/submissions', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Check if user has access to this quiz
         let quiz;
         if (req.user.role === 'teacher') {
@@ -1497,11 +1586,11 @@ router.get('/:id/submissions', authenticateToken, teacherOrAdmin, async (req, re
         } else {
             quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
         }
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         const submissions = await req.db.all(`
             SELECT 
                 qs.id, qs.status, qs.submitted_at, qs.graded_at, qs.published_at,
@@ -1512,7 +1601,7 @@ router.get('/:id/submissions', authenticateToken, teacherOrAdmin, async (req, re
             WHERE qs.quiz_id = ?
             ORDER BY qs.submitted_at DESC, u.first_name, u.last_name
         `, [id]);
-        
+
         res.json(submissions);
     } catch (error) {
         console.error('Get quiz submissions error:', error);
@@ -1524,7 +1613,7 @@ router.get('/:id/submissions', authenticateToken, teacherOrAdmin, async (req, re
 router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { id, submissionId } = req.params;
-        
+
         // Check access
         let quiz;
         if (req.user.role === 'teacher') {
@@ -1535,11 +1624,11 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
         } else {
             quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
         }
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Get submission details
         const submission = await req.db.get(`
             SELECT 
@@ -1549,11 +1638,11 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
             JOIN users u ON qs.student_id = u.id
             WHERE qs.id = ? AND qs.quiz_id = ?
         `, [submissionId, id]);
-        
+
         if (!submission) {
             return res.status(404).json({ error: 'Submission not found' });
         }
-        
+
         // Get questions with student answers
         const questions = await req.db.all(`
             SELECT 
@@ -1564,7 +1653,7 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
             WHERE q.quiz_id = ?
             ORDER BY q.question_order
         `, [submissionId, id]);
-        
+
         // Get options for MCQ questions
         for (let question of questions) {
             if (question.question_type === 'mcq') {
@@ -1574,7 +1663,7 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
                     WHERE question_id = ?
                     ORDER BY option_order
                 `, [question.id]);
-                
+
                 // Parse selected options
                 if (question.selected_options) {
                     try {
@@ -1585,7 +1674,7 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
                 }
             }
         }
-        
+
         res.json({
             ...submission,
             questions
@@ -1606,15 +1695,15 @@ router.post('/:id/submissions/:submissionId/grade', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
         const { id, submissionId } = req.params;
         const { grades, teacher_comments } = req.body;
-        
+
         // Check access
         let quiz;
         if (req.user.role === 'teacher') {
@@ -1625,25 +1714,25 @@ router.post('/:id/submissions/:submissionId/grade', [
         } else {
             quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
         }
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Update individual question scores
         let totalScore = 0;
         for (const grade of grades) {
             const { question_id, score, teacher_feedback } = grade;
-            
+
             await req.db.run(`
                 UPDATE student_answers 
                 SET score = ?, teacher_feedback = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE submission_id = ? AND question_id = ?
             `, [score || 0, teacher_feedback || null, submissionId, question_id]);
-            
+
             totalScore += (score || 0);
         }
-        
+
         // Update submission with total score and status
         await req.db.run(`
             UPDATE quiz_submissions 
@@ -1651,9 +1740,9 @@ router.post('/:id/submissions/:submissionId/grade', [
                 graded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         `, [totalScore, teacher_comments || null, submissionId]);
-        
+
         res.json({ message: 'Submission graded successfully' });
-        
+
     } catch (error) {
         console.error('Grade submission error:', error);
         res.status(500).json({ error: 'Failed to grade submission' });
@@ -1664,7 +1753,7 @@ router.post('/:id/submissions/:submissionId/grade', [
 router.post('/:id/submissions/:submissionId/publish', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { id, submissionId } = req.params;
-        
+
         // Check access
         let quiz;
         if (req.user.role === 'teacher') {
@@ -1675,24 +1764,24 @@ router.post('/:id/submissions/:submissionId/publish', authenticateToken, teacher
         } else {
             quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
         }
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Update submission status to published
         const result = await req.db.run(`
             UPDATE quiz_submissions 
             SET status = 'published', published_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE id = ? AND status = 'graded'
         `, [submissionId]);
-        
+
         if (result.changes === 0) {
             return res.status(400).json({ error: 'Submission not found or not graded yet' });
         }
-        
+
         res.json({ message: 'Grades published successfully' });
-        
+
     } catch (error) {
         console.error('Publish grades error:', error);
         res.status(500).json({ error: 'Failed to publish grades' });
@@ -1703,11 +1792,11 @@ router.post('/:id/submissions/:submissionId/publish', authenticateToken, teacher
 router.get('/:id/result', authenticateToken, authenticated, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can view quiz results' });
         }
-        
+
         const result = await req.db.get(`
             SELECT 
                 qs.id, qs.status, qs.submitted_at, qs.published_at,
@@ -1717,15 +1806,15 @@ router.get('/:id/result', authenticateToken, authenticated, async (req, res) => 
             JOIN quizzes q ON qs.quiz_id = q.id
             WHERE qs.quiz_id = ? AND qs.student_id = ?
         `, [id, req.user.id]);
-        
+
         if (!result) {
             return res.status(404).json({ error: 'Quiz result not found' });
         }
-        
+
         if (result.status !== 'published') {
             return res.status(400).json({ error: 'Results not yet published' });
         }
-        
+
         // Get question-wise results
         const questions = await req.db.all(`
             SELECT 
@@ -1736,12 +1825,12 @@ router.get('/:id/result', authenticateToken, authenticated, async (req, res) => 
             WHERE q.quiz_id = ?
             ORDER BY q.question_order
         `, [result.id, id]);
-        
+
         res.json({
             ...result,
             questions
         });
-        
+
     } catch (error) {
         console.error('Get quiz result error:', error);
         res.status(500).json({ error: 'Failed to fetch quiz result' });
@@ -1754,7 +1843,7 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can access this endpoint' });
         }
-        
+
         // Get student's batches with optional quizzes (include batches even if no quizzes)
         const batchesWithQuizzes = await req.db.all(`
             SELECT DISTINCT
@@ -1772,10 +1861,10 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
             WHERE bs.student_id = ?
             ORDER BY b.name, q.created_at DESC
         `, [req.user.id, req.user.id]);
-        
+
         // Group by batch
         const batches = {};
-        
+
         for (const row of batchesWithQuizzes) {
             if (!batches[row.batch_id]) {
                 batches[row.batch_id] = {
@@ -1785,17 +1874,17 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
                     quizzes: []
                 };
             }
-            
+
             if (row.quiz_id) {
                 const now = new Date();
                 const startDate = row.start_date ? new Date(row.start_date) : null;
                 const endDate = row.end_date ? new Date(row.end_date) : null;
-                
+
                 let accessibility = {
                     accessible: true,
                     reason: null
                 };
-                
+
                 if (startDate && now < startDate) {
                     accessibility = {
                         accessible: false,
@@ -1807,7 +1896,7 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
                         reason: 'Quiz has ended'
                     };
                 }
-                
+
                 batches[row.batch_id].quizzes.push({
                     id: row.quiz_id,
                     title: row.title,
@@ -1818,7 +1907,7 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
                     total_marks: row.total_marks,
                     submission_status: row.submission_status || 'not_started',
                     score: row.score,
-                    percentage: row.score && row.total_marks ? 
+                    percentage: row.score && row.total_marks ?
                         Math.round((row.score / row.total_marks) * 100) : null,
                     submitted_at: row.submitted_at,
                     time_taken_minutes: row.time_taken_minutes,
@@ -1826,11 +1915,11 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
                 });
             }
         }
-        
+
         res.json({
             batches: Object.values(batches)
         });
-        
+
     } catch (error) {
         console.error('Student dashboard error:', error);
         res.status(500).json({ error: 'Failed to get student dashboard' });
@@ -1841,11 +1930,11 @@ router.get('/student/dashboard', authenticateToken, async (req, res) => {
 router.get('/:id/student-results', authenticateToken, async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can access this endpoint' });
         }
-        
+
         // Get quiz details
         const quiz = await req.db.get(`
             SELECT q.id, q.title, q.description, q.total_marks, q.duration_minutes, q.end_date as end_date
@@ -1854,27 +1943,27 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             JOIN batch_students bs ON qb.batch_id = bs.batch_id
             WHERE q.id = ? AND bs.student_id = ? AND q.status = 'published'
         `, [id, req.user.id]);
-        
+
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
-        
+
         // Gate results until the quiz end_date has passed
         const now = new Date();
         if (quiz.end_date && new Date(quiz.end_date) > now) {
             return res.status(403).json({ error: 'Results are locked until the quiz end date' });
         }
-        
+
         // Get student's submission
         const submission = await req.db.get(`
             SELECT * FROM quiz_submissions
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
-        
+
         if (!submission || (submission.status !== 'submitted' && submission.status !== 'auto_submitted' && submission.status !== 'graded')) {
             return res.status(400).json({ error: 'Quiz not submitted yet' });
         }
-        
+
         // Get detailed results
         const results = await req.db.all(`
             SELECT 
@@ -1886,7 +1975,7 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             WHERE q.quiz_id = ?
             ORDER BY q.id
         `, [submission.id, id]);
-        
+
         // Get options for MCQ questions and compute derived fields
         for (let question of results) {
             if (question.question_type && (question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple')) {
@@ -1910,11 +1999,11 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             }
             question.points = question.marks;
         }
-        
+
         const computedPercentage = (submission.max_score && submission.max_score > 0)
             ? Math.round((Number(submission.total_score || 0) / Number(submission.max_score)) * 100)
             : 0;
-        
+
         res.json({
             quiz: quiz,
             submission: {
@@ -1929,7 +2018,7 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             },
             questions: results
         });
-        
+
     } catch (error) {
         console.error('Student results error:', error);
         res.status(500).json({ error: 'Failed to get student results' });
@@ -1942,12 +2031,12 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
 router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { teacherId } = req.params;
-        
+
         // Check if user can access this teacher's quizzes
         if (req.user.role === 'teacher' && parseInt(teacherId) !== req.user.id) {
             return res.status(403).json({ error: 'Access denied' });
         }
-        
+
         const quizzes = await req.db.all(`
             SELECT 
                 q.id, q.title, q.description, q.status, q.start_date, q.end_date,
@@ -1971,7 +2060,7 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
             GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at
             ORDER BY q.created_at DESC
         `, [teacherId]);
-        
+
         // Add batch names and coerce numeric/boolean types for each quiz
         for (let quiz of quizzes) {
             const batches = await req.db.all(`
@@ -1991,7 +2080,7 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
             // Convert is_active 1/0 -> boolean
             quiz.is_active = !!Number(quiz.is_active);
         }
-        
+
         res.json({ data: quizzes });
     } catch (error) {
         console.error('Get teacher quizzes error:', error);

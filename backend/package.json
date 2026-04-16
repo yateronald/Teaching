@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@getbrevo/brevo": "^3.0.1",
+    "@google/genai": "^1.50.1",
     "@larksuiteoapi/node-sdk": "^1.37.0",
     "axios": "^1.12.2",
     "bcryptjs": "^3.0.2",
