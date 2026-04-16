@@ -6,7 +6,7 @@ import {
 import {
     RobotOutlined, ThunderboltOutlined, InfoCircleOutlined,
     CheckCircleOutlined, BulbOutlined, ExperimentOutlined,
-    SendOutlined, ReloadOutlined
+    ReloadOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 
