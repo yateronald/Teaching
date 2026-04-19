@@ -185,8 +185,19 @@ const AudioQuestionModal: React.FC<AudioQuestionModalProps> = ({
             };
             setAudioData(clip);
 
-            // Fetch the audio blob with auth for preview playback
-            if (data.audio.kdriveFileId) {
+            // Use inline base64 audio for instant preview (no extra fetch needed)
+            if (data.audio.wavBase64) {
+                const byteChars = atob(data.audio.wavBase64);
+                const byteNums = new Uint8Array(byteChars.length);
+                for (let i = 0; i < byteChars.length; i++) {
+                    byteNums[i] = byteChars.charCodeAt(i);
+                }
+                const blob = new Blob([byteNums], { type: 'audio/wav' });
+                const url = URL.createObjectURL(blob);
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                setPreviewUrl(url);
+            } else if (data.audio.kdriveFileId) {
+                // Fallback: fetch the audio blob separately
                 try {
                     const audioResp = await apiCall(`/quizzes/audio/preview/${data.audio.kdriveFileId}`);
                     if (audioResp.ok) {

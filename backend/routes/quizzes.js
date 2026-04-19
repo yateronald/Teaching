@@ -448,7 +448,8 @@ router.post('/audio/generate', [
             transcript,
             voiceName || 'Kore',
             req.user.id,
-            quizTitle || 'quiz'
+            quizTitle || 'quiz',
+            { returnBase64: true }
         );
 
         res.json({
@@ -459,7 +460,8 @@ router.post('/audio/generate', [
                 durationSeconds: result.durationSeconds,
                 transcript,
                 voiceName: voiceName || 'Kore',
-                sourceType: 'tts'
+                sourceType: 'tts',
+                wavBase64: result.wavBase64 || null  // inline audio data for instant preview
             }
         });
     } catch (error) {

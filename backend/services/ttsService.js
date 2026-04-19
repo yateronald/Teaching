@@ -108,9 +108,40 @@ class TTSService {
     }
 
     // --------------------------------------------------------
-    // Convert raw PCM buffer to WAV format
+    // Convert raw PCM buffer to WAV format — IN-MEMORY (no disk I/O)
     // Gemini TTS outputs: 24000 Hz, 16-bit signed LE, mono
     // --------------------------------------------------------
+    pcmToWavBuffer(pcmBuffer) {
+        const sampleRate = 24000;
+        const numChannels = 1;
+        const bitsPerSample = 16;
+        const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+        const blockAlign = numChannels * (bitsPerSample / 8);
+        const dataSize = pcmBuffer.length;
+        const headerSize = 44;
+
+        const header = Buffer.alloc(headerSize);
+        // RIFF header
+        header.write('RIFF', 0);
+        header.writeUInt32LE(36 + dataSize, 4);
+        header.write('WAVE', 8);
+        // fmt sub-chunk
+        header.write('fmt ', 12);
+        header.writeUInt32LE(16, 16);          // Sub-chunk size
+        header.writeUInt16LE(1, 20);           // PCM format
+        header.writeUInt16LE(numChannels, 22);
+        header.writeUInt32LE(sampleRate, 24);
+        header.writeUInt32LE(byteRate, 28);
+        header.writeUInt16LE(blockAlign, 32);
+        header.writeUInt16LE(bitsPerSample, 34);
+        // data sub-chunk
+        header.write('data', 36);
+        header.writeUInt32LE(dataSize, 40);
+
+        return Buffer.concat([header, pcmBuffer]);
+    }
+
+    // Legacy file-based conversion (kept for compatibility)
     pcmToWav(pcmBuffer) {
         return new Promise((resolve, reject) => {
             const tmpFile = path.join(os.tmpdir(), `tts_${Date.now()}.wav`);
@@ -140,47 +171,51 @@ class TTSService {
 
     // --------------------------------------------------------
     // Full pipeline: Transcript → TTS → WAV → kDrive upload
-    // Returns: { kdriveFileId, fileName, durationSeconds }
+    // Returns: { kdriveFileId, fileName, durationSeconds, wavBase64? }
+    // Optimized: in-memory WAV, parallelized folder lookup + TTS
     // --------------------------------------------------------
-    async generateAndUpload(transcript, voiceName, teacherId, quizTitle) {
-        // Step 1: Generate PCM audio
-        const pcmBuffer = await this.generateAudio(transcript, voiceName);
-
-        // Step 2: Convert to WAV
-        const wavPath = await this.pcmToWav(pcmBuffer);
-
-        // Step 3: Estimate duration
-        const durationSeconds = this.estimateDuration(pcmBuffer);
-
-        // Step 4: Upload to kDrive
+    async generateAndUpload(transcript, voiceName, teacherId, quizTitle, { returnBase64 = false } = {}) {
         const kdrive = getKDriveService();
         if (!kdrive.isConfigured) {
-            // Clean up temp file
-            try { fs.unlinkSync(wavPath); } catch {}
             throw new Error('kDrive is not configured. Cannot store audio files.');
         }
 
         const sanitizedTitle = (quizTitle || 'quiz').replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
         const fileName = `audio_${sanitizedTitle}_${Date.now()}.wav`;
 
+        // Run TTS generation + kDrive folder lookup IN PARALLEL
+        const teacherFolderName = `Teacher_${teacherId}_Audio`;
+        const [pcmBuffer, teacherFolder] = await Promise.all([
+            this.generateAudio(transcript, voiceName),
+            kdrive.getOrCreateFolder(kdrive.rootFolderId, teacherFolderName),
+        ]);
+
+        // Convert PCM → WAV entirely in memory (no disk I/O)
+        const wavBuffer = this.pcmToWavBuffer(pcmBuffer);
+        const durationSeconds = this.estimateDuration(pcmBuffer);
+
+        // Write temp file for upload (kDrive SDK expects a file path)
+        const tmpFile = path.join(os.tmpdir(), fileName);
+        fs.writeFileSync(tmpFile, wavBuffer);
+
         try {
-            // Ensure teacher folder exists
-            const teacherFolderName = `Teacher_${teacherId}_Audio`;
-            const teacherFolder = await kdrive.getOrCreateFolder(kdrive.rootFolderId, teacherFolderName);
-
-            // Upload the WAV file
-            const uploadResult = await kdrive.uploadFile(wavPath, teacherFolder.id, fileName);
-
+            const uploadResult = await kdrive.uploadFile(tmpFile, teacherFolder.id, fileName);
             console.log(`✅ TTS: Audio uploaded to kDrive (id: ${uploadResult.id}, file: ${fileName})`);
 
-            return {
+            const result = {
                 kdriveFileId: String(uploadResult.id),
                 fileName,
                 durationSeconds,
             };
+
+            // Optionally return audio data inline to skip the preview fetch round-trip
+            if (returnBase64) {
+                result.wavBase64 = wavBuffer.toString('base64');
+            }
+
+            return result;
         } finally {
-            // Always clean up temp file
-            try { fs.unlinkSync(wavPath); } catch {}
+            try { fs.unlinkSync(tmpFile); } catch {}
         }
     }
 
