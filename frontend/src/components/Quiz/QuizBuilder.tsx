@@ -19,13 +19,15 @@ import {
     DatePicker,
     Checkbox,
     Tooltip,
-    Collapse
+    Collapse,
+    Spin
 } from 'antd';
 import {
     PlusOutlined,
     DeleteOutlined,
     EditOutlined,
     SaveOutlined,
+    LoadingOutlined,
     InfoCircleOutlined,
     MinusCircleOutlined,
     SoundOutlined
@@ -56,6 +58,7 @@ interface Question {
     correct_answer?: string; // For yes_no questions
     audio_clip_temp_id?: string; // Links question to an audio clip
     audio_clip_index?: number; // Index in audioClips array
+    audio_clip_id?: number; // Real DB id (set when loaded from backend)
 }
 
 interface AudioClipData {
@@ -121,6 +124,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     
     const [batches, setBatches] = useState<Batch[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingQuiz, setLoadingQuiz] = useState(false);
+    const [isPublishing, setIsPublishing] = useState(false);
     const [questionModalVisible, setQuestionModalVisible] = useState(false);
     const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
     const [editingIndex, setEditingIndex] = useState<number>(-1);
@@ -221,6 +226,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     };
 
     const fetchQuiz = async () => {
+        setLoadingQuiz(true);
         try {
             const response = await apiCall(`/quizzes/${quizId}`);
             if (response.ok) {
@@ -262,7 +268,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 } as QuestionOption;
                               })
                             : [] as QuestionOption[],
-                        correct_answer: quest.correct_answer
+                        correct_answer: quest.correct_answer,
+                        audio_clip_id: quest.audio_clip_id || undefined,
                     }))
                     : [];
 
@@ -284,6 +291,44 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 
                 setQuiz(normalized);
                 setTotalMarks(typeof q.total_marks === 'number' ? q.total_marks : null);
+
+                // ---- Reconstruct audio clips & link questions by audio_clip_id ----
+                const backendClips = Array.isArray(q.audio_clips) ? q.audio_clips : [];
+                if (backendClips.length > 0) {
+                    // Build a map from real DB clip id -> generated tempId
+                    const clipIdToTempId: Record<number, string> = {};
+                    const restoredClips: AudioClipData[] = backendClips.map((c: any, idx: number) => {
+                        const tempId = `audio_restored_${c.id}_${Date.now()}_${idx}`;
+                        clipIdToTempId[c.id] = tempId;
+                        return {
+                            tempId,
+                            transcript: c.transcript || '',
+                            voiceName: c.voice_name || 'Kore',
+                            sourceType: (c.source_type || 'tts') as 'tts' | 'upload',
+                            kdriveFileId: c.kdrive_file_id ? String(c.kdrive_file_id) : undefined,
+                            fileName: c.file_name || undefined,
+                            durationSeconds: c.duration_seconds || undefined,
+                            maxPlays: c.max_plays || 0,
+                        };
+                    });
+                    setAudioClips(restoredClips);
+
+                    // Assign audio_clip_temp_id to questions that have audio_clip_id
+                    const linkedQuestions = normalizedQuestions.map(quest => {
+                        if (quest.audio_clip_id && clipIdToTempId[quest.audio_clip_id]) {
+                            return {
+                                ...quest,
+                                audio_clip_temp_id: clipIdToTempId[quest.audio_clip_id],
+                            };
+                        }
+                        return quest;
+                    });
+                    // Update the quiz with linked questions
+                    setQuiz(prev => ({ ...prev, questions: linkedQuestions }));
+                } else {
+                    setAudioClips([]);
+                }
+
                 quizForm.setFieldsValue({
                     title: normalized.title,
                     description: normalized.description,
@@ -304,6 +349,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         } catch (error) {
             message.error('Failed to fetch quiz');
             navigate('/teacher-dashboard');
+        } finally {
+            setLoadingQuiz(false);
         }
     };
 
@@ -327,6 +374,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
         }
 
         setLoading(true);
+        setIsPublishing(publishNow);
         try {
             // Apply equalization if enabled
             let questionsToSave = [...quiz.questions];
@@ -364,6 +412,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     // Audio clip linkage
                     audio_clip_temp_id: q.audio_clip_temp_id || undefined,
                     audio_clip_index: q.audio_clip_index !== undefined ? q.audio_clip_index : undefined,
+                    audio_clip_id: q.audio_clip_id || undefined,
                 })),
                 // Audio clips
                 audio_clips: audioClips.map(clip => ({
@@ -968,7 +1017,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const totalPoints = quiz.questions.reduce((sum, q) => sum + q.marks, 0);
 
     return (
-        <div style={{ margin: '0 auto', padding: '0' }}>
+        <div style={{ margin: '0 auto', padding: '0', position: 'relative' }}>
             {/* Sticky Gradient Header */}
             <div style={{
                 position: 'sticky',
@@ -1045,6 +1094,121 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     </button>
                 </div>
             </div>
+
+            {/* Loading overlay when fetching quiz data for edit mode */}
+            {loadingQuiz && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(255,255,255,0.88)',
+                    backdropFilter: 'blur(6px)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 20,
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: 20,
+                        padding: '40px 56px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(37,99,235,0.15)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 20,
+                    }}>
+                        <Spin indicator={<LoadingOutlined style={{ fontSize: 52, color: '#2563eb' }} spin />} />
+                        <div style={{ textAlign: 'center' }}>
+                            <Text strong style={{ fontSize: 20, color: '#1e3a5f', display: 'block', marginBottom: 4 }}>Loading Quiz Data...</Text>
+                            <Text type="secondary" style={{ fontSize: 14 }}>Please wait while we fetch your quiz details</Text>
+                        </div>
+                        <div style={{
+                            width: 180, height: 4, borderRadius: 4,
+                            background: '#e5e7eb', overflow: 'hidden',
+                        }}>
+                            <div style={{
+                                width: '40%', height: '100%', borderRadius: 4,
+                                background: 'linear-gradient(90deg, #2563eb, #06b6d4)',
+                                animation: 'loadingBar 1.5s ease-in-out infinite',
+                            }} />
+                        </div>
+                    </div>
+                    <style>{`
+                        @keyframes loadingBar {
+                            0% { transform: translateX(-100%); }
+                            50% { transform: translateX(200%); }
+                            100% { transform: translateX(-100%); }
+                        }
+                    `}</style>
+                </div>
+            )}
+
+            {/* Saving overlay when save/publish is in progress */}
+            {loading && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: 'rgba(255,255,255,0.88)',
+                    backdropFilter: 'blur(6px)',
+                    zIndex: 9999,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 20,
+                }}>
+                    <div style={{
+                        background: 'white',
+                        borderRadius: 20,
+                        padding: '40px 56px',
+                        boxShadow: '0 20px 60px rgba(0,0,0,0.12), 0 4px 20px rgba(124,58,237,0.15)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: 20,
+                    }}>
+                        <div style={{ fontSize: 40, marginBottom: 4 }}>{isPublishing ? '🚀' : '📝'}</div>
+                        <Spin indicator={<LoadingOutlined style={{ fontSize: 48, color: isPublishing ? '#7c3aed' : '#2563eb' }} spin />} />
+                        <div style={{ textAlign: 'center' }}>
+                            <Text strong style={{ fontSize: 20, color: '#1e3a5f', display: 'block', marginBottom: 4 }}>
+                                {isPublishing ? 'Publishing Quiz...' : 'Saving Draft...'}
+                            </Text>
+                            <Text type="secondary" style={{ fontSize: 14 }}>
+                                {isPublishing
+                                    ? 'Your quiz is going live for students!'
+                                    : 'Saving your progress, you can continue later'}
+                            </Text>
+                        </div>
+                        <div style={{
+                            width: 180, height: 4, borderRadius: 4,
+                            background: '#e5e7eb', overflow: 'hidden',
+                        }}>
+                            <div style={{
+                                width: '40%', height: '100%', borderRadius: 4,
+                                background: isPublishing
+                                    ? 'linear-gradient(90deg, #7c3aed, #a855f7)'
+                                    : 'linear-gradient(90deg, #2563eb, #06b6d4)',
+                                animation: 'savingBar 1.5s ease-in-out infinite',
+                            }} />
+                        </div>
+                    </div>
+                    <style>{`
+                        @keyframes savingBar {
+                            0% { transform: translateX(-100%); }
+                            50% { transform: translateX(200%); }
+                            100% { transform: translateX(-100%); }
+                        }
+                    `}</style>
+                </div>
+            )}
 
             {isEnded && (
                 <Alert
@@ -1614,6 +1778,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 <Button
                     onClick={() => onClose ? onClose() : navigate('/teacher-dashboard')}
                     size="large"
+                    disabled={loading}
                     style={{ borderRadius: 10, minWidth: 110, height: 44, fontWeight: 500 }}
                 >
                     Cancel
@@ -1621,7 +1786,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 <Button
                     loading={loading}
                     icon={<SaveOutlined />}
-                    disabled={isEnded}
+                    disabled={isEnded || loadingQuiz || loading}
                     size="large"
                     onClick={() => {
                         quizForm.validateFields().then(values => {
@@ -1641,14 +1806,14 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                             handleQuizSave(values, true);
                         });
                     }}
-                    disabled={isEnded}
+                    disabled={isEnded || loadingQuiz || loading}
                     size="large"
                     style={{
                         borderRadius: 10,
                         minWidth: 170,
                         height: 44,
                         fontWeight: 600,
-                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                        background: (isEnded || loadingQuiz || loading) ? undefined : 'linear-gradient(135deg, #667eea, #764ba2)',
                         border: 'none',
                     }}
                 >

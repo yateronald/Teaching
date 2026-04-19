@@ -913,6 +913,39 @@ router.put('/:id', [
             await req.db.run('INSERT INTO quiz_batches (quiz_id, batch_id) VALUES (?, ?)', [id, batchId]);
         }
 
+        // --- Handle Audio Clips ---
+        const audio_clips = req.body.audio_clips || [];
+        const audioClipMap = {}; // maps tempId or index -> real DB id
+
+        if (audio_clips.length > 0) {
+            // Delete old audio clips and re-insert (new set provided by frontend)
+            await req.db.run('DELETE FROM quiz_audio_clips WHERE quiz_id = ?', [id]);
+
+            for (let a = 0; a < audio_clips.length; a++) {
+                const clip = audio_clips[a];
+                const clipResult = await req.db.run(`
+                    INSERT INTO quiz_audio_clips (
+                        quiz_id, transcript, voice_name, source_type, kdrive_file_id,
+                        file_name, duration_seconds, audio_order, max_plays
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+                `, [
+                    id,
+                    clip.transcript || '',
+                    clip.voiceName || 'Kore',
+                    clip.sourceType || 'tts',
+                    clip.kdriveFileId || null,
+                    clip.fileName || null,
+                    clip.durationSeconds || null,
+                    a + 1,
+                    clip.maxPlays || 0
+                ]);
+                const clipId = clipResult.rows[0].id;
+                if (clip.tempId) audioClipMap[clip.tempId] = clipId;
+                audioClipMap[`idx_${a}`] = clipId;
+            }
+        }
+        // If no audio_clips provided, existing clips in DB are preserved as-is
+
         // Replace questions and options
         const oldQuestions = await req.db.all('SELECT id FROM questions WHERE quiz_id = ?', [id]);
         if (oldQuestions.length > 0) {
@@ -923,10 +956,22 @@ router.put('/:id', [
 
         for (let i = 0; i < questions.length; i++) {
             const q = questions[i];
+
+            // Resolve audio_clip_id: tempId mapping → index mapping → direct DB id
+            let audioClipId = null;
+            if (q.audio_clip_temp_id && audioClipMap[q.audio_clip_temp_id]) {
+                audioClipId = audioClipMap[q.audio_clip_temp_id];
+            } else if (q.audio_clip_index !== undefined && audioClipMap[`idx_${q.audio_clip_index}`]) {
+                audioClipId = audioClipMap[`idx_${q.audio_clip_index}`];
+            } else if (q.audio_clip_id) {
+                // Existing audio_clip_id from database (edit mode, clips not re-sent)
+                audioClipId = q.audio_clip_id;
+            }
+
             const qRes = await req.db.run(`
                 INSERT INTO questions (
-                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             `, [
                 id,
                 q.question_text,
@@ -934,7 +979,8 @@ router.put('/:id', [
                 i + 1,
                 Number(q.marks),
                 q.correct_answer || null,
-                q.explanation || null
+                q.explanation || null,
+                audioClipId
             ]);
 
             if (q.question_type.startsWith('mcq') && Array.isArray(q.options)) {
