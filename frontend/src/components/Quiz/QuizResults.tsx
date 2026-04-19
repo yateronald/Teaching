@@ -9,7 +9,6 @@ import {
     Row,
     Col,
     Modal,
-    List,
     message,
     Select,
     DatePicker,
@@ -79,6 +78,18 @@ interface QuestionDetail {
     marks_awarded?: number | null;
     is_correct?: number | boolean | null;
     options?: QuestionOption[];
+    audio_clip_id?: number | null;
+}
+
+interface AudioClipInfo {
+    id: number;
+    duration_seconds?: number;
+    audio_order: number;
+    max_plays: number;
+    has_audio: boolean;
+    kdrive_file_id?: string;
+    transcript?: string;
+    voice_name?: string;
 }
 
 interface SubmissionDetails {
@@ -96,6 +107,7 @@ interface SubmissionDetails {
         started_at?: string | null;
     };
     questions: QuestionDetail[];
+    audio_clips?: AudioClipInfo[];
 }
 
 interface QuizResultsProps {
@@ -104,7 +116,8 @@ interface QuizResultsProps {
 
 const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const { quizId: paramQuizId } = useParams<{ quizId: string }>();
-    const { apiCall } = useAuth();
+    const { apiCall, token } = useAuth();
+    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
     
     const quizId = propQuizId || paramQuizId;
 
@@ -233,27 +246,33 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                         correct_answer: q.correct_answer ?? null,
                         answer_text: q.answer_text ?? null,
                         selected_options: selected ?? null,
-                        marks_awarded: q.marks_awarded ?? null,
+                        marks_awarded: q.marks_awarded ?? q.score ?? null,
                         is_correct: q.is_correct ?? null,
                         options: q.options || [],
+                        audio_clip_id: q.audio_clip_id ?? null,
                     } as QuestionDetail;
                 });
+                console.log('Teacher submission fetched questions:', normalizedQuestions);
 
+
+                // Build submission object — handle both flat and nested formats
+                const sub = data.submission ?? data;
                 setSubmissionDetails({
                     submission: {
-                        id: data.submission.id,
-                        student_id: data.submission.student_id,
-                        student_name: data.submission.student_name,
-                        email: data.submission.email,
-                        total_score: data.submission.total_score ?? null,
-                        max_score: data.submission.max_score ?? null,
-                        percentage: data.submission.percentage ?? null,
-                        status: data.submission.status,
-                        time_taken_minutes: data.submission.time_taken_minutes ?? null,
-                        submitted_at: data.submission.submitted_at ?? null,
-                        started_at: data.submission.started_at ?? null,
+                        id: sub.id,
+                        student_id: sub.student_id,
+                        student_name: sub.student_name ?? `${sub.first_name || ''} ${sub.last_name || ''}`.trim(),
+                        email: sub.email ?? '',
+                        total_score: sub.total_score ?? null,
+                        max_score: sub.max_score ?? null,
+                        percentage: sub.percentage ?? null,
+                        status: sub.status,
+                        time_taken_minutes: sub.time_taken_minutes ?? null,
+                        submitted_at: sub.submitted_at ?? null,
+                        started_at: sub.started_at ?? null,
                     },
                     questions: normalizedQuestions,
+                    audio_clips: data.audio_clips || [],
                 });
             } else {
                 const err = await response.json().catch(() => ({}));
@@ -570,379 +589,391 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                             backgroundColor: '#f8f9fa'
                         }}>
 
-                            {/* Answer Details */}
-                            <List
-                                itemLayout="vertical"
-                                dataSource={submissionDetails.questions}
-                                style={{ 
-                                    backgroundColor: '#fff'
-                                }}
-                                renderItem={(q, index) => {
-                                const isCorrect = typeof q.is_correct === 'boolean'
-                                    ? q.is_correct
-                                    : q.is_correct === 1;
-                                const pointsEarned = q.marks_awarded ?? 0;
-                                const maxPoints = q.marks ?? 0;
+                            {/* Answer Details — Grouped by Audio */}
+                            {(() => {
+                                const questions = submissionDetails.questions;
+                                const audioClips = submissionDetails.audio_clips || [];
 
-                                const isMCQ = q.question_type === 'mcq' || q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
-                                const selectedOptionObjs = isMCQ
-                                    ? (q.selected_options || []).map((id) => (q.options || []).find(o => o.id === id)).filter(Boolean)
-                                    : [];
-                                const correctOptionObjs = isMCQ
-                                    ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1)
-                                    : [];
-                                // Determine status based on points for better UX on partial credit
-                                const percent = maxPoints > 0 ? pointsEarned / maxPoints : 0;
-                                const isFullyCorrect = percent >= 1;
-                                const isZero = percent <= 0;
-                                const isPartial = !isZero && !isFullyCorrect;
+                                // Build groups: audio sections + independent questions
+                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: QuestionDetail[] }
+                                    | { type: 'independent'; question: QuestionDetail };
+                                const groups: QGroup[] = [];
+                                const audioMap = new Map<number, QuestionDetail[]>();
+                                const independent: QuestionDetail[] = [];
 
-                                const statusTag = isFullyCorrect
-                                    ? { color: 'success' as const, text: 'Correct' }
-                                    : isPartial
-                                        ? { color: 'orange' as const, text: 'Partially Correct' }
-                                        : { color: 'error' as const, text: 'Incorrect' };
+                                questions.forEach(q => {
+                                    if (q.audio_clip_id) {
+                                        if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []);
+                                        audioMap.get(q.audio_clip_id)!.push(q);
+                                    } else {
+                                        independent.push(q);
+                                    }
+                                });
 
-                                const isExpanded = expandedQuestions.has(q.id);
+                                // Maintain order: iterate through questions, outputting groups as encountered
+                                const processedClips = new Set<number>();
+                                let globalIdx = 0;
+                                questions.forEach(q => {
+                                    if (q.audio_clip_id && !processedClips.has(q.audio_clip_id)) {
+                                        processedClips.add(q.audio_clip_id);
+                                        const clip = audioClips.find(c => c.id === q.audio_clip_id);
+                                        groups.push({
+                                            type: 'audio',
+                                            clipId: q.audio_clip_id,
+                                            clip: clip || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false },
+                                            questions: audioMap.get(q.audio_clip_id) || []
+                                        });
+                                    } else if (!q.audio_clip_id) {
+                                        groups.push({ type: 'independent', question: q });
+                                    }
+                                });
 
-                                return (
-                                    <List.Item
-                                        key={q.id}
-                                        style={{
-                                            backgroundColor: '#ffffff',
-                                            padding: '0',
-                                            marginBottom: '16px',
-                                            borderRadius: '12px',
-                                            border: '1px solid #e8e8e8',
-                                            boxShadow: isExpanded 
-                                                ? '0 8px 24px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.08)' 
-                                                : '0 2px 8px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04)',
-                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                            overflow: 'hidden',
-                                            position: 'relative' as const
-                                        }}
-                                    >
-                                        <List.Item.Meta
-                                            title={
-                                                <div 
-                                                    style={{ 
-                                                        display: 'flex', 
-                                                        justifyContent: 'space-between',
-                                                        alignItems: 'center',
-                                                        padding: '20px 24px',
-                                                        margin: '0',
-                                                        cursor: 'pointer',
-                                                        backgroundColor: isExpanded ? '#f8faff' : '#ffffff',
-                                                        borderBottom: isExpanded ? '1px solid #e8f4fd' : 'none',
-                                                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                                        borderRadius: isExpanded ? '12px 12px 0 0' : '12px',
-                                                        position: 'relative' as const
-                                                    }}
-                                                    onClick={() => toggleQuestionExpansion(q.id)}
-                                                    onMouseEnter={(e) => {
-                                                        if (!isExpanded) {
-                                                            e.currentTarget.style.backgroundColor = '#f8faff';
-                                                        }
-                                                    }}
-                                                    onMouseLeave={(e) => {
-                                                        if (!isExpanded) {
-                                                            e.currentTarget.style.backgroundColor = '#ffffff';
-                                                        }
-                                                    }}
-                                                >
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                // Helper to render a single question card
+                                const renderQuestionCard = (q: QuestionDetail, qIndex: number) => {
+                                    const isCorrect = typeof q.is_correct === 'boolean' ? q.is_correct : q.is_correct === 1;
+                                    const pointsEarned = q.marks_awarded ?? 0;
+                                    const maxPoints = q.marks ?? 0;
+                                    const isMCQ = q.question_type === 'mcq' || q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+                                    const selectedOptionObjs = isMCQ
+                                        ? (q.selected_options || []).map((id) => (q.options || []).find(o => o.id === id)).filter(Boolean)
+                                        : [];
+                                    const correctOptionObjs = isMCQ
+                                        ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1)
+                                        : [];
+                                    const pct = maxPoints > 0 ? pointsEarned / maxPoints : 0;
+                                    const isFullyCorrect = pct >= 1;
+                                    const isZero = pct <= 0;
+                                    const isPartial = !isZero && !isFullyCorrect;
+                                    const statusTag = isFullyCorrect
+                                        ? { color: 'success' as const, text: 'Correct' }
+                                        : isPartial
+                                            ? { color: 'orange' as const, text: 'Partially Correct' }
+                                            : { color: 'error' as const, text: 'Incorrect' };
+                                    const isExpanded = expandedQuestions.has(q.id);
+
+                                    return (
+                                        <div
+                                            key={q.id}
+                                            style={{
+                                                backgroundColor: '#ffffff',
+                                                marginBottom: '12px',
+                                                borderRadius: '10px',
+                                                border: '1px solid #e8e8e8',
+                                                boxShadow: isExpanded
+                                                    ? '0 6px 20px rgba(0,0,0,0.1)'
+                                                    : '0 1px 4px rgba(0,0,0,0.04)',
+                                                transition: 'all 0.3s ease',
+                                                overflow: 'hidden'
+                                            }}
+                                        >
+                                            {/* Question Header */}
+                                            <div
+                                                style={{
+                                                    padding: '14px 20px',
+                                                    cursor: 'pointer',
+                                                    backgroundColor: isExpanded ? '#f8faff' : '#fff',
+                                                    borderBottom: isExpanded ? '1px solid #e8f4fd' : 'none',
+                                                    transition: 'background 0.2s'
+                                                }}
+                                                onClick={() => toggleQuestionExpansion(q.id)}
+                                            >
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: '1 1 0', minWidth: 0 }}>
                                                         <div style={{
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            width: '24px',
-                                                            height: '24px',
-                                                            borderRadius: '6px',
+                                                            width: '22px', height: '22px', borderRadius: '6px',
                                                             backgroundColor: isExpanded ? '#1890ff' : '#f0f0f0',
-                                                            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                                                            transform: isExpanded ? 'rotate(0deg)' : 'rotate(0deg)'
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            transition: 'all 0.2s', flexShrink: 0, marginTop: '2px'
                                                         }}>
-                                                            {isExpanded ? 
-                                                                <DownOutlined style={{ 
-                                                                    fontSize: '12px', 
-                                                                    color: '#ffffff',
-                                                                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                                                                }} /> : 
-                                                                <RightOutlined style={{ 
-                                                                    fontSize: '12px', 
-                                                                    color: '#8c8c8c',
-                                                                    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-                                                                }} />
-                                                            }
+                                                            {isExpanded
+                                                                ? <DownOutlined style={{ fontSize: '11px', color: '#fff' }} />
+                                                                : <RightOutlined style={{ fontSize: '11px', color: '#8c8c8c' }} />}
                                                         </div>
-                                                        <Text strong style={{ 
-                                                            fontSize: '16px', 
-                                                            color: '#1a1a1a',
-                                                            fontWeight: '600',
-                                                            letterSpacing: '-0.01em'
-                                                        }}>
-                                                            Question {index + 1}
-                                                        </Text>
-                                                    </div>
-                                                    <Space size={16}>
-                                                        <Tag 
-                                                            color={statusTag.color}
-                                                            style={{ 
-                                                                fontSize: '12px',
-                                                                fontWeight: '600',
-                                                                padding: '4px 12px',
-                                                                borderRadius: '20px',
-                                                                margin: 0,
-                                                                border: 'none',
-                                                                textTransform: 'uppercase' as const,
-                                                                letterSpacing: '0.5px'
-                                                            }}
-                                                        >
-                                                            {statusTag.text}
-                                                        </Tag>
-                                                        <Tag 
-                                                            style={{ 
-                                                                fontSize: '12px',
-                                                                fontWeight: '600',
-                                                                padding: '4px 12px',
-                                                                borderRadius: '20px',
-                                                                margin: 0,
-                                                                backgroundColor: isFullyCorrect ? '#f6ffed' : isPartial ? '#fff7e6' : '#e6f7ff',
-                                                                color: isFullyCorrect ? '#52c41a' : isPartial ? '#fa8c16' : '#1890ff',
-                                                                border: `1px solid ${isFullyCorrect ? '#b7eb8f' : isPartial ? '#ffd591' : '#91d5ff'}`,
-                                                                letterSpacing: '0.3px'
-                                                            }}
-                                                        >
-                                                            {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
-                                                        </Tag>
-                                                    </Space>
-                                                </div>
-                                            }
-                                            description={
-                                                isExpanded ? (
-                                                    <div style={{
-                                                        padding: '24px',
-                                                        backgroundColor: '#ffffff',
-                                                        borderRadius: '0 0 12px 12px',
-                                                        borderTop: '1px solid #e8f4fd'
-                                                    }}>
-                                                        <div style={{ 
-                                                            marginBottom: '24px',
-                                                            padding: '20px 24px',
-                                                            backgroundColor: '#f8faff',
-                                                            borderRadius: '12px',
-                                                            border: '1px solid #e8f4fd',
-                                                            position: 'relative' as const
-                                                        }}>
-                                                            <div style={{
-                                                                position: 'absolute' as const,
-                                                                top: '0',
-                                                                left: '0',
-                                                                width: '4px',
-                                                                height: '100%',
-                                                                backgroundColor: '#1890ff',
-                                                                borderRadius: '2px 0 0 2px'
-                                                            }}></div>
-                                                            <Text style={{ 
-                                                                fontSize: '14px', 
-                                                                lineHeight: '1.6',
-                                                                color: '#1a1a1a',
-                                                                fontWeight: '400'
+                                                        <div style={{ minWidth: 0 }}>
+                                                            <Text strong style={{ fontSize: '14px', color: '#1a1a1a', display: 'block' }}>
+                                                                Question {qIndex + 1}
+                                                            </Text>
+                                                            <Text style={{
+                                                                fontSize: '12px', color: '#8c8c8c', lineHeight: '1.4',
+                                                                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
+                                                                overflow: 'hidden', marginTop: '2px'
                                                             }}>
                                                                 {q.question_text}
                                                             </Text>
                                                         </div>
-                                                        
-                                                        <div style={{ marginBottom: '20px' }}>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px', paddingTop: '2px' }}>
+                                                        <Tag color={statusTag.color} style={{
+                                                            fontSize: '11px', fontWeight: '600', padding: '3px 10px',
+                                                            borderRadius: '16px', margin: 0, border: 'none',
+                                                            textTransform: 'uppercase' as const, letterSpacing: '0.4px', whiteSpace: 'nowrap'
+                                                        }}>
+                                                            {statusTag.text}
+                                                        </Tag>
+                                                        <Tag style={{
+                                                            fontSize: '11px', fontWeight: '600', padding: '3px 10px',
+                                                            borderRadius: '16px', margin: 0, whiteSpace: 'nowrap',
+                                                            backgroundColor: isFullyCorrect ? '#f6ffed' : isPartial ? '#fff7e6' : '#e6f7ff',
+                                                            color: isFullyCorrect ? '#52c41a' : isPartial ? '#fa8c16' : '#1890ff',
+                                                            border: `1px solid ${isFullyCorrect ? '#b7eb8f' : isPartial ? '#ffd591' : '#91d5ff'}`
+                                                        }}>
+                                                            {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
+                                                        </Tag>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Expanded Content */}
+                                            {isExpanded && (
+                                                <div style={{ padding: '20px', backgroundColor: '#fff' }}>
+                                                    {/* Question text */}
+                                                    <div style={{
+                                                        marginBottom: '20px', padding: '16px 20px',
+                                                        backgroundColor: '#f8faff', borderRadius: '10px',
+                                                        border: '1px solid #e8f4fd', position: 'relative' as const
+                                                    }}>
+                                                        <div style={{
+                                                            position: 'absolute' as const, top: 0, left: 0,
+                                                            width: '4px', height: '100%',
+                                                            backgroundColor: '#1890ff', borderRadius: '2px 0 0 2px'
+                                                        }} />
+                                                        <Text style={{ fontSize: '14px', lineHeight: '1.6', color: '#1a1a1a' }}>
+                                                            {q.question_text}
+                                                        </Text>
+                                                    </div>
+
+                                                    {/* Student Answer */}
+                                                    <div style={{ marginBottom: '16px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#8c8c8c' }} />
+                                                            <Text strong style={{ fontSize: '12px', color: '#595959', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                                                                Student Answer
+                                                            </Text>
+                                                        </div>
+                                                        {isMCQ ? (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                                {selectedOptionObjs.map(opt => {
+                                                                    const isOptCorrect = opt!.is_correct === true || opt!.is_correct === 1;
+                                                                    return (
+                                                                        <div key={opt!.id} style={{
+                                                                            padding: '6px 14px', borderRadius: '16px', fontSize: '12px', fontWeight: '500',
+                                                                            backgroundColor: isOptCorrect ? '#f6ffed' : '#fff2f0',
+                                                                            color: isOptCorrect ? '#52c41a' : '#ff4d4f',
+                                                                            border: `1px solid ${isOptCorrect ? '#b7eb8f' : '#ffccc7'}`,
+                                                                            display: 'flex', alignItems: 'center', gap: '5px'
+                                                                        }}>
+                                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isOptCorrect ? '#52c41a' : '#ff4d4f' }} />
+                                                                            {opt!.option_text}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                                {selectedOptionObjs.length === 0 && (
+                                                                    <div style={{
+                                                                        padding: '10px 16px', backgroundColor: '#f5f5f5',
+                                                                        borderRadius: '16px', border: '1px solid #d9d9d9',
+                                                                        fontStyle: 'italic', color: '#8c8c8c', fontSize: '12px'
+                                                                    }}>No answer selected</div>
+                                                                )}
+                                                            </div>
+                                                        ) : (
                                                             <div style={{
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                marginBottom: '12px',
-                                                                gap: '8px'
+                                                                padding: '12px 16px', borderRadius: '10px',
+                                                                backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
+                                                                border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`,
+                                                                position: 'relative' as const
                                                             }}>
                                                                 <div style={{
-                                                                    width: '6px',
-                                                                    height: '6px',
-                                                                    borderRadius: '50%',
-                                                                    backgroundColor: '#8c8c8c'
-                                                                }}></div>
-                                                                <Text strong style={{ 
-                                                                    fontSize: '13px', 
-                                                                    color: '#595959',
-                                                                    textTransform: 'uppercase',
-                                                                    letterSpacing: '0.8px',
-                                                                    fontWeight: '600'
-                                                                }}>
-                                                                    Student Answer
+                                                                    position: 'absolute' as const, top: 0, left: 0,
+                                                                    width: '3px', height: '100%',
+                                                                    backgroundColor: isCorrect ? '#52c41a' : '#ff4d4f',
+                                                                    borderRadius: '2px 0 0 2px'
+                                                                }} />
+                                                                <Text style={{ fontSize: '12px', color: isCorrect ? '#52c41a' : '#ff4d4f', fontWeight: '500' }}>
+                                                                    {q.answer_text || 'No answer provided'}
                                                                 </Text>
-                                                            </div>
-                                                            <div style={{ marginTop: '8px' }}>
-                                                                {isMCQ ? (
-                                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                                                         {selectedOptionObjs.map((opt) => {
-                                                                             const isOptionCorrect = opt!.is_correct === true || opt!.is_correct === 1;
-                                                                             return (
-                                                                                 <div
-                                                                                     key={opt!.id}
-                                                                                     style={{ 
-                                                                                         padding: '8px 16px',
-                                                                                         borderRadius: '20px',
-                                                                                         fontSize: '13px',
-                                                                                         fontWeight: '500',
-                                                                                         backgroundColor: isOptionCorrect ? '#f6ffed' : '#fff2f0',
-                                                                                         color: isOptionCorrect ? '#52c41a' : '#ff4d4f',
-                                                                                         border: `1px solid ${isOptionCorrect ? '#b7eb8f' : '#ffccc7'}`,
-                                                                                         display: 'flex',
-                                                                                         alignItems: 'center',
-                                                                                         gap: '6px'
-                                                                                     }}
-                                                                                 >
-                                                                                     <div style={{
-                                                                                         width: '6px',
-                                                                                         height: '6px',
-                                                                                         borderRadius: '50%',
-                                                                                         backgroundColor: isOptionCorrect ? '#52c41a' : '#ff4d4f'
-                                                                                     }}></div>
-                                                                                     {opt!.option_text}
-                                                                                 </div>
-                                                                             );
-                                                                         })}
-                                                                         {selectedOptionObjs.length === 0 && (
-                                                                             <div style={{
-                                                                                 padding: '12px 20px',
-                                                                                 backgroundColor: '#f5f5f5',
-                                                                                 borderRadius: '20px',
-                                                                                 border: '1px solid #d9d9d9',
-                                                                                 fontStyle: 'italic',
-                                                                                 color: '#8c8c8c',
-                                                                                 fontSize: '13px'
-                                                                             }}>
-                                                                                 No answer selected
-                                                                             </div>
-                                                                         )}
-                                                                     </div>
-                                                                 ) : (
-                                                                     <div style={{ 
-                                                                         padding: '16px 20px',
-                                                                         backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
-                                                                         borderRadius: '12px',
-                                                                         border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`,
-                                                                         position: 'relative' as const
-                                                                     }}>
-                                                                         <div style={{
-                                                                             position: 'absolute' as const,
-                                                                             top: '0',
-                                                                             left: '0',
-                                                                             width: '4px',
-                                                                             height: '100%',
-                                                                             backgroundColor: isCorrect ? '#52c41a' : '#ff4d4f',
-                                                                             borderRadius: '2px 0 0 2px'
-                                                                         }}></div>
-                                                                         <Text style={{ 
-                                                                             fontSize: '13px',
-                                                                             color: isCorrect ? '#52c41a' : '#ff4d4f',
-                                                                             lineHeight: '1.5',
-                                                                             fontWeight: '500'
-                                                                         }}>
-                                                                             {q.answer_text || 'No answer provided'}
-                                                                         </Text>
-                                                                     </div>
-                                                                 )}
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {/* Show correct answers when not fully correct */}
-                                                        {!isFullyCorrect && (
-                                                            <div style={{ marginTop: '24px' }}>
-                                                                <div style={{
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    marginBottom: '12px',
-                                                                    gap: '8px'
-                                                                }}>
-                                                                    <div style={{
-                                                                        width: '6px',
-                                                                        height: '6px',
-                                                                        borderRadius: '50%',
-                                                                        backgroundColor: '#52c41a'
-                                                                    }}></div>
-                                                                    <Text strong style={{ 
-                                                                        fontSize: '13px', 
-                                                                        color: '#52c41a',
-                                                                        textTransform: 'uppercase',
-                                                                        letterSpacing: '0.8px',
-                                                                        fontWeight: '600'
-                                                                    }}>
-                                                                        Correct Answer
-                                                                    </Text>
-                                                                </div>
-                                                                <div style={{ marginTop: '8px' }}>
-                                                                    {isMCQ ? (
-                                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                                                            {correctOptionObjs.map((opt) => (
-                                                                                <div
-                                                                                    key={opt.id}
-                                                                                    style={{ 
-                                                                                        padding: '8px 16px',
-                                                                                        borderRadius: '20px',
-                                                                                        fontSize: '13px',
-                                                                                        fontWeight: '500',
-                                                                                        backgroundColor: '#f6ffed',
-                                                                                        color: '#52c41a',
-                                                                                        border: '1px solid #b7eb8f',
-                                                                                        display: 'flex',
-                                                                                        alignItems: 'center',
-                                                                                        gap: '6px'
-                                                                                    }}
-                                                                                >
-                                                                                    <div style={{
-                                                                                        width: '6px',
-                                                                                        height: '6px',
-                                                                                        borderRadius: '50%',
-                                                                                        backgroundColor: '#52c41a'
-                                                                                    }}></div>
-                                                                                    {opt.option_text}
-                                                                                </div>
-                                                                            ))}
-                                                                        </div>
-                                                                    ) : (
-                                                                        <div style={{ 
-                                                                            padding: '16px 20px',
-                                                                            backgroundColor: '#f6ffed',
-                                                                            borderRadius: '12px',
-                                                                            border: '1px solid #b7eb8f',
-                                                                            position: 'relative' as const
-                                                                        }}>
-                                                                            <div style={{
-                                                                                position: 'absolute' as const,
-                                                                                top: '0',
-                                                                                left: '0',
-                                                                                width: '4px',
-                                                                                height: '100%',
-                                                                                backgroundColor: '#52c41a',
-                                                                                borderRadius: '2px 0 0 2px'
-                                                                            }}></div>
-                                                                            <Text style={{ 
-                                                                                color: '#52c41a', 
-                                                                                fontSize: '13px',
-                                                                                lineHeight: '1.5',
-                                                                                fontWeight: '500'
-                                                                            }}>
-                                                                                {q.correct_answer}
-                                                                            </Text>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
                                                             </div>
                                                         )}
                                                     </div>
-                                                ) : null
+
+                                                    {/* Correct Answer */}
+                                                    {!isFullyCorrect && (
+                                                        <div style={{ marginTop: '16px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
+                                                                <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#52c41a' }} />
+                                                                <Text strong style={{ fontSize: '12px', color: '#52c41a', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                                                                    Correct Answer
+                                                                </Text>
+                                                            </div>
+                                                            {isMCQ ? (
+                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                                                                    {correctOptionObjs.map(opt => (
+                                                                        <div key={opt.id} style={{
+                                                                            padding: '6px 14px', borderRadius: '16px', fontSize: '12px', fontWeight: '500',
+                                                                            backgroundColor: '#f6ffed', color: '#52c41a', border: '1px solid #b7eb8f',
+                                                                            display: 'flex', alignItems: 'center', gap: '5px'
+                                                                        }}>
+                                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#52c41a' }} />
+                                                                            {opt.option_text}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{
+                                                                    padding: '12px 16px', borderRadius: '10px',
+                                                                    backgroundColor: '#f6ffed', border: '1px solid #b7eb8f',
+                                                                    position: 'relative' as const
+                                                                }}>
+                                                                    <div style={{
+                                                                        position: 'absolute' as const, top: 0, left: 0,
+                                                                        width: '3px', height: '100%',
+                                                                        backgroundColor: '#52c41a', borderRadius: '2px 0 0 2px'
+                                                                    }} />
+                                                                    <Text style={{ color: '#52c41a', fontSize: '12px', fontWeight: '500' }}>
+                                                                        {q.correct_answer}
+                                                                    </Text>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                };
+
+                                // Track global question index
+                                globalIdx = 0;
+
+                                return (
+                                    <div>
+                                        {groups.map((group, gIdx) => {
+                                            if (group.type === 'independent') {
+                                                globalIdx++;
+                                                return renderQuestionCard(group.question, globalIdx);
                                             }
-                                        />
-                                    </List.Item>
+
+                                            // Audio group
+                                            const audioQs = group.questions;
+                                            const correctCount = audioQs.filter(q => {
+                                                const pe = q.marks_awarded ?? 0;
+                                                const mp = q.marks ?? 0;
+                                                return mp > 0 && pe >= mp;
+                                            }).length;
+                                            const totalPtsEarned = audioQs.reduce((s, q) => s + (q.marks_awarded ?? 0), 0);
+                                            const totalPtsMax = audioQs.reduce((s, q) => s + (q.marks ?? 0), 0);
+                                            const sectionPct = totalPtsMax > 0 ? Math.round((totalPtsEarned / totalPtsMax) * 100) : 0;
+                                            const sectionColor = sectionPct >= 80 ? '#52c41a' : sectionPct >= 50 ? '#faad14' : '#ff4d4f';
+
+                                            return (
+                                                <div key={`audio-${group.clipId}`} style={{
+                                                    marginBottom: '24px',
+                                                    borderRadius: '16px',
+                                                    overflow: 'hidden',
+                                                    border: '2px solid #06b6d4',
+                                                    boxShadow: '0 4px 20px rgba(6,182,212,0.15)'
+                                                }}>
+                                                    {/* Audio Section Header */}
+                                                    <div style={{
+                                                        background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
+                                                        padding: '18px 24px',
+                                                        color: '#fff'
+                                                    }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                <div style={{
+                                                                    background: 'rgba(255,255,255,0.2)',
+                                                                    width: 36, height: 36, borderRadius: '50%',
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                    fontSize: 18
+                                                                }}>🎧</div>
+                                                                <div>
+                                                                    <Text strong style={{ color: '#fff', fontSize: '15px', display: 'block' }}>
+                                                                        Listening Comprehension — Audio {group.clip.audio_order || gIdx + 1}
+                                                                    </Text>
+                                                                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
+                                                                        {audioQs.length} question{audioQs.length > 1 ? 's' : ''} linked to this audio
+                                                                    </Text>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Audio KPIs */}
+                                                        <div style={{
+                                                            display: 'flex', gap: '12px', flexWrap: 'wrap'
+                                                        }}>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '10px', padding: '8px 16px',
+                                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                                backdropFilter: 'blur(10px)'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Accuracy</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
+                                                                    {correctCount}/{audioQs.length}
+                                                                </Text>
+                                                            </div>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '10px', padding: '8px 16px',
+                                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                                backdropFilter: 'blur(10px)'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Points</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
+                                                                    {formatNumber(totalPtsEarned)}/{formatNumber(totalPtsMax)}
+                                                                </Text>
+                                                            </div>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '10px', padding: '8px 16px',
+                                                                display: 'flex', alignItems: 'center', gap: '8px',
+                                                                backdropFilter: 'blur(10px)'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Score</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
+                                                                    {sectionPct}%
+                                                                </Text>
+                                                                <div style={{
+                                                                    width: 8, height: 8, borderRadius: '50%',
+                                                                    backgroundColor: sectionColor
+                                                                }} />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Audio player for teacher */}
+                                                        {group.clip.has_audio && (
+                                                            <div style={{ marginTop: '12px' }}>
+                                                                <audio
+                                                                    controls
+                                                                    controlsList="nodownload noplaybackrate"
+                                                                    onContextMenu={(e) => e.preventDefault()}
+                                                                    src={`${API_BASE}/quizzes/audio/${group.clipId}/stream?token=${token}`}
+                                                                    style={{
+                                                                        width: '100%', height: '36px',
+                                                                        borderRadius: '8px', filter: 'invert(1) hue-rotate(180deg)',
+                                                                        opacity: 0.9
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Audio Section Questions */}
+                                                    <div style={{
+                                                        padding: '16px 20px',
+                                                        backgroundColor: '#f0fdfa'
+                                                    }}>
+                                                        {audioQs.map(q => {
+                                                            globalIdx++;
+                                                            return renderQuestionCard(q, globalIdx);
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 );
-                            }}
-                        />
+                            })()}
                         </div>
                     </>
                 )}

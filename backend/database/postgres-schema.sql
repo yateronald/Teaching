@@ -113,6 +113,23 @@ CREATE TABLE quizzes (
 );
 
 
+-- Table: quiz_audio_clips (listening comprehension audio)
+CREATE TABLE quiz_audio_clips (
+    id SERIAL PRIMARY KEY,
+    quiz_id INTEGER NOT NULL,
+    transcript TEXT NOT NULL,
+    voice_name VARCHAR(50) DEFAULT 'Kore',
+    source_type TEXT DEFAULT 'tts',
+    kdrive_file_id VARCHAR(100),
+    file_name VARCHAR(255),
+    duration_seconds INTEGER,
+    audio_order INTEGER DEFAULT 1,
+    max_plays INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_audio_clips_quiz_id FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+);
+
+
 -- Table: questions
 CREATE TABLE questions (
     id SERIAL PRIMARY KEY,
@@ -123,8 +140,10 @@ CREATE TABLE questions (
     marks NUMERIC DEFAULT 1,
     correct_answer TEXT,
     explanation TEXT,
+    audio_clip_id INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_questions_quiz_id FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE
+    CONSTRAINT fk_questions_quiz_id FOREIGN KEY (quiz_id) REFERENCES quizzes(id) ON DELETE CASCADE,
+    CONSTRAINT fk_questions_audio_clip_id FOREIGN KEY (audio_clip_id) REFERENCES quiz_audio_clips(id) ON DELETE SET NULL
 );
 
 

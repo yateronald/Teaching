@@ -27,11 +27,13 @@ import {
     EditOutlined,
     SaveOutlined,
     InfoCircleOutlined,
-    MinusCircleOutlined
+    MinusCircleOutlined,
+    SoundOutlined
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import AIQuizGenerator from './AIQuizGenerator';
+import AudioQuestionModal from './AudioQuestionModal';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -52,6 +54,19 @@ interface Question {
     marks: number;
     options?: QuestionOption[];
     correct_answer?: string; // For yes_no questions
+    audio_clip_temp_id?: string; // Links question to an audio clip
+    audio_clip_index?: number; // Index in audioClips array
+}
+
+interface AudioClipData {
+    tempId: string;
+    transcript: string;
+    voiceName: string;
+    sourceType: 'tts' | 'upload';
+    kdriveFileId?: string;
+    fileName?: string;
+    durationSeconds?: number;
+    maxPlays: number;
 }
 
 interface Quiz {
@@ -79,9 +94,10 @@ interface Batch {
 interface QuizBuilderProps {
     quizId?: string;
     onComplete?: () => void;
+    onClose?: () => void;
 }
 
-const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplete }) => {
+const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplete, onClose }) => {
     const { quizId: paramQuizId } = useParams<{ quizId?: string }>();
     const navigate = useNavigate();
     const { apiCall, user } = useAuth();
@@ -112,9 +128,26 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const [equalizeMarks, setEqualizeMarks] = useState(false);
     const [formResetKey, setFormResetKey] = useState(0);
     const [aiModalVisible, setAiModalVisible] = useState(false);
+    const [audioModalVisible, setAudioModalVisible] = useState(false);
+    const [audioClips, setAudioClips] = useState<AudioClipData[]>([]);
+    const [editingAudioClipTempId, setEditingAudioClipTempId] = useState<string | null>(null);
     
     const [quizForm] = Form.useForm();
     const [questionForm] = Form.useForm();
+
+    // Automatically sync Total Marks with Total Points
+    useEffect(() => {
+        if (!quiz || !quiz.questions) return;
+        const calculatedPoints = quiz.questions.reduce((sum, q) => {
+            const m = Number(q.marks);
+            return sum + (isNaN(m) ? 0 : m);
+        }, 0);
+        
+        if (totalMarks !== calculatedPoints) {
+            setTotalMarks(calculatedPoints);
+            quizForm.setFieldsValue({ total_marks: calculatedPoints });
+        }
+    }, [quiz.questions, totalMarks, quizForm]);
 
     // Freeze editing when the quiz has ended
     const isEnded = Boolean(quiz?.end_date) && dayjs().isAfter(dayjs(quiz.end_date as string));
@@ -328,6 +361,20 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         option_text: opt.option_text,
                         is_correct: !!opt.is_correct,
                     })),
+                    // Audio clip linkage
+                    audio_clip_temp_id: q.audio_clip_temp_id || undefined,
+                    audio_clip_index: q.audio_clip_index !== undefined ? q.audio_clip_index : undefined,
+                })),
+                // Audio clips
+                audio_clips: audioClips.map(clip => ({
+                    tempId: clip.tempId,
+                    transcript: clip.transcript,
+                    voiceName: clip.voiceName,
+                    sourceType: clip.sourceType,
+                    kdriveFileId: clip.kdriveFileId,
+                    fileName: clip.fileName,
+                    durationSeconds: clip.durationSeconds,
+                    maxPlays: clip.maxPlays,
                 }))
             } as any;
 
@@ -505,8 +552,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
 
     /** Handle AI-generated questions — replaces existing questions */
     const handleAIQuestionsGenerated = (questions: Question[], title: string, description: string) => {
-        // Replace questions
-        setQuiz(prev => ({ ...prev, questions }));
+        // Append questions (don't replace existing ones, especially audio questions)
+        setQuiz(prev => ({ ...prev, questions: [...prev.questions, ...questions] }));
 
         // Auto-fill title and description if currently empty
         const currentTitle = quizForm.getFieldValue('title');
@@ -520,13 +567,16 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
             setQuiz(prev => ({ ...prev, description }));
         }
 
-        // Update total marks from generated questions
-        const generatedTotal = questions.reduce((sum, q) => sum + q.marks, 0);
-        setTotalMarks(generatedTotal);
-        quizForm.setFieldsValue({ total_marks: generatedTotal });
+        // Update total marks to include ALL questions (existing + new)
+        setQuiz(prev => {
+            const newTotal = prev.questions.reduce((sum, q) => sum + q.marks, 0);
+            setTotalMarks(newTotal);
+            quizForm.setFieldsValue({ total_marks: newTotal });
+            return prev;
+        });
 
         setAiModalVisible(false);
-        message.success(`✨ ${questions.length} questions generated and loaded!`);
+        message.success(`✨ ${questions.length} questions generated and added!`);
     };
 
     const renderQuestionPreview = (question: Question, index: number) => {
@@ -608,6 +658,20 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         >
                             {question.marks} pts
                         </Tag>
+                        {question.audio_clip_temp_id && (
+                            <Tag
+                                color="cyan"
+                                style={{
+                                    margin: 0,
+                                    padding: '2px 10px',
+                                    fontSize: '11px',
+                                    borderRadius: '6px',
+                                    fontWeight: '500',
+                                }}
+                            >
+                                🎧 Listening
+                            </Tag>
+                        )}
                     </Space>
                     <Space size={6} wrap={false} onClick={(e) => e.stopPropagation()}>
                         <Button
@@ -904,13 +968,83 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const totalPoints = quiz.questions.reduce((sum, q) => sum + q.marks, 0);
 
     return (
-        <div style={{ maxWidth: 1100, margin: '0 auto', padding: '8px 0' }}>
-            <Title level={2} style={{ marginBottom: 4, fontSize: '26px', fontWeight: 700 }}>
-                {quizId ? '✏️ Edit Quiz' : '📝 Create New Quiz'}
-            </Title>
-            <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginBottom: 24 }}>
-                {quizId ? 'Update your quiz details, questions, and settings' : 'Build a new quiz for your students'}
-            </Text>
+        <div style={{ margin: '0 auto', padding: '0' }}>
+            {/* Sticky Gradient Header */}
+            <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 30,
+                background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #7c3aed 100%)',
+                borderRadius: 0,
+                padding: '20px 28px',
+                marginBottom: 20,
+                color: 'white',
+                overflow: 'hidden',
+                boxShadow: '0 4px 20px rgba(37,99,235,0.25)',
+            }}>
+                {/* Decorative circles */}
+                <div style={{
+                    position: 'absolute', top: -20, right: -20,
+                    width: 120, height: 120,
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '50%',
+                }} />
+                <div style={{
+                    position: 'absolute', bottom: -30, right: 80,
+                    width: 80, height: 80,
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: '50%',
+                }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Space align="center" size={16}>
+                        <div style={{
+                            width: 48, height: 48,
+                            borderRadius: 14,
+                            background: 'rgba(255,255,255,0.15)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 24,
+                        }}>
+                            {quizId ? '✏️' : '📝'}
+                        </div>
+                        <div>
+                            <Title level={3} style={{ color: 'white', margin: 0, fontWeight: 700, fontSize: 22 }}>
+                                {quizId ? 'Edit Quiz' : 'Create New Quiz'}
+                            </Title>
+                            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>
+                                {quizId ? 'Update your quiz details, questions, and settings' : 'Build a new quiz for your students'}
+                            </Text>
+                        </div>
+                    </Space>
+                    {/* Close Button */}
+                    <button
+                        onClick={() => onClose ? onClose() : navigate('/teacher-dashboard')}
+                        style={{
+                            width: 36, height: 36,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(255,255,255,0.3)',
+                            background: 'rgba(255,255,255,0.1)',
+                            color: 'white',
+                            fontSize: 18,
+                            cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            backdropFilter: 'blur(4px)',
+                            transition: 'all 0.2s',
+                            flexShrink: 0,
+                            zIndex: 10,
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)';
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)';
+                        }}
+                    >
+                        ✕
+                    </button>
+                </div>
+            </div>
 
             {isEnded && (
                 <Alert
@@ -1067,15 +1201,16 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 <Col span={12}>
                                     <Form.Item
                                         name="total_marks"
-                                        label={<span>Total Marks (Optional) <Tooltip title="Set total marks for the quiz. When combined with equalize option, marks will be distributed equally among questions"><InfoCircleOutlined /></Tooltip></span>}
+                                        label={<span>Total Marks <Tooltip title="Automatically synchronized with the sum of all question points."><InfoCircleOutlined /></Tooltip></span>}
                                     >
                                         <InputNumber 
                                             min={0} 
                                             step={0.5}
                                             style={{ width: '100%' }}
-                                            placeholder="Enter total marks"
+                                            placeholder="Auto-calculated from questions"
                                             value={totalMarks}
                                             onChange={(value) => setTotalMarks(value)}
+                                            disabled
                                         />
                                     </Form.Item>
                                 </Col>
@@ -1094,43 +1229,6 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                     </Form.Item>
                                 </Col>
                             </Row>
-
-                            <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                                    <Button
-                                        onClick={() => navigate('/teacher-dashboard')}
-                                        size="large"
-                                        style={{ borderRadius: 8, minWidth: 110, height: 42, fontWeight: 500 }}
-                                    >
-                                        Cancel
-                                    </Button>
-                                    <Button 
-                                        htmlType="submit" 
-                                        loading={loading}
-                                        icon={<SaveOutlined />}
-                                        disabled={isEnded}
-                                        size="large"
-                                        style={{ borderRadius: 8, minWidth: 140, height: 42, fontWeight: 500 }}
-                                    >
-                                        Save as Draft
-                                    </Button>
-                                    <Button 
-                                        type="primary" 
-                                        loading={loading}
-                                        icon={<SaveOutlined />}
-                                        onClick={() => {
-                                            quizForm.validateFields().then(values => {
-                                                handleQuizSave(values, true);
-                                            });
-                                        }}
-                                        disabled={isEnded}
-                                        size="large"
-                                        style={{ borderRadius: 8, minWidth: 160, height: 42, fontWeight: 600 }}
-                                    >
-                                        {quizId ? 'Update & Publish' : 'Save & Publish'}
-                                    </Button>
-                                </div>
-                            </Form.Item>
                         </Form>
                     </Card>
 
@@ -1141,38 +1239,6 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 📝 Questions ({quiz.questions.length})
                             </span>
                         }
-                        extra={
-                            <Space size={10}>
-                                <Button
-                                    icon={<span style={{ marginRight: 4 }}>✨</span>}
-                                    onClick={() => setAiModalVisible(true)}
-                                    disabled={isEnded}
-                                    style={{
-                                        borderRadius: '8px',
-                                        fontWeight: '600',
-                                        height: '38px',
-                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                        color: 'white',
-                                        border: 'none',
-                                    }}
-                                >
-                                    Generate with AI
-                                </Button>
-                                <Button
-                                    type="primary"
-                                    icon={<PlusOutlined />}
-                                    onClick={handleAddQuestion}
-                                    disabled={isEnded}
-                                    style={{
-                                        borderRadius: '8px',
-                                        fontWeight: '500',
-                                        height: '38px'
-                                    }}
-                                >
-                                    Add Question
-                                </Button>
-                            </Space>
-                        }
                         style={{
                             borderRadius: 12,
                             border: 'none',
@@ -1180,55 +1246,225 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                         }}
                         bodyStyle={{ padding: '24px' }}
                     >
-                        {quiz.questions.length === 0 ? (
+                        {quiz.questions.length === 0 && (
                             <div style={{ textAlign: 'center', padding: '32px 20px' }}>
                                 <div style={{ fontSize: 48, marginBottom: 12 }}>📝</div>
                                 <Text strong style={{ display: 'block', fontSize: 16, marginBottom: 6 }}>
                                     No questions added yet
                                 </Text>
-                                <Text type="secondary" style={{ display: 'block', marginBottom: 20 }}>
+                                <Text type="secondary" style={{ display: 'block' }}>
                                     Add questions manually or generate them with AI
                                 </Text>
-                                <Space size={12}>
-                                    <Button
-                                        size="large"
-                                        onClick={() => setAiModalVisible(true)}
-                                        disabled={isEnded}
-                                        style={{
-                                            borderRadius: 10,
-                                            height: 44,
-                                            fontWeight: 600,
-                                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                            color: 'white',
-                                            border: 'none',
-                                        }}
-                                    >
-                                        ✨ Generate with AI
-                                    </Button>
-                                    <Button
-                                        size="large"
-                                        icon={<PlusOutlined />}
-                                        onClick={handleAddQuestion}
-                                        disabled={isEnded}
-                                        style={{ borderRadius: 10, height: 44 }}
-                                    >
-                                        Add Manually
-                                    </Button>
-                                </Space>
                             </div>
-                        ) : (
-                            <Collapse
-                                accordion
-                                style={{
-                                    backgroundColor: 'transparent',
-                                    border: 'none'
-                                }}
-                                expandIconPosition="end"
-                            >
-                                {quiz.questions.map((question, index) => renderQuestionPreview(question, index))}
-                            </Collapse>
                         )}
+                        {quiz.questions.length > 0 && (() => {
+                            // Separate regular and audio-linked questions
+                            const regularQuestions = quiz.questions.filter(q => !q.audio_clip_temp_id);
+                            const audioGrouped = new Map<string, { clip: typeof audioClips[0]; questions: { question: Question; originalIndex: number }[] }>();
+                            
+                            quiz.questions.forEach((q, idx) => {
+                                if (q.audio_clip_temp_id) {
+                                    if (!audioGrouped.has(q.audio_clip_temp_id)) {
+                                        const clip = audioClips.find(c => c.tempId === q.audio_clip_temp_id);
+                                        if (clip) {
+                                            audioGrouped.set(q.audio_clip_temp_id, { clip, questions: [] });
+                                        }
+                                    }
+                                    audioGrouped.get(q.audio_clip_temp_id)?.questions.push({ question: q, originalIndex: idx });
+                                }
+                            });
+
+                            return (
+                                <div>
+                                    {/* Regular Questions */}
+                                    {regularQuestions.length > 0 && (
+                                        <Collapse
+                                            accordion
+                                            style={{ backgroundColor: 'transparent', border: 'none' }}
+                                            expandIconPosition="end"
+                                        >
+                                            {regularQuestions.map((question) => {
+                                                const originalIdx = quiz.questions.indexOf(question);
+                                                return renderQuestionPreview(question, originalIdx);
+                                            })}
+                                        </Collapse>
+                                    )}
+
+                                    {/* Audio Clip Sections */}
+                                    {Array.from(audioGrouped.entries()).map(([tempId, { clip, questions: audioQs }]) => {
+                                        const clipPoints = audioQs.reduce((sum, aq) => sum + aq.question.marks, 0);
+                                        return (
+                                            <div
+                                                key={tempId}
+                                                style={{
+                                                    marginTop: regularQuestions.length > 0 ? 16 : 0,
+                                                    marginBottom: 16,
+                                                    borderRadius: 12,
+                                                    border: '2px solid #a7f3d0',
+                                                    overflow: 'hidden',
+                                                }}
+                                            >
+                                                {/* Audio Clip Header */}
+                                                <div style={{
+                                                    background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
+                                                    padding: '14px 18px',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
+                                                        <div style={{
+                                                            background: 'rgba(255,255,255,0.2)',
+                                                            borderRadius: 10,
+                                                            width: 38,
+                                                            height: 38,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            fontSize: 20,
+                                                            flexShrink: 0,
+                                                        }}>
+                                                            🎧
+                                                        </div>
+                                                        <div style={{ minWidth: 0, flex: 1 }}>
+                                                            <Text strong style={{ color: 'white', fontSize: 14, display: 'block' }}>
+                                                                Listening Comprehension
+                                                            </Text>
+                                                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                {clip.transcript.substring(0, 80)}{clip.transcript.length > 80 ? '...' : ''}
+                                                            </Text>
+                                                        </div>
+                                                    </div>
+                                                    <Space size={6} style={{ flexShrink: 0, marginLeft: 12 }}>
+                                                        {clip.durationSeconds && (
+                                                            <Tag style={{ margin: 0, borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: 'white', border: 'none', fontSize: 11 }}>
+                                                                ⏱ {clip.durationSeconds}s
+                                                            </Tag>
+                                                        )}
+                                                        <Tag style={{ margin: 0, borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: 'white', border: 'none', fontSize: 11 }}>
+                                                            {audioQs.length} Q · {clipPoints} pts
+                                                        </Tag>
+                                                        <Tag style={{ margin: 0, borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: 'white', border: 'none', fontSize: 11 }}>
+                                                            {clip.sourceType === 'tts' ? '🎙️ TTS' : '📁 Upload'}
+                                                        </Tag>
+                                                        {clip.maxPlays > 0 && (
+                                                            <Tag style={{ margin: 0, borderRadius: 6, background: 'rgba(255,200,0,0.3)', color: 'white', border: 'none', fontSize: 11 }}>
+                                                                🔒 {clip.maxPlays}x
+                                                            </Tag>
+                                                        )}
+                                                    </Space>
+                                                    <Space size={4} style={{ flexShrink: 0, marginLeft: 8 }}>
+                                                        <Button
+                                                            size="small"
+                                                            onClick={() => {
+                                                                setEditingAudioClipTempId(tempId);
+                                                                setAudioModalVisible(true);
+                                                            }}
+                                                            style={{ borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: 'white', border: 'none', fontSize: 12, fontWeight: 600 }}
+                                                        >
+                                                            ✏️ Edit
+                                                        </Button>
+                                                        <Popconfirm
+                                                            title="Delete this audio section?"
+                                                            description={`This will remove the audio clip and all ${audioQs.length} linked question(s).`}
+                                                            onConfirm={() => {
+                                                                // Remove all questions linked to this audio clip
+                                                                setQuiz(prev => ({
+                                                                    ...prev,
+                                                                    questions: prev.questions.filter(q => q.audio_clip_temp_id !== tempId)
+                                                                }));
+                                                                // Remove the audio clip
+                                                                setAudioClips(prev => prev.filter(c => c.tempId !== tempId));
+                                                                message.success('Audio section deleted');
+                                                            }}
+                                                            okText="Yes, delete all"
+                                                            cancelText="Cancel"
+                                                            okButtonProps={{ danger: true }}
+                                                        >
+                                                            <Button
+                                                                size="small"
+                                                                danger
+                                                                style={{ borderRadius: 6, background: 'rgba(255,100,100,0.3)', color: 'white', border: 'none', fontSize: 12, fontWeight: 600 }}
+                                                            >
+                                                                🗑️ Delete
+                                                            </Button>
+                                                        </Popconfirm>
+                                                    </Space>
+                                                </div>
+
+                                                {/* Audio Questions */}
+                                                <div style={{ background: '#f0fdfa', padding: '4px 0' }}>
+                                                    <Collapse
+                                                        accordion
+                                                        style={{ backgroundColor: 'transparent', border: 'none' }}
+                                                        expandIconPosition="end"
+                                                    >
+                                                        {audioQs.map(({ question, originalIndex }) => renderQuestionPreview(question, originalIndex))}
+                                                    </Collapse>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            );
+                        })()}
+
                     </Card>
+
+                        {/* Always-visible Action Buttons */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            gap: 12,
+                            padding: '16px 0 4px',
+                            flexWrap: 'wrap',
+                        }}>
+                            <Button
+                                size="large"
+                                onClick={() => setAiModalVisible(true)}
+                                disabled={isEnded}
+                                style={{
+                                    borderRadius: 10,
+                                    height: 44,
+                                    fontWeight: 600,
+                                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                    color: 'white',
+                                    border: 'none',
+                                    paddingInline: 20,
+                                }}
+                            >
+                                ✨ Generate with AI
+                            </Button>
+                            <Button
+                                size="large"
+                                icon={<SoundOutlined />}
+                                onClick={() => {
+                                    setEditingAudioClipTempId(null);
+                                    setAudioModalVisible(true);
+                                }}
+                                disabled={isEnded}
+                                style={{
+                                    borderRadius: 10,
+                                    height: 44,
+                                    fontWeight: 600,
+                                    background: 'linear-gradient(135deg, #0891b2, #06b6d4)',
+                                    color: 'white',
+                                    border: 'none',
+                                    paddingInline: 20,
+                                }}
+                            >
+                                🎧 Add Listening
+                            </Button>
+                            <Button
+                                size="large"
+                                icon={<PlusOutlined />}
+                                onClick={handleAddQuestion}
+                                disabled={isEnded}
+                                style={{ borderRadius: 10, height: 44, paddingInline: 20 }}
+                            >
+                                + Add Question
+                            </Button>
+                        </div>
                 </Col>
 
                 <Col xs={24} lg={8}>
@@ -1267,6 +1503,29 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Total Points</Text>
                                 <Text strong style={{ fontSize: 22, color: '#52c41a' }}>{totalPoints}</Text>
                             </div>
+
+                            {/* Audio Clips */}
+                            {audioClips.length > 0 && (
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '14px 16px',
+                                    background: 'linear-gradient(135deg, #f0fdfa, #ecfdf5)',
+                                    borderRadius: 10,
+                                    border: '1px solid #a7f3d0'
+                                }}>
+                                    <div>
+                                        <Text type="secondary" style={{ fontSize: 13, fontWeight: 500, display: 'block' }}>Audio Clips</Text>
+                                        <Text style={{ fontSize: 11, color: '#6b7280' }}>
+                                            {quiz.questions.filter(q => q.audio_clip_temp_id).length} listening questions
+                                        </Text>
+                                    </div>
+                                    <Text strong style={{ fontSize: 22, color: '#0891b2' }}>
+                                        {audioClips.length}
+                                    </Text>
+                                </div>
+                            )}
                             
                             <div>
                                 <Text type="secondary" style={{ fontSize: 13, fontWeight: 500, display: 'block', marginBottom: 10 }}>Question Types</Text>
@@ -1290,6 +1549,14 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         }
                                         return null;
                                     })}
+                                    {quiz.questions.filter(q => q.audio_clip_temp_id).length > 0 && (
+                                        <Tag
+                                            color="teal"
+                                            style={{ borderRadius: 6, padding: '3px 10px', fontSize: 12, fontWeight: 500, background: '#0891b2', color: 'white', border: 'none' }}
+                                        >
+                                            🎧 Listening: {quiz.questions.filter(q => q.audio_clip_temp_id).length}
+                                        </Tag>
+                                    )}
                                     {quiz.questions.length === 0 && (
                                         <Text type="secondary" style={{ fontSize: 12, fontStyle: 'italic' }}>No questions yet</Text>
                                     )}
@@ -1303,7 +1570,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                     borderRadius: 10,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    gap: 8
+                                    gap: 8,
+                                    flexWrap: 'wrap'
                                 }}>
                                     <Text style={{ fontSize: 13 }}>
                                         ⏱ {quiz.duration_minutes || 30} min
@@ -1312,12 +1580,81 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                     <Text style={{ fontSize: 13 }}>
                                         📝 {quiz.questions.length} Q × ~{quiz.questions.length > 0 ? Math.round(totalPoints / quiz.questions.length * 10) / 10 : 0} pts avg
                                     </Text>
+                                    {audioClips.length > 0 && (
+                                        <>
+                                            <span style={{ color: '#d9d9d9' }}>|</span>
+                                            <Text style={{ fontSize: 13 }}>
+                                                🎧 {audioClips.length} audio clip{audioClips.length > 1 ? 's' : ''}
+                                            </Text>
+                                        </>
+                                    )}
                                 </div>
                             )}
                         </Space>
                     </Card>
                 </Col>
             </Row>
+
+            {/* Fixed Bottom Save Bar */}
+            <div style={{
+                position: 'sticky',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                background: '#fff',
+                borderTop: '2px solid #f0f0f0',
+                padding: '14px 24px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 12,
+                boxShadow: '0 -4px 16px rgba(0,0,0,0.06)',
+                zIndex: 20,
+                borderRadius: '0 0 12px 12px',
+            }}>
+                <Button
+                    onClick={() => onClose ? onClose() : navigate('/teacher-dashboard')}
+                    size="large"
+                    style={{ borderRadius: 10, minWidth: 110, height: 44, fontWeight: 500 }}
+                >
+                    Cancel
+                </Button>
+                <Button
+                    loading={loading}
+                    icon={<SaveOutlined />}
+                    disabled={isEnded}
+                    size="large"
+                    onClick={() => {
+                        quizForm.validateFields().then(values => {
+                            handleQuizSave(values, false);
+                        });
+                    }}
+                    style={{ borderRadius: 10, minWidth: 140, height: 44, fontWeight: 500 }}
+                >
+                    Save as Draft
+                </Button>
+                <Button
+                    type="primary"
+                    loading={loading}
+                    icon={<SaveOutlined />}
+                    onClick={() => {
+                        quizForm.validateFields().then(values => {
+                            handleQuizSave(values, true);
+                        });
+                    }}
+                    disabled={isEnded}
+                    size="large"
+                    style={{
+                        borderRadius: 10,
+                        minWidth: 170,
+                        height: 44,
+                        fontWeight: 600,
+                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                        border: 'none',
+                    }}
+                >
+                    {quizId ? 'Update & Publish' : 'Save & Publish'}
+                </Button>
+            </div>
 
             {/* Question Modal */}
             <Modal
@@ -1540,16 +1877,88 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 open={aiModalVisible}
                 onCancel={() => setAiModalVisible(false)}
                 footer={null}
-                width={860}
-                style={{ top: 20 }}
+                width={780}
+                closable={false}
+                centered
                 destroyOnClose
-                styles={{ body: { padding: '24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } }}
+                styles={{
+                    body: { padding: 0, maxHeight: 'calc(100vh - 80px)', overflowY: 'auto' },
+                    content: { padding: 0, overflow: 'hidden', borderRadius: 12 }
+                }}
             >
                 <AIQuizGenerator
                     onQuestionsGenerated={handleAIQuestionsGenerated}
                     onCancel={() => setAiModalVisible(false)}
                 />
             </Modal>
+
+            {/* Audio Listening Comprehension Modal */}
+            <AudioQuestionModal
+                visible={audioModalVisible}
+                onClose={() => {
+                    setAudioModalVisible(false);
+                    setEditingAudioClipTempId(null);
+                }}
+                quizTitle={quiz.title}
+                editData={editingAudioClipTempId ? {
+                    audioClip: audioClips.find(c => c.tempId === editingAudioClipTempId)!,
+                    questions: quiz.questions
+                        .filter(q => q.audio_clip_temp_id === editingAudioClipTempId)
+                        .map(q => ({
+                            question_text: q.question_text,
+                            question_type: q.question_type,
+                            marks: q.marks,
+                            correct_answer: q.correct_answer,
+                            explanation: '',
+                            options: q.options?.map(o => ({ option_text: o.option_text, is_correct: o.is_correct })),
+                            audio_clip_temp_id: q.audio_clip_temp_id || '',
+                        }))
+                } : null}
+                onAdd={(audioClip, linkedQuestions) => {
+                    if (editingAudioClipTempId) {
+                        // Edit mode — replace existing clip & questions
+                        setAudioClips(prev => prev.map(c =>
+                            c.tempId === editingAudioClipTempId ? { ...audioClip, tempId: editingAudioClipTempId } : c
+                        ));
+                        // Remove old questions, add updated ones
+                        const newQuestions: Question[] = linkedQuestions.map(q => ({
+                            question_text: q.question_text,
+                            question_type: q.question_type,
+                            marks: q.marks,
+                            correct_answer: q.correct_answer,
+                            options: q.options,
+                            audio_clip_temp_id: editingAudioClipTempId,
+                        }));
+                        setQuiz(prev => ({
+                            ...prev,
+                            questions: [
+                                ...prev.questions.filter(q => q.audio_clip_temp_id !== editingAudioClipTempId),
+                                ...newQuestions
+                            ]
+                        }));
+                        setEditingAudioClipTempId(null);
+                        message.success(`Updated listening comprehension (${linkedQuestions.length} questions)`);
+                    } else {
+                        // Add mode
+                        const clipIndex = audioClips.length;
+                        setAudioClips(prev => [...prev, audioClip]);
+                        const newQuestions: Question[] = linkedQuestions.map(q => ({
+                            question_text: q.question_text,
+                            question_type: q.question_type,
+                            marks: q.marks,
+                            correct_answer: q.correct_answer,
+                            options: q.options,
+                            audio_clip_temp_id: audioClip.tempId,
+                            audio_clip_index: clipIndex,
+                        }));
+                        setQuiz(prev => ({
+                            ...prev,
+                            questions: [...prev.questions, ...newQuestions]
+                        }));
+                        message.success(`Added ${linkedQuestions.length} listening comprehension question(s)`);
+                    }
+                }}
+            />
         </div>
     );
 };

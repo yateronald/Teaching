@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Card, Button, Select, Input, Space, Typography, Row, Col,
+    Button, Select, Input, Space, Typography, Row, Col,
     message, Alert, Divider, Tooltip, Tag, Spin
 } from 'antd';
 import {
@@ -84,7 +84,6 @@ const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onQuestionsGenerated,
 
         if (type === 'single') {
             setSingleChoiceCount(clampedValue);
-            // Adjust multiple choice to compensate, keeping yes/no if possible
             const remaining = totalQuestions - clampedValue - yesNoCount;
             if (remaining >= 0) {
                 setMultipleChoiceCount(remaining);
@@ -168,270 +167,254 @@ const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onQuestionsGenerated,
     }));
 
     return (
-        <div>
-            {/* Header */}
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
+            {/* Sticky Gradient Header */}
             <div style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 20,
                 background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                borderRadius: 16,
-                padding: '24px 28px',
-                marginBottom: 24,
+                borderRadius: 0,
+                padding: '18px 24px',
                 color: 'white',
-                position: 'relative',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                flexShrink: 0,
             }}>
                 <div style={{
                     position: 'absolute', top: -20, right: -20,
-                    width: 120, height: 120,
-                    background: 'rgba(255,255,255,0.08)',
+                    width: 100, height: 100,
+                    background: 'rgba(255,255,255,0.06)',
                     borderRadius: '50%'
                 }} />
                 <div style={{
-                    position: 'absolute', bottom: -30, right: 60,
-                    width: 80, height: 80,
-                    background: 'rgba(255,255,255,0.05)',
+                    position: 'absolute', bottom: -25, right: 60,
+                    width: 70, height: 70,
+                    background: 'rgba(255,255,255,0.04)',
                     borderRadius: '50%'
                 }} />
-                <Space align="center" size={16}>
-                    <div style={{
-                        width: 52, height: 52,
-                        borderRadius: 14,
-                        background: 'rgba(255,255,255,0.2)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 26
-                    }}>
-                        <RobotOutlined />
-                    </div>
-                    <div>
-                        <Title level={4} style={{ color: 'white', margin: 0, fontWeight: 700 }}>
-                            AI Quiz Generator
-                        </Title>
-                        <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>
-                            Describe your quiz and let AI create the questions for you
-                        </Text>
-                    </div>
-                </Space>
-            </div>
-
-            {/* Parameters Section */}
-            <Card
-                size="small"
-                style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 20 }}
-                styles={{ body: { padding: '20px 24px' } }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-                    <ExperimentOutlined style={{ color: '#7c3aed', fontSize: 18 }} />
-                    <Text strong style={{ fontSize: 15, color: '#1a1a2e' }}>Quiz Parameters</Text>
-                </div>
-
-                <Row gutter={[16, 16]}>
-                    {/* Total Questions */}
-                    <Col xs={24} sm={12} md={8}>
-                        <div style={{ marginBottom: 4 }}>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>TOTAL QUESTIONS</Text>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Space align="center" size={14}>
+                        <div style={{
+                            width: 42, height: 42,
+                            borderRadius: 12,
+                            background: 'rgba(255,255,255,0.15)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 20
+                        }}>
+                            <RobotOutlined />
                         </div>
-                        <Select
-                            value={totalQuestions}
-                            onChange={setTotalQuestions}
-                            style={{ width: '100%' }}
-                            size="large"
-                            options={QUESTION_COUNT_OPTIONS.map(n => ({ value: n, label: `${n} questions` }))}
-                        />
-                    </Col>
-
-                    {/* Total Points */}
-                    <Col xs={24} sm={12} md={8}>
-                        <div style={{ marginBottom: 4 }}>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>TOTAL POINTS</Text>
-                        </div>
-                        <Select
-                            value={totalPoints}
-                            onChange={setTotalPoints}
-                            style={{ width: '100%' }}
-                            size="large"
-                            options={POINT_OPTIONS.map(n => ({ value: n, label: `${n} points` }))}
-                        />
-                    </Col>
-
-                    {/* Distribution info */}
-                    <Col xs={24} md={8}>
-                        <div style={{ marginBottom: 4 }}>
-                            <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-                                DISTRIBUTION
-                                <Tooltip title="AI will distribute points based on question difficulty">
-                                    <InfoCircleOutlined style={{ marginLeft: 6, color: '#94a3b8' }} />
-                                </Tooltip>
+                        <div>
+                            <Title level={4} style={{ color: 'white', margin: 0, fontWeight: 700, fontSize: 18 }}>
+                                AI Quiz Generator
+                            </Title>
+                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
+                                Describe your quiz and let AI create the questions for you
                             </Text>
                         </div>
-                        <div style={{
-                            height: 40,
-                            display: 'flex', alignItems: 'center',
-                            padding: '0 12px',
-                            background: isValid ? '#f0fdf4' : '#fef2f2',
-                            borderRadius: 8,
-                            border: `1px solid ${isValid ? '#bbf7d0' : '#fecaca'}`
-                        }}>
-                            {isValid ? (
-                                <Text style={{ color: '#16a34a', fontSize: 13, fontWeight: 600 }}>
-                                    <CheckCircleOutlined style={{ marginRight: 6 }} />
-                                    ≈ {(totalPoints / totalQuestions).toFixed(1)} pts/question avg
-                                </Text>
-                            ) : (
-                                <Text style={{ color: '#dc2626', fontSize: 13, fontWeight: 600 }}>
-                                    {countsDiff > 0 ? `${countsDiff} extra` : `${Math.abs(countsDiff)} missing`} questions
-                                </Text>
-                            )}
-                        </div>
-                    </Col>
-                </Row>
-
-                <Divider style={{ margin: '18px 0' }} />
-
-                {/* Question Type Breakdown */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-                    <Text style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>QUESTION TYPE BREAKDOWN</Text>
-                    {!isValid && (
-                        <Tag color="red" style={{ fontSize: 11, borderRadius: 6 }}>
-                            Sum must equal {totalQuestions}
-                        </Tag>
-                    )}
-                </div>
-
-                <Row gutter={[16, 12]}>
-                    <Col xs={24} sm={8}>
-                        <div style={{
-                            padding: '14px 16px',
-                            borderRadius: 12,
-                            border: '2px solid #dbeafe',
-                            background: '#eff6ff',
-                            transition: 'border-color 0.2s'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <Tag color="blue" style={{ borderRadius: 6, margin: 0, fontWeight: 600, fontSize: 12 }}>
-                                    Single Choice
-                                </Tag>
-                                <Text type="secondary" style={{ fontSize: 11 }}>mcq_single</Text>
-                            </div>
-                            <Select
-                                value={singleChoiceCount}
-                                onChange={(v) => handleCountChange('single', v)}
-                                style={{ width: '100%' }}
-                                options={countOptions}
-                            />
-                        </div>
-                    </Col>
-
-                    <Col xs={24} sm={8}>
-                        <div style={{
-                            padding: '14px 16px',
-                            borderRadius: 12,
-                            border: '2px solid #cffafe',
-                            background: '#ecfeff',
-                            transition: 'border-color 0.2s'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <Tag color="cyan" style={{ borderRadius: 6, margin: 0, fontWeight: 600, fontSize: 12 }}>
-                                    Multiple Choice
-                                </Tag>
-                                <Text type="secondary" style={{ fontSize: 11 }}>mcq_multiple</Text>
-                            </div>
-                            <Select
-                                value={multipleChoiceCount}
-                                onChange={(v) => handleCountChange('multiple', v)}
-                                style={{ width: '100%' }}
-                                options={countOptions}
-                            />
-                        </div>
-                    </Col>
-
-                    <Col xs={24} sm={8}>
-                        <div style={{
-                            padding: '14px 16px',
-                            borderRadius: 12,
-                            border: '2px solid #fef3c7',
-                            background: '#fffbeb',
-                            transition: 'border-color 0.2s'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                <Tag color="orange" style={{ borderRadius: 6, margin: 0, fontWeight: 600, fontSize: 12 }}>
-                                    True / False
-                                </Tag>
-                                <Text type="secondary" style={{ fontSize: 11 }}>yes_no</Text>
-                            </div>
-                            <Select
-                                value={yesNoCount}
-                                onChange={(v) => handleCountChange('yesno', v)}
-                                style={{ width: '100%' }}
-                                options={countOptions}
-                            />
-                        </div>
-                    </Col>
-                </Row>
-            </Card>
-
-            {/* Prompt Section */}
-            <Card
-                size="small"
-                style={{ borderRadius: 14, border: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.06)', marginBottom: 20 }}
-                styles={{ body: { padding: '20px 24px' } }}
-            >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <BulbOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                        <Text strong style={{ fontSize: 15, color: '#1a1a2e' }}>Your Instructions</Text>
-                    </div>
-                    <Button
-                        type="link"
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        onClick={insertSuggestion}
-                        style={{ fontSize: 12 }}
+                    </Space>
+                    <button
+                        onClick={onCancel}
+                        style={{
+                            width: 32, height: 32,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(255,255,255,0.3)',
+                            background: 'rgba(255,255,255,0.1)',
+                            color: 'white',
+                            fontSize: 16,
+                            cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            backdropFilter: 'blur(4px)',
+                            transition: 'all 0.2s',
+                            flexShrink: 0,
+                        }}
+                        onMouseEnter={e => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)';
+                        }}
+                        onMouseLeave={e => {
+                            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)';
+                        }}
                     >
-                        Try a suggestion
-                    </Button>
+                        ✕
+                    </button>
+                </div>
+            </div>
+
+            {/* Scrollable Content */}
+            <div style={{ flex: 1, padding: '20px 24px 0', overflowY: 'auto' }}>
+
+                {/* Parameters Row - Compact */}
+                <div style={{ marginBottom: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                        <ExperimentOutlined style={{ color: '#7c3aed', fontSize: 16 }} />
+                        <Text strong style={{ fontSize: 14, color: '#1a1a2e' }}>Quiz Parameters</Text>
+                    </div>
+
+                    <Row gutter={12}>
+                        <Col xs={24} sm={8}>
+                            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>QUESTIONS</Text>
+                            <Select
+                                value={totalQuestions}
+                                onChange={setTotalQuestions}
+                                style={{ width: '100%' }}
+                                options={QUESTION_COUNT_OPTIONS.map(n => ({ value: n, label: `${n} questions` }))}
+                            />
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>POINTS</Text>
+                            <Select
+                                value={totalPoints}
+                                onChange={setTotalPoints}
+                                style={{ width: '100%' }}
+                                options={POINT_OPTIONS.map(n => ({ value: n, label: `${n} points` }))}
+                            />
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                                DISTRIBUTION
+                                <Tooltip title="AI will distribute points based on question difficulty">
+                                    <InfoCircleOutlined style={{ marginLeft: 4, color: '#94a3b8' }} />
+                                </Tooltip>
+                            </Text>
+                            <div style={{
+                                height: 32,
+                                display: 'flex', alignItems: 'center',
+                                padding: '0 10px',
+                                background: isValid ? '#f0fdf4' : '#fef2f2',
+                                borderRadius: 6,
+                                border: `1px solid ${isValid ? '#bbf7d0' : '#fecaca'}`
+                            }}>
+                                {isValid ? (
+                                    <Text style={{ color: '#16a34a', fontSize: 12, fontWeight: 600 }}>
+                                        <CheckCircleOutlined style={{ marginRight: 4 }} />
+                                        ≈ {(totalPoints / totalQuestions).toFixed(1)} pts/q avg
+                                    </Text>
+                                ) : (
+                                    <Text style={{ color: '#dc2626', fontSize: 12, fontWeight: 600 }}>
+                                        {countsDiff > 0 ? `${countsDiff} extra` : `${Math.abs(countsDiff)} missing`}
+                                    </Text>
+                                )}
+                            </div>
+                        </Col>
+                    </Row>
                 </div>
 
-                <TextArea
-                    value={userPrompt}
-                    onChange={e => setUserPrompt(e.target.value)}
-                    placeholder="E.g.: Create a quiz about French passé composé with irregular verbs for B1 level students. Focus on être and avoir auxiliaries, agreement rules, and common irregular past participles."
-                    autoSize={{ minRows: 3, maxRows: 6 }}
-                    style={{
-                        borderRadius: 10,
-                        fontSize: 14,
-                        border: '2px solid #e2e8f0',
-                        padding: '12px 14px',
-                    }}
-                    maxLength={1000}
-                    showCount
-                />
+                <Divider style={{ margin: '0 0 16px' }} />
 
-                <div style={{ marginTop: 12 }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                        💡 Tip: Be specific about the French level (A1–C2), grammar topics, vocabulary themes, or skills you want to test.
-                        Leave empty for a general French quiz.
+                {/* Question Type Breakdown - Compact */}
+                <div style={{ marginBottom: 18 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                        <Text style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>TYPE BREAKDOWN</Text>
+                        {!isValid && (
+                            <Tag color="red" style={{ fontSize: 10, borderRadius: 4, lineHeight: '18px' }}>
+                                Sum ≠ {totalQuestions}
+                            </Tag>
+                        )}
+                    </div>
+
+                    <Row gutter={10}>
+                        {[
+                            { label: 'Single Choice', key: 'single' as const, value: singleChoiceCount, color: '#3b82f6', bg: '#eff6ff', border: '#dbeafe' },
+                            { label: 'Multiple Choice', key: 'multiple' as const, value: multipleChoiceCount, color: '#06b6d4', bg: '#ecfeff', border: '#cffafe' },
+                            { label: 'True / False', key: 'yesno' as const, value: yesNoCount, color: '#f59e0b', bg: '#fffbeb', border: '#fef3c7' },
+                        ].map(item => (
+                            <Col xs={8} key={item.key}>
+                                <div style={{
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    border: `1.5px solid ${item.border}`,
+                                    background: item.bg,
+                                }}>
+                                    <Tag color={item.key === 'single' ? 'blue' : item.key === 'multiple' ? 'cyan' : 'orange'}
+                                        style={{ borderRadius: 4, margin: '0 0 6px', fontWeight: 600, fontSize: 11 }}>
+                                        {item.label}
+                                    </Tag>
+                                    <Select
+                                        value={item.value}
+                                        onChange={(v) => handleCountChange(item.key, v)}
+                                        style={{ width: '100%' }}
+                                        size="small"
+                                        options={countOptions}
+                                    />
+                                </div>
+                            </Col>
+                        ))}
+                    </Row>
+                </div>
+
+                <Divider style={{ margin: '0 0 16px' }} />
+
+                {/* Prompt Section - Compact */}
+                <div style={{ marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <BulbOutlined style={{ color: '#f59e0b', fontSize: 16 }} />
+                            <Text strong style={{ fontSize: 14, color: '#1a1a2e' }}>Your Instructions</Text>
+                        </div>
+                        <Button
+                            type="link"
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            onClick={insertSuggestion}
+                            style={{ fontSize: 11, padding: '0 4px' }}
+                        >
+                            Try a suggestion
+                        </Button>
+                    </div>
+
+                    <TextArea
+                        value={userPrompt}
+                        onChange={e => setUserPrompt(e.target.value)}
+                        placeholder="E.g.: Create a quiz about French passé composé with irregular verbs for B1 level students..."
+                        autoSize={{ minRows: 2, maxRows: 4 }}
+                        style={{
+                            borderRadius: 8,
+                            fontSize: 13,
+                            border: '1.5px solid #e2e8f0',
+                            padding: '10px 12px',
+                        }}
+                        maxLength={1000}
+                        showCount
+                    />
+
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 6, display: 'block' }}>
+                        💡 Be specific about level, grammar topics, vocabulary themes, or skills to test.
                     </Text>
                 </div>
-            </Card>
 
-            {/* Error */}
-            {error && (
-                <Alert
-                    type="error"
-                    message="Generation Failed"
-                    description={error}
-                    showIcon
-                    closable
-                    onClose={() => setError(null)}
-                    style={{ marginBottom: 20, borderRadius: 12 }}
-                />
-            )}
+                {/* Error */}
+                {error && (
+                    <Alert
+                        type="error"
+                        message="Generation Failed"
+                        description={error}
+                        showIcon
+                        closable
+                        onClose={() => setError(null)}
+                        style={{ marginBottom: 16, borderRadius: 10 }}
+                    />
+                )}
+            </div>
 
-            {/* Actions */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+            {/* Fixed Bottom Actions */}
+            <div style={{
+                position: 'sticky',
+                bottom: 0,
+                background: '#fff',
+                borderTop: '1.5px solid #f0f0f0',
+                padding: '12px 24px',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 10,
+                boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
+                flexShrink: 0,
+                zIndex: 10,
+            }}>
                 <Button
                     onClick={onCancel}
                     disabled={generating}
-                    style={{ borderRadius: 10, height: 44, minWidth: 100 }}
+                    style={{ borderRadius: 8, height: 40, minWidth: 90, fontWeight: 500 }}
                 >
                     Cancel
                 </Button>
@@ -442,37 +425,51 @@ const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({ onQuestionsGenerated,
                     disabled={!isValid || generating}
                     icon={generating ? undefined : <ThunderboltOutlined />}
                     style={{
-                        borderRadius: 10,
-                        height: 44,
-                        minWidth: 200,
+                        borderRadius: 8,
+                        height: 40,
+                        minWidth: 180,
                         fontWeight: 700,
-                        fontSize: 15,
+                        fontSize: 14,
                         background: isValid ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : undefined,
                         border: 'none',
                     }}
                 >
-                    {generating ? 'Generating with AI...' : 'Generate Quiz ✨'}
+                    {generating ? 'Generating...' : 'Generate Quiz ✨'}
                 </Button>
             </div>
 
-            {/* Loading overlay */}
+            {/* Generating Overlay */}
             {generating && (
                 <div style={{
-                    marginTop: 20,
-                    padding: '32px 24px',
-                    background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
-                    borderRadius: 14,
-                    textAlign: 'center',
-                    border: '2px solid #ddd6fe'
+                    position: 'absolute',
+                    inset: 0,
+                    top: 80,
+                    background: 'rgba(255,255,255,0.88)',
+                    backdropFilter: 'blur(4px)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 15,
+                    borderRadius: '0 0 12px 12px',
                 }}>
-                    <Spin size="large" />
-                    <div style={{ marginTop: 16 }}>
-                        <Text strong style={{ fontSize: 16, color: '#5b21b6', display: 'block' }}>
-                            AI is crafting your quiz...
-                        </Text>
-                        <Text style={{ color: '#7c3aed', fontSize: 13 }}>
-                            Generating {totalQuestions} questions ({totalPoints} points) — this may take 10–20 seconds
-                        </Text>
+                    <div style={{
+                        padding: '32px 40px',
+                        background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+                        borderRadius: 16,
+                        textAlign: 'center',
+                        border: '2px solid #ddd6fe',
+                        boxShadow: '0 8px 32px rgba(124,58,237,0.12)',
+                    }}>
+                        <Spin size="large" />
+                        <div style={{ marginTop: 14 }}>
+                            <Text strong style={{ fontSize: 15, color: '#5b21b6', display: 'block' }}>
+                                AI is crafting your quiz...
+                            </Text>
+                            <Text style={{ color: '#7c3aed', fontSize: 12 }}>
+                                {totalQuestions} questions · {totalPoints} points — ~10–20 seconds
+                            </Text>
+                        </div>
                     </div>
                 </div>
             )}

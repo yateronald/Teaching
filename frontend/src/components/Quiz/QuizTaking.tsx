@@ -32,12 +32,21 @@ const formatNumber = (num: number): string => {
   return num % 1 === 0 ? num.toString() : num.toFixed(2);
 };
 
+interface AudioClip {
+    id: number;
+    duration_seconds?: number;
+    audio_order: number;
+    max_plays: number;
+    has_audio: boolean;
+}
+
 interface Question {
     id: number;
     question_text: string;
     question_type: 'mcq_single' | 'mcq_multiple' | 'yes_no';
     options?: { id: number; option_text: string; option_order: number }[];
     points: number;
+    audio_clip_id?: number;
 }
 
 interface Quiz {
@@ -47,6 +56,7 @@ interface Quiz {
     duration_minutes?: number;
     total_questions: number;
     questions: Question[];
+    audio_clips?: AudioClip[];
 }
 
 interface Answer {
@@ -71,6 +81,297 @@ export interface QuizTakingHandle {
     submitNow: (auto?: boolean) => Promise<boolean>;
     isStarted: () => boolean;
 }
+
+// ============================================================
+// Secure Audio Player — No downloadable src in DOM
+// Uses programmatic Audio API + custom controls
+// ============================================================
+interface SecureAudioPlayerProps {
+    clipId: number;
+    blobUrl?: string;
+    isExhausted: boolean;
+    isLimited: boolean;
+    remaining: number;
+    maxPlays: number;
+    durationSeconds?: number;
+    linkedCount: number;
+    currentAudioIdx: number;
+    onPlay: () => void;
+}
+
+const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    clipId: _clipId, blobUrl, isExhausted, isLimited, remaining, maxPlays,
+    durationSeconds, linkedCount, currentAudioIdx, onPlay
+}) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [duration, setDuration] = useState(durationSeconds || 0);
+    const [isLoading, setIsLoading] = useState(false);
+    const progressRef = useRef<HTMLDivElement>(null);
+    const hasCountedRef = useRef(false);
+
+    const audioCtxRef = useRef<AudioContext | null>(null);
+    const audioBufferRef = useRef<AudioBuffer | null>(null);
+    const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+    const startTimeRef = useRef<number>(0);
+    const offsetRef = useRef<number>(0);
+    const animationRef = useRef<number | null>(null);
+
+    // Initialize Web Audio API
+    useEffect(() => {
+        if (!blobUrl) return;
+        setIsLoading(true);
+
+        let isCancelled = false;
+
+        const initAudio = async () => {
+            try {
+                const response = await fetch(blobUrl);
+                const arrayBuffer = await response.arrayBuffer();
+                if (isCancelled) return;
+
+                const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+                if (!audioCtxRef.current) {
+                    audioCtxRef.current = new AudioContextClass();
+                }
+                const ctx = audioCtxRef.current;
+                const buffer = await ctx.decodeAudioData(arrayBuffer);
+                if (isCancelled) return;
+
+                audioBufferRef.current = buffer;
+                if (buffer.duration && isFinite(buffer.duration)) {
+                    setDuration(buffer.duration);
+                }
+                setIsLoading(false);
+            } catch (err) {
+                console.error("Failed to decode audio", err);
+                if (!isCancelled) setIsLoading(false);
+            }
+        };
+
+        void initAudio();
+
+        return () => {
+            isCancelled = true;
+            if (sourceNodeRef.current) {
+                try { sourceNodeRef.current.stop(); } catch {}
+                sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = null;
+            }
+            if (animationRef.current) cancelAnimationFrame(animationRef.current);
+            // Note: We don't close audioCtxRef so it can be reused safely
+        };
+    }, [blobUrl]);
+
+    // Timer loop for tracking progress
+    const updateProgress = () => {
+        if (!audioCtxRef.current || !audioBufferRef.current) return;
+        
+        const currentOffset = offsetRef.current + (audioCtxRef.current.currentTime - startTimeRef.current);
+        
+        if (currentOffset >= audioBufferRef.current.duration) {
+            // Reached the end
+            setIsPlaying(false);
+            setCurrentTime(audioBufferRef.current.duration);
+            offsetRef.current = 0;
+            hasCountedRef.current = false;
+        } else {
+            setCurrentTime(currentOffset);
+            animationRef.current = requestAnimationFrame(updateProgress);
+        }
+    };
+
+    const togglePlay = () => {
+        if (isExhausted || !audioBufferRef.current || !audioCtxRef.current) return;
+
+        if (isPlaying) {
+            // Pause
+            if (sourceNodeRef.current) {
+                try { sourceNodeRef.current.stop(); } catch {}
+                sourceNodeRef.current.disconnect();
+                sourceNodeRef.current = null;
+            }
+            offsetRef.current += (audioCtxRef.current.currentTime - startTimeRef.current);
+            setIsPlaying(false);
+            if (animationRef.current) cancelAnimationFrame(animationRef.current);
+            setCurrentTime(offsetRef.current);
+        } else {
+            // Play
+            if (!hasCountedRef.current) {
+                onPlay();
+                hasCountedRef.current = true;
+            }
+
+            if (audioCtxRef.current.state === 'suspended') {
+                audioCtxRef.current.resume();
+            }
+
+            const source = audioCtxRef.current.createBufferSource();
+            source.buffer = audioBufferRef.current;
+            source.connect(audioCtxRef.current.destination);
+            
+            // Loop protection: if offset is at the end, reset
+            if (offsetRef.current >= audioBufferRef.current.duration) {
+                offsetRef.current = 0;
+                setCurrentTime(0);
+            }
+            
+            source.start(0, offsetRef.current);
+            startTimeRef.current = audioCtxRef.current.currentTime;
+            sourceNodeRef.current = source;
+            
+            setIsPlaying(true);
+            if (animationRef.current) cancelAnimationFrame(animationRef.current);
+            animationRef.current = requestAnimationFrame(updateProgress);
+        }
+    };
+
+    const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+        if (!audioBufferRef.current || !progressRef.current || isExhausted || !audioCtxRef.current) return;
+        
+        const rect = progressRef.current.getBoundingClientRect();
+        const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const newOffset = pct * (audioBufferRef.current.duration || duration);
+        
+        if (isPlaying) {
+            if (sourceNodeRef.current) {
+                try { sourceNodeRef.current.stop(); } catch {}
+                sourceNodeRef.current.disconnect();
+            }
+            const source = audioCtxRef.current.createBufferSource();
+            source.buffer = audioBufferRef.current;
+            source.connect(audioCtxRef.current.destination);
+            source.start(0, newOffset);
+            startTimeRef.current = audioCtxRef.current.currentTime;
+            sourceNodeRef.current = source;
+        }
+        
+        offsetRef.current = newOffset;
+        setCurrentTime(newOffset);
+    };
+
+    const formatTime = (s: number) => {
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+
+    const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+    return (
+        <div
+            onContextMenu={e => e.preventDefault()}
+            style={{
+                background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
+                borderRadius: 12,
+                padding: '14px 18px',
+                marginBottom: 14,
+                position: 'sticky',
+                top: 80,
+                zIndex: 10,
+                boxShadow: '0 4px 16px rgba(8,145,178,0.25)',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+            }}
+        >
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                        background: 'rgba(255,255,255,0.2)',
+                        width: 34, height: 34, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
+                    }}>🎧</div>
+                    <div>
+                        <Text strong style={{ color: 'white', fontSize: 14, display: 'block' }}>
+                            Listening Comprehension
+                        </Text>
+                        {linkedCount > 1 && (
+                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>
+                                Question {currentAudioIdx + 1} of {linkedCount} for this audio
+                            </Text>
+                        )}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                    {durationSeconds && (
+                        <div style={{
+                            background: 'rgba(255,255,255,0.2)', borderRadius: 6,
+                            padding: '3px 10px', color: 'white', fontSize: 11, fontWeight: 600,
+                        }}>⏱ {durationSeconds}s</div>
+                    )}
+                    {isLimited && (
+                        <div style={{
+                            background: isExhausted ? 'rgba(255,80,80,0.4)' : remaining <= 1 ? 'rgba(255,200,0,0.4)' : 'rgba(255,255,255,0.2)',
+                            borderRadius: 6, padding: '3px 10px', color: 'white', fontSize: 11, fontWeight: 600,
+                        }}>
+                            {isExhausted ? '🔒 No plays left' : `🔊 ${remaining}/${maxPlays} plays left`}
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Custom Controls */}
+            <div style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                background: 'rgba(0,0,0,0.15)', borderRadius: 10, padding: '8px 14px',
+                opacity: isExhausted ? 0.4 : 1,
+                pointerEvents: isExhausted ? 'none' : 'auto',
+            }}>
+                {/* Play/Pause */}
+                <button
+                    onClick={togglePlay}
+                    disabled={!blobUrl || isExhausted}
+                    style={{
+                        width: 36, height: 36, borderRadius: '50%',
+                        background: 'rgba(255,255,255,0.2)', border: 'none',
+                        color: 'white', fontSize: 16, cursor: 'pointer',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'background 0.2s', flexShrink: 0,
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.35)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
+                >
+                    {isLoading ? '⏳' : isPlaying ? '⏸' : '▶'}
+                </button>
+
+                {/* Time */}
+                <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 600, minWidth: 42, fontFamily: 'monospace' }}>
+                    {formatTime(currentTime)}
+                </span>
+
+                {/* Progress bar */}
+                <div
+                    ref={progressRef}
+                    onClick={handleProgressClick}
+                    style={{
+                        flex: 1, height: 6, background: 'rgba(255,255,255,0.2)',
+                        borderRadius: 3, cursor: 'pointer', position: 'relative',
+                    }}
+                >
+                    <div style={{
+                        width: `${progress}%`, height: '100%',
+                        background: 'white', borderRadius: 3,
+                        transition: 'width 0.1s linear',
+                    }} />
+                    <div style={{
+                        position: 'absolute', top: -4,
+                        left: `calc(${progress}% - 7px)`,
+                        width: 14, height: 14, borderRadius: '50%',
+                        background: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+                        transition: 'left 0.1s linear',
+                    }} />
+                </div>
+
+                {/* Duration */}
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600, minWidth: 42, fontFamily: 'monospace', textAlign: 'right' }}>
+                    {formatTime(duration)}
+                </span>
+            </div>
+        </div>
+    );
+};
 
 const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingProps, ref: React.Ref<QuizTakingHandle> ) => {
     const { quizId: paramQuizId } = useParams<{ quizId: string }>();
@@ -97,6 +398,11 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     const syncIntervalRef = useRef<number | null>(null);
     // Track visited questions for nav coloring
     const [visitedQuestions, setVisitedQuestions] = useState<Set<number>>(() => new Set());
+    // Audio play tracking: { clipId: playCount }
+    const [audioPlayCounts, setAudioPlayCounts] = useState<Record<number, number>>({});
+    const [audioBlobUrls, setAudioBlobUrls] = useState<Record<number, string>>({});
+    const [audioPreloaded, setAudioPreloaded] = useState(false);
+    const [totalAudioClips, setTotalAudioClips] = useState(0);
 
     useEffect(() => {
         if (quizId) {
@@ -227,6 +533,15 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
         return () => window.removeEventListener('beforeunload', handleBeforeUnload);
     }, [quizStarted, quizCompleted]);
 
+    // Cleanup blob URLs on unmount
+    useEffect(() => {
+        return () => {
+            Object.values(audioBlobUrls).forEach(url => {
+                try { URL.revokeObjectURL(url); } catch {}
+            });
+        };
+    }, []);
+
     const fetchQuiz = async () => {
         try {
             const response = await apiCall(`/quizzes/${quizId}`);
@@ -241,8 +556,92 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         ...q,
                         points: q.points ?? q.marks ?? 0,
                     }));
+
+                    // --- Randomize Questions with Audio Grouping ---
+                    // 1. Group questions: independent questions vs audio-linked groups
+                    const groups: Record<string, any[]> = { 'independent': [] };
+                    normalized.questions.forEach((q: any) => {
+                        if (q.audio_clip_id) {
+                            if (!groups[q.audio_clip_id]) groups[q.audio_clip_id] = [];
+                            groups[q.audio_clip_id].push(q);
+                        } else {
+                            // Each independent question is its own cluster
+                            groups['independent'].push([q]); 
+                        }
+                    });
+
+                    // 2. Build array of clusters
+                    let clusters: any[][] = [];
+                    Object.keys(groups).forEach(key => {
+                        if (key === 'independent') {
+                            clusters = clusters.concat(groups[key]); 
+                        } else {
+                            const audioGroup = groups[key];
+                            // Optional: Shuffle questions *within* the audio group
+                            for (let i = audioGroup.length - 1; i > 0; i--) {
+                                const j = Math.floor(Math.random() * (i + 1));
+                                [audioGroup[i], audioGroup[j]] = [audioGroup[j], audioGroup[i]];
+                            }
+                            clusters.push(audioGroup);
+                        }
+                    });
+
+                    // 3. Shuffle the clusters (groups + independent qs)
+                    for (let i = clusters.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [clusters[i], clusters[j]] = [clusters[j], clusters[i]];
+                    }
+
+                    // 4. Flatten back into the main questions array
+                    normalized.questions = clusters.flat();
                 }
                 setQuiz(normalized);
+
+                // --- Start Async Audio Preload ---
+                const clips = normalized?.audio_clips || data?.audio_clips || [];
+                const validClips = clips.filter((c: any) => c?.id && c.has_audio);
+                setTotalAudioClips(validClips.length);
+                if (validClips.length === 0) {
+                    setAudioPreloaded(true);
+                } else {
+                    let loadedCount = 0;
+                    validClips.forEach(async (clip: any) => {
+                        try {
+                            const audioResp = await apiCall(`/quizzes/audio/${clip.id}/stream`);
+                            if (audioResp.ok) {
+                                const contentType = audioResp.headers.get('content-type');
+                                let blob: Blob;
+                                
+                                if (contentType && contentType.includes('application/json')) {
+                                    // Handle base64 JSON wrapped response to evade download managers completely
+                                    const data = await audioResp.json();
+                                    const byteCharacters = atob(data.audioData);
+                                    const byteNumbers = new Array(byteCharacters.length);
+                                    for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                                    }
+                                    const byteArray = new Uint8Array(byteNumbers);
+                                    blob = new Blob([byteArray], { type: data.contentType || 'audio/wav' });
+                                } else {
+                                    // Handle standard binary stream
+                                    blob = await audioResp.blob();
+                                }
+                                
+                                const url = URL.createObjectURL(blob);
+                                setAudioBlobUrls(prev => ({ ...prev, [clip.id]: url }));
+                            }
+                        } catch (err) {
+                            console.warn('Failed to preload audio clip', clip.id, err);
+                        } finally {
+                            loadedCount++;
+                            if (loadedCount >= validClips.length) {
+                                setAudioPreloaded(true);
+                            }
+                        }
+                    });
+                }
+                // --- End Async Audio Preload ---
+
             } else {
                 const err = await safeJson(response);
                 messageApi.error(err?.error || 'Failed to load quiz');
@@ -742,10 +1141,24 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                 />
                 
                 <div style={{ textAlign: 'center' }}>
+                    {!audioPreloaded && totalAudioClips > 0 && (
+                        <div style={{ marginBottom: 16 }}>
+                            <Text type="secondary">
+                                <Spin size="small" style={{ marginRight: 8 }} />
+                                Preparing securely encrypted quiz components...
+                            </Text>
+                        </div>
+                    )}
                     <Space>
                         <Button onClick={() => navigate('/student-dashboard')}>Cancel</Button>
-                        <Button type="primary" size="large" onClick={startQuiz}>
-                            Start Quiz
+                        <Button 
+                            type="primary" 
+                            size="large" 
+                            onClick={startQuiz}
+                            disabled={!audioPreloaded && totalAudioClips > 0}
+                            loading={!audioPreloaded && totalAudioClips > 0}
+                        >
+                            {(!audioPreloaded && totalAudioClips > 0) ? 'Preparing Quiz...' : 'Start Quiz'}
                         </Button>
                     </Space>
                 </div>
@@ -772,7 +1185,20 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     }
 
     return (
-        <div style={{ backgroundColor: '#f8f9fa', minHeight: 'auto' }}>
+        <div 
+            className="quiz-taking-container"
+            style={{ 
+                backgroundColor: '#f8f9fa', 
+                minHeight: 'auto',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                msUserSelect: 'none'
+            }}
+            onCopy={e => e.preventDefault()}
+            onCut={e => e.preventDefault()}
+            onPaste={e => e.preventDefault()}
+            onContextMenu={e => e.preventDefault()}
+        >
             {contextHolder}
             {/* Fixed Timer Header */}
             <div style={{
@@ -833,6 +1259,8 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                         const isVisited = visitedQuestions.has(q.id);
                                         let bg = isAnswered ? '#52c41a' : (isCurrent ? '#1890ff' : (isVisited ? '#ffd591' : '#d9d9d9'));
                                         
+                                        const isAudioQ = !!q.audio_clip_id;
+                                        
                                         return (
                                             <Button
                                                 key={q.id}
@@ -843,15 +1271,15 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                                     padding: 0,
                                                     backgroundColor: bg,
                                                     color: '#fff',
-                                                    border: 'none',
+                                                    border: isAudioQ ? '2px solid #06b6d4' : 'none',
                                                     borderRadius: '4px',
                                                     fontWeight: '600',
-                                                    fontSize: '11px',
+                                                    fontSize: isAudioQ ? '10px' : '11px',
                                                     minWidth: '28px'
                                                 }}
                                                 onClick={() => setCurrentQuestion(idx)}
                                             >
-                                                {idx + 1}
+                                                {isAudioQ ? '🎧' : idx + 1}
                                             </Button>
                                         );
                                     })}
@@ -926,6 +1354,45 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             </div>
                         </div>
                         
+                        {/* Audio Player (for listening comprehension questions) */}
+                        {currentQ.audio_clip_id && (() => {
+                            const clip = quiz.audio_clips?.find(c => c.id === currentQ.audio_clip_id);
+                            if (!clip?.has_audio) return null;
+                            const clipId = clip.id;
+                            const plays = audioPlayCounts[clipId] || 0;
+                            const maxP = clip.max_plays || 0;
+                            const isLimited = maxP > 0;
+                            const remaining = isLimited ? Math.max(0, maxP - plays) : Infinity;
+                            const isExhausted = isLimited && remaining <= 0;
+                            const blobUrl = audioBlobUrls[clipId];
+
+                            // Count how many questions share this audio clip
+                            const linkedQs = quiz.questions.filter(q => q.audio_clip_id === clipId);
+                            const currentAudioIdx = linkedQs.findIndex(q => q.id === currentQ.id);
+
+                            return (
+                                <SecureAudioPlayer
+                                    clipId={clipId}
+                                    blobUrl={blobUrl}
+                                    isExhausted={isExhausted}
+                                    isLimited={isLimited}
+                                    remaining={remaining}
+                                    maxPlays={maxP}
+                                    durationSeconds={clip.duration_seconds}
+                                    linkedCount={linkedQs.length}
+                                    currentAudioIdx={currentAudioIdx}
+                                    onPlay={() => {
+                                        if (!isExhausted) {
+                                            setAudioPlayCounts(prev => ({
+                                                ...prev,
+                                                [clipId]: (prev[clipId] || 0) + 1
+                                            }));
+                                        }
+                                    }}
+                                />
+                            );
+                        })()}
+
                         <div style={{
                             backgroundColor: '#fafafa',
                             padding: '16px',

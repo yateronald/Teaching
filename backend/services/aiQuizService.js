@@ -6,13 +6,14 @@ const { GoogleGenAI } = require('@google/genai');
 
 class AIQuizService {
     constructor() {
-        this.apiKey = process.env.GEMINI_API_KEY;
+        this.apiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY1].filter(Boolean);
+        this.currentKeyIndex = 0;
         this.model = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
         this.client = null;
 
-        if (this.apiKey) {
-            this.client = new GoogleGenAI({ apiKey: this.apiKey });
-            console.log(`🤖 AI Quiz Service initialized (model: ${this.model})`);
+        if (this.apiKeys.length > 0) {
+            this.client = new GoogleGenAI({ apiKey: this.apiKeys[this.currentKeyIndex] });
+            console.log(`🤖 AI Quiz Service initialized (model: ${this.model}, keys available: ${this.apiKeys.length})`);
         } else {
             console.warn('⚠️  AI Quiz Service: GEMINI_API_KEY not set — AI quiz generation disabled');
         }
@@ -133,7 +134,7 @@ RULES:
     // Call Gemini API to generate quiz questions
     // --------------------------------------------------------
     async generateQuiz({ totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints, userPrompt }) {
-        if (!this.client) {
+        if (!this.client || this.apiKeys.length === 0) {
             throw new Error('AI Quiz Service is not configured. Set GEMINI_API_KEY in your .env file.');
         }
 
@@ -149,50 +150,63 @@ RULES:
 
         console.log(`🤖 AI Quiz: Generating ${totalQuestions} questions (${totalPoints} pts) via ${this.model}...`);
 
-        try {
-            const response = await this.client.models.generateContent({
-                model: this.model,
-                contents: dynamicPrompt,
-                config: {
-                    systemInstruction: this.systemPrompt,
-                    responseMimeType: 'application/json',
-                    responseSchema: this.responseSchema,
-                    temperature: 0.7,
-                    maxOutputTokens: 8192,
-                }
-            });
-
-            const rawText = response.text;
-            if (!rawText) {
-                throw new Error('Empty response from AI model');
-            }
-
-            // Parse JSON response
-            let parsed;
+        let attempts = 0;
+        
+        while (attempts < this.apiKeys.length) {
             try {
-                parsed = JSON.parse(rawText);
-            } catch (parseErr) {
-                console.error('🤖 AI Quiz: Failed to parse JSON response:', rawText.substring(0, 500));
-                throw new Error('AI returned invalid JSON. Please try again.');
-            }
+                const response = await this.client.models.generateContent({
+                    model: this.model,
+                    contents: dynamicPrompt,
+                    config: {
+                        systemInstruction: this.systemPrompt,
+                        responseMimeType: 'application/json',
+                        responseSchema: this.responseSchema,
+                        temperature: 0.7,
+                        maxOutputTokens: 8192,
+                    }
+                });
 
-            // Validate and sanitize the response
-            const validated = this.validateAndSanitize(parsed, {
-                totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints
-            });
+                const rawText = response.text;
+                if (!rawText) {
+                    throw new Error('Empty response from AI model');
+                }
 
-            console.log(`✅ AI Quiz: Generated ${validated.questions.length} questions successfully`);
-            return validated;
+                // Parse JSON response
+                let parsed;
+                try {
+                    parsed = JSON.parse(rawText);
+                } catch (parseErr) {
+                    console.error('🤖 AI Quiz: Failed to parse JSON response:', rawText.substring(0, 500));
+                    throw new Error('AI returned invalid JSON. Please try again.');
+                }
 
-        } catch (error) {
-            if (error.status === 429) {
-                throw new Error('AI rate limit reached. Please wait a moment and try again.');
+                // Validate and sanitize the response
+                const validated = this.validateAndSanitize(parsed, {
+                    totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints
+                });
+
+                console.log(`✅ AI Quiz: Generated ${validated.questions.length} questions successfully`);
+                return validated;
+
+            } catch (error) {
+                if (error.status === 429) {
+                    console.warn(`⚠️ AI rate limit reached on key (Index: ${this.currentKeyIndex}).`);
+                    attempts++;
+                    if (attempts < this.apiKeys.length) {
+                        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
+                        console.log(`🔄 Switching to alternate API key (Index: ${this.currentKeyIndex})...`);
+                        this.client = new GoogleGenAI({ apiKey: this.apiKeys[this.currentKeyIndex] });
+                        continue;
+                    } else {
+                        throw new Error('All AI rate limits reached. Please try again later.');
+                    }
+                }
+                if (error.status === 403) {
+                    throw new Error('AI API key is invalid or lacks permissions. Check your GEMINI_API_KEY.');
+                }
+                console.error('🤖 AI Quiz generation error:', error.message);
+                throw error;
             }
-            if (error.status === 403) {
-                throw new Error('AI API key is invalid or lacks permissions. Check your GEMINI_API_KEY.');
-            }
-            console.error('🤖 AI Quiz generation error:', error.message);
-            throw error;
         }
     }
 

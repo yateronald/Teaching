@@ -53,6 +53,14 @@ interface QuizResult {
     teacher_feedback?: string;
 }
 
+interface AudioClipInfo {
+    id: number;
+    duration_seconds?: number;
+    audio_order: number;
+    max_plays: number;
+    has_audio: boolean;
+}
+
 interface DetailedResult {
     quiz: {
         id: number;
@@ -80,13 +88,15 @@ interface DetailedResult {
         is_correct?: boolean;
         score?: number;
         teacher_feedback?: string;
+        audio_clip_id?: number | null;
         options?: Array<{
             id: number;
             option_text: string;
             is_correct: boolean;
         }>;
-        selected_options?: number[] | string; // may arrive as JSON string from backend
+        selected_options?: number[] | string;
     }>;
+    audio_clips?: AudioClipInfo[];
 }
 
 const StudentQuizResults: React.FC = () => {
@@ -95,6 +105,7 @@ const StudentQuizResults: React.FC = () => {
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedResult, setSelectedResult] = useState<DetailedResult | null>(null);
     const [loadingQuizId, setLoadingQuizId] = useState<number | null>(null);
+    const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
     const { apiCall } = useAuth();
 
     useEffect(() => {
@@ -127,6 +138,33 @@ const StudentQuizResults: React.FC = () => {
                 const data = await response.json();
                 setSelectedResult(data);
                 setDetailModalVisible(true);
+
+                // Securely preload audio clips via base64 (same IDM-evasion as quiz taking)
+                const clips: AudioClipInfo[] = data.audio_clips || [];
+                const hasAudioClips = clips.filter(c => c.has_audio);
+                if (hasAudioClips.length > 0) {
+                    const urls: Record<number, string> = {};
+                    await Promise.all(hasAudioClips.map(async (clip) => {
+                        try {
+                            const audioResp = await apiCall(`/quizzes/audio/${clip.id}/stream`);
+                            if (audioResp.ok) {
+                                const json = await audioResp.json();
+                                if (json.audioData) {
+                                    const byteChars = atob(json.audioData);
+                                    const byteArr = new Uint8Array(byteChars.length);
+                                    for (let i = 0; i < byteChars.length; i++) {
+                                        byteArr[i] = byteChars.charCodeAt(i);
+                                    }
+                                    const blob = new Blob([byteArr], { type: json.contentType || 'audio/wav' });
+                                    urls[clip.id] = URL.createObjectURL(blob);
+                                }
+                            }
+                        } catch (e) {
+                            console.warn(`Failed to preload audio clip ${clip.id}`, e);
+                        }
+                    }));
+                    setAudioUrls(urls);
+                }
             } else {
                 console.error('Failed to fetch detailed result');
             }
@@ -419,6 +457,9 @@ const StudentQuizResults: React.FC = () => {
                 onCancel={() => {
                     setDetailModalVisible(false);
                     setSelectedResult(null);
+                    // Revoke blob URLs to free memory
+                    Object.values(audioUrls).forEach(url => URL.revokeObjectURL(url));
+                    setAudioUrls({});
                 }}
                 footer={null}
                 width={800}
@@ -465,30 +506,72 @@ const StudentQuizResults: React.FC = () => {
                             />
                         )}
 
-                        {/* Question-wise Results */}
-                        <Card title="Question-wise Performance" size="small">
-                            <Collapse accordion bordered={false} style={{ background: '#fafafa' }}>
-                                {selectedResult.questions.map((question, index) => {
+                        {/* Question-wise Performance — Grouped by Audio */}
+                        <Card title="Question-wise Performance" size="small"
+                            style={{ userSelect: 'none' }}
+                            onContextMenu={(e: any) => e.preventDefault()}
+                            onCopy={(e: any) => e.preventDefault()}
+                        >
+                            {(() => {
+                                const questions = selectedResult.questions;
+                                const audioClips: AudioClipInfo[] = selectedResult.audio_clips || [];
+
+                                // Group questions
+                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: typeof questions }
+                                    | { type: 'independent'; question: typeof questions[0] };
+                                const groups: QGroup[] = [];
+                                const audioMap = new Map<number, typeof questions>();
+
+                                questions.forEach(q => {
+                                    if (q.audio_clip_id) {
+                                        if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []);
+                                        audioMap.get(q.audio_clip_id)!.push(q);
+                                    }
+                                });
+
+                                const processedClips = new Set<number>();
+                                questions.forEach(q => {
+                                    if (q.audio_clip_id && !processedClips.has(q.audio_clip_id)) {
+                                        processedClips.add(q.audio_clip_id);
+                                        const clip = audioClips.find(c => c.id === q.audio_clip_id);
+                                        groups.push({
+                                            type: 'audio',
+                                            clipId: q.audio_clip_id,
+                                            clip: clip || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false },
+                                            questions: audioMap.get(q.audio_clip_id) || []
+                                        });
+                                    } else if (!q.audio_clip_id) {
+                                        groups.push({ type: 'independent', question: q });
+                                    }
+                                });
+
+                                let globalIdx = 0;
+
+                                const renderQuestion = (question: typeof questions[0], idx: number) => {
                                     const status = getQuestionStatus(question);
-                                    const header = (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                            <span>Q{index + 1}. {question.question_text}</span>
-                                            <div>
-                                                <Tag color={status.color} style={{ marginRight: 8 }}>
-                                                    {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
-                                                </Tag>
-                                                <Tag color={getQuestionScoreColor(question.score, question.points)}>
-                                                    {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
-                                                </Tag>
-                                            </div>
-                                        </div>
-                                    );
+                                    const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
 
                                     return (
-                                        <Collapse.Panel header={header} key={question.id.toString()}>
-                                            {/* Render answer details */}
+                                        <Collapse.Panel
+                                            header={
+                                                <div style={{ width: '100%' }}>
+                                                    <div style={{ lineHeight: '1.5', fontSize: '13px', color: '#1a1a1a', marginBottom: '6px' }}>
+                                                        <span style={{ fontWeight: 600, color: '#1890ff', marginRight: '6px' }}>Q{idx}.</span>
+                                                        {question.question_text}
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                                                        <Tag color={status.color} style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '11px', lineHeight: '20px', borderRadius: '10px', fontWeight: 600 }}>
+                                                            {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
+                                                        </Tag>
+                                                        <Tag color={getQuestionScoreColor(question.score, question.points)} style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '11px', lineHeight: '20px', borderRadius: '10px', fontWeight: 600 }}>
+                                                            {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
+                                                        </Tag>
+                                                    </div>
+                                                </div>
+                                            }
+                                            key={`q-${question.id}`}
+                                        >
                                             {(() => {
-                                                const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
                                                 if (isMcq && question.options && question.options.length > 0) {
                                                     let selectedIds: number[] = [];
                                                     try {
@@ -501,7 +584,6 @@ const StudentQuizResults: React.FC = () => {
                                                     } catch (_) {
                                                         selectedIds = [];
                                                     }
-
                                                     const selectedOptions = question.options.filter(o => selectedIds.includes(o.id));
                                                     return (
                                                         <div>
@@ -517,7 +599,6 @@ const StudentQuizResults: React.FC = () => {
                                                             ) : (
                                                                 <Text type="secondary">No answer</Text>
                                                             )}
-                                                            {/* Always show the correct answers in green */}
                                                             {question.options.some(o => o.is_correct) && (
                                                                 <div style={{ marginTop: 6 }}>
                                                                     <Text type="secondary">Correct Answer: </Text>
@@ -531,8 +612,6 @@ const StudentQuizResults: React.FC = () => {
                                                         </div>
                                                     );
                                                 }
-
-                                                // Non-MCQ fallback (text/yes_no etc.)
                                                 return (
                                                     <>
                                                         {question.student_answer && (
@@ -550,7 +629,6 @@ const StudentQuizResults: React.FC = () => {
                                                     </>
                                                 );
                                             })()}
-
                                             {question.teacher_feedback && (
                                                 <div style={{ marginTop: 8 }}>
                                                     <Text type="secondary">Feedback: </Text>
@@ -559,8 +637,130 @@ const StudentQuizResults: React.FC = () => {
                                             )}
                                         </Collapse.Panel>
                                     );
-                                })}
-                            </Collapse>
+                                };
+
+                                return (
+                                    <div>
+                                        {groups.map((group, gIdx) => {
+                                            if (group.type === 'independent') {
+                                                globalIdx++;
+                                                return (
+                                                    <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: 8 }} key={`ind-${group.question.id}`}>
+                                                        {renderQuestion(group.question, globalIdx)}
+                                                    </Collapse>
+                                                );
+                                            }
+
+                                            // Audio Group
+                                            const audioQs = group.questions;
+                                            const correctCount = audioQs.filter(q => {
+                                                const s = Number(q.score || 0);
+                                                const p = Number(q.points || 0);
+                                                return p > 0 && s >= p;
+                                            }).length;
+                                            const totalPtsEarned = audioQs.reduce((s, q) => s + Number(q.score || 0), 0);
+                                            const totalPtsMax = audioQs.reduce((s, q) => s + Number(q.points || 0), 0);
+                                            const sectionPct = totalPtsMax > 0 ? Math.round((totalPtsEarned / totalPtsMax) * 100) : 0;
+                                            const sectionColor = sectionPct >= 80 ? '#52c41a' : sectionPct >= 50 ? '#faad14' : '#ff4d4f';
+
+                                            return (
+                                                <div key={`audio-${group.clipId}`} style={{
+                                                    marginBottom: '20px',
+                                                    borderRadius: '14px',
+                                                    overflow: 'hidden',
+                                                    border: '2px solid #06b6d4',
+                                                    boxShadow: '0 4px 16px rgba(6,182,212,0.12)'
+                                                }}>
+                                                    {/* Audio Section Header */}
+                                                    <div style={{
+                                                        background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
+                                                        padding: '16px 20px',
+                                                        color: '#fff'
+                                                    }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                <div style={{
+                                                                    background: 'rgba(255,255,255,0.2)',
+                                                                    width: 34, height: 34, borderRadius: '50%',
+                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                    fontSize: 16
+                                                                }}>🎧</div>
+                                                                <div>
+                                                                    <Text strong style={{ color: '#fff', fontSize: '14px', display: 'block' }}>
+                                                                        Listening Comprehension — Audio {group.clip.audio_order || gIdx + 1}
+                                                                    </Text>
+                                                                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px' }}>
+                                                                        {audioQs.length} question{audioQs.length > 1 ? 's' : ''} linked to this audio
+                                                                    </Text>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* KPIs */}
+                                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '8px', padding: '6px 14px',
+                                                                display: 'flex', alignItems: 'center', gap: '6px'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Accuracy</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>{correctCount}/{audioQs.length}</Text>
+                                                            </div>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '8px', padding: '6px 14px',
+                                                                display: 'flex', alignItems: 'center', gap: '6px'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Points</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>
+                                                                    {totalPtsEarned % 1 === 0 ? totalPtsEarned : totalPtsEarned.toFixed(2)}/{totalPtsMax % 1 === 0 ? totalPtsMax : totalPtsMax.toFixed(2)}
+                                                                </Text>
+                                                            </div>
+                                                            <div style={{
+                                                                background: 'rgba(255,255,255,0.15)',
+                                                                borderRadius: '8px', padding: '6px 14px',
+                                                                display: 'flex', alignItems: 'center', gap: '6px'
+                                                            }}>
+                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Score</Text>
+                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>{sectionPct}%</Text>
+                                                                <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: sectionColor }} />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Secure Audio Player (Blob URL — no network endpoint exposed) */}
+                                                        {audioUrls[group.clipId] && (
+                                                            <div style={{ marginTop: '10px' }}>
+                                                                <audio
+                                                                    controls
+                                                                    controlsList="nodownload noplaybackrate"
+                                                                    onContextMenu={(e) => e.preventDefault()}
+                                                                    src={audioUrls[group.clipId]}
+                                                                    style={{
+                                                                        width: '100%', height: '34px',
+                                                                        borderRadius: '8px',
+                                                                        filter: 'invert(1) hue-rotate(180deg)',
+                                                                        opacity: 0.9
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Questions under this audio */}
+                                                    <div style={{ padding: '12px 16px', backgroundColor: '#f0fdfa' }}>
+                                                        <Collapse accordion bordered={false} style={{ background: 'transparent' }}>
+                                                            {audioQs.map((q) => {
+                                                                globalIdx++;
+                                                                return renderQuestion(q, globalIdx);
+                                                            })}
+                                                        </Collapse>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
                         </Card>
                     </div>
                 )}

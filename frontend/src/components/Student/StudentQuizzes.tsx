@@ -681,7 +681,7 @@ const StudentQuizzes: React.FC = () => {
                     setSelectedQuizId(null);
                 }}
                 footer={null}
-                width={760}
+                width={900}
                 centered
                 bodyStyle={{ padding: 0 }}
                 destroyOnHidden

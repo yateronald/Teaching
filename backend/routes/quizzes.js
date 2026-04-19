@@ -3,6 +3,22 @@ const { body, validationResult } = require('express-validator');
 const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
 const { sendQuizNotification } = require('../emails/emailService');
 const { getAIQuizService } = require('../services/aiQuizService');
+const { getTTSService, VOICE_OPTIONS } = require('../services/ttsService');
+const multer = require('multer');
+const path = require('path');
+const os = require('os');
+
+// Multer config for audio uploads (temp storage)
+const audioUpload = multer({
+    dest: os.tmpdir(),
+    limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.mp3', '.wav', '.ogg', '.m4a', '.webm'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (allowed.includes(ext)) cb(null, true);
+        else cb(new Error('Only audio files (mp3, wav, ogg, m4a, webm) are allowed'));
+    }
+});
 
 const router = express.Router();
 
@@ -258,7 +274,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         // Get questions with options
         const questions = await req.db.all(`
             SELECT 
-                q.id, q.question_text, q.question_type, q.question_order, q.marks, q.correct_answer
+                q.id, q.question_text, q.question_type, q.question_order, q.marks, q.correct_answer, q.audio_clip_id
             FROM questions q
             WHERE q.quiz_id = ?
             ORDER BY q.question_order
@@ -315,10 +331,32 @@ router.get('/:id', authenticateToken, async (req, res) => {
             WHERE qb.quiz_id = ?
         `, [id]);
 
+        // Get audio clips for this quiz
+        const audioClips = await req.db.all(`
+            SELECT id, transcript, voice_name, source_type, kdrive_file_id,
+                   file_name, duration_seconds, audio_order, max_plays,
+                   (kdrive_file_id IS NOT NULL) as has_audio
+            FROM quiz_audio_clips
+            WHERE quiz_id = ?
+            ORDER BY audio_order
+        `, [id]);
+
+        // For students, hide transcript (they should listen, not read)
+        const safeAudioClips = req.user.role === 'student'
+            ? audioClips.map(c => ({
+                id: c.id,
+                duration_seconds: c.duration_seconds,
+                audio_order: c.audio_order,
+                max_plays: c.max_plays,
+                has_audio: !!c.kdrive_file_id
+            }))
+            : audioClips;
+
         res.json({
             ...quiz,
             questions: finalQuestions,
-            batches
+            batches,
+            audio_clips: safeAudioClips
         });
     } catch (error) {
         console.error('Get quiz error:', error);
@@ -373,6 +411,165 @@ router.post('/ai-generate', [
     } catch (error) {
         console.error('AI quiz generation error:', error);
         res.status(500).json({ error: error.message || 'Failed to generate quiz with AI' });
+    }
+});
+
+// ==========================================
+// AUDIO / TTS ROUTES
+// ==========================================
+
+// Get available voices for TTS
+router.get('/audio/voices', authenticateToken, teacherOrAdmin, (req, res) => {
+    res.json({ voices: VOICE_OPTIONS });
+});
+
+// Generate TTS audio from transcript
+router.post('/audio/generate', [
+    authenticateToken,
+    teacherOrAdmin,
+    body('transcript').isLength({ min: 1, max: 5000 }).trim(),
+    body('voiceName').optional().isString(),
+    body('quizTitle').optional().isString(),
+], async (req, res) => {
+    try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({ error: 'Validation failed', details: errors.array() });
+        }
+
+        const tts = getTTSService();
+        if (!tts.isConfigured) {
+            return res.status(503).json({ error: 'TTS service is not configured. Set GEMINI_API_KEY.' });
+        }
+
+        const { transcript, voiceName, quizTitle } = req.body;
+
+        const result = await tts.generateAndUpload(
+            transcript,
+            voiceName || 'Kore',
+            req.user.id,
+            quizTitle || 'quiz'
+        );
+
+        res.json({
+            message: 'Audio generated successfully',
+            audio: {
+                kdriveFileId: result.kdriveFileId,
+                fileName: result.fileName,
+                durationSeconds: result.durationSeconds,
+                transcript,
+                voiceName: voiceName || 'Kore',
+                sourceType: 'tts'
+            }
+        });
+    } catch (error) {
+        console.error('TTS generation error:', error);
+        res.status(500).json({ error: error.message || 'Failed to generate audio' });
+    }
+});
+
+// Upload audio file (teacher uploads their own)
+router.post('/audio/upload', authenticateToken, teacherOrAdmin, audioUpload.single('audio'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No audio file provided' });
+        }
+
+        const tts = getTTSService();
+        const result = await tts.uploadAudioFile(
+            req.file.path,
+            req.file.originalname,
+            req.user.id
+        );
+
+        // Clean up temp file
+        const fs = require('fs');
+        try { fs.unlinkSync(req.file.path); } catch {}
+
+        res.json({
+            message: 'Audio uploaded successfully',
+            audio: {
+                kdriveFileId: result.kdriveFileId,
+                fileName: result.fileName,
+                sourceType: 'upload'
+            }
+        });
+    } catch (error) {
+        console.error('Audio upload error:', error);
+        // Clean up temp file on error
+        if (req.file) {
+            const fs = require('fs');
+            try { fs.unlinkSync(req.file.path); } catch {}
+        }
+        res.status(500).json({ error: error.message || 'Failed to upload audio' });
+    }
+});
+
+// Stream audio file to client (for both teacher preview and student playback)
+router.get('/audio/:clipId/stream', authenticateToken, async (req, res) => {
+    try {
+        const { clipId } = req.params;
+
+        // Get the audio clip record
+        const clip = await req.db.get(
+            'SELECT * FROM quiz_audio_clips WHERE id = ?',
+            [clipId]
+        );
+
+        if (!clip) {
+            return res.status(404).json({ error: 'Audio clip not found' });
+        }
+
+        if (!clip.kdrive_file_id) {
+            return res.status(404).json({ error: 'Audio file not available' });
+        }
+
+        // For students, verify they have access to the quiz
+        if (req.user.role === 'student') {
+            const hasAccess = await req.db.get(`
+                SELECT 1 FROM quiz_batches qb
+                JOIN batch_students bs ON qb.batch_id = bs.batch_id
+                WHERE qb.quiz_id = ? AND bs.student_id = ?
+            `, [clip.quiz_id, req.user.id]);
+
+            if (!hasAccess) {
+                return res.status(403).json({ error: 'Access denied' });
+            }
+        }
+
+        const tts = getTTSService();
+        if (req.user.role === 'student') {
+            const base64Data = await tts.getAudioAsBase64(clip.kdrive_file_id);
+            res.json({ 
+                audioData: base64Data, 
+                contentType: 'audio/wav' 
+            });
+        } else {
+            await tts.streamAudio(clip.kdrive_file_id, res, req.headers);
+        }
+
+    } catch (error) {
+        console.error('Audio stream error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream audio' });
+        }
+    }
+});
+
+// Stream audio by kDrive file ID (for teacher preview before saving)
+router.get('/audio/preview/:kdriveFileId', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const { kdriveFileId } = req.params;
+        if (!kdriveFileId) {
+            return res.status(400).json({ error: 'kDrive file ID required' });
+        }
+        const tts = getTTSService();
+        await tts.streamAudio(kdriveFileId, res, req.headers);
+    } catch (error) {
+        console.error('Audio preview error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream audio preview' });
+        }
     }
 });
 
@@ -490,16 +687,52 @@ router.post('/', [
 
         const quizId = quizResult.rows[0].id;
 
+        // Save audio clips (if any) and build a mapping from temp/index to real DB IDs
+        const audioClipMap = {}; // maps tempId or index -> real DB id
+        const audio_clips = req.body.audio_clips || [];
+        for (let a = 0; a < audio_clips.length; a++) {
+            const clip = audio_clips[a];
+            const clipResult = await req.db.run(`
+                INSERT INTO quiz_audio_clips (
+                    quiz_id, transcript, voice_name, source_type, kdrive_file_id,
+                    file_name, duration_seconds, audio_order, max_plays
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
+            `, [
+                quizId,
+                clip.transcript || '',
+                clip.voiceName || 'Kore',
+                clip.sourceType || 'tts',
+                clip.kdriveFileId || null,
+                clip.fileName || null,
+                clip.durationSeconds || null,
+                a + 1,
+                clip.maxPlays || 0
+            ]);
+            const clipId = clipResult.rows[0].id;
+            // Map both by tempId (if provided) and by index
+            if (clip.tempId) audioClipMap[clip.tempId] = clipId;
+            audioClipMap[`idx_${a}`] = clipId;
+        }
+
         // Add questions
         for (let i = 0; i < questions.length; i++) {
             const question = questions[i];
+            // Resolve audio_clip_id from tempId or clipIndex
+            let audioClipId = null;
+            if (question.audio_clip_temp_id && audioClipMap[question.audio_clip_temp_id]) {
+                audioClipId = audioClipMap[question.audio_clip_temp_id];
+            } else if (question.audio_clip_index !== undefined && audioClipMap[`idx_${question.audio_clip_index}`]) {
+                audioClipId = audioClipMap[`idx_${question.audio_clip_index}`];
+            }
+
             const questionResult = await req.db.run(`
                 INSERT INTO questions (
-                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation
-                ) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id
+                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
             `, [
                 quizId, question.question_text, question.question_type, i + 1,
-                Number(question.marks), question.correct_answer || null, question.explanation || null
+                Number(question.marks), question.correct_answer || null, question.explanation || null,
+                audioClipId
             ]);
 
             // Add options for MCQ questions
@@ -1356,81 +1589,6 @@ router.get('/:id/results', [
     }
 });
 
-// Get detailed student submission
-router.get('/:id/submissions/:submission_id', [
-    authenticateToken,
-    teacherOrAdmin
-], async (req, res) => {
-    try {
-        const { id, submission_id } = req.params;
-
-        // Check if quiz exists and belongs to teacher
-        const quiz = await req.db.get(`
-            SELECT * FROM quizzes 
-            WHERE id = $1 AND (teacher_id = $2 OR $3 = 'admin')
-        `, [id, req.user.id, req.user.role]);
-
-        if (!quiz) {
-            return res.status(404).json({ error: 'Quiz not found or access denied' });
-        }
-
-        // Get submission details
-        const submission = await req.db.get(`
-            SELECT qs.*, u.first_name, u.last_name, u.email
-            FROM quiz_submissions qs
-            JOIN users u ON qs.student_id = u.id
-            WHERE qs.id = $1 AND qs.quiz_id = $2
-        `, [submission_id, id]);
-
-        if (!submission) {
-            return res.status(404).json({ error: 'Submission not found' });
-        }
-
-        // Get questions with student answers
-        const questionsWithAnswers = await req.db.all(`
-            SELECT 
-                q.id, q.question_text, q.question_type, q.marks, q.correct_answer,
-                sa.answer_text, sa.selected_options, sa.marks_awarded, sa.is_correct
-            FROM questions q
-            LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = $1
-            WHERE q.quiz_id = $2
-            ORDER BY q.question_order
-        `, [submission_id, id]);
-
-        // Get options for MCQ questions
-        for (let question of questionsWithAnswers) {
-            if (question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
-                question.options = await req.db.all(`
-                    SELECT id, option_text, is_correct
-                    FROM question_options
-                    WHERE question_id = $1
-                    ORDER BY option_order
-                `, [question.id]);
-
-                if (question.selected_options) {
-                    try {
-                        question.selected_options = JSON.parse(question.selected_options);
-                    } catch (e) {
-                        question.selected_options = [];
-                    }
-                }
-            }
-        }
-
-        res.json({
-            submission: {
-                ...submission,
-                student_name: `${submission.first_name} ${submission.last_name}`
-            },
-            questions: questionsWithAnswers
-        });
-
-    } catch (error) {
-        console.error('Get submission details error:', error);
-        res.status(500).json({ error: 'Failed to get submission details' });
-    }
-});
-
 // Delete quiz
 router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
@@ -1632,8 +1790,7 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
         // Get submission details
         const submission = await req.db.get(`
             SELECT 
-                qs.id, qs.status, qs.submitted_at, qs.total_score, qs.max_score, qs.teacher_comments,
-                u.first_name, u.last_name, u.email
+                qs.*, u.first_name, u.last_name, u.email
             FROM quiz_submissions qs
             JOIN users u ON qs.student_id = u.id
             WHERE qs.id = ? AND qs.quiz_id = ?
@@ -1646,8 +1803,9 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
         // Get questions with student answers
         const questions = await req.db.all(`
             SELECT 
-                q.id, q.question_text, q.question_type, q.marks,
-                sa.answer_text, sa.selected_options, sa.marks_awarded as score, sa.teacher_feedback
+                q.id, q.question_text, q.question_type, q.marks, q.correct_answer, q.audio_clip_id,
+                sa.answer_text, sa.selected_options, sa.marks_awarded as score,
+                sa.is_correct
             FROM questions q
             LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = ?
             WHERE q.quiz_id = ?
@@ -1656,9 +1814,14 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
 
         // Get options for MCQ questions
         for (let question of questions) {
-            if (question.question_type === 'mcq') {
+            // Coerce numeric types immediately
+            if (question.audio_clip_id != null) question.audio_clip_id = Number(question.audio_clip_id);
+            if (question.marks != null) question.marks = Number(question.marks);
+            if (question.score != null) question.score = Number(question.score);
+            
+            if (question.question_type === 'mcq' || question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
                 question.options = await req.db.all(`
-                    SELECT id, option_text, option_order
+                    SELECT id, option_text, option_order, is_correct
                     FROM question_options
                     WHERE question_id = ?
                     ORDER BY option_order
@@ -1675,9 +1838,28 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
             }
         }
 
+        // Get audio clips for this quiz
+        const audioClips = await req.db.all(`
+            SELECT id, transcript, voice_name, source_type, kdrive_file_id,
+                   file_name, duration_seconds, audio_order, max_plays,
+                   (kdrive_file_id IS NOT NULL) as has_audio
+            FROM quiz_audio_clips
+            WHERE quiz_id = ?
+            ORDER BY audio_order
+        `, [id]);
+
+        // Coerce PostgreSQL types
+        for (const clip of audioClips) {
+            clip.has_audio = !!clip.has_audio;
+            if (clip.audio_order != null) clip.audio_order = Number(clip.audio_order);
+            if (clip.max_plays != null) clip.max_plays = Number(clip.max_plays);
+            if (clip.duration_seconds != null) clip.duration_seconds = Number(clip.duration_seconds);
+        }
+
         res.json({
             ...submission,
-            questions
+            questions,
+            audio_clips: audioClips
         });
     } catch (error) {
         console.error('Get submission error:', error);
@@ -1967,13 +2149,13 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
         // Get detailed results
         const results = await req.db.all(`
             SELECT 
-                q.id, q.question_text, q.question_type, q.marks, q.correct_answer,
+                q.id, q.question_text, q.question_type, q.marks, q.correct_answer, q.audio_clip_id,
                 sa.answer_text, sa.selected_options, sa.is_correct,
                 sa.marks_awarded as score, NULL as teacher_feedback
             FROM questions q
             LEFT JOIN student_answers sa ON q.id = sa.question_id AND sa.submission_id = ?
             WHERE q.quiz_id = ?
-            ORDER BY q.id
+            ORDER BY q.question_order
         `, [submission.id, id]);
 
         // Get options for MCQ questions and compute derived fields
@@ -1998,11 +2180,33 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
                 question.student_answer = question.answer_text || null;
             }
             question.points = question.marks;
+            // Coerce numeric fields
+            if (question.audio_clip_id != null) question.audio_clip_id = Number(question.audio_clip_id);
+            if (question.marks != null) question.marks = Number(question.marks);
+            if (question.score != null) question.score = Number(question.score);
+            if (question.points != null) question.points = Number(question.points);
         }
 
         const computedPercentage = (submission.max_score && submission.max_score > 0)
             ? Math.round((Number(submission.total_score || 0) / Number(submission.max_score)) * 100)
             : 0;
+
+        // Get audio clips for this quiz (safe version for students)
+        const audioClips = await req.db.all(`
+            SELECT id, duration_seconds, audio_order, max_plays,
+                   (kdrive_file_id IS NOT NULL) as has_audio
+            FROM quiz_audio_clips
+            WHERE quiz_id = ?
+            ORDER BY audio_order
+        `, [id]);
+
+        // Coerce PostgreSQL types
+        for (const clip of audioClips) {
+            clip.has_audio = !!clip.has_audio;
+            if (clip.audio_order != null) clip.audio_order = Number(clip.audio_order);
+            if (clip.max_plays != null) clip.max_plays = Number(clip.max_plays);
+            if (clip.duration_seconds != null) clip.duration_seconds = Number(clip.duration_seconds);
+        }
 
         res.json({
             quiz: quiz,
@@ -2016,7 +2220,8 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
                 time_taken: (submission.time_taken_minutes || 0) * 60,
                 teacher_feedback: submission.teacher_comments || null
             },
-            questions: results
+            questions: results,
+            audio_clips: audioClips
         });
 
     } catch (error) {

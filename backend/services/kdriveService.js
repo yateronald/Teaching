@@ -169,6 +169,17 @@ class KDriveService {
     }
 
     /**
+     * Download a file fully into memory as a Buffer
+     */
+    async downloadFileAsBuffer(fileId) {
+        const resp = await axios.get(`${this.baseUrl}/files/${fileId}/download`, {
+            headers: this.headers,
+            responseType: 'arraybuffer',
+        });
+        return Buffer.from(resp.data);
+    }
+
+    /**
      * Get file metadata
      */
     async getFileInfo(fileId) {
@@ -266,10 +277,13 @@ class KDriveService {
             // Set inline/attachment disposition
             res.setHeader('Content-Disposition', `${dispositionContext}; filename="${fileName}"`);
 
-            // Forward content headers (like Accept-Ranges, Content-Range)
+            // Forward content headers (like Content-Length, Content-Range)
+            // Do NOT overwrite headers that the caller already explicitly set (like Content-Type for security obfuscation)
             const forwardHeaders = ['content-type', 'content-length', 'accept-ranges', 'content-range'];
             forwardHeaders.forEach(h => {
-                if (resp.headers[h]) res.setHeader(h, resp.headers[h]);
+                if (resp.headers[h] && !res.hasHeader(h)) {
+                    res.setHeader(h, resp.headers[h]);
+                }
             });
 
             resp.data.pipe(res);

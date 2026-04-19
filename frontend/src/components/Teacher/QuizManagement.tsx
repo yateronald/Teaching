@@ -277,18 +277,20 @@ const QuizManagement: React.FC = () => {
 
             {/* QuizBuilder Modal */}
             <Modal
-                title={selectedQuizId ? 'Edit Quiz' : 'Create Quiz'}
+                title={null}
                 open={builderVisible}
                 onCancel={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
                 footer={null}
                 width={1200}
+                closable={false}
                 style={{ top: 20 }}
                 destroyOnClose
-                styles={{ body: { padding: '16px 24px', maxHeight: 'calc(100vh - 120px)', overflowY: 'auto' } }}
+                styles={{ body: { padding: 0, maxHeight: 'calc(100vh - 60px)', overflowY: 'auto' } }}
             >
                 <QuizBuilder
                     quizId={selectedQuizId?.toString()}
                     onComplete={() => { setBuilderVisible(false); setSelectedQuizId(null); fetchQuizzes(); }}
+                    onClose={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
                 />
             </Modal>
 

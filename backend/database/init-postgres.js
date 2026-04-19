@@ -101,6 +101,39 @@ class PostgreSQLDatabase {
                 console.log('   node scripts/migrate-data-to-postgres.js');
             } else {
                 console.log('✅ Database schema is ready');
+
+                // Auto-apply audio listening comprehension schema additions
+                try {
+                    await this.client.query(`
+                        CREATE TABLE IF NOT EXISTS quiz_audio_clips (
+                            id SERIAL PRIMARY KEY,
+                            quiz_id INTEGER REFERENCES quizzes(id) ON DELETE CASCADE,
+                            transcript TEXT NOT NULL,
+                            voice_name VARCHAR(50),
+                            source_type VARCHAR(20) DEFAULT 'tts' CHECK (source_type IN ('tts', 'upload')),
+                            kdrive_file_id VARCHAR(255),
+                            file_name VARCHAR(500),
+                            duration_seconds REAL,
+                            audio_order INTEGER DEFAULT 0,
+                            max_plays INTEGER DEFAULT 0,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `);
+                    // Add audio_clip_id column to questions if not exists
+                    const colExists = await this.client.query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'questions' AND column_name = 'audio_clip_id'
+                    `);
+                    if (colExists.rows.length === 0) {
+                        await this.client.query(`
+                            ALTER TABLE questions
+                            ADD COLUMN audio_clip_id INTEGER REFERENCES quiz_audio_clips(id) ON DELETE SET NULL
+                        `);
+                        console.log('✅ Added audio_clip_id column to questions');
+                    }
+                } catch (audioErr) {
+                    console.warn('⚠️  Audio schema check:', audioErr.message);
+                }
             }
             
             return true;
