@@ -75,11 +75,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                             'Authorization': `Bearer ${storedToken}`
                         }
                     });
-                    
+
                     if (response.ok) {
                         const userData = await response.json();
                         setUser(userData.user);
-                         setToken(storedToken);
+                        setToken(storedToken);
                     } else {
                         localStorage.removeItem('token');
                         setToken(null);
@@ -117,8 +117,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             } else {
                 // Don't show message here for security errors - let the component handle it
                 if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED') {
-                    return { 
-                        success: false, 
+                    return {
+                        success: false,
                         error: data.error,
                         code: data.code,
                         message: data.message,
@@ -214,7 +214,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Helper function to verify token validity
     const verifyToken = async () => {
         if (!token) return false;
-        
+
         try {
             const response = await fetch(`${API_BASE_URL}/auth/verify`, {
                 headers: {
@@ -242,15 +242,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             ? Object.fromEntries(((options as any).headers as Headers).entries())
             : ((options as any)?.headers || {});
 
+        // Detect FormData body – browser must set Content-Type with boundary itself
+        const isFormData = options?.body instanceof FormData;
+
         const config: RequestInit = {
             ...(options as RequestInit),
             headers: {
-                'Content-Type': 'application/json',
+                // Only set Content-Type for non-FormData requests
+                ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 ...normalizedHeaders,
                 // Ensure Authorization is ALWAYS present and cannot be overridden
                 'Authorization': `Bearer ${token}`,
             },
         };
+
+        // If FormData, ensure Content-Type is NOT set (let browser add boundary)
+        if (isFormData) {
+            delete (config.headers as any)['Content-Type'];
+        }
 
         // Normalize endpoint to avoid double '/api' and ensure leading slash
         let ep = String(endpoint || '');

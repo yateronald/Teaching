@@ -553,23 +553,27 @@ const AudioQuestionModal: React.FC<AudioQuestionModalProps> = ({
                         </>
                     ) : (
                         <>
-                            <Upload.Dragger
-                                accept=".mp3,.wav,.ogg,.m4a,.webm"
-                                maxCount={1}
-                                showUploadList={false}
-                                beforeUpload={handleFileUpload}
-                                disabled={uploading}
-                            >
-                                {uploading ? (
-                                    <Spin tip="Uploading..." />
-                                ) : (
-                                    <>
-                                        <p className="ant-upload-drag-icon"><UploadOutlined style={{ fontSize: 32, color: '#0891b2' }} /></p>
-                                        <p className="ant-upload-text">Click or drag an audio file here</p>
-                                        <p className="ant-upload-hint">Supports MP3, WAV, OGG, M4A, WebM (max 25MB)</p>
-                                    </>
-                                )}
-                            </Upload.Dragger>
+                            {!audioData && (
+                                <Upload.Dragger
+                                    key={`upload-${Date.now()}-${audioData ? 'has' : 'none'}`}
+                                    accept=".mp3,.wav,.ogg,.m4a,.webm"
+                                    maxCount={1}
+                                    showUploadList={false}
+                                    beforeUpload={handleFileUpload}
+                                    disabled={uploading}
+                                    fileList={[]}
+                                >
+                                    {uploading ? (
+                                        <Spin tip="Uploading..." />
+                                    ) : (
+                                        <>
+                                            <p className="ant-upload-drag-icon"><UploadOutlined style={{ fontSize: 32, color: '#0891b2' }} /></p>
+                                            <p className="ant-upload-text">Click or drag an audio file here</p>
+                                            <p className="ant-upload-hint">Supports MP3, WAV, OGG, M4A, WebM (max 25MB)</p>
+                                        </>
+                                    )}
+                                </Upload.Dragger>
+                            )}
                             <div style={{ marginTop: 12 }}>
                                 <Text strong style={{ display: 'block', marginBottom: 6 }}>Transcript (optional, for AI question generation)</Text>
                                 <TextArea

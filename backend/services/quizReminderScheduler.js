@@ -44,8 +44,9 @@ class QuizReminderScheduler {
                 
                 // Mark reminder as sent to avoid duplicate reminders
                 await this.db.run(`
-                    INSERT OR IGNORE INTO quiz_reminders_sent (quiz_id, sent_at)
-                    VALUES (?, ?)
+                    INSERT INTO quiz_reminders_sent (quiz_id, sent_at)
+                    VALUES ($1, $2)
+                    ON CONFLICT (quiz_id) DO NOTHING
                 `, [quiz.id, now.toISOString()]);
             }
         } catch (error) {
