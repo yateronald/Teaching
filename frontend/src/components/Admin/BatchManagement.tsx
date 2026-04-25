@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Table,
     Button,
@@ -16,20 +16,28 @@ import {
     Row,
     Col,
     Divider,
-    Popconfirm
+    Dropdown,
+    Skeleton,
+    ConfigProvider,
+    Radio
 } from 'antd';
 import {
     PlusOutlined,
     TeamOutlined,
     ClockCircleOutlined,
-    CalendarOutlined
+    CalendarOutlined,
+    EyeOutlined,
+    EditOutlined,
+    DeleteOutlined,
+    MoreOutlined,
+    BookOutlined,
+    LineChartOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 
-const { Title } = Typography;
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 
@@ -62,11 +70,18 @@ const BatchManagement: React.FC = () => {
     const [teachers, setTeachers] = useState<Person[]>([]);
     const [students, setStudents] = useState<Person[]>([]);
     const [loading, setLoading] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
     const [modalVisible, setModalVisible] = useState(false);
     const [editingBatch, setEditingBatch] = useState<Batch | null>(null);
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
     const navigate = useNavigate();
+
+    // Filter & Selection state
+    const [searchText, setSearchText] = useState('');
+    const [selectedTeacherFilters, setSelectedTeacherFilters] = useState<number[]>([]);
+    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
+    const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
 
     // Timetable state
     const [selectedDays, setSelectedDays] = useState<number[]>([]);
@@ -187,6 +202,7 @@ const BatchManagement: React.FC = () => {
 
     const handleSubmit = async (values: any) => {
         try {
+            setSubmitting(true);
             const baseData: any = {
                 name: values.name,
                 teacher_id: values.teacher_id,
@@ -256,6 +272,8 @@ const BatchManagement: React.FC = () => {
             }
         } catch (error) {
             message.error('Error saving batch');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -364,109 +382,470 @@ const BatchManagement: React.FC = () => {
         return `${days} day${days !== 1 ? 's' : ''}`;
     };
 
+    const getLevelStyle = (level: string) => {
+        if (level.startsWith('A')) return { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' };
+        if (level.startsWith('B')) return { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+        if (level.startsWith('C')) return { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+        return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+    };
+
+    const getInitials = (name: string) => {
+        if (!name) return '?';
+        const parts = name.split(' ');
+        if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+        return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+    };
+
     const columns: ColumnsType<Batch> = [
         {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: 180,
+            width: 200,
             fixed: 'left',
-            ellipsis: true,
+            render: (name: string, record) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                        width: 34, height: 34, borderRadius: 10,
+                        background: 'linear-gradient(135deg, #6366f1, #818cf8)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                    }}>
+                        {name ? name.substring(0, 2).toUpperCase() : 'B'}
+                    </div>
+                    <div>
+                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, lineHeight: 1.3 }}>
+                            {name}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            ID: {record.id}
+                        </div>
+                    </div>
+                </div>
+            ),
         },
         {
-            title: 'French Level',
+            title: 'Level',
             dataIndex: 'french_level',
             key: 'french_level',
-            width: 200,
-            ellipsis: true,
+            width: 100,
+            render: (level: string) => {
+                const s = getLevelStyle(level);
+                return (
+                    <span style={{
+                        display: 'inline-block',
+                        padding: '3px 12px',
+                        borderRadius: 20,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        background: s.bg,
+                        color: s.color,
+                        border: `1px solid ${s.border}`,
+                    }}>
+                        {level}
+                    </span>
+                );
+            },
         },
         {
             title: 'Teacher',
             dataIndex: 'teacher_id',
             key: 'teacher_name',
             width: 180,
-            ellipsis: true,
             render: (_, record) => {
+                let name = 'N/A';
                 if (record.teacher_first_name || record.teacher_last_name) {
-                    return `${record.teacher_first_name || ''} ${record.teacher_last_name || ''}`.trim();
+                    name = `${record.teacher_first_name || ''} ${record.teacher_last_name || ''}`.trim();
+                } else {
+                    const teacher = teachers.find(t => t.id === record.teacher_id);
+                    if (teacher) name = `${teacher.first_name} ${teacher.last_name}`;
                 }
-                const teacher = teachers.find(t => t.id === record.teacher_id);
-                return teacher ? `${teacher.first_name} ${teacher.last_name}` : 'N/A';
+                return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                            width: 24, height: 24, borderRadius: '50%',
+                            background: '#f1f5f9', color: '#64748b',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 10, fontWeight: 700,
+                            border: '1px solid #e2e8f0'
+                        }}>
+                            {getInitials(name)}
+                        </div>
+                        <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>{name}</span>
+                    </div>
+                );
             },
         },
         {
             title: 'Duration',
             key: 'duration',
-            width: 220,
+            width: 140,
             render: (_, record) => (
-                <span>{formatDaysOnly(record.start_date, record.end_date)}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <CalendarOutlined style={{ color: '#94a3b8' }} />
+                    <span style={{ color: '#64748b', fontSize: 13, fontWeight: 500 }}>
+                        {formatDaysOnly(record.start_date, record.end_date)}
+                    </span>
+                </div>
             ),
         },
         {
             title: 'Students',
             dataIndex: 'student_count',
             key: 'students',
-            width: 120,
+            width: 110,
+            align: 'center',
+            render: (count: number) => (
+                <span style={{
+                    display: 'inline-block',
+                    padding: '2px 10px',
+                    borderRadius: 8,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: count > 0 ? '#3b82f6' : '#94a3b8',
+                    background: count > 0 ? '#eff6ff' : '#f8fafc',
+                }}>
+                    {count || 0}
+                </span>
+            ),
         },
-        // Keeping Status column colors utility in case it's used later
-        // but not displayed since backend doesn't provide status
         {
             title: 'Actions',
             key: 'actions',
-            render: (_, record) => (
-                <Space>
-                    <Button type="default" onClick={() => navigate(`/app/batches/${record.id}/insights`)}>
-                        Insight
-                    </Button>
-                    <Button type="primary" onClick={() => handleEdit(record)}>Edit</Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this batch?"
-                        okText="Yes"
-                        cancelText="No"
-                        onConfirm={() => handleDelete(record.id)}
-                    >
-                        <Button danger>Delete</Button>
-                    </Popconfirm>
-                </Space>
-            ),
-            width: 200
+            width: 120,
+            fixed: 'right',
+            align: 'center',
+            render: (_, record) => {
+                const actionItems = [
+                    {
+                        key: 'edit',
+                        icon: <EditOutlined style={{ color: '#6366f1' }} />,
+                        label: <span style={{ color: '#1e293b' }}>Edit Batch</span>,
+                        onClick: () => handleEdit(record),
+                    },
+                    {
+                        key: 'insights',
+                        icon: <LineChartOutlined style={{ color: '#10b981' }} />,
+                        label: <span style={{ color: '#1e293b' }}>View Insights</span>,
+                        onClick: () => navigate(`/app/batches/${record.id}/insights`),
+                    },
+                    {
+                        type: 'divider' as const,
+                    },
+                    {
+                        key: 'delete',
+                        icon: <DeleteOutlined style={{ color: '#ef4444' }} />,
+                        label: <span style={{ color: '#ef4444' }}>Delete Batch</span>,
+                        onClick: () => {
+                            Modal.confirm({
+                                title: 'Delete Batch',
+                                content: `Are you sure you want to delete ${record.name}? This action cannot be undone.`,
+                                okText: 'Yes, Delete',
+                                cancelText: 'Cancel',
+                                okType: 'danger',
+                                onOk: () => handleDelete(record.id),
+                            });
+                        },
+                    },
+                ];
+
+                return (
+                    <Space size="small">
+                        <Button
+                            type="text"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => navigate(`/app/batches/${record.id}/insights`)}
+                            title="View Insights"
+                            style={{
+                                borderRadius: 8,
+                                height: 30, width: 30,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#6366f1',
+                                background: '#eef2ff',
+                                border: 'none',
+                            }}
+                        />
+                        <Dropdown
+                            menu={{ items: actionItems }}
+                            trigger={['click']}
+                            placement="bottomRight"
+                        >
+                            <Button
+                                type="text"
+                                size="small"
+                                icon={<MoreOutlined />}
+                                style={{ 
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: 8,
+                                    height: 30, width: 30,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: '#f8fafc',
+                                    transition: 'all 0.2s ease'
+                                }}
+                                title="More Actions"
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#eef2ff';
+                                    e.currentTarget.style.borderColor = '#c7d2fe';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.backgroundColor = '#f8fafc';
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                }}
+                            />
+                        </Dropdown>
+                    </Space>
+                );
+            },
         },
     ];
 
+    // KPI Dashboard Stats
+    const totalBatches = batches.length;
+    const totalStudents = batches.reduce((acc, b) => acc + (b.student_count || 0), 0);
+    const activeTeachers = new Set(batches.map(b => b.teacher_id)).size;
+    const recentBatchesCount = batches.filter(b => {
+        const d = new Date(b.created_at || b.start_date);
+        const now = new Date();
+        return (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24) <= 30;
+    }).length;
+
+    // Computed Filtered List
+    const filteredBatches = useMemo(() => {
+        return batches.filter(b => {
+            const matchName = b.name.toLowerCase().includes(searchText.toLowerCase());
+            const matchTeacher = selectedTeacherFilters.length === 0 || selectedTeacherFilters.includes(b.teacher_id);
+            const matchDate = !dateRangeFilter || (
+                dayjs(b.start_date).isBefore(dateRangeFilter[1]) && dayjs(b.end_date).isAfter(dateRangeFilter[0])
+            );
+            return matchName && matchTeacher && matchDate;
+        });
+    }, [batches, searchText, selectedTeacherFilters, dateRangeFilter]);
+
+    // Full-page Skeleton
+    if (loading && batches.length === 0) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+                <div style={{ flexShrink: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                        <div>
+                            <Skeleton.Input active style={{ width: 220, height: 26, borderRadius: 8 }} />
+                            <div style={{ marginTop: 8 }}>
+                                <Skeleton.Input active style={{ width: 360, height: 14, borderRadius: 6 }} />
+                            </div>
+                        </div>
+                        <Skeleton.Button active style={{ width: 140, height: 40, borderRadius: 10 }} />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: 20 }}>
+                        {[1, 2, 3, 4].map(i => (
+                            <div key={i} style={{ borderRadius: 14, padding: '14px 16px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <Skeleton.Avatar active size={40} shape="square" style={{ borderRadius: 10 }} />
+                                <div style={{ flex: 1 }}>
+                                    <Skeleton.Input active style={{ width: '60%', height: 10, borderRadius: 4, marginBottom: 8 }} block />
+                                    <Skeleton.Input active style={{ width: 36, height: 22, borderRadius: 6 }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <Skeleton.Avatar active size={30} shape="square" style={{ borderRadius: 9 }} />
+                        <Skeleton.Input active style={{ width: 120, height: 16, borderRadius: 4 }} />
+                    </div>
+                    <div style={{ padding: '12px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', gap: 24 }}>
+                        {[140, 100, 140, 100, 80, 80].map((w, i) => (
+                            <Skeleton.Input key={i} active style={{ width: w, height: 12, borderRadius: 4 }} />
+                        ))}
+                    </div>
+                    <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px' }}>
+                        {[1, 2, 3, 4, 5, 6, 7].map(i => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '14px 0', borderBottom: '1px solid #f8f9fb' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 140 }}>
+                                    <Skeleton.Avatar active size={34} shape="square" style={{ borderRadius: 10 }} />
+                                    <div>
+                                        <Skeleton.Input active style={{ width: 90, height: 12, borderRadius: 4, marginBottom: 4 }} />
+                                        <Skeleton.Input active style={{ width: 40, height: 9, borderRadius: 4 }} />
+                                    </div>
+                                </div>
+                                <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 12 }} />
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 140 }}>
+                                    <Skeleton.Avatar active size={24} shape="circle" />
+                                    <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 4 }} />
+                                </div>
+                                <Skeleton.Input active style={{ width: 70, height: 12, borderRadius: 4 }} />
+                                <Skeleton.Input active style={{ width: 30, height: 14, borderRadius: 6 }} />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
+                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <Card style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }} styles={{ body: { flex: 1, display: 'flex', flexDirection: 'column' } }}>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                <Title level={2} style={{ margin: 0 }}>
-                    <TeamOutlined /> Batch Management
-                </Title>
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={handleAdd}
-                >
-                    Add Batch
-                </Button>
+        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+            {/* Fixed Header Area */}
+            <div style={{ flexShrink: 0 }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
+                            Batch Management
+                        </div>
+                        <Typography.Text style={{ fontSize: 13, color: '#94a3b8' }}>
+                            Organize classes, assign teachers, and manage learning cohorts
+                        </Typography.Text>
+                    </div>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAdd}
+                        style={{ borderRadius: 10, fontWeight: 600, height: 40, background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+                    >
+                        Add New Batch
+                    </Button>
+                </div>
+
+                {/* KPI Dashboard */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: 20 }}>
+                    {[
+                        { label: 'Total Batches', value: totalBatches, icon: <BookOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
+                        { label: 'Enrolled Students', value: totalStudents, icon: <TeamOutlined />, gradient: 'linear-gradient(135deg, #3b82f6, #60a5fa)', accent: '#3b82f6' },
+                        { label: 'Active Teachers', value: activeTeachers, icon: <EditOutlined />, gradient: 'linear-gradient(135deg, #10b981, #34d399)', accent: '#10b981' },
+                        { label: 'New Batches (30d)', value: recentBatchesCount, icon: <CalendarOutlined />, gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)', accent: '#f59e0b' },
+                    ].map((kpi, i) => (
+                        <div key={i} style={{
+                            borderRadius: 14, padding: '14px 16px',
+                            background: '#fff', border: '1px solid #f0f0f8',
+                            boxShadow: '0 2px 12px rgba(99,102,241,0.04)',
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            transition: 'all 0.2s ease', cursor: 'default',
+                        }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(99,102,241,0.04)'; }}
+                        >
+                            <div style={{
+                                width: 44, height: 44, borderRadius: 12,
+                                background: kpi.gradient,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 18, color: '#fff', flexShrink: 0,
+                                boxShadow: `0 4px 12px ${kpi.accent}40`,
+                            }}>
+                                {kpi.icon}
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-                <Table
-                    columns={columns}
-                    dataSource={batches}
-                    rowKey="id"
-                    loading={loading}
-                    scroll={{ x: 1000, y: 'calc(100vh - 280px)' }}
-                    pagination={{
-                        pageSize: 15,
-                        showSizeChanger: true,
-                        showQuickJumper: true,
-                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} batches`,
-                        pageSizeOptions: ['10', '15', '25', '50'],
-                    }}
-                />
+            {/* Table Container — fills remaining height */}
+            <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5fa', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', fontSize: 14 }}>
+                                <BookOutlined />
+                            </div>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>Batch Directory</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', padding: '2px 10px', borderRadius: 12 }}>{filteredBatches.length} of {totalBatches} total</span>
+                        </div>
+                        {selectedRowKeys.length > 0 && (
+                            <Space>
+                                <span style={{ fontSize: 13, color: '#64748b' }}>{selectedRowKeys.length} selected</span>
+                                <Button size="small" danger onClick={() => {
+                                    Modal.confirm({
+                                        title: 'Delete Multiple Batches',
+                                        content: `Are you sure you want to delete ${selectedRowKeys.length} batches?`,
+                                        onOk: () => {
+                                            selectedRowKeys.forEach(key => handleDelete(key as number));
+                                            setSelectedRowKeys([]);
+                                        }
+                                    });
+                                }}>Delete Selected</Button>
+                            </Space>
+                        )}
+                    </div>
+                    {/* Advanced Filter Bar */}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <Input.Search 
+                            placeholder="Search batch name..." 
+                            allowClear 
+                            onChange={e => setSearchText(e.target.value)} 
+                            style={{ width: 250 }} 
+                        />
+                        <Select
+                            mode="multiple"
+                            placeholder="Filter by Teacher"
+                            allowClear
+                            style={{ minWidth: 200, flex: 1 }}
+                            onChange={setSelectedTeacherFilters}
+                            options={teachers.map(t => ({
+                                label: `${t.first_name} ${t.last_name}`,
+                                value: t.id
+                            }))}
+                        />
+                        <DatePicker.RangePicker 
+                            onChange={(dates) => setDateRangeFilter(dates)} 
+                            style={{ width: 280 }}
+                        />
+                    </div>
+                </div>
+                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={filteredBatches}
+                        rowKey="id"
+                        rowSelection={{
+                            selectedRowKeys,
+                            onChange: setSelectedRowKeys,
+                        }}
+                        loading={loading}
+                        scroll={{ x: 1000 }}
+                        size="middle"
+                        pagination={{
+                            pageSize: 15,
+                            showSizeChanger: true,
+                            showQuickJumper: true,
+                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} batches`,
+                            pageSizeOptions: ['10', '15', '25', '50'],
+                            style: { padding: '12px 20px', margin: 0 },
+                        }}
+                    />
+                </div>
             </div>
 
             <Modal
-                title={editingBatch ? 'Edit Batch' : 'Add Batch'}
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ 
+                            width: 40, height: 40, borderRadius: 10, 
+                            background: editingBatch ? '#eff6ff' : '#ecfdf5', 
+                            color: editingBatch ? '#2563eb' : '#10b981', 
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 
+                        }}>
+                            {editingBatch ? <EditOutlined /> : <PlusOutlined />}
+                        </div>
+                        <span style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                            {editingBatch ? 'Edit Batch Configuration' : 'Create New Batch'}
+                        </span>
+                    </div>
+                }
                 open={modalVisible}
                 onCancel={() => {
                     setModalVisible(false);
@@ -487,69 +866,100 @@ const BatchManagement: React.FC = () => {
                     });
                 }}
                 footer={null}
-                width={900}
+                width={850}
+                centered
+                styles={{ 
+                    header: { paddingBottom: 16, borderBottom: '1px solid #f1f5f9', padding: '24px 32px 16px', margin: 0 }, 
+                    body: { padding: 0 }, 
+                    content: { borderRadius: 20, overflow: 'hidden', padding: 0 } 
+                }}
             >
+               <ConfigProvider theme={{
+                   token: {
+                       colorPrimary: '#6366f1',
+                       borderRadius: 10,
+                       controlHeightLG: 46,
+                       colorBorder: '#cbd5e1',
+                       fontFamily: 'Inter, -apple-system, sans-serif'
+                   },
+                   components: {
+                       Card: { borderRadiusLG: 16 },
+                       Select: { controlHeightLG: 46 },
+                       Input: { controlHeightLG: 46 },
+                       Radio: { buttonBg: '#f8fafc', buttonCheckedBg: '#6366f1' }
+                   }
+               }}>
                 <Form
                     form={form}
                     layout="vertical"
                     onFinish={handleSubmit}
+                    requiredMark={(label, info) => (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>{label}</span>
+                            {info.required && <span style={{ color: '#ef4444' }}>*</span>}
+                        </div>
+                    )}
                 >
+                  <div style={{ padding: '24px 32px 0 32px', overflowY: 'auto', maxHeight: 'calc(100vh - 280px)' }}>
                     <Form.Item
                         name="name"
                         label="Batch Name"
                         rules={[{ required: true, message: 'Please input batch name!' }]}
                     >
-                        <Input placeholder="Enter batch name" />
+                        <Input size="large" placeholder="Enter batch name" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
                     </Form.Item>
 
-                    <Form.Item
-                        name="french_level"
-                        label="French Level"
-                        rules={[{ required: true, message: 'Please select French level!' }]}
-                    >
-                        <Select placeholder="Select French level">
-                            <Option value="A1">A1</Option>
-                            <Option value="A2">A2</Option>
-                            <Option value="B1">B1</Option>
-                            <Option value="B2">B2</Option>
-                            <Option value="C1">C1</Option>
-                            <Option value="C2">C2</Option>
-                        </Select>
-                    </Form.Item>
-
-                    <Form.Item
-                        name="teacher_id"
-                        label="Teacher"
-                        rules={[{ required: true, message: 'Please select a teacher!' }]}
-                    >
-                        <Select
-                            placeholder="Select teacher"
-                            showSearch
-                            optionFilterProp="children"
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                        <Form.Item
+                            name="french_level"
+                            label="French Level"
+                            rules={[{ required: true, message: 'Please select French level!' }]}
                         >
-                            {teachers.map(teacher => (
-                                <Option key={teacher.id} value={teacher.id}>
-                                    {teacher.first_name} {teacher.last_name} ({teacher.email})
-                                </Option>
-                            ))}
-                        </Select>
-                    </Form.Item>
+                            <Select size="large" placeholder="Select French level">
+                                <Option value="A1">A1</Option>
+                                <Option value="A2">A2</Option>
+                                <Option value="B1">B1</Option>
+                                <Option value="B2">B2</Option>
+                                <Option value="C1">C1</Option>
+                                <Option value="C2">C2</Option>
+                            </Select>
+                        </Form.Item>
 
-                    <Divider orientation="left">
+                        <Form.Item
+                            name="teacher_id"
+                            label="Teacher"
+                            rules={[{ required: true, message: 'Please select a teacher!' }]}
+                        >
+                            <Select
+                                size="large"
+                                placeholder="Select teacher"
+                                showSearch
+                                optionFilterProp="children"
+                            >
+                                {teachers.map(teacher => (
+                                    <Option key={teacher.id} value={teacher.id}>
+                                        {teacher.first_name} {teacher.last_name} ({teacher.email})
+                                    </Option>
+                                ))}
+                            </Select>
+                        </Form.Item>
+                    </div>
+
+                    <Divider style={{ borderColor: '#e2e8f0' }}>
                         <Space>
                             <CalendarOutlined />
                             Timetable Configuration
                         </Space>
                     </Divider>
 
-                    <Row gutter={16}>
+                    <Row gutter={24}>
                         <Col span={12}>
                             <Form.Item
                                 name="timezone"
                                 label="Timezone"
                                 initialValue="UTC"
                             >
-                                <Select placeholder="Select timezone">
+                                <Select size="large" placeholder="Select timezone">
                                     {timezones.map(tz => (
                                         <Option key={tz} value={tz}>{tz}</Option>
                                     ))}
@@ -562,7 +972,7 @@ const BatchManagement: React.FC = () => {
                                 label="Default Location Mode"
                                 initialValue="online"
                             >
-                                <Select>
+                                <Select size="large">
                                     <Option value="physical">Physical</Option>
                                     <Option value="online">Online</Option>
                                 </Select>
@@ -570,13 +980,13 @@ const BatchManagement: React.FC = () => {
                         </Col>
                     </Row>
 
-                    <Row gutter={16}>
+                    <Row gutter={24}>
                         <Col span={12}>
                             <Form.Item
                                 name="default_location"
                                 label="Default Location"
                             >
-                                <Input placeholder="e.g., Room 101, Building A" />
+                                <Input size="large" placeholder="e.g., Room 101, Building A" />
                             </Form.Item>
                         </Col>
                         <Col span={12}>
@@ -584,7 +994,7 @@ const BatchManagement: React.FC = () => {
                                 name="default_link"
                                 label="Default Meeting Link"
                             >
-                                <Input placeholder="e.g., https://zoom.us/j/..." />
+                                <Input size="large" placeholder="e.g., https://zoom.us/j/..." />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -594,64 +1004,42 @@ const BatchManagement: React.FC = () => {
                             <div>
                                 <Typography.Text strong>Schedule Type:</Typography.Text>
                                 <br />
-                                <Space wrap style={{ marginTop: 8 }}>
-                                    <Button 
-                                        type={scheduleType === 'all' ? 'primary' : 'default'}
-                                        onClick={() => handleScheduleTypeChange('all')}
-                                        size="small"
-                                    >
-                                        All Days
-                                    </Button>
-                                    <Button 
-                                        type={scheduleType === 'workdays' ? 'primary' : 'default'}
-                                        onClick={() => handleScheduleTypeChange('workdays')}
-                                        size="small"
-                                    >
-                                        Workdays (Mon-Fri)
-                                    </Button>
-                                    <Button 
-                                        type={scheduleType === 'weekends' ? 'primary' : 'default'}
-                                        onClick={() => handleScheduleTypeChange('weekends')}
-                                        size="small"
-                                    >
-                                        Weekends
-                                    </Button>
-                                    <Button 
-                                        type={scheduleType === 'custom' ? 'primary' : 'default'}
-                                        onClick={() => handleScheduleTypeChange('custom')}
-                                        size="small"
-                                    >
-                                        Custom
-                                    </Button>
-                                </Space>
+                                <Radio.Group 
+                                    value={scheduleType} 
+                                    onChange={e => handleScheduleTypeChange(e.target.value)}
+                                    buttonStyle="solid"
+                                    size="middle"
+                                    style={{ marginTop: 8 }}
+                                >
+                                    <Radio.Button value="all">All Days</Radio.Button>
+                                    <Radio.Button value="workdays">Workdays (Mon-Fri)</Radio.Button>
+                                    <Radio.Button value="weekends">Weekends</Radio.Button>
+                                    <Radio.Button value="custom">Custom</Radio.Button>
+                                </Radio.Group>
                             </div>
 
                             {(scheduleType === 'all' || scheduleType === 'workdays' || scheduleType === 'weekends' || selectedDays.length > 1) && (
                                 <div>
                                     <Typography.Text strong>Schedule Mode:</Typography.Text>
                                     <br />
-                                    <Space wrap style={{ marginTop: 8 }}>
-                                        <Button 
-                                            type={scheduleMode === 'same' ? 'primary' : 'default'}
-                                            onClick={() => handleScheduleModeChange('same')}
-                                            size="small"
-                                            icon={<ClockCircleOutlined />}
-                                        >
-                                            Same Schedule
-                                        </Button>
-                                        <Button 
-                                            type={scheduleMode === 'different' ? 'primary' : 'default'}
-                                            onClick={() => handleScheduleModeChange('different')}
-                                            size="small"
-                                            icon={<CalendarOutlined />}
-                                        >
-                                            Different Schedule
-                                        </Button>
-                                    </Space>
-                                    <Typography.Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 4 }}>
+                                    <Radio.Group 
+                                        value={scheduleMode} 
+                                        onChange={e => handleScheduleModeChange(e.target.value)}
+                                        buttonStyle="solid"
+                                        size="middle"
+                                        style={{ marginTop: 8 }}
+                                    >
+                                        <Radio.Button value="same">
+                                            <Space><ClockCircleOutlined />Same Schedule</Space>
+                                        </Radio.Button>
+                                        <Radio.Button value="different">
+                                            <Space><CalendarOutlined />Different Schedule</Space>
+                                        </Radio.Button>
+                                    </Radio.Group>
+                                    <Typography.Text type="secondary" style={{ fontSize: '12px', display: 'block', marginTop: 8 }}>
                                         {scheduleMode === 'same' 
-                                            ? 'Enter one schedule and apply to all selected days' 
-                                            : 'Configure individual schedule for each day'
+                                            ? 'Enter one schedule below and we will automatically apply it to all selected days' 
+                                            : 'Configure a highly specific individual schedule for each individual selected day'
                                         }
                                     </Typography.Text>
                                 </div>
@@ -669,13 +1057,15 @@ const BatchManagement: React.FC = () => {
                                         }}
                                         style={{ marginTop: 8 }}
                                     >
-                                        <Row>
-                                            {dayNames.map((day, index) => (
-                                                <Col span={8} key={index}>
-                                                    <Checkbox value={index}>{day}</Checkbox>
-                                                </Col>
-                                            ))}
-                                        </Row>
+                                        <div style={{ marginTop: 8, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                                            <Row gutter={[16, 16]}>
+                                                {dayNames.map((day, index) => (
+                                                    <Col span={8} key={index}>
+                                                        <Checkbox value={index}>{day}</Checkbox>
+                                                    </Col>
+                                                ))}
+                                            </Row>
+                                        </div>
                                     </Checkbox.Group>
                                 </div>
                             )}
@@ -688,89 +1078,89 @@ const BatchManagement: React.FC = () => {
                                         // Single master schedule form
                                         <div style={{ marginTop: 8 }}>
                                             <Card 
-                                                size="small" 
-                                                style={{ marginBottom: 8 }}
+                                                size="default" 
+                                                style={{ marginBottom: 8, borderColor: '#e2e8f0', borderRadius: 12 }}
                                                 title={
                                                     <Space>
                                                         <ClockCircleOutlined />
-                                                        Master Schedule (applies to all selected days)
+                                                        <span style={{ fontSize: 13 }}>Master Schedule (applies to all selected days)</span>
                                                     </Space>
                                                 }
                                             >
-                                                <Row gutter={8}>
+                                                <Row gutter={16}>
                                                     <Col span={6}>
-                                                        <Typography.Text type="secondary">Start:</Typography.Text>
-                                                        <TimePicker
-                                                            value={dayjs(masterSchedule.start_time, 'HH:mm')}
-                                                            format="HH:mm"
-                                                            onChange={(time) => {
-                                                                const newTime = time?.format('HH:mm') || '09:00';
-                                                                setMasterSchedule(prev => ({ ...prev, start_time: newTime }));
-                                                                // Apply to all entries
-                                                                setTimetableEntries(prev => 
-                                                                    prev.map(entry => ({ ...entry, start_time: newTime }))
-                                                                );
-                                                            }}
-                                                            size="small"
-                                                            style={{ width: '100%' }}
-                                                        />
+                                                        <Typography.Text type="secondary" style={{ fontSize: 13 }}>Start:</Typography.Text>
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <TimePicker
+                                                                value={dayjs(masterSchedule.start_time, 'HH:mm')}
+                                                                format="HH:mm"
+                                                                onChange={(time) => {
+                                                                    const newTime = time?.format('HH:mm') || '09:00';
+                                                                    setMasterSchedule(prev => ({ ...prev, start_time: newTime }));
+                                                                    setTimetableEntries(prev => 
+                                                                        prev.map(entry => ({ ...entry, start_time: newTime }))
+                                                                    );
+                                                                }}
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
                                                     </Col>
                                                     <Col span={6}>
-                                                        <Typography.Text type="secondary">End:</Typography.Text>
-                                                        <TimePicker
-                                                            value={dayjs(masterSchedule.end_time, 'HH:mm')}
-                                                            format="HH:mm"
-                                                            onChange={(time) => {
-                                                                const newTime = time?.format('HH:mm') || '10:00';
-                                                                setMasterSchedule(prev => ({ ...prev, end_time: newTime }));
-                                                                // Apply to all entries
-                                                                setTimetableEntries(prev => 
-                                                                    prev.map(entry => ({ ...entry, end_time: newTime }))
-                                                                );
-                                                            }}
-                                                            size="small"
-                                                            style={{ width: '100%' }}
-                                                        />
+                                                        <Typography.Text type="secondary" style={{ fontSize: 13 }}>End:</Typography.Text>
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <TimePicker
+                                                                value={dayjs(masterSchedule.end_time, 'HH:mm')}
+                                                                format="HH:mm"
+                                                                onChange={(time) => {
+                                                                    const newTime = time?.format('HH:mm') || '10:00';
+                                                                    setMasterSchedule(prev => ({ ...prev, end_time: newTime }));
+                                                                    setTimetableEntries(prev => 
+                                                                        prev.map(entry => ({ ...entry, end_time: newTime }))
+                                                                    );
+                                                                }}
+                                                                style={{ width: '100%' }}
+                                                            />
+                                                        </div>
                                                     </Col>
                                                     <Col span={6}>
-                                                        <Typography.Text type="secondary">Mode:</Typography.Text>
-                                                        <Select
-                                                            value={masterSchedule.location_mode}
-                                                            onChange={(value) => {
-                                                                setMasterSchedule(prev => ({ ...prev, location_mode: value }));
-                                                                // Apply to all entries
-                                                                setTimetableEntries(prev => 
-                                                                    prev.map(entry => ({ ...entry, location_mode: value }))
-                                                                );
-                                                            }}
-                                                            size="small"
-                                                            style={{ width: '100%' }}
-                                                        >
-                                                            <Option value="physical">Physical</Option>
-                                                            <Option value="online">Online</Option>
-                                                        </Select>
+                                                        <Typography.Text type="secondary" style={{ fontSize: 13 }}>Mode:</Typography.Text>
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <Select
+                                                                value={masterSchedule.location_mode}
+                                                                onChange={(value) => {
+                                                                    setMasterSchedule(prev => ({ ...prev, location_mode: value }));
+                                                                    setTimetableEntries(prev => 
+                                                                        prev.map(entry => ({ ...entry, location_mode: value }))
+                                                                    );
+                                                                }}
+                                                                style={{ width: '100%' }}
+                                                            >
+                                                                <Option value="physical">Physical</Option>
+                                                                <Option value="online">Online</Option>
+                                                            </Select>
+                                                        </div>
                                                     </Col>
                                                     <Col span={6}>
-                                                        <Typography.Text type="secondary">
+                                                        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                                                             {masterSchedule.location_mode === 'physical' ? 'Location:' : 'Link:'}
                                                         </Typography.Text>
-                                                        <Input
-                                                            value={masterSchedule.location_mode === 'physical' ? masterSchedule.location : masterSchedule.link}
-                                                            onChange={(e) => {
-                                                                const field = masterSchedule.location_mode === 'physical' ? 'location' : 'link';
-                                                                setMasterSchedule(prev => ({ ...prev, [field]: e.target.value }));
-                                                                // Apply to all entries
-                                                                setTimetableEntries(prev => 
-                                                                    prev.map(entry => ({ ...entry, [field]: e.target.value }))
-                                                                );
-                                                            }}
-                                                            size="small"
-                                                            placeholder={masterSchedule.location_mode === 'physical' ? 'Room 101' : 'Meeting link'}
-                                                        />
+                                                        <div style={{ marginTop: 4 }}>
+                                                            <Input
+                                                                value={masterSchedule.location_mode === 'physical' ? masterSchedule.location : masterSchedule.link}
+                                                                onChange={(e) => {
+                                                                    const field = masterSchedule.location_mode === 'physical' ? 'location' : 'link';
+                                                                    setMasterSchedule(prev => ({ ...prev, [field]: e.target.value }));
+                                                                    setTimetableEntries(prev => 
+                                                                        prev.map(entry => ({ ...entry, [field]: e.target.value }))
+                                                                    );
+                                                                }}
+                                                                placeholder={masterSchedule.location_mode === 'physical' ? 'Room 101' : 'Meeting link'}
+                                                            />
+                                                        </div>
                                                     </Col>
                                                 </Row>
                                             </Card>
-                                            <Typography.Text type="secondary" style={{ fontSize: '12px' }}>
+                                            <Typography.Text type="secondary" style={{ fontSize: '13px' }}>
                                                 Selected days: {timetableEntries.map(entry => dayNames[entry.day_of_week]).join(', ')}
                                             </Typography.Text>
                                         </div>
@@ -855,19 +1245,21 @@ const BatchManagement: React.FC = () => {
                         </Space>
                     </Form.Item>
 
-                    <Divider />
-
-                    <Form.Item
-                        name="dateRange"
-                        label="Duration"
-                        rules={[{ required: true, message: 'Please select start and end date and time!' }]}
-                    >
-                        <RangePicker
-                            style={{ width: '100%' }}
-                            showTime={{ format: 'HH:mm' }}
-                            format="YYYY-MM-DD HH:mm"
-                        />
-                    </Form.Item>
+                    <div style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                        <Form.Item
+                            name="dateRange"
+                            label="Overall Batch Duration"
+                            rules={[{ required: true, message: 'Please select start and end date and time!' }]}
+                            style={{ marginBottom: 0 }}
+                        >
+                            <RangePicker
+                                size="large"
+                                style={{ width: '100%', borderRadius: 8 }}
+                                showTime={{ format: 'HH:mm' }}
+                                format="YYYY-MM-DD HH:mm"
+                            />
+                        </Form.Item>
+                    </div>
 
                     {!editingBatch && (
                         <Form.Item
@@ -889,13 +1281,12 @@ const BatchManagement: React.FC = () => {
                             </Select>
                         </Form.Item>
                     )}
-
-                    <Form.Item>
-                        <Space>
-                            <Button type="primary" htmlType="submit">
-                                {editingBatch ? 'Update' : 'Create'}
-                            </Button>
-                            <Button onClick={() => {
+                  </div>
+                  <div style={{ padding: '16px 32px', borderTop: '1px solid #f1f5f9', background: '#fff', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                        <Button 
+                            size="large"
+                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 24px' }}
+                            onClick={() => {
                                 setModalVisible(false);
                                 form.resetFields();
                                 setEditingBatch(null);
@@ -913,13 +1304,22 @@ const BatchManagement: React.FC = () => {
                                     link: ''
                                 });
                             }}>
-                                Cancel
-                            </Button>
-                        </Space>
-                    </Form.Item>
+                            Cancel
+                        </Button>
+                        <Button 
+                            size="large"
+                            type="primary" 
+                            htmlType="submit"
+                            loading={submitting}
+                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 32px', background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+                        >
+                            {editingBatch ? 'Save Changes' : 'Create Batch'}
+                        </Button>
+                    </div>
                 </Form>
+              </ConfigProvider>
             </Modal>
-        </Card>
+        </div>
     );
 };
 

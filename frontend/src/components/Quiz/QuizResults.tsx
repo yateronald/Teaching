@@ -12,7 +12,8 @@ import {
     message,
     Select,
     DatePicker,
-    Empty
+    Empty,
+    Skeleton
 } from 'antd';
 import {
     EyeOutlined,
@@ -116,8 +117,23 @@ interface QuizResultsProps {
 
 const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     const { quizId: paramQuizId } = useParams<{ quizId: string }>();
-    const { apiCall, token } = useAuth();
-    const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    const { apiCall } = useAuth();
+    const [audioBlobUrls, setAudioBlobUrls] = useState<Record<number, string>>({});
+
+    // Securely fetch audio and create blob URL (no token in URL)
+    const getAudioBlobUrl = async (clipId: number) => {
+        if (audioBlobUrls[clipId]) return audioBlobUrls[clipId];
+        try {
+            const resp = await apiCall(`/quizzes/audio/${clipId}/stream`);
+            if (resp.ok) {
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                setAudioBlobUrls(prev => ({ ...prev, [clipId]: url }));
+                return url;
+            }
+        } catch {}
+        return '';
+    };
     
     const quizId = propQuizId || paramQuizId;
 
@@ -408,16 +424,23 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
 
     if (loading) {
         return (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-                <Text>Loading quiz results...</Text>
+            <div style={{ padding: '24px' }}>
+                <Skeleton active title={{ width: 300 }} paragraph={{ rows: 2, width: ['100%', '60%'] }} />
+                <div style={{ marginTop: '32px' }}>
+                    <Skeleton.Input active size="large" style={{ width: 160, marginRight: 16 }} />
+                    <Skeleton.Input active size="large" style={{ width: 280 }} />
+                </div>
+                <Card style={{ marginTop: '24px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
+                    <Skeleton active paragraph={{ rows: 6 }} />
+                </Card>
             </div>
         );
     }
 
     if (!quiz) {
         return (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-                <Text>Quiz not found</Text>
+            <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+                <Empty description={<Text type="secondary">Quiz details not found.</Text>} />
             </div>
         );
     }
@@ -437,21 +460,40 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
     });
 
     return (
-        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-            <div style={{ marginBottom: 24 }}>
-                <Title level={2}>{quiz.title} - Results</Title>
-                {quiz.description && <Text type="secondary">{quiz.description}</Text>}
+        <div style={{ margin: '0 auto', backgroundColor: '#fcfcfc', minHeight: '100%' }}>
+            {/* Edge-to-Edge Hero Header Section */}
+            <div style={{ 
+                padding: '40px 32px 32px', 
+                background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
+                boxShadow: '0 10px 30px rgba(37, 99, 235, 0.15)',
+                position: 'relative',
+                overflow: 'hidden'
+            }}>
+                {/* Decorative background circle */}
+                <div style={{
+                    position: 'absolute', right: '-10%', top: '-20%', width: '300px', height: '300px',
+                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%)',
+                    pointerEvents: 'none'
+                }} />
+
+                <Title level={2} style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px' }}>
+                    {quiz.title}
+                </Title>
+                <Text style={{ fontSize: '16px', display: 'block', marginTop: '12px', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '80%' }}>
+                    Overview of student submissions and detailed performance analytics for this quiz.
+                </Text>
             </div>
 
-            {/* Actions and Filters */}
-            <Card style={{ marginBottom: 24 }}>
-                <Row justify="space-between" align="middle">
+            <div style={{ padding: '32px' }}>
+                {/* Actions and Filters */}
+                <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
                     <Col>
-                        <Space>
+                        <Space size="middle">
                             <Select
                                 value={filterStatus}
                                 onChange={setFilterStatus}
-                                style={{ width: 160 }}
+                                style={{ width: 180 }}
+                                size="large"
                             >
                                 <Option value="all">All Results</Option>
                                 <Option value="passed">Passed (≥60%)</Option>
@@ -461,17 +503,26 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                 value={dateRange}
                                 onChange={setDateRange}
                                 placeholder={['Start Date', 'End Date']}
+                                size="large"
                             />
                         </Space>
                     </Col>
                 </Row>
-            </Card>
 
             {/* Results Table */}
-            <Card title="Student Results">
+            <Card 
+                title={<span style={{ fontSize: '18px', fontWeight: 600 }}>Student Grades</span>}
+                style={{ 
+                    borderRadius: '16px', 
+                    border: 'none', 
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.04)' 
+                }}
+                styles={{ header: { borderBottom: '1px solid #f0f0f0', padding: '20px 24px' }, body: { padding: 0 } }}
+            >
                 {filteredResults.length === 0 ? (
                     <Empty
-                        description="No quiz attempts yet"
+                        style={{ padding: '40px 0' }}
+                        description={<Text type="secondary">No students have submitted this quiz yet.</Text>}
                         image={Empty.PRESENTED_IMAGE_SIMPLE}
                     />
                 ) : (
@@ -483,12 +534,13 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                             pageSize: 10,
                             showSizeChanger: true,
                             showQuickJumper: true,
-                            showTotal: (total, range) => 
-                                `${range[0]}-${range[1]} of ${total} results`,
+                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} results`,
+                            style: { padding: '0 24px 24px 24px' }
                         }}
                     />
                 )}
             </Card>
+            </div>
 
             {/* Result Detail Modal */}
             <Modal
@@ -498,8 +550,30 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                 footer={null}
                 width={1000}
                 centered
+                closeIcon={
+                    <div style={{
+                        width: '32px', height: '32px', borderRadius: '50%',
+                        backgroundColor: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#ff4d4f';
+                        e.currentTarget.style.color = '#fff';
+                        e.currentTarget.style.transform = 'rotate(90deg)';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fff';
+                        e.currentTarget.style.color = 'inherit';
+                        e.currentTarget.style.transform = 'none';
+                    }}
+                    >
+                        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>✕</span>
+                    </div>
+                }
                 style={{ top: 20 }}
                 styles={{
+                    content: { borderRadius: '24px', padding: 0, overflow: 'hidden' },
                     body: { 
                         padding: 0,
                         height: '80vh',
@@ -509,76 +583,81 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                 }}
             >
                 {detailLoading && (
-                    <div style={{ textAlign: 'center', padding: '40px' }}>
-                        <Text>Loading details...</Text>
+                    <div style={{ padding: '32px' }}>
+                        <Skeleton active title={{ width: 250 }} paragraph={{ rows: 1 }} />
+                        <Row gutter={24} style={{ marginTop: '32px', marginBottom: '32px' }}>
+                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+                        </Row>
+                        <Skeleton active paragraph={{ rows: 6 }} />
                     </div>
                 )}
                 {!detailLoading && submissionDetails && (
                     <>
                         {/* Fixed Header Section */}
                         <div style={{ 
-                            padding: '24px 24px 0 24px',
-                            borderBottom: '1px solid #e8e8e8',
-                            backgroundColor: '#fff'
+                            padding: '32px',
+                            background: 'linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%)',
+                            borderBottom: '1px solid rgba(24, 144, 255, 0.1)',
                         }}>
-                            <Title level={3} style={{ margin: 0, marginBottom: '20px', color: '#1890ff' }}>
-                                Quiz Results - {selectedResult?.name || ''}
-                            </Title>
-                            <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginBottom: '20px' }}>
-                                {submissionDetails.submission.email}
-                            </Text>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
+                                <div>
+                                    <Title level={3} style={{ margin: 0, color: '#1a1a1a', fontWeight: 700, fontSize: '24px' }}>
+                                        {selectedResult?.name || 'Student Results'}
+                                    </Title>
+                                    <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginTop: '4px' }}>
+                                        {submissionDetails.submission.email}
+                                    </Text>
+                                </div>
+                            </div>
                             
-                            <Row gutter={24} style={{ marginBottom: '20px' }}>
+                            <Row gutter={24}>
                                 <Col span={8}>
-                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #e8f4fd' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#1890ff' }}>
-                                            {formatNumber(submissionDetails.submission.total_score)}/{formatNumber(submissionDetails.submission.max_score)}
+                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(24,144,255,0.08)' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#1890ff', fontSize: '28px' }}>
+                                            {formatNumber(submissionDetails.submission.total_score)}<span style={{ fontSize: '18px', color: '#8c8c8c' }}>/{formatNumber(submissionDetails.submission.max_score)}</span>
                                         </Title>
-                                        <Text style={{ color: '#52c41a', fontSize: '16px', fontWeight: 'bold' }}>
+                                        <Text style={{ color: '#52c41a', fontSize: '14px', fontWeight: 600 }}>
                                             ({formatNumber(submissionDetails.submission.percentage ?? 0)}%)
                                         </Text>
                                         <div style={{ marginTop: '4px' }}>
-                                            <Text type="secondary">Score</Text>
+                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Score</Text>
                                         </div>
-                                    </Card>
+                                    </div>
                                 </Col>
                                 <Col span={8}>
-                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #f6ffed' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#722ed1' }}>
+                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(114,46,209,0.08)' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#722ed1', fontSize: '28px' }}>
                                             {getGrade(submissionDetails.submission.percentage ?? null)}
                                         </Title>
-                                        <div style={{ marginTop: '8px' }}>
-                                            <Text type="secondary">Grade</Text>
+                                        <div style={{ marginTop: '26px' }}>
+                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final Grade</Text>
                                         </div>
-                                    </Card>
+                                    </div>
                                 </Col>
                                 <Col span={8}>
-                                    <Card size="small" style={{ textAlign: 'center', border: '1px solid #fff7e6' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#fa8c16' }}>
+                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(250,140,22,0.08)' }}>
+                                        <Title level={2} style={{ margin: 0, color: '#fa8c16', fontSize: '28px' }}>
                                             {formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
                                         </Title>
-                                        <div style={{ marginTop: '8px' }}>
-                                            <Text type="secondary">Time Taken</Text>
+                                        <div style={{ marginTop: '26px' }}>
+                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Time Taken</Text>
                                         </div>
-                                    </Card>
+                                    </div>
                                 </Col>
                             </Row>
+                        </div>
 
-                            {/* Answer Details Title - Fixed in Header */}
-                            <div style={{ 
-                                padding: '16px 0',
-                                borderBottom: '2px solid #1890ff',
-                                marginBottom: '0'
-                            }}>
-                                <Title level={4} style={{ 
-                                    margin: 0, 
-                                    textAlign: 'center',
-                                    color: '#1890ff',
-                                    fontSize: '18px'
-                                }}>
-                                    Answer Details
-                                </Title>
-                            </div>
+                        {/* Title Bar for Scrollable Area */}
+                        <div style={{ 
+                            padding: '16px 32px',
+                            backgroundColor: '#fff',
+                            borderBottom: '1px solid #f0f0f0',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                            zIndex: 1
+                        }}>
+                            <Title level={5} style={{ margin: 0, color: '#1a1a1a' }}>Detailed Evaluation</Title>
                         </div>
 
                         {/* Scrollable Content Section */}
@@ -943,17 +1022,27 @@ const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
                                                         {/* Audio player for teacher */}
                                                         {group.clip.has_audio && (
                                                             <div style={{ marginTop: '12px' }}>
-                                                                <audio
-                                                                    controls
-                                                                    controlsList="nodownload noplaybackrate"
-                                                                    onContextMenu={(e) => e.preventDefault()}
-                                                                    src={`${API_BASE}/quizzes/audio/${group.clipId}/stream?token=${token}`}
-                                                                    style={{
-                                                                        width: '100%', height: '36px',
-                                                                        borderRadius: '8px', filter: 'invert(1) hue-rotate(180deg)',
-                                                                        opacity: 0.9
-                                                                    }}
-                                                                />
+                                                                {audioBlobUrls[group.clipId] ? (
+                                                                    <audio
+                                                                        controls
+                                                                        controlsList="nodownload noplaybackrate"
+                                                                        onContextMenu={(e) => e.preventDefault()}
+                                                                        src={audioBlobUrls[group.clipId]}
+                                                                        style={{
+                                                                            width: '100%', height: '36px',
+                                                                            borderRadius: '8px', filter: 'invert(1) hue-rotate(180deg)',
+                                                                            opacity: 0.9
+                                                                        }}
+                                                                    />
+                                                                ) : (
+                                                                    <Button
+                                                                        size="small"
+                                                                        type="link"
+                                                                        onClick={() => getAudioBlobUrl(group.clipId)}
+                                                                    >
+                                                                        🔊 Load Audio
+                                                                    </Button>
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>

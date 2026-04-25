@@ -10,16 +10,15 @@ import {
     TimePicker,
     Space,
     Typography,
-    Tag,
     Popconfirm,
-    Card,
-    Tabs,
     Row,
     Col,
-    Statistic,
     Descriptions,
     Alert,
     Tooltip,
+    Skeleton,
+    Badge,
+    Tabs,
     App
 } from 'antd';
 import {
@@ -28,13 +27,13 @@ import {
     DeleteOutlined,
     CalendarOutlined,
     ClockCircleOutlined,
-    TeamOutlined,
     BookOutlined,
     PlayCircleOutlined,
     StopOutlined,
     CopyOutlined,
     LinkOutlined,
-    VideoCameraOutlined
+    VideoCameraOutlined,
+    CheckCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import type { ColumnsType } from 'antd/es/table';
@@ -47,7 +46,6 @@ import interactionPlugin from '@fullcalendar/interaction';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
-const { TabPane } = Tabs;
 
 interface Schedule {
     id: number;
@@ -96,6 +94,9 @@ const ScheduleManagement: React.FC = () => {
     const [modalVisible, setModalVisible] = useState(false);
     const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
     const [viewMode, setViewMode] = useState<'table' | 'calendar'>('table');
+    const [searchText, setSearchText] = useState('');
+    const [filterBatchId, setFilterBatchId] = useState<number | null>(null);
+    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
     const [form] = Form.useForm();
     const { apiCall } = useAuth();
 
@@ -623,22 +624,40 @@ const ScheduleManagement: React.FC = () => {
 
     const getTypeColor = (type: string) => {
         switch (type) {
-            case 'class': return 'blue';
-            case 'exam': return 'red';
-            case 'meeting': return 'green';
-            case 'assignment': return 'orange';
-            case 'quiz': return 'purple';
-            default: return 'default';
+            case 'class':      return '#3b82f6';
+            case 'exam':       return '#ef4444';
+            case 'meeting':    return '#22c55e';
+            case 'assignment': return '#f59e0b';
+            case 'quiz':       return '#8b5cf6';
+            default:           return '#94a3b8';
         }
     };
-
+    const getTypeBg = (type: string) => {
+        switch (type) {
+            case 'class':      return '#dbeafe';
+            case 'exam':       return '#fee2e2';
+            case 'meeting':    return '#dcfce7';
+            case 'assignment': return '#fef3c7';
+            case 'quiz':       return '#ede9fe';
+            default:           return '#f1f5f9';
+        }
+    };
     const getStatusColor = (status: string) => {
         switch (status) {
-            case 'scheduled': return 'processing';
-            case 'completed': return 'success';
-            case 'cancelled': return 'error';
-            case 'ended': return 'default';
-            default: return 'default';
+            case 'scheduled': return '#6366f1';
+            case 'completed': return '#22c55e';
+            case 'cancelled': return '#ef4444';
+            case 'ended':     return '#94a3b8';
+            default:          return '#94a3b8';
+        }
+    };
+    const getStatusBg = (status: string) => {
+        switch (status) {
+            case 'scheduled': return '#eef2ff';
+            case 'completed': return '#dcfce7';
+            case 'cancelled': return '#fee2e2';
+            case 'ended':     return '#f1f5f9';
+            default:          return '#f1f5f9';
         }
     };
 
@@ -657,6 +676,21 @@ const ScheduleManagement: React.FC = () => {
         return isScheduleEnded(schedule) ? 'ended' : schedule.status;
     };
 
+    const filteredSchedules = React.useMemo(() => {
+        return schedules.filter(schedule => {
+            const matchesText = schedule.title.toLowerCase().includes(searchText.toLowerCase());
+            const matchesBatch = filterBatchId ? schedule.batch_id === filterBatchId : true;
+            let matchesDate = true;
+            if (dateRangeFilter && dateRangeFilter.length === 2 && schedule.date) {
+                const sDate = dayjs(schedule.date);
+                if (sDate.isBefore(dateRangeFilter[0], 'day') || sDate.isAfter(dateRangeFilter[1], 'day')) {
+                    matchesDate = false;
+                }
+            }
+            return matchesText && matchesBatch && matchesDate;
+        });
+    }, [schedules, searchText, filterBatchId, dateRangeFilter]);
+
     // FullCalendar color palette by type
     const typeColors: Record<string, string> = {
         class: '#1677ff',
@@ -669,7 +703,7 @@ const ScheduleManagement: React.FC = () => {
 
     // Convert schedules to FullCalendar events
     const events = React.useMemo(() => {
-        return schedules.map((s) => {
+        return filteredSchedules.map((s) => {
             const startD = dayjs(`${s.date}T${s.start_time}`);
             let endD = dayjs(`${s.date}T${s.end_time}`);
             if (!endD.isValid() || !endD.isAfter(startD)) {
@@ -687,7 +721,7 @@ const ScheduleManagement: React.FC = () => {
                 extendedProps: { schedule: s },
             } as any;
         });
-    }, [schedules]);
+    }, [filteredSchedules]);
 
     const handleEventClick = (clickInfo: any) => {
         const sched: Schedule | undefined = clickInfo?.event?.extendedProps?.schedule;
@@ -786,154 +820,99 @@ const ScheduleManagement: React.FC = () => {
 
     const columns: ColumnsType<Schedule> = [
         {
-            title: 'Title',
-            dataIndex: 'title',
-            key: 'title',
-            render: (title: string, record) => (
+            title: 'Title', key: 'title',
+            render: (_, record) => (
                 <div>
-                    <Text strong>{title}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.description}
-                    </Text>
+                    <Text strong style={{ fontSize: 13, color: '#1a1d2e', display: 'block' }}>{record.title}</Text>
+                    {record.description && <Text type="secondary" style={{ fontSize: 11 }}>{record.description}</Text>}
                 </div>
             ),
         },
         {
-            title: 'Batch',
-            key: 'batch',
+            title: 'Batch', key: 'batch', width: 130,
             render: (_, record) => {
-                const batch = batches.find(b => b.id === record.batch_id);
-                return batch ? batch.name : (record.batch_name || 'Unknown Batch');
+                const name = batches.find(b => b.id === record.batch_id)?.name || record.batch_name || '—';
+                return <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 20, padding: '2px 12px', fontSize: 11, fontWeight: 600 }}>{name}</span>;
             },
         },
         {
-            title: 'Date & Time',
-            key: 'datetime',
+            title: 'Date & Time', key: 'datetime', width: 165,
             render: (_, record) => (
                 <div>
-                    <div>
-                        <CalendarOutlined /> {dayjs(record.date).format('MMM DD, YYYY')}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                        <CalendarOutlined style={{ color: '#6366f1', fontSize: 11 }} />
+                        <Text style={{ fontSize: 12, fontWeight: 600, color: '#1a1d2e' }}>{dayjs(record.date).format('MMM DD, YYYY')}</Text>
                     </div>
-                    <div style={{ marginTop: 4 }}>
-                        <ClockCircleOutlined /> {record.start_time} - {record.end_time}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <ClockCircleOutlined style={{ color: '#94a3b8', fontSize: 11 }} />
+                        <Text type="secondary" style={{ fontSize: 11 }}>{record.start_time} – {record.end_time}</Text>
                     </div>
                 </div>
             ),
         },
         {
-            title: 'Location',
-            key: 'location',
-            render: (_, record) => (
-                record.location_mode === 'online' ? (
-                    renderJoinMeetingButton(record)
-                ) : (
-                    record.location || '--'
-                )
+            title: 'Location', key: 'location', width: 160,
+            render: (_, record) => record.location_mode === 'online' ? renderJoinMeetingButton(record) : (
+                <Text type="secondary" style={{ fontSize: 12 }}>{record.location || '—'}</Text>
             ),
         },
         {
-            title: 'Type',
-            dataIndex: 'type',
-            key: 'type',
+            title: 'Type', dataIndex: 'type', key: 'type', width: 100, align: 'center' as const,
             render: (type: string) => (
-                <Tag color={getTypeColor(type)}>
+                <span style={{ background: getTypeBg(type), color: getTypeColor(type), borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>
                     {type.toUpperCase()}
-                </Tag>
+                </span>
             ),
         },
         {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            render: (_, record: Schedule) => (
-                <Tag color={getStatusColor(getEffectiveStatus(record))}>
-                    {getEffectiveStatus(record).toUpperCase()}
-                </Tag>
-            ),
+            title: 'Status', key: 'status', width: 110, align: 'center' as const,
+            render: (_, record: Schedule) => {
+                const s = getEffectiveStatus(record);
+                return <span style={{ background: getStatusBg(s), color: getStatusColor(s), borderRadius: 20, padding: '3px 12px', fontSize: 11, fontWeight: 700 }}>{s.toUpperCase()}</span>;
+            },
         },
         {
-            title: 'Actions',
-            key: 'actions',
+            title: 'Actions', key: 'actions', width: 220,
             render: (_, record) => (
-                <Space>
+                <Space size={4}>
                     {record.type === 'class' && (
                         <Tooltip title={
-                            isScheduleEnded(record)
-                                ? 'Meeting has ended'
-                                : activeSessions.has(record.id) 
-                                    ? 'Join the class session' 
-                                    : canStartClass(record) 
-                                        ? 'Start class session' 
-                                        : 'Class can be started 15 minutes before scheduled time'
+                            isScheduleEnded(record) ? 'Meeting has ended'
+                                : activeSessions.has(record.id) ? 'Join the class session'
+                                : canStartClass(record) ? 'Start class session'
+                                : 'Available 15 min before start'
                         }>
                             <Button
-                                type="primary"
                                 size="small"
                                 icon={activeSessions.has(Number(record.id)) ? <LinkOutlined /> : <PlayCircleOutlined />}
                                 onClick={() => {
-                                    if (isScheduleEnded(record)) {
-                                        return; // Do nothing if meeting has ended
-                                    }
+                                    if (isScheduleEnded(record)) return;
                                     if (activeSessions.has(Number(record.id))) {
-                                        // Join session - open meeting link
-                                        if (record.link) {
-                                            window.open(record.link, '_blank', 'noopener,noreferrer');
-                                        }
-                                    } else {
-                                        // Start class
-                                        handleStartClass(record);
-                                    }
+                                        if (record.link) window.open(record.link, '_blank', 'noopener,noreferrer');
+                                    } else { handleStartClass(record); }
                                 }}
                                 disabled={isScheduleEnded(record) || (!canStartClass(record) && !activeSessions.has(Number(record.id)))}
                                 style={{
-                                    backgroundColor: isScheduleEnded(record) 
-                                        ? '#d9d9d9'
-                                        : activeSessions.has(Number(record.id)) 
-                                            ? '#1890ff' 
-                                            : canStartClass(record) 
-                                                ? '#52c41a' 
-                                                : undefined,
-                                    borderColor: isScheduleEnded(record) 
-                                        ? '#d9d9d9'
-                                        : activeSessions.has(Number(record.id)) 
-                                            ? '#1890ff' 
-                                            : canStartClass(record) 
-                                                ? '#52c41a' 
-                                                : undefined,
-                                    color: isScheduleEnded(record) ? '#00000040' : undefined
+                                    borderRadius: 8, fontSize: 11, height: 28, fontWeight: 600,
+                                    background: isScheduleEnded(record) ? '#f1f5f9'
+                                        : activeSessions.has(Number(record.id)) ? '#eef2ff'
+                                        : canStartClass(record) ? '#dcfce7' : undefined,
+                                    color: isScheduleEnded(record) ? '#94a3b8'
+                                        : activeSessions.has(Number(record.id)) ? '#6366f1'
+                                        : canStartClass(record) ? '#16a34a' : undefined,
+                                    borderColor: isScheduleEnded(record) ? '#e2e8f0'
+                                        : activeSessions.has(Number(record.id)) ? '#c7d2fe'
+                                        : canStartClass(record) ? '#86efac' : undefined,
                                 }}
                             >
-                                {isScheduleEnded(record) 
-                                    ? 'Meeting Ended' 
-                                    : activeSessions.has(record.id) 
-                                        ? 'Join Session' 
-                                        : 'Start Class'}
+                                {isScheduleEnded(record) ? 'Ended' : activeSessions.has(record.id) ? 'Join' : 'Start'}
                             </Button>
                         </Tooltip>
                     )}
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => handleEdit(record)}
-                    >
-                        Edit
-                    </Button>
-                    <Popconfirm
-                        title="Are you sure you want to delete this schedule?"
-                        onConfirm={() => handleDelete(record.id)}
-                        okText="Yes"
-                        cancelText="No"
-                    >
-                        <Button
-                            type="primary"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                        >
-                            Delete
-                        </Button>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}
+                        style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', height: 28 }} />
+                    <Popconfirm title="Delete this schedule?" onConfirm={() => handleDelete(record.id)} okText="Delete" okType="danger">
+                        <Button size="small" danger icon={<DeleteOutlined />} style={{ borderRadius: 8, height: 28 }} />
                     </Popconfirm>
                 </Space>
             ),
@@ -1006,132 +985,177 @@ const ScheduleManagement: React.FC = () => {
         );
     };
 
-    const todaySchedules = schedules.filter(schedule => 
+    const todaySchedules = filteredSchedules.filter(schedule => 
         schedule.date === dayjs().format('YYYY-MM-DD')
     );
-    const upcomingSchedules = schedules.filter(schedule => 
+    const upcomingSchedules = filteredSchedules.filter(schedule => 
         dayjs(schedule.date).isAfter(dayjs(), 'day')
     );
-    const completedSchedules = schedules.filter(schedule => 
+    const completedSchedules = filteredSchedules.filter(schedule => 
         ['ended', 'completed'].includes(getEffectiveStatus(schedule))
     );
 
+    // ── KPI Card (module-scoped style matching other pages) ──
+    const KpiCard = ({ label, value, icon, accent }: { label: string; value: number; icon: React.ReactNode; accent: string }) => (
+        <div style={{ borderRadius: 16, padding: '20px 24px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ width: 44, height: 44, borderRadius: 12, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
+            <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>{value}</div>
+            </div>
+        </div>
+    );
+
+    // ── Skeleton loader ──
+    if (loading) return (
+        <div style={{ paddingBottom: 32 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+                <div><Skeleton.Input active style={{ width: 240, height: 28, borderRadius: 8 }} /><div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 160, height: 14, borderRadius: 6 }} /></div></div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <Skeleton.Button active style={{ width: 110, height: 38, borderRadius: 10 }} />
+                    <Skeleton.Button active style={{ width: 120, height: 38, borderRadius: 10 }} />
+                    <Skeleton.Button active style={{ width: 130, height: 44, borderRadius: 12 }} />
+                </div>
+            </div>
+            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                {[1,2,3,4].map(i => (
+                    <Col xs={24} sm={12} md={6} key={i}>
+                        <div style={{ borderRadius: 16, padding: '20px 24px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <Skeleton.Avatar active size={44} shape="square" style={{ borderRadius: 12 }} />
+                            <div style={{ flex: 1 }}><Skeleton.Input active style={{ width: 80, height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 40, height: 26, borderRadius: 6 }} /></div>
+                        </div>
+                    </Col>
+                ))}
+            </Row>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f8', display: 'flex', gap: 20 }}>
+                    {['All','Today','Upcoming'].map((_t,i) => <Skeleton.Input key={i} active style={{ width: 100, height: 16, borderRadius: 6 }} />)}
+                </div>
+                {[1,2,3,4,5,6].map(i => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '13px 20px', borderBottom: '1px solid #f8f8fc' }}>
+                        <div style={{ flex: 3 }}><Skeleton.Input active style={{ width: '60%', height: 13, borderRadius: 5, marginBottom: 5 }} block /><Skeleton.Input active style={{ width: '35%', height: 11, borderRadius: 5 }} block /></div>
+                        <Skeleton.Input active style={{ width: 70, height: 22, borderRadius: 20 }} />
+                        <div><Skeleton.Input active style={{ width: 90, height: 13, borderRadius: 5, marginBottom: 4 }} block /><Skeleton.Input active style={{ width: 70, height: 11, borderRadius: 5 }} block /></div>
+                        <Skeleton.Input active style={{ width: 100, height: 28, borderRadius: 8 }} />
+                        <Skeleton.Input active style={{ width: 60, height: 22, borderRadius: 20 }} />
+                        <Skeleton.Input active style={{ width: 70, height: 22, borderRadius: 20 }} />
+                        <div style={{ display: 'flex', gap: 5 }}><Skeleton.Button active size="small" style={{ width: 55, height: 28, borderRadius: 8 }} /><Skeleton.Button active size="small" style={{ width: 30, height: 28, borderRadius: 8 }} /><Skeleton.Button active size="small" style={{ width: 30, height: 28, borderRadius: 8 }} /></div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
     return (
-        <div>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Title level={2}>
-                    <CalendarOutlined /> Schedule Management
-                </Title>
-                <Space>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+            {/* ── Header ── */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexShrink: 0 }}>
+                <div>
+                    <Title level={3} style={{ margin: 0, fontWeight: 800, color: '#1a1d2e', fontSize: 22 }}>Schedule Management</Title>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                        {filteredSchedules.length} schedule{filteredSchedules.length !== 1 ? 's' : ''} · {todaySchedules.length} today · {upcomingSchedules.length} upcoming
+                    </Text>
+                </div>
+                <Space size={8}>
                     <Button
-                        type={viewMode === 'table' ? 'primary' : 'default'}
                         onClick={() => setViewMode('table')}
-                    >
-                        Table View
-                    </Button>
+                        style={{ borderRadius: 10, height: 38, fontWeight: 600, borderColor: viewMode === 'table' ? '#6366f1' : '#e0e7ff', color: viewMode === 'table' ? '#6366f1' : '#64748b', background: viewMode === 'table' ? '#eef2ff' : '#fff' }}
+                    >Table View</Button>
                     <Button
-                        type={viewMode === 'calendar' ? 'primary' : 'default'}
                         onClick={() => setViewMode('calendar')}
-                    >
-                        Calendar View
-                    </Button>
+                        style={{ borderRadius: 10, height: 38, fontWeight: 600, borderColor: viewMode === 'calendar' ? '#6366f1' : '#e0e7ff', color: viewMode === 'calendar' ? '#6366f1' : '#64748b', background: viewMode === 'calendar' ? '#eef2ff' : '#fff' }}
+                    >Calendar View</Button>
                     <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleAdd}
-                    >
-                        Add Schedule
-                    </Button>
+                        type="primary" icon={<PlusOutlined />} size="large" onClick={handleAdd}
+                        style={{ borderRadius: 12, height: 44, fontWeight: 700, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', boxShadow: '0 4px 16px rgba(99,102,241,0.30)', paddingInline: 20 }}
+                    >Add Schedule</Button>
                 </Space>
             </div>
 
-            <Row gutter={16} style={{ marginBottom: 16 }}>
-                <Col span={6}>
-                    <Card>
-                        <Statistic
-                            title="Today's Classes"
-                            value={todaySchedules.length}
-                            prefix={<BookOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col span={6}>
-                    <Card>
-                        <Statistic
-                            title="Upcoming"
-                            value={upcomingSchedules.length}
-                            prefix={<ClockCircleOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col span={6}>
-                    <Card>
-                        <Statistic
-                            title="Completed"
-                            value={completedSchedules.length}
-                            prefix={<TeamOutlined />}
-                        />
-                    </Card>
-                </Col>
-                <Col span={6}>
-                    <Card>
-                        <Statistic
-                            title="Total Schedules"
-                            value={schedules.length}
-                            prefix={<CalendarOutlined />}
-                        />
-                    </Card>
-                </Col>
+            {/* ── KPI Cards ── */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
+                <Col xs={24} sm={12} md={6}><KpiCard label="Today's Classes" value={todaySchedules.length} icon={<BookOutlined />} accent="#6366f1" /></Col>
+                <Col xs={24} sm={12} md={6}><KpiCard label="Upcoming" value={upcomingSchedules.length} icon={<ClockCircleOutlined />} accent="#0ea5e9" /></Col>
+                <Col xs={24} sm={12} md={6}><KpiCard label="Completed" value={completedSchedules.length} icon={<CheckCircleOutlined />} accent="#22c55e" /></Col>
+                <Col xs={24} sm={12} md={6}><KpiCard label="Total Schedules" value={filteredSchedules.length} icon={<CalendarOutlined />} accent="#f59e0b" /></Col>
             </Row>
 
+            {/* ── Filters ── */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexShrink: 0 }}>
+                <Input.Search
+                    placeholder="Search schedules by title..."
+                    allowClear
+                    onChange={(e) => setSearchText(e.target.value)}
+                    style={{ width: 250 }}
+                />
+                <DatePicker.RangePicker
+                    onChange={setDateRangeFilter}
+                    style={{ width: 250 }}
+                    allowClear
+                />
+                <Select
+                    placeholder="Filter by Batch"
+                    allowClear
+                    onChange={(val) => setFilterBatchId(val)}
+                    style={{ width: 250 }}
+                    options={batches.map(b => ({ label: b.name, value: b.id }))}
+                />
+            </div>
+
             {viewMode === 'table' ? (
-                <Card>
-                    <Tabs defaultActiveKey="all">
-                        <TabPane tab={`All Schedules (${schedules.length})`} key="all">
-                            <Table
-                                columns={columns}
-                                dataSource={schedules}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                }}
-                            />
-                        </TabPane>
-                        <TabPane tab={`Today (${todaySchedules.length})`} key="today">
-                            <Table
-                                columns={columns}
-                                dataSource={todaySchedules}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={false}
-                            />
-                        </TabPane>
-                        <TabPane tab={`Upcoming (${upcomingSchedules.length})`} key="upcoming">
-                            <Table
-                                columns={columns}
-                                dataSource={upcomingSchedules}
-                                rowKey="id"
-                                loading={loading}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                }}
-                            />
-                        </TabPane>
-                    </Tabs>
-                </Card>
+                /* ── Table card: fills remaining, rows scroll ── */
+                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                    <Tabs
+                        defaultActiveKey="all"
+                        style={{ padding: '0 20px' }}
+                        tabBarStyle={{ marginBottom: 0, borderBottom: '1px solid #f0f0f8' }}
+                        items={[
+                            {
+                                key: 'all',
+                                label: <span><CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} />All <Badge count={filteredSchedules.length} style={{ backgroundColor: '#6366f1', marginLeft: 4 }} /></span>,
+                                children: (
+                                    <Table columns={columns} dataSource={filteredSchedules} rowKey="id"
+                                        size="small" scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                                        pagination={{ pageSize: 20, showSizeChanger: false, showTotal: (t) => `${t} schedules`, style: { padding: '10px 20px', borderTop: '1px solid #f0f0f8', margin: 0 } }}
+                                        rowClassName={() => 'sched-table-row'}
+                                        locale={{ emptyText: <div style={{ padding: '48px 0', textAlign: 'center' }}><CalendarOutlined style={{ fontSize: 40, color: '#c7d2fe', display: 'block', marginBottom: 10 }} /><Text type="secondary">No schedules yet</Text></div> }}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'today',
+                                label: <span><ClockCircleOutlined style={{ marginRight: 6, color: '#0ea5e9' }} />Today <Badge count={todaySchedules.length} style={{ backgroundColor: '#0ea5e9', marginLeft: 4 }} /></span>,
+                                children: (
+                                    <Table columns={columns} dataSource={todaySchedules} rowKey="id"
+                                        size="small" scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                                        pagination={false}
+                                        rowClassName={() => 'sched-table-row'}
+                                        locale={{ emptyText: <div style={{ padding: '40px 0', textAlign: 'center' }}><Text type="secondary">No classes today</Text></div> }}
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'upcoming',
+                                label: <span><BookOutlined style={{ marginRight: 6, color: '#22c55e' }} />Upcoming <Badge count={upcomingSchedules.length} style={{ backgroundColor: '#22c55e', marginLeft: 4 }} /></span>,
+                                children: (
+                                    <Table columns={columns} dataSource={upcomingSchedules} rowKey="id"
+                                        size="small" scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                                        pagination={{ pageSize: 20, showSizeChanger: false, showTotal: (t) => `${t} schedules`, style: { padding: '10px 20px', borderTop: '1px solid #f0f0f8', margin: 0 } }}
+                                        rowClassName={() => 'sched-table-row'}
+                                        locale={{ emptyText: <div style={{ padding: '40px 0', textAlign: 'center' }}><Text type="secondary">No upcoming schedules</Text></div> }}
+                                    />
+                                ),
+                            },
+                        ]}
+                    />
+                </div>
             ) : (
-                <Card>
+                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, padding: 20, overflow: 'auto' }}>
                     <FullCalendar
                         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                         initialView="timeGridWeek"
-                        headerToolbar={{
-                            left: 'prev,next today',
-                            center: 'title',
-                            right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                        }}
+                        headerToolbar={{ left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' }}
                         height="auto"
                         timeZone="local"
                         displayEventEnd={true}
@@ -1139,25 +1163,16 @@ const ScheduleManagement: React.FC = () => {
                         selectAllow={(arg: any) => {
                             const start = dayjs(arg.start);
                             const type = arg?.view?.type;
-                            if (type === 'dayGridMonth') {
-                                return start.isSame(dayjs(), 'day') || start.isAfter(dayjs(), 'day');
-                            }
+                            if (type === 'dayGridMonth') return start.isSame(dayjs(), 'day') || start.isAfter(dayjs(), 'day');
                             return start.isAfter(dayjs().subtract(1, 'minute'));
                         }}
-                        selectMirror
-                        select={handleSelect}
-                        editable
-                        eventDrop={handleEventDrop}
-                        eventResize={handleEventResize}
-                        eventClick={handleEventClick}
-                        events={events}
-                        nowIndicator
-                        slotMinTime="00:00:00"
-                        slotMaxTime="24:00:00"
-                        allDaySlot={false}
+                        selectMirror select={handleSelect}
+                        editable eventDrop={handleEventDrop} eventResize={handleEventResize}
+                        eventClick={handleEventClick} events={events}
+                        nowIndicator slotMinTime="00:00:00" slotMaxTime="24:00:00" allDaySlot={false}
                         eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
                     />
-                </Card>
+                </div>
             )}
 
             {/* Edit/Create Modal */}
@@ -1332,80 +1347,58 @@ const ScheduleManagement: React.FC = () => {
             {/* View Details Modal for event click */}
             <Modal
                 open={viewModalVisible}
-                title={viewSchedule ? viewSchedule.title : 'Schedule Details'}
+                title={viewSchedule ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: viewSchedule ? getTypeBg(viewSchedule.type) : '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: viewSchedule ? getTypeColor(viewSchedule.type) : '#6366f1', fontSize: 16 }}>
+                            <CalendarOutlined />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15 }}>{viewSchedule.title}</div>
+                            <span style={{ background: getStatusBg(getEffectiveStatus(viewSchedule)), color: getStatusColor(getEffectiveStatus(viewSchedule)), borderRadius: 20, padding: '1px 10px', fontSize: 11, fontWeight: 600 }}>
+                                {getEffectiveStatus(viewSchedule).toUpperCase()}
+                            </span>
+                        </div>
+                    </div>
+                ) : 'Schedule Details'}
                 onCancel={() => { setViewModalVisible(false); setViewSchedule(null); }}
-                footer={null}
-                width={640}
+                footer={null} width={640}
             >
                 {viewSchedule && (
                     <>
-                        <Descriptions bordered column={1} size="middle">
+                        <Descriptions bordered column={1} size="small" style={{ borderRadius: 10, overflow: 'hidden' }}>
                             <Descriptions.Item label="Batch">
-                                {batches.find(b => b.id === viewSchedule.batch_id)?.name || viewSchedule.batch_name || '—'}
+                                <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 20, padding: '2px 12px', fontSize: 12, fontWeight: 600 }}>
+                                    {batches.find(b => b.id === viewSchedule.batch_id)?.name || viewSchedule.batch_name || '—'}
+                                </span>
                             </Descriptions.Item>
-                            <Descriptions.Item label="Date">
-                                {dayjs(viewSchedule.date).format('dddd, MMMM D, YYYY')}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Time">
-                                {`${viewSchedule.start_time} - ${viewSchedule.end_time}`}
-                            </Descriptions.Item>
+                            <Descriptions.Item label="Date"><Text strong>{dayjs(viewSchedule.date).format('dddd, MMMM D, YYYY')}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Time"><Text strong>{viewSchedule.start_time} – {viewSchedule.end_time}</Text></Descriptions.Item>
                             <Descriptions.Item label="Type">
-                                <Tag color={getTypeColor(viewSchedule.type)}>{viewSchedule.type.toUpperCase()}</Tag>
+                                <span style={{ background: getTypeBg(viewSchedule.type), color: getTypeColor(viewSchedule.type), borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{viewSchedule.type.toUpperCase()}</span>
                             </Descriptions.Item>
-                            <Descriptions.Item label="Status">
-                                <Tag color={getStatusColor(getEffectiveStatus(viewSchedule))}>
-                                    {getEffectiveStatus(viewSchedule).toUpperCase()}
-                                </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Mode">
-                                {viewSchedule.location_mode === 'online' ? 'Online' : 'Physical'}
-                            </Descriptions.Item>
+                            <Descriptions.Item label="Mode">{viewSchedule.location_mode === 'online' ? 'Online' : 'Physical'}</Descriptions.Item>
                             <Descriptions.Item label={viewSchedule.location_mode === 'online' ? 'Link' : 'Location'}>
                                 {viewSchedule.location_mode === 'online' ? (
                                     viewSchedule.link ? (
-                                        <Button 
-                                            type="primary" 
-                                            size="small"
-                                            disabled={isScheduleEnded(viewSchedule)}
+                                        <Button size="small" icon={<LinkOutlined />} disabled={isScheduleEnded(viewSchedule)}
                                             onClick={() => window.open(viewSchedule.link!, '_blank')}
-                                            style={{ 
-                                                opacity: isScheduleEnded(viewSchedule) ? 0.5 : 1,
-                                                cursor: isScheduleEnded(viewSchedule) ? 'not-allowed' : 'pointer'
-                                            }}
+                                            style={{ borderRadius: 8, borderColor: '#c7d2fe', color: '#6366f1' }}
                                         >
                                             {isScheduleEnded(viewSchedule) ? 'Meeting Ended' : 'Join Meeting'}
                                         </Button>
                                     ) : '—'
                                 ) : (viewSchedule.location || '—')}
                             </Descriptions.Item>
-                            {viewSchedule.description && (
-                                <Descriptions.Item label="Description">
-                                    {viewSchedule.description}
-                                </Descriptions.Item>
-                            )}
+                            {viewSchedule.description && <Descriptions.Item label="Description">{viewSchedule.description}</Descriptions.Item>}
                         </Descriptions>
-                        <Space style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
-                            <Popconfirm
-                                title="Delete this schedule?"
-                                onConfirm={() => viewSchedule && handleDelete(viewSchedule.id)}
-                                okText="Yes"
-                                cancelText="No"
-                            >
-                                <Button danger icon={<DeleteOutlined />}>Delete</Button>
+                        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <Popconfirm title="Delete this schedule?" onConfirm={() => viewSchedule && handleDelete(viewSchedule.id)} okText="Delete" okType="danger">
+                                <Button danger icon={<DeleteOutlined />} style={{ borderRadius: 8 }}>Delete</Button>
                             </Popconfirm>
-                            <Button
-                                type="primary"
-                                icon={<EditOutlined />}
-                                onClick={() => {
-                                    if (viewSchedule) {
-                                        setViewModalVisible(false);
-                                        handleEdit(viewSchedule);
-                                    }
-                                }}
-                            >
-                                Edit
-                            </Button>
-                        </Space>
+                            <Button type="primary" icon={<EditOutlined />} style={{ borderRadius: 8, background: '#6366f1', borderColor: '#6366f1' }}
+                                onClick={() => { if (viewSchedule) { setViewModalVisible(false); handleEdit(viewSchedule); } }}
+                            >Edit</Button>
+                        </div>
                     </>
                 )}
             </Modal>
@@ -1597,6 +1590,18 @@ const ScheduleManagement: React.FC = () => {
                     </div>
                 )}
             </Modal>
+            <style>{`
+                .sched-table-row:hover td { background: #f8f7ff !important; }
+                .ant-table-thead > tr > th {
+                    background: #fafafa !important;
+                    font-weight: 700 !important;
+                    color: #4b5563 !important;
+                    font-size: 11px !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.5px !important;
+                }
+                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
+            `}</style>
         </div>
     );
 };

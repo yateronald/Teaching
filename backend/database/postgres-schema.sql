@@ -240,6 +240,16 @@ CREATE TABLE resources (
 );
 
 
+-- Table: resource_batches
+CREATE TABLE resource_batches (
+    resource_id INTEGER NOT NULL,
+    batch_id INTEGER NOT NULL,
+    PRIMARY KEY (resource_id, batch_id),
+    CONSTRAINT fk_resource_batches_resource_id FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE,
+    CONSTRAINT fk_resource_batches_batch_id FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
+);
+
+
 -- Table: schedules
 CREATE TABLE schedules (
     id SERIAL PRIMARY KEY,

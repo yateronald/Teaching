@@ -1,21 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-    Table,
-    Button,
-    Modal,
-    Card,
-    message,
-    Space,
-    Typography,
-    Tag,
-    Progress,
-    Tabs,
-    Row,
-    Col,
-    Spin,
-    Statistic,
-    Empty
+    Table, Button, Modal, message, Typography,
+    Progress, Row, Col, Empty, Skeleton,
+    DatePicker, Select
 } from 'antd';
+
+const { RangePicker } = DatePicker;
 import {
     PlayCircleOutlined,
     EyeOutlined,
@@ -24,277 +14,304 @@ import {
     TrophyOutlined,
     BookOutlined,
     BarChartOutlined,
-    CalendarOutlined
+    CalendarOutlined,
+    LockOutlined,
+    FileTextOutlined,
+    CloseOutlined,
+    WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import QuizTaking, { type QuizTakingHandle } from '../Quiz/QuizTaking';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 
-const { Title, Text, Paragraph } = Typography;
-const { TabPane } = Tabs;
+const { Text, Paragraph } = Typography;
 
-// Updated to match backend quiz shape for students
+/* ── Types ── */
 interface Quiz {
-    id: number;
-    title: string;
-    description: string;
-    total_questions: number;
-    duration_minutes: number;
-    // Backend fields
-    total_marks?: number;
-    status?: string; // draft | published
-    start_date?: string | null;
-    end_date?: string | null;
-    batch_names?: string; // comma-separated
+    id: number; title: string; description: string;
+    total_questions: number; duration_minutes: number;
+    total_marks?: number; status?: string;
+    start_date?: string | null; end_date?: string | null;
+    batch_names?: string;
+    teacher_first_name?: string;
+    teacher_last_name?: string;
     submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted' | 'completed';
-    submission?: {
-        total_score?: number;
-        max_score?: number;
-        percentage?: number;
-        status?: string;
-    } | null;
+    submission?: { total_score?: number; max_score?: number; percentage?: number; status?: string; } | null;
+    created_at?: string;
 }
-
 interface QuizAttempt {
-    id: number;
-    quiz_id: number;
-    quiz_title: string;
-    score: number; // percentage
-    total_score?: number; // raw points earned
-    max_score?: number; // raw points possible
-    total_questions: number;
-    correct_answers: number;
-    time_taken: number; // minutes
-    completed_at: string;
-    passed: boolean;
-    attempt_number: number;
+    id: number; quiz_id: number; quiz_title: string;
+    score: number; total_score?: number; max_score?: number;
+    total_questions: number; correct_answers: number;
+    time_taken: number; completed_at: string; passed: boolean; attempt_number: number;
+    batch_name?: string; teacher_first_name?: string; teacher_last_name?: string;
 }
-
 interface QuizStats {
-    total_quizzes: number;
-    completed_quizzes: number;
-    average_score: number;
-    best_score: number;
-    total_attempts: number;
-    passed_quizzes: number;
+    total_quizzes: number; completed_quizzes: number;
+    average_score: number; best_score: number;
+    total_attempts: number; passed_quizzes: number;
 }
 
+/* ── Helpers ── */
+const scoreColor = (pct: number) => {
+    if (pct >= 90) return '#22c55e';
+    if (pct >= 75) return '#6366f1';
+    if (pct >= 60) return '#f59e0b';
+    return '#ef4444';
+};
+const formatDuration = (m: number) => m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+
+/* ── KPI Card ── */
+const KpiCard = ({ label, value, suffix = '', icon, accent }: { label: string; value: number; suffix?: string; icon: React.ReactNode; accent: string }) => (
+    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
+        <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
+                {value}<span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{suffix}</span>
+            </div>
+        </div>
+    </div>
+);
+
+/* ── Status pill ── */
+const StatusPill = ({ color, text }: { color: string; text: string }) => {
+    const cfg: Record<string, { bg: string; fg: string }> = {
+        green:  { bg: '#dcfce7', fg: '#15803d' },
+        blue:   { bg: '#eef2ff', fg: '#4338ca' },
+        red:    { bg: '#fff1f2', fg: '#ef4444' },
+        gold:   { bg: '#fffbeb', fg: '#b45309' },
+        default:{ bg: '#f1f5f9', fg: '#64748b' },
+    };
+    const c = cfg[color] || cfg.default;
+    return (
+        <span style={{ fontSize: 11, fontWeight: 700, color: c.fg, background: c.bg, borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>
+            {text}
+        </span>
+    );
+};
+
+/* ══════════════════════════════════
+   TABS (custom, no antd Tabs)
+══════════════════════════════════ */
+const TABS = ['Available', 'Upcoming', 'Completed', 'Results'] as const;
+type TabKey = typeof TABS[number];
+
+/* ══════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════ */
 const StudentQuizzes: React.FC = () => {
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
     const [stats, setStats] = useState<QuizStats | null>(null);
-    const [loading, setLoading] = useState(true); // Start with loading true
-    const [attemptsLoading, setAttemptsLoading] = useState(true); // Separate loading for attempts
+    const [loading, setLoading] = useState(true);
+    const [attemptsLoading, setAttemptsLoading] = useState(true);
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [selectedQuiz, setSelectedQuiz] = useState<Quiz | null>(null);
     const [quizTakingVisible, setQuizTakingVisible] = useState(false);
     const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
+    const [activeTab, setActiveTab] = useState<TabKey>('Available');
     const { apiCall } = useAuth();
     const [messageApi, contextHolder] = message.useMessage();
-
     const quizTakingRef = useRef<QuizTakingHandle | null>(null);
 
-    useEffect(() => {
-        fetchQuizzes();
-        fetchAttempts();
-    }, []);
+    const [batchFilter, setBatchFilter] = useState<string | null>(null);
+    const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
+    const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
-    // Recompute stats whenever data changes
-    useEffect(() => {
-        const computeStats = () => {
-            const total_quizzes = quizzes.length;
-            const completed_quizzes = quizzes.filter(q => q.submission_status === 'completed').length;
-            
-            // Calculate average as (sum of total_score) / (sum of max_score) instead of average of percentages
-            const validAttempts = attempts.filter(a => 
-                typeof a.total_score === 'number' && 
-                typeof a.max_score === 'number' && 
-                a.max_score > 0
-            );
-            
-            const totalScoreSum = validAttempts.reduce((sum, a) => sum + a.total_score!, 0);
-            const maxScoreSum = validAttempts.reduce((sum, a) => sum + a.max_score!, 0);
-            const average_score = maxScoreSum > 0 ? parseFloat(((totalScoreSum / maxScoreSum) * 100).toFixed(2)) : 0;
-            
-            const scores = attempts.map(a => a.score).filter((s) => typeof s === 'number');
-            const best_score = scores.length ? Math.max(...scores) : 0;
-            const total_attempts = attempts.length;
-            const passed_quizzes = attempts.filter(a => a.score >= 50).length; // Default pass mark 50%
-            setStats({ total_quizzes, completed_quizzes, average_score, best_score, total_attempts, passed_quizzes });
-        };
-        computeStats();
+    useEffect(() => { fetchQuizzes(); fetchAttempts(); }, []);
+
+    const availableBatches = React.useMemo(() => {
+        const set = new Set<string>();
+        quizzes.forEach(q => {
+            if (q.batch_names) {
+                q.batch_names.split(',').forEach(bn => set.add(bn.trim()));
+            }
+        });
+        attempts.forEach(a => {
+            if (a.batch_name) set.add(a.batch_name);
+        });
+        return Array.from(set).map(name => ({ value: name, label: name }));
     }, [quizzes, attempts]);
+
+    const availableTeachers = React.useMemo(() => {
+        const set = new Set<string>();
+        quizzes.forEach(q => {
+            const tName = `${q.teacher_first_name || ''} ${q.teacher_last_name || ''}`.trim();
+            if (tName) set.add(tName);
+        });
+        attempts.forEach(a => {
+            const tName = `${a.teacher_first_name || ''} ${a.teacher_last_name || ''}`.trim();
+            if (tName) set.add(tName);
+        });
+        return Array.from(set).map(name => ({ value: name, label: name }));
+    }, [quizzes, attempts]);
+
+    const filteredQuizzes = React.useMemo(() => {
+        return quizzes.filter(q => {
+            if (batchFilter && (!q.batch_names || !q.batch_names.includes(batchFilter))) return false;
+            const tName = `${q.teacher_first_name || ''} ${q.teacher_last_name || ''}`.trim();
+            if (teacherFilter && tName !== teacherFilter) return false;
+            if (dateRange && dateRange[0] && dateRange[1]) {
+                const sDate = dayjs(q.start_date || q.created_at);
+                if (sDate.isBefore(dateRange[0].startOf('day')) || sDate.isAfter(dateRange[1].endOf('day'))) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }, [quizzes, batchFilter, teacherFilter, dateRange]);
+
+    const filteredAttempts = React.useMemo(() => {
+        return attempts.filter(a => {
+            if (batchFilter && a.batch_name !== batchFilter) return false;
+            const tName = `${a.teacher_first_name || ''} ${a.teacher_last_name || ''}`.trim();
+            if (teacherFilter && tName !== teacherFilter) return false;
+            if (dateRange && dateRange[0] && dateRange[1]) {
+                const sDate = dayjs(a.completed_at);
+                if (sDate.isBefore(dateRange[0].startOf('day')) || sDate.isAfter(dateRange[1].endOf('day'))) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }, [attempts, batchFilter, teacherFilter, dateRange]);
+
+    useEffect(() => {
+        const validAttempts = filteredAttempts.filter(a => typeof a.total_score === 'number' && typeof a.max_score === 'number' && a.max_score > 0);
+        const ts = validAttempts.reduce((s, a) => s + a.total_score!, 0);
+        const ms = validAttempts.reduce((s, a) => s + a.max_score!, 0);
+        const scores = filteredAttempts.map(a => a.score).filter(s => typeof s === 'number');
+        setStats({
+            total_quizzes: filteredQuizzes.length,
+            completed_quizzes: filteredQuizzes.filter(q => q.submission_status === 'completed').length,
+            average_score: ms > 0 ? parseFloat(((ts / ms) * 100).toFixed(2)) : 0,
+            best_score: scores.length ? Math.max(...scores) : 0,
+            total_attempts: filteredAttempts.length,
+            passed_quizzes: filteredAttempts.filter(a => a.score >= 50).length,
+        });
+    }, [filteredQuizzes, filteredAttempts]);
 
     const fetchQuizzes = async () => {
         setLoading(true);
         try {
-            // Backend returns quizzes for the current role at GET /quizzes
-            const response = await apiCall('/quizzes');
-            if (response.ok) {
-                const data = await response.json();
+            const r = await apiCall('/quizzes');
+            if (r.ok) {
+                const data = await r.json();
                 const raw = Array.isArray(data) ? data : (data.quizzes || []);
-                // Normalize numeric fields to ensure proper rendering
-                const normalized = raw.map((q: any) => ({
-                    ...q,
-                    total_questions: Number(q?.total_questions ?? 0),
-                    duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0,
-                    total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined,
-                    avg_score: q?.avg_score != null ? Number(q.avg_score) : undefined,
-                }));
-                setQuizzes(normalized);
-            } else {
-                messageApi.error('Failed to fetch quizzes');
-            }
-        } catch (error) {
-            messageApi.error('Error fetching quizzes');
-        } finally {
-            setLoading(false);
-        }
+                setQuizzes(raw.map((q: any) => ({ ...q, total_questions: Number(q?.total_questions ?? 0), duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0, total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined })));
+            } else messageApi.error('Failed to fetch quizzes');
+        } catch { messageApi.error('Error fetching quizzes'); }
+        finally { setLoading(false); }
     };
 
     const fetchAttempts = async () => {
         setAttemptsLoading(true);
         try {
-            // Map backend results to attempts list
-            const response = await apiCall('/quizzes/student/results');
-            if (response.ok) {
-                const data = await response.json();
+            const r = await apiCall('/quizzes/student/results');
+            if (r.ok) {
+                const data = await r.json();
                 const results = (data?.results || []) as any[];
-                const mapped: QuizAttempt[] = results
-                    // Only include expired/unlocked results (average should apply only to expired status)
-                    .filter((r: any) => r && r.results_locked === false)
-                    .map((r, idx) => ({
-                        id: r.id ?? idx,
-                        quiz_id: r.quiz_id,
-                        quiz_title: r.quiz_title,
-                        score: Number(r.percentage ?? 0),
-                        total_score: Number(r.score ?? 0), // raw points earned
-                        max_score: Number(r.max_score ?? 0), // raw points possible
-                        total_questions: Number(r.total_questions ?? 0),
-                        correct_answers: Number(r.correct_answers ?? 0),
-                        time_taken: Number(r.time_taken ?? r.time_taken_minutes ?? 0),
-                        completed_at: r.submitted_at || r.completed_at,
-                        passed: Number(r.percentage ?? 0) >= 50,
-                        attempt_number: 1, // Backend doesn't track attempt numbers yet
-                    }));
-                setAttempts(mapped);
-            } else {
-                messageApi.error('Failed to fetch quiz attempts');
-            }
-        } catch (error) {
-            messageApi.error('Error fetching quiz attempts');
-        } finally {
-            setAttemptsLoading(false);
-        }
-    };
-
-    const handleStartQuiz = async (quizId: number) => {
-        setSelectedQuizId(quizId);
-        setQuizTakingVisible(true);
-    };
-
-    const handleQuizComplete = () => {
-        setQuizTakingVisible(false);
-        setSelectedQuizId(null);
-        // Refresh data after quiz completion
-        fetchAttempts();
-        fetchQuizzes();
-        messageApi.success('Quiz completed successfully!');
-    };
-
-    const handleViewDetails = (quiz: Quiz) => {
-        setSelectedQuiz(quiz);
-        setDetailsVisible(true);
+                setAttempts(results.filter((r: any) => r && r.results_locked === false).map((r: any, idx: number) => ({
+                    id: r.id ?? idx, quiz_id: r.quiz_id, quiz_title: r.quiz_title,
+                    score: Number(r.percentage ?? 0), total_score: Number(r.score ?? 0), max_score: Number(r.max_score ?? 0),
+                    total_questions: Number(r.total_questions ?? 0), correct_answers: Number(r.correct_answers ?? 0),
+                    time_taken: Number(r.time_taken ?? 0), completed_at: r.submitted_at || r.completed_at,
+                    passed: Number(r.percentage ?? 0) >= 50, attempt_number: 1,
+                    batch_name: r.batch_name,
+                    teacher_first_name: r.teacher_first_name,
+                    teacher_last_name: r.teacher_last_name
+                })));
+            } else messageApi.error('Failed to fetch attempts');
+        } catch { messageApi.error('Error fetching attempts'); }
+        finally { setAttemptsLoading(false); }
     };
 
     const getQuizStatus = (quiz: Quiz) => {
         const now = dayjs();
-        const startDate = quiz.start_date ? dayjs(quiz.start_date) : null;
-        const endDate = quiz.end_date ? dayjs(quiz.end_date) : null;
-
+        const s = quiz.start_date ? dayjs(quiz.start_date) : null;
+        const e = quiz.end_date ? dayjs(quiz.end_date) : null;
         if (quiz.status !== 'published') return { status: 'inactive', color: 'default', text: 'Inactive' } as const;
-        if (startDate && now.isBefore(startDate)) return { status: 'upcoming', color: 'blue', text: 'Upcoming' } as const;
-        if (endDate && now.isAfter(endDate)) return { status: 'expired', color: 'red', text: 'Expired' } as const;
+        if (s && now.isBefore(s)) return { status: 'upcoming', color: 'blue', text: 'Upcoming' } as const;
+        if (e && now.isAfter(e)) return { status: 'expired', color: 'red', text: 'Expired' } as const;
         return { status: 'active', color: 'green', text: 'Active' } as const;
     };
 
     const canTakeQuiz = (quiz: Quiz) => {
-        const status = getQuizStatus(quiz);
+        const st = getQuizStatus(quiz);
         const sub = quiz.submission_status;
-        const notSubmitted = sub === 'not_started' || sub === 'in_progress' || !sub;
-        return status.status === 'active' && notSubmitted;
+        return st.status === 'active' && (sub === 'not_started' || sub === 'in_progress' || !sub);
     };
 
-    const formatDuration = (minutes: number) => {
-        if (minutes < 60) return `${minutes} min`;
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        return `${hours}h ${mins}m`;
-    };
-
+    /* ── Columns ── */
     const quizColumns: ColumnsType<Quiz> = [
         {
-            title: 'Quiz',
-            key: 'quiz',
-            width: 250,
-            fixed: 'left',
-            render: (_, record) => (
+            title: 'QUIZ', key: 'quiz', width: 260, fixed: 'left',
+            render: (_, r) => (
                 <div>
-                    <Text strong>{record.title}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.description}
-                    </Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '11px' }}>
-                        Batch: {record.batch_names || '—'}
-                    </Text>
+                    <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13.5, marginBottom: 3 }}>{r.title}</div>
+                    {r.description && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 2, lineHeight: 1.4 }}>{r.description.length > 60 ? r.description.slice(0, 60) + '…' : r.description}</div>}
+                    {r.batch_names && (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#eef2ff', borderRadius: 20, padding: '2px 8px', marginTop: 2 }}>
+                            <BookOutlined style={{ fontSize: 10, color: '#6366f1' }} />
+                            <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{r.batch_names}</span>
+                        </div>
+                    )}
                 </div>
             ),
         },
         {
-            title: 'Details',
-            key: 'details',
-            width: 200,
-            render: (_, record) => (
-                <div>
-                    <div><BookOutlined /> {record.total_questions} questions</div>
-                    <div><ClockCircleOutlined /> {formatDuration(record.duration_minutes)}</div>
-                    <div><TrophyOutlined /> Total Marks: {record.total_marks ?? '—'}</div>
+            title: 'DETAILS', key: 'details', width: 160,
+            render: (_, r) => (
+                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span><BookOutlined style={{ marginRight: 5, color: '#6366f1' }} />{r.total_questions} questions</span>
+                    <span><ClockCircleOutlined style={{ marginRight: 5, color: '#f59e0b' }} />{formatDuration(r.duration_minutes)}</span>
+                    <span><TrophyOutlined style={{ marginRight: 5, color: '#22c55e' }} />{r.total_marks ?? '—'} marks</span>
                 </div>
             ),
         },
         {
-            title: 'Status',
-            key: 'status',
-            width: 100,
-            render: (_, record) => {
-                const status = getQuizStatus(record);
-                return <Tag color={status.color}>{status.text}</Tag>;
-            },
+            title: 'SCHEDULE', key: 'schedule', width: 180,
+            render: (_, r) => (
+                <div style={{ fontSize: 12, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <span><CalendarOutlined style={{ marginRight: 4, color: '#6366f1' }} />
+                        {r.start_date ? dayjs(r.start_date).format('MMM DD, HH:mm') : '—'}
+                    </span>
+                    <span style={{ color: '#94a3b8' }}>→ {r.end_date ? dayjs(r.end_date).format('MMM DD, HH:mm') : '—'}</span>
+                </div>
+            ),
         },
         {
-            title: 'Progress',
-            key: 'progress',
-            width: 180,
-            render: (_, record) => {
-                const sub = record.submission_status;
-                const pct = record.submission?.percentage ?? (record.submission && record.submission.total_score && record.submission.max_score ? ((record.submission.total_score / record.submission.max_score) * 100) : null);
-                const isLocked = record.end_date ? dayjs(record.end_date).isAfter(dayjs()) : false;
+            title: 'STATUS', key: 'status', width: 110,
+            render: (_, r) => { const s = getQuizStatus(r); return <StatusPill color={s.color} text={s.text} />; },
+        },
+        {
+            title: 'PROGRESS', key: 'progress', width: 200,
+            render: (_, r) => {
+                const isLocked = r.end_date ? dayjs(r.end_date).isAfter(dayjs()) : false;
+                if (isLocked) {
+                    return (
+                        <div>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', borderRadius: 20, padding: '3px 10px', marginBottom: 4 }}>
+                                <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
+                                <span style={{ fontSize: 11, fontWeight: 600, color: '#b45309' }}>Locked</span>
+                            </div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Unlocks {dayjs(r.end_date!).format('MMM DD, HH:mm')}</div>
+                        </div>
+                    );
+                }
+                const sub = r.submission_status;
+                const pct = r.submission?.percentage ?? (r.submission?.total_score && r.submission?.max_score ? (r.submission.total_score / r.submission.max_score) * 100 : null);
                 return (
                     <div>
-                        {isLocked ? (
+                        <div style={{ fontSize: 11, color: '#94a3b8', textTransform: 'capitalize', marginBottom: pct != null ? 4 : 0 }}>
+                            {sub ? sub.replace(/_/g, ' ') : 'not started'}
+                        </div>
+                        {pct != null && (
                             <>
-                                <div><Tag color="gold">Locked</Tag></div>
-                                <div style={{ fontSize: 12, color: '#8c8c8c' }}>Progress will be displayed after {dayjs(record.end_date as string).format('MMM DD, YYYY HH:mm')}</div>
-                            </>
-                        ) : (
-                            <>
-                                <div>Status: {sub ? sub.replace('_', ' ') : 'not started'}</div>
-                                {pct !== null && (
-                                    <div>Score: {Number(pct).toFixed(2)}%</div>
-                                )}
+                                <Progress percent={Number(pct.toFixed(1))} size="small" strokeColor={scoreColor(Number(pct))} showInfo={false} strokeLinecap="round" />
+                                <div style={{ fontSize: 12, fontWeight: 700, color: scoreColor(Number(pct)) }}>{Number(pct).toFixed(1)}%</div>
                             </>
                         )}
                     </div>
@@ -302,400 +319,393 @@ const StudentQuizzes: React.FC = () => {
             },
         },
         {
-            title: 'Actions',
-            key: 'actions',
-            width: 180,
-            fixed: 'right',
-            render: (_, record) => (
-                <Space>
-                    <Button
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => handleViewDetails(record)}
-                    >
+            title: 'ACTIONS', key: 'actions', width: 160, fixed: 'right',
+            render: (_, r) => (
+                <div style={{ display: 'flex', gap: 6 }}>
+                    <Button size="small" icon={<EyeOutlined />} onClick={() => { setSelectedQuiz(r); setDetailsVisible(true); }}
+                        style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', background: '#f4f3ff', fontWeight: 600, height: 30 }}>
                         Details
                     </Button>
-                    {canTakeQuiz(record) && (
-                        <Button
-                            type="primary"
-                            size="small"
-                            icon={<PlayCircleOutlined />}
-                            onClick={() => handleStartQuiz(record.id)}
-                        >
-                            {record.submission_status === 'in_progress' ? 'Resume' : 'Take Quiz'}
+                    {canTakeQuiz(r) && (
+                        <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => { setSelectedQuizId(r.id); setQuizTakingVisible(true); }}
+                            style={{ borderRadius: 8, background: 'linear-gradient(135deg,#4f46e5,#6366f1)', border: 'none', fontWeight: 700, height: 30 }}>
+                            {r.submission_status === 'in_progress' ? 'Resume' : 'Start'}
                         </Button>
                     )}
-                </Space>
+                </div>
             ),
         },
     ];
 
     const attemptColumns: ColumnsType<QuizAttempt> = [
+        { title: 'QUIZ', dataIndex: 'quiz_title', key: 'quiz_title', width: 220, fixed: 'left', ellipsis: true, render: (v) => <span style={{ fontWeight: 600, color: '#1a1d2e', fontSize: 13.5 }}>{v}</span> },
         {
-            title: 'Quiz',
-            dataIndex: 'quiz_title',
-            key: 'quiz_title',
-            width: 200,
-            fixed: 'left',
-            ellipsis: true,
-        },
-        {
-            title: 'Score',
-            key: 'score',
-            width: 180,
-            render: (_, record) => (
+            title: 'SCORE', key: 'score', width: 200,
+            render: (_, r) => (
                 <div>
-                    <Progress
-                        percent={record.score}
-                        size="small"
-                        status={record.passed ? 'success' : 'exception'}
-                    />
-                    <Text>{record.correct_answers}/{record.total_questions} correct</Text>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, color: '#64748b' }}>{r.correct_answers}/{r.total_questions} correct</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: scoreColor(r.score) }}>{r.score.toFixed(1)}%</span>
+                    </div>
+                    <Progress percent={r.score} size="small" strokeColor={scoreColor(r.score)} showInfo={false} strokeLinecap="round" />
                 </div>
             ),
         },
-        {
-            title: 'Result',
-            key: 'result',
-            width: 100,
-            render: (_, record) => (
-                <Tag color={record.passed ? 'green' : 'red'}>
-                    {record.passed ? 'PASSED' : 'FAILED'}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Time Taken',
-            dataIndex: 'time_taken',
-            key: 'time_taken',
-            width: 120,
-            render: (minutes: number) => formatDuration(minutes),
-        },
-        {
-            title: 'Attempt',
-            dataIndex: 'attempt_number',
-            key: 'attempt_number',
-            width: 100,
-            render: (num: number) => `#${num}`,
-        },
-        {
-            title: 'Completed',
-            dataIndex: 'completed_at',
-            key: 'completed_at',
-            width: 150,
-            render: (date: string) => dayjs(date).format('MMM DD, YYYY HH:mm'),
-        },
+        { title: 'RESULT', key: 'result', width: 100, render: (_, r) => <StatusPill color={r.passed ? 'green' : 'red'} text={r.passed ? 'PASSED' : 'FAILED'} /> },
+        { title: 'TIME', dataIndex: 'time_taken', key: 'time_taken', width: 110, render: (m: number) => <span style={{ fontSize: 12, color: '#64748b' }}>{formatDuration(m)}</span> },
+        { title: 'COMPLETED', dataIndex: 'completed_at', key: 'completed_at', width: 160, render: (d: string) => <span style={{ fontSize: 12, color: '#64748b' }}>{dayjs(d).format('MMM DD, YYYY HH:mm')}</span> },
     ];
 
-    const activeQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'active');
-    const upcomingQuizzes = quizzes.filter(quiz => getQuizStatus(quiz).status === 'upcoming');
-    const completedQuizzes = quizzes.filter(quiz => quiz.submission_status === 'completed');
+    const activeQuizzes = filteredQuizzes.filter(q => getQuizStatus(q).status === 'active');
+    const upcomingQuizzes = filteredQuizzes.filter(q => getQuizStatus(q).status === 'upcoming');
+    const completedQuizzes = filteredQuizzes.filter(q => q.submission_status === 'completed');
+
+    const TAB_DATA: Record<TabKey, { data: Quiz[] | QuizAttempt[]; columns: any; loading: boolean; empty: string }> = {
+        Available:  { data: activeQuizzes,    columns: quizColumns,   loading, empty: 'No active quizzes available' },
+        Upcoming:   { data: upcomingQuizzes,  columns: quizColumns,   loading, empty: 'No upcoming quizzes' },
+        Completed:  { data: completedQuizzes, columns: quizColumns,   loading, empty: 'No completed quizzes' },
+        Results:    { data: filteredAttempts,         columns: attemptColumns, loading: attemptsLoading, empty: 'No quiz results yet' },
+    };
+
+    const TAB_COUNTS: Record<TabKey, number> = {
+        Available: activeQuizzes.length,
+        Upcoming:  upcomingQuizzes.length,
+        Completed: completedQuizzes.length,
+        Results:   filteredAttempts.length,
+    };
+
+    /* ── Loading skeleton ── */
+    if (loading || attemptsLoading) return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ marginBottom: 24 }}>
+                <Skeleton.Input active style={{ width: 180, height: 26, borderRadius: 8 }} />
+                <div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 120, height: 13, borderRadius: 6 }} /></div>
+            </div>
+            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+                {[1,2,3,4].map(i => (
+                    <Col xs={24} sm={12} md={6} key={i}>
+                        <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <Skeleton.Avatar active size={46} shape="square" style={{ borderRadius: 13 }} />
+                            <div style={{ flex: 1 }}><Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 44, height: 26, borderRadius: 6 }} /></div>
+                        </div>
+                    </Col>
+                ))}
+            </Row>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f0f0f8', display: 'flex', gap: 24 }}>
+                    {TABS.map(t => <Skeleton.Input key={t} active style={{ width: 90, height: 15, borderRadius: 6 }} />)}
+                </div>
+                {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px', borderBottom: '1px solid #f8f8fc' }}>
+                        <div style={{ flex: 3 }}><Skeleton.Input active style={{ width: '60%', height: 13, borderRadius: 5, marginBottom: 5 }} block /><Skeleton.Input active style={{ width: '35%', height: 11, borderRadius: 5 }} block /></div>
+                        <Skeleton.Input active style={{ width: 70, height: 20, borderRadius: 20 }} />
+                        <Skeleton.Input active style={{ width: 70, height: 20, borderRadius: 20 }} />
+                        <div style={{ display: 'flex', gap: 6 }}><Skeleton.Button active size="small" style={{ width: 65, height: 28, borderRadius: 8 }} /><Skeleton.Button active size="small" style={{ width: 55, height: 28, borderRadius: 8 }} /></div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const active = TAB_DATA[activeTab];
 
     return (
-        <div>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {contextHolder}
-            <div style={{ marginBottom: 16 }}>
-                <Title level={2}>
-                    <BookOutlined /> My Quizzes
-                </Title>
+
+            {/* ── Header ── */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 20, flexShrink: 0 }}>
+                <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>My Quizzes</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
+                        {filteredQuizzes.length} quiz{filteredQuizzes.length !== 1 ? 'zes' : ''} · {activeQuizzes.length} active · {filteredAttempts.length} completed
+                    </div>
+                </div>
             </div>
 
-            {/* Statistics Cards with loading */}
-            <Spin spinning={loading || attemptsLoading}>
-                <Row gutter={16} style={{ marginBottom: 16 }}>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Total Quizzes"
-                                value={stats?.total_quizzes ?? 0}
-                                prefix={<BookOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Completed"
-                                value={stats?.completed_quizzes ?? 0}
-                                prefix={<CheckCircleOutlined />}
-                                valueStyle={{ color: '#52c41a' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Average Score"
-                                value={stats?.average_score ?? 0}
-                                suffix="%"
-                                prefix={<BarChartOutlined />}
-                                valueStyle={{ color: '#1890ff' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col span={6}>
-                        <Card>
-                            <Statistic
-                                title="Best Score"
-                                value={stats?.best_score ?? 0}
-                                suffix="%"
-                                prefix={<TrophyOutlined />}
-                                valueStyle={{ color: '#722ed1' }}
-                            />
-                        </Card>
-                    </Col>
-                </Row>
-            </Spin>
+            {/* ── Filters ── */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+                <RangePicker
+                    value={dateRange}
+                    onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                    style={{ borderRadius: 8 }}
+                    allowClear
+                />
+                <Select
+                    value={batchFilter}
+                    onChange={setBatchFilter}
+                    allowClear
+                    placeholder="All Batches"
+                    style={{ width: 220 }}
+                    options={availableBatches}
+                    showSearch
+                    optionFilterProp="label"
+                />
+                <Select
+                    value={teacherFilter}
+                    onChange={setTeacherFilter}
+                    allowClear
+                    placeholder="All Teachers"
+                    style={{ width: 220 }}
+                    options={availableTeachers}
+                    showSearch
+                    optionFilterProp="label"
+                />
+            </div>
 
-            <Card>
-                <Tabs defaultActiveKey="available">
-                    <TabPane tab={`Available (${activeQuizzes.length})`} key="available">
-                        {loading ? (
-                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                                <Spin size="large" />
-                                <div style={{ marginTop: 16 }}>Loading available quizzes...</div>
-                            </div>
-                        ) : activeQuizzes.length > 0 ? (
-                            <Table
-                                columns={quizColumns}
-                                dataSource={activeQuizzes}
-                                rowKey="id"
-                                loading={loading}
-                                sticky
-                                scroll={{ x: 880, y: 400 }}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} available quizzes`
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No active quizzes available" />
-                        )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Upcoming (${upcomingQuizzes.length})`} key="upcoming">
-                        {loading ? (
-                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                                <Spin size="large" />
-                                <div style={{ marginTop: 16 }}>Loading upcoming quizzes...</div>
-                            </div>
-                        ) : upcomingQuizzes.length > 0 ? (
-                            <Table
-                                columns={quizColumns}
-                                dataSource={upcomingQuizzes}
-                                rowKey="id"
-                                loading={loading}
-                                sticky
-                                scroll={{ x: 880, y: 400 }}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} upcoming quizzes`
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No upcoming quizzes" />
-                        )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Completed (${completedQuizzes.length})`} key="completed">
-                        {loading ? (
-                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                                <Spin size="large" />
-                                <div style={{ marginTop: 16 }}>Loading completed quizzes...</div>
-                            </div>
-                        ) : completedQuizzes.length > 0 ? (
-                            <Table
-                                columns={quizColumns}
-                                dataSource={completedQuizzes}
-                                rowKey="id"
-                                loading={loading}
-                                sticky
-                                scroll={{ x: 880, y: 400 }}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} completed quizzes`
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No completed quizzes" />
-                        )}
-                    </TabPane>
-                    
-                    <TabPane tab={`Results (${attempts.length})`} key="results">
-                        {attemptsLoading ? (
-                            <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                                <Spin size="large" />
-                                <div style={{ marginTop: 16 }}>Loading quiz results...</div>
-                            </div>
-                        ) : attempts.length > 0 ? (
-                            <Table
-                                columns={attemptColumns}
-                                dataSource={attempts}
-                                rowKey="id"
-                                loading={attemptsLoading}
-                                sticky
-                                scroll={{ x: 850, y: 400 }}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} quiz results`
-                                }}
-                            />
-                        ) : (
-                            <Empty description="No quiz results available yet" />
-                        )}
-                    </TabPane>
-                </Tabs>
-            </Card>
+            {/* ── KPI Cards ── */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
+                <Col xs={24} sm={12} md={6}>
+                    <KpiCard label="Total Quizzes"     value={stats?.total_quizzes ?? 0}    icon={<BookOutlined />}         accent="#6366f1" />
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                    <KpiCard label="Completed"          value={stats?.completed_quizzes ?? 0} icon={<CheckCircleOutlined />}  accent="#22c55e" />
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                    <KpiCard label="Average Score"      value={stats?.average_score ?? 0}     icon={<BarChartOutlined />}     accent="#6366f1" suffix="%" />
+                </Col>
+                <Col xs={24} sm={12} md={6}>
+                    <KpiCard label="Best Score"         value={stats?.best_score ?? 0}        icon={<TrophyOutlined />}       accent="#f59e0b" suffix="%" />
+                </Col>
+            </Row>
 
+            {/* ── Table card (flex-grow, only rows scroll) ── */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+
+                {/* Custom tab bar */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0, overflowX: 'auto' }}>
+                    {TABS.map(tab => {
+                        const isActive = activeTab === tab;
+                        const count = TAB_COUNTS[tab];
+                        return (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                style={{
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                    padding: '14px 16px', border: 'none', background: 'none', cursor: 'pointer',
+                                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                    color: isActive ? '#6366f1' : '#94a3b8',
+                                    borderBottom: isActive ? '2px solid #6366f1' : '2px solid transparent',
+                                    marginBottom: -1, whiteSpace: 'nowrap',
+                                    transition: 'all 0.15s',
+                                    outline: 'none',
+                                }}
+                            >
+                                {tab}
+                                <span style={{
+                                    fontSize: 11, fontWeight: 700,
+                                    background: isActive ? '#eef2ff' : '#f1f5f9',
+                                    color: isActive ? '#6366f1' : '#94a3b8',
+                                    borderRadius: 20, padding: '1px 8px',
+                                }}>
+                                    {count}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Table body */}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                    {active.data.length === 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
+                            <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>{active.empty}</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        </div>
+                    ) : (
+                        <Table
+                            columns={active.columns}
+                            dataSource={active.data as any}
+                            rowKey="id"
+                            loading={active.loading}
+                            scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                            pagination={false}
+                            rowClassName={() => 'quiz-table-row'}
+                            style={{ height: '100%' }}
+                        />
+                    )}
+                </div>
+            </div>
+
+            {/* ── Quiz Detail Modal ── */}
             <Modal
-                title="Quiz Details"
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 16 }}>
+                            <FileTextOutlined />
+                        </div>
+                        <div>
+                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15 }}>{selectedQuiz?.title || 'Quiz Details'}</div>
+                            {selectedQuiz && <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>{getQuizStatus(selectedQuiz).text}</div>}
+                        </div>
+                    </div>
+                }
                 open={detailsVisible}
                 onCancel={() => setDetailsVisible(false)}
-                footer={[
-                    <Button key="close" onClick={() => setDetailsVisible(false)}>
-                        Close
-                    </Button>,
-                    selectedQuiz && canTakeQuiz(selectedQuiz) && (
-                        <Button
-                            key="start"
-                            type="primary"
-                            icon={<PlayCircleOutlined />}
-                            onClick={() => {
-                                handleStartQuiz(selectedQuiz.id);
-                                setDetailsVisible(false);
-                            }}
-                        >
-                            {selectedQuiz.submission_status === 'in_progress' ? 'Resume' : 'Take Quiz'}
-                        </Button>
-                    ),
-                ]}
-                width={600}
+                footer={
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                        <Button onClick={() => setDetailsVisible(false)} style={{ borderRadius: 10, height: 38 }}>Close</Button>
+                        {selectedQuiz && canTakeQuiz(selectedQuiz) && (
+                            <Button type="primary" icon={<PlayCircleOutlined />}
+                                onClick={() => { handleStartQuiz(selectedQuiz.id); setDetailsVisible(false); }}
+                                style={{ borderRadius: 10, height: 38, background: 'linear-gradient(135deg,#4f46e5,#6366f1)', border: 'none', fontWeight: 700 }}>
+                                {selectedQuiz.submission_status === 'in_progress' ? 'Resume Quiz' : 'Take Quiz'}
+                            </Button>
+                        )}
+                    </div>
+                }
+                width={560}
             >
                 {selectedQuiz && (
                     <div>
-                        <Title level={4}>{selectedQuiz.title}</Title>
-                        <Paragraph>{selectedQuiz.description}</Paragraph>
-                        
-                        <Row gutter={16} style={{ marginBottom: 16 }}>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Questions"
-                                        value={selectedQuiz.total_questions}
-                                        prefix={<BookOutlined />}
-                                    />
-                                </Card>
-                            </Col>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Duration"
-                                        value={formatDuration(selectedQuiz.duration_minutes)}
-                                        prefix={<ClockCircleOutlined />}
-                                    />
-                                </Card>
-                            </Col>
+                        {selectedQuiz.description && <Paragraph style={{ color: '#64748b', marginBottom: 20 }}>{selectedQuiz.description}</Paragraph>}
+
+                        {/* Info grid */}
+                        <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+                            {[
+                                { icon: <BookOutlined />,         label: 'Questions',   value: `${selectedQuiz.total_questions}`,  accent: '#6366f1' },
+                                { icon: <ClockCircleOutlined />,  label: 'Duration',    value: formatDuration(selectedQuiz.duration_minutes), accent: '#f59e0b' },
+                                { icon: <TrophyOutlined />,       label: 'Total Marks', value: `${selectedQuiz.total_marks ?? '—'}`, accent: '#22c55e' },
+                                { icon: <CheckCircleOutlined />,  label: 'Status',      value: getQuizStatus(selectedQuiz).text,   accent: '#6366f1' },
+                            ].map(item => (
+                                <Col span={12} key={item.label}>
+                                    <div style={{ borderRadius: 12, border: '1px solid #f0f0f8', padding: '12px 16px', background: '#fafafe' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                            <span style={{ color: item.accent, fontSize: 14 }}>{item.icon}</span>
+                                            <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>{item.label}</span>
+                                        </div>
+                                        <div style={{ fontSize: 18, fontWeight: 800, color: '#1a1d2e' }}>{item.value}</div>
+                                    </div>
+                                </Col>
+                            ))}
                         </Row>
-                        
-                        <Row gutter={16} style={{ marginBottom: 16 }}>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Total Marks"
-                                        value={selectedQuiz.total_marks ?? '—'}
-                                        prefix={<TrophyOutlined />}
-                                    />
-                                </Card>
-                            </Col>
-                            <Col span={12}>
-                                <Card size="small">
-                                    <Statistic
-                                        title="Status"
-                                        value={getQuizStatus(selectedQuiz).text}
-                                        prefix={<CheckCircleOutlined />}
-                                    />
-                                </Card>
-                            </Col>
-                        </Row>
-                        
-                        <div style={{ marginBottom: 16 }}>
-                            <Text strong>Available Period:</Text>
-                            <br />
-                            <CalendarOutlined /> {selectedQuiz.start_date ? dayjs(selectedQuiz.start_date).format('MMM DD, YYYY') : '—'} - {selectedQuiz.end_date ? dayjs(selectedQuiz.end_date).format('MMM DD, YYYY') : '—'}
+
+                        {/* Availability */}
+                        <div style={{ background: '#f4f3ff', borderRadius: 12, padding: '12px 16px', marginBottom: 16 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Available Period</div>
+                            <div style={{ fontSize: 13, color: '#4b5563' }}>
+                                <CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} />
+                                {selectedQuiz.start_date ? dayjs(selectedQuiz.start_date).format('MMM DD, YYYY HH:mm') : '—'}
+                                {' → '}
+                                {selectedQuiz.end_date ? dayjs(selectedQuiz.end_date).format('MMM DD, YYYY HH:mm') : '—'}
+                            </div>
                         </div>
-                        
-                        <div style={{ marginBottom: 16 }}>
-                            <Text strong>Your Progress:</Text>
-                            <br />
+
+                        {/* Progress */}
+                        <div style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 16px' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Your Progress</div>
                             {selectedQuiz.end_date && dayjs(selectedQuiz.end_date).isAfter(dayjs()) ? (
-                                <>
-                                    <Tag color="gold">Locked</Tag>
-                                    <br />
-                                    <Text type="secondary">Progress will be displayed after {dayjs(selectedQuiz.end_date).format('MMM DD, YYYY HH:mm')}</Text>
-                                </>
+                                <><LockOutlined style={{ color: '#f59e0b', marginRight: 6 }} /><Text style={{ color: '#b45309', fontSize: 13 }}>Results locked until {dayjs(selectedQuiz.end_date).format('MMM DD, HH:mm')}</Text></>
                             ) : (
-                                <>
-                                    Status: {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace('_', ' ') : 'not started'}
+                                <div>
+                                    <Text style={{ fontSize: 13, textTransform: 'capitalize', color: '#4b5563' }}>
+                                        {selectedQuiz.submission_status ? selectedQuiz.submission_status.replace(/_/g, ' ') : 'not started'}
+                                    </Text>
                                     {selectedQuiz.submission?.percentage != null && (
-                                        <span> | Score: {Number(selectedQuiz.submission.percentage).toFixed(2)}%</span>
+                                        <div style={{ marginTop: 8 }}>
+                                            <Progress percent={Number(selectedQuiz.submission.percentage.toFixed(1))} strokeColor={scoreColor(selectedQuiz.submission.percentage)} strokeLinecap="round" />
+                                        </div>
                                     )}
-                                </>
+                                </div>
                             )}
                         </div>
                     </div>
                 )}
             </Modal>
 
-            {/* QuizTaking Modal */}
+            {/* ── Quiz Taking Modal ── */}
             <Modal
-                title={null}
-                open={quizTakingVisible}
+                title={null} open={quizTakingVisible}
                 onCancel={async () => {
-                    // If the quiz has started, confirm auto-submit before closing
                     const started = quizTakingRef.current?.isStarted?.();
                     if (started) {
                         Modal.confirm({
-                            title: 'Submit before closing? ',
-                            content: 'You have a quiz in progress. Closing will submit your answers to prevent loss. Continue?',
-                            okText: 'Submit & Close',
+                            title: <div style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>Submit before closing?</div>,
+                            icon: <WarningOutlined style={{ color: '#ef4444', fontSize: '24px', marginRight: 12 }} />,
+                            content: <div style={{ color: '#64748b', fontSize: '14.5px', marginTop: 8 }}>Your progress will be submitted. Are you sure you want to continue?</div>,
+                            okText: 'Submit & Close', 
                             cancelText: 'Keep Taking',
+                            okButtonProps: { 
+                                style: { borderRadius: '10px', background: 'linear-gradient(135deg, #ef4444, #dc2626)', border: 'none', fontWeight: 600, height: '36px', boxShadow: '0 4px 10px rgba(239, 68, 68, 0.2)' } 
+                            },
+                            cancelButtonProps: { 
+                                style: { borderRadius: '10px', fontWeight: 600, height: '36px', border: '1.5px solid #e2e8f0' } 
+                            },
+                            centered: true,
+                            width: 450,
+                            className: 'premium-confirm-modal',
                             onOk: async () => {
                                 const ok = await quizTakingRef.current?.submitNow?.(true);
-                                if (ok) {
-                                    setQuizTakingVisible(false);
-                                    setSelectedQuizId(null);
-                                }
+                                if (ok) { setQuizTakingVisible(false); setSelectedQuizId(null); }
                             },
                         });
                         return;
                     }
-                    setQuizTakingVisible(false);
-                    setSelectedQuizId(null);
+                    setQuizTakingVisible(false); setSelectedQuizId(null);
                 }}
-                footer={null}
-                width={900}
-                centered
-                bodyStyle={{ padding: 0 }}
-                destroyOnHidden
+                closeIcon={
+                    <div className="quiz-premium-close">
+                        <CloseOutlined />
+                    </div>
+                }
+                footer={null} width={900} centered bodyStyle={{ padding: 0 }} destroyOnHidden
             >
-                {selectedQuizId && (
-                    <QuizTaking 
-                        ref={quizTakingRef}
-                        quizId={selectedQuizId.toString()}
-                        onComplete={handleQuizComplete}
-                    />
-                )}
+                {selectedQuizId && <QuizTaking ref={quizTakingRef} quizId={selectedQuizId.toString()} onComplete={handleQuizComplete} />}
             </Modal>
+
+            <style>{`
+                .quiz-table-row:hover td { background: #f8f7ff !important; }
+                .ant-table-thead > tr > th {
+                    background: #fafafa !important; font-weight: 700 !important;
+                    color: #4b5563 !important; font-size: 11px !important;
+                    text-transform: uppercase !important; letter-spacing: 0.5px !important;
+                }
+                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
+
+                /* Premium Modal Confirm */
+                .premium-confirm-modal .ant-modal-content {
+                    border-radius: 16px !important;
+                    padding: 32px 24px !important;
+                    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.15) !important;
+                }
+
+                /* Custom Premium Close Button */
+                .quiz-premium-close {
+                    width: 32px;
+                    height: 32px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 50%;
+                    background-color: #f1f5f9;
+                    color: #64748b;
+                    font-size: 14px;
+                    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .ant-modal-close {
+                    top: 16px !important;
+                    right: 16px !important;
+                }
+                .ant-modal-close:hover .quiz-premium-close {
+                    background-color: #fee2e2;
+                    color: #ef4444;
+                    transform: rotate(90deg);
+                }
+            `}</style>
         </div>
     );
+
+    function handleStartQuiz(quizId: number) {
+        setSelectedQuizId(quizId);
+        setQuizTakingVisible(true);
+    }
+    function handleQuizComplete() {
+        setQuizTakingVisible(false);
+        setSelectedQuizId(null);
+        fetchAttempts();
+        fetchQuizzes();
+        messageApi.success('Quiz completed successfully!');
+    }
 };
 
 export default StudentQuizzes;

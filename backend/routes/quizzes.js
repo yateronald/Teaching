@@ -142,9 +142,70 @@ const calculateQuizResults = async (db, submissionId) => {
     return { totalScore, maxScore, percentage };
 };
 
+// Background evaluator to flush and auto-submit expired submissions
+const autoSubmitExpiredSubmissions = async (db) => {
+    try {
+        const inProgress = await db.all(`
+            SELECT qs.id, qs.started_at, qs.auto_saved_data, q.duration_minutes, q.end_date, q.id as quiz_id
+            FROM quiz_submissions qs
+            JOIN quizzes q ON qs.quiz_id = q.id
+            WHERE qs.status = 'in_progress'
+        `);
+
+        if (inProgress.length === 0) return;
+
+        const nowMs = Date.now();
+        for (const sub of inProgress) {
+            const startMs = new Date(sub.started_at).getTime();
+            const nominalEndMs = startMs + (Number(sub.duration_minutes || 0) * 60 * 1000);
+            const hardEndMs = sub.end_date ? Math.min(nominalEndMs, new Date(sub.end_date).getTime()) : nominalEndMs;
+            
+            // Allow 5 seconds grace period
+            if (nowMs >= hardEndMs + 5000) {
+                let answers = [];
+                try { answers = sub.auto_saved_data ? JSON.parse(sub.auto_saved_data) : []; } catch { answers = []; }
+
+                const validQuestions = await db.all('SELECT id FROM questions WHERE quiz_id = ?', [sub.quiz_id]);
+                const validQuestionIds = new Set(validQuestions.map(q => q.id));
+                const validAnswers = answers.filter(answer => answer.question_id && validQuestionIds.has(answer.question_id));
+
+                for (const answer of validAnswers) {
+                    await db.run(`
+                        INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT (submission_id, question_id)
+                        DO UPDATE SET
+                          answer_text = EXCLUDED.answer_text,
+                          selected_options = EXCLUDED.selected_options,
+                          updated_at = CURRENT_TIMESTAMP
+                    `, [
+                        sub.id,
+                        answer.question_id,
+                        answer.answer_text || null,
+                        answer.selected_options ? JSON.stringify(answer.selected_options) : null
+                    ]);
+                }
+
+                const timeTakenMin = Math.max(0, Math.floor((hardEndMs - startMs) / (1000 * 60)));
+
+                await db.run(
+                    "UPDATE quiz_submissions SET status = 'auto_submitted', submitted_at = CURRENT_TIMESTAMP, time_taken_minutes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    [timeTakenMin, sub.id]
+                );
+
+                await calculateQuizResults(db, sub.id);
+            }
+        }
+    } catch (err) {
+        console.error('Background auto-submit error:', err);
+    }
+};
+
 // Get all quizzes (filtered by role)
 router.get('/', authenticateToken, async (req, res) => {
     try {
+        await autoSubmitExpiredSubmissions(req.db);
+        
         let sql = `
             SELECT 
                 q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
@@ -1495,9 +1556,12 @@ router.get('/student/results', authenticateToken, async (req, res) => {
                     SELECT COUNT(*) 
                     FROM student_answers sa 
                     WHERE sa.submission_id = qs.id AND sa.is_correct = true
-                ) as correct_answers
+                ) as correct_answers,
+                u.first_name as teacher_first_name,
+                u.last_name as teacher_last_name
             FROM quiz_submissions qs
             JOIN quizzes q ON qs.quiz_id = q.id
+            LEFT JOIN users u ON q.teacher_id = u.id
             JOIN quiz_batches qb ON q.id = qb.quiz_id
             JOIN batches b ON qb.batch_id = b.id
             JOIN batch_students bs ON b.id = bs.batch_id
@@ -2070,6 +2134,8 @@ router.get('/:id/result', authenticateToken, authenticated, async (req, res) => 
 // Student dashboard - get all quizzes for student's batches
 router.get('/student/dashboard', authenticateToken, async (req, res) => {
     try {
+        await autoSubmitExpiredSubmissions(req.db);
+        
         if (req.user.role !== 'student') {
             return res.status(403).json({ error: 'Only students can access this endpoint' });
         }
@@ -2283,6 +2349,8 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
 // Get quizzes for a specific teacher
 router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
+        await autoSubmitExpiredSubmissions(req.db);
+        
         const { teacherId } = req.params;
 
         // Check if user can access this teacher's quizzes

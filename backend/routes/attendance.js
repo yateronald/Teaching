@@ -159,7 +159,7 @@ router.get('/reports/teachers', authenticateToken, teacherOrAdmin, async (req, r
 // GET /api/attendance/reports/sessions - Get session summaries (Admin/Teacher)
 router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
-        const { batch_id, teacher_id, date_from, date_to } = req.query;
+        const { batch_id, teacher_id, student_id, date_from, date_to } = req.query;
         const userId = req.user.id;
         const userRole = req.user.role;
 
@@ -199,6 +199,12 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
         if (userRole === 'teacher') {
             query += ` AND b.teacher_id = $${paramIndex}`;
             params.push(userId);
+            paramIndex++;
+        }
+
+        if (student_id) {
+            query += ` AND EXISTS (SELECT 1 FROM batch_students bs_filter WHERE bs_filter.batch_id = s.batch_id AND bs_filter.student_id = $${paramIndex})`;
+            params.push(parseInt(student_id));
             paramIndex++;
         }
 
@@ -253,7 +259,7 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
 // GET /api/attendance/reports/batches - Batch analytics (Admin/Teacher)
 router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
-        const { query, batch_id, teacher_id, date_from, date_to, sort_by = 'name', sort_order = 'asc', limit = 50, offset = 0 } = req.query;
+        const { query, batch_id, teacher_id, student_id, date_from, date_to, sort_by = 'name', sort_order = 'asc', limit = 50, offset = 0 } = req.query;
         const db = req.db;
 
         let batchConditions = [];
@@ -264,6 +270,11 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
             batchConditions.push(`(b.name LIKE $${batchParamIndex})`);
             const searchTerm = `%${query}%`;
             batchParams.push(searchTerm);
+            batchParamIndex++;
+        }
+        if (student_id) {
+            batchConditions.push(`EXISTS (SELECT 1 FROM batch_students bs_filter WHERE bs_filter.batch_id = b.id AND bs_filter.student_id = $${batchParamIndex})`);
+            batchParams.push(parseInt(student_id));
             batchParamIndex++;
         }
         if (batch_id) {
@@ -2039,7 +2050,7 @@ router.get('/students/detailed', authenticateToken, teacherOrAdmin, async (req, 
 router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const db = req.db;
-        const { batch_id, teacher_id, date_from, date_to } = req.query;
+        const { batch_id, teacher_id, student_id, date_from, date_to } = req.query;
         const userRole = req.user.role;
 
         // Build filter conditions and parameters
@@ -2058,13 +2069,23 @@ router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, r
         if (userRole === 'teacher') {
             conditions.push(`b.teacher_id = $${paramIndex++}`);
             params.push(req.user.id);
-            sessionConditions.push(`s.teacher_id = $${sessionParamIndex++}`);
+            sessionConditions.push(`cs.teacher_id = $${sessionParamIndex++}`);
             sessionParams.push(req.user.id);
-            attendanceConditions.push(`EXISTS (SELECT 1 FROM class_sessions cs JOIN schedules sch ON cs.schedule_id = sch.id WHERE cs.id = a.session_id AND sch.teacher_id = $${attendanceParamIndex++})`);
+            attendanceConditions.push(`EXISTS (SELECT 1 FROM class_sessions cs WHERE cs.id = a.session_id AND cs.teacher_id = $${attendanceParamIndex++})`);
             attendanceParams.push(req.user.id);
         }
 
         // Apply query parameter filters
+        // Apply query parameter filters
+        if (student_id) {
+            conditions.push(`EXISTS (SELECT 1 FROM batch_students bs_filter WHERE bs_filter.batch_id = b.id AND bs_filter.student_id = $${paramIndex++})`);
+            params.push(parseInt(student_id));
+            sessionConditions.push(`EXISTS (SELECT 1 FROM batch_students bs_filter WHERE bs_filter.batch_id = s.batch_id AND bs_filter.student_id = $${sessionParamIndex++})`);
+            sessionParams.push(parseInt(student_id));
+            attendanceConditions.push(`a.student_id = $${attendanceParamIndex++}`);
+            attendanceParams.push(parseInt(student_id));
+        }
+
         if (batch_id) {
             conditions.push(`b.id = $${paramIndex++}`);
             params.push(parseInt(batch_id));
@@ -2077,9 +2098,9 @@ router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, r
         if (teacher_id && userRole === 'admin') {
             conditions.push(`b.teacher_id = $${paramIndex++}`);
             params.push(parseInt(teacher_id));
-            sessionConditions.push(`s.teacher_id = $${sessionParamIndex++}`);
+            sessionConditions.push(`cs.teacher_id = $${sessionParamIndex++}`);
             sessionParams.push(parseInt(teacher_id));
-            attendanceConditions.push(`EXISTS (SELECT 1 FROM class_sessions cs JOIN schedules sch ON cs.schedule_id = sch.id WHERE cs.id = a.session_id AND sch.teacher_id = $${attendanceParamIndex++})`);
+            attendanceConditions.push(`EXISTS (SELECT 1 FROM class_sessions cs WHERE cs.id = a.session_id AND cs.teacher_id = $${attendanceParamIndex++})`);
             attendanceParams.push(parseInt(teacher_id));
         }
 
@@ -2130,7 +2151,7 @@ router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, r
         
         // Apply role-based filtering for schedules
         if (userRole === 'teacher') {
-            scheduleConditions.push(`s.teacher_id = $${scheduleParamIndex++}`);
+            scheduleConditions.push(`EXISTS (SELECT 1 FROM batches b WHERE b.id = s.batch_id AND b.teacher_id = $${scheduleParamIndex++})`);
             scheduleParams.push(req.user.id);
         }
         
@@ -2140,7 +2161,7 @@ router.get('/reports/overview', authenticateToken, teacherOrAdmin, async (req, r
         }
         
         if (teacher_id && userRole === 'admin') {
-            scheduleConditions.push(`s.teacher_id = $${scheduleParamIndex++}`);
+            scheduleConditions.push(`EXISTS (SELECT 1 FROM batches b WHERE b.id = s.batch_id AND b.teacher_id = $${scheduleParamIndex++})`);
             scheduleParams.push(parseInt(teacher_id));
         }
         

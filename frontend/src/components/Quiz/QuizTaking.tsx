@@ -14,7 +14,8 @@ import {
     Col,
     message,
     Spin,
-    Checkbox
+    Checkbox,
+    Skeleton
 } from 'antd';
 import {
     ClockCircleOutlined,
@@ -266,13 +267,13 @@ const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
                 background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
                 borderRadius: 12,
                 padding: '14px 18px',
-                marginBottom: 14,
-                position: 'sticky',
-                top: 80,
+                marginBottom: 24,
+                position: 'relative',
                 zIndex: 10,
                 boxShadow: '0 4px 16px rgba(8,145,178,0.25)',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
+                width: '100%'
             }}
         >
             {/* Header */}
@@ -894,37 +895,40 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         onChange={(e) => handleAnswerChange(question, e.target.value)}
                         style={{ width: '100%' }}
                     >
-                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                        <Space direction="vertical" style={{ width: '100%', gap: 10 }}>
                             {question.options?.map((option, idx) => (
                                 <div
                                     key={option.id}
                                     style={{
-                                        padding: '16px 20px',
-                                        backgroundColor: currentAnswer === option.id ? '#e6f7ff' : '#fafafa',
-                                        border: `2px solid ${currentAnswer === option.id ? '#1890ff' : '#e8e8e8'}`,
-                                        borderRadius: '8px',
-                                        transition: 'all 0.3s',
-                                        cursor: 'pointer'
+                                        padding: '12px 16px',
+                                        backgroundColor: currentAnswer === option.id ? '#eff6ff' : '#ffffff',
+                                        border: `1.5px solid ${currentAnswer === option.id ? '#3b82f6' : '#e2e8f0'}`,
+                                        borderRadius: '12px',
+                                        transition: 'all 0.2s ease-in-out',
+                                        cursor: 'pointer',
+                                        boxShadow: currentAnswer === option.id ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)'
                                     }}
                                     onClick={() => handleAnswerChange(question, option.id)}
+                                    className="quiz-option-card"
                                 >
-                                    <Radio value={option.id} style={{ fontSize: 16, width: '100%' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                    <Radio value={option.id} style={{ fontSize: 15, width: '100%', display: 'flex', alignItems: 'center' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
                                             <span style={{
                                                 display: 'inline-flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 width: '28px',
                                                 height: '28px',
-                                                borderRadius: '50%',
-                                                backgroundColor: currentAnswer === option.id ? '#1890ff' : '#d9d9d9',
-                                                color: 'white',
-                                                fontWeight: '600',
-                                                fontSize: '13px'
+                                                borderRadius: '8px',
+                                                backgroundColor: currentAnswer === option.id ? '#3b82f6' : '#f1f5f9',
+                                                color: currentAnswer === option.id ? 'white' : '#64748b',
+                                                fontWeight: '700',
+                                                fontSize: '13px',
+                                                flexShrink: 0
                                             }}>
                                                 {String.fromCharCode(65 + idx)}
                                             </span>
-                                            <span style={{ flex: 1, fontWeight: currentAnswer === option.id ? '500' : '400' }}>
+                                            <span style={{ flex: 1, fontSize: '15px', color: currentAnswer === option.id ? '#1e3a8a' : '#334155', fontWeight: currentAnswer === option.id ? '600' : '400', lineHeight: 1.4 }}>
                                                 {option.option_text}
                                             </span>
                                         </div>
@@ -937,19 +941,20 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
             case 'mcq_multiple':
                 return (
                     <div style={{ width: '100%' }}>
-                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                        <Space direction="vertical" style={{ width: '100%', gap: 10 }}>
                             {question.options?.map((option, idx) => {
                                 const isSelected = (currentAnswer as number[]).includes(option.id);
                                 return (
                                     <div
                                         key={option.id}
                                         style={{
-                                            padding: '16px 20px',
-                                            backgroundColor: isSelected ? '#e6f7ff' : '#fafafa',
-                                            border: `2px solid ${isSelected ? '#1890ff' : '#e8e8e8'}`,
-                                            borderRadius: '8px',
-                                            transition: 'all 0.3s',
-                                            cursor: 'pointer'
+                                            padding: '12px 16px',
+                                            backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
+                                            border: `1.5px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
+                                            borderRadius: '12px',
+                                            transition: 'all 0.2s ease-in-out',
+                                            cursor: 'pointer',
+                                            boxShadow: isSelected ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)'
                                         }}
                                         onClick={() => {
                                             const selected = new Set<number>(currentAnswer as number[]);
@@ -957,6 +962,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                             else selected.add(option.id);
                                             handleAnswerChange(question, Array.from(selected));
                                         }}
+                                        className="quiz-option-card"
                                     >
                                         <Checkbox
                                             checked={isSelected}
@@ -966,24 +972,25 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                                 else selected.delete(option.id);
                                                 handleAnswerChange(question, Array.from(selected));
                                             }}
-                                            style={{ fontSize: 16, width: '100%' }}
+                                            style={{ fontSize: 15, width: '100%', display: 'flex', alignItems: 'center' }}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', marginLeft: 4 }}>
                                                 <span style={{
                                                     display: 'inline-flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
                                                     width: '28px',
                                                     height: '28px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: isSelected ? '#1890ff' : '#d9d9d9',
-                                                    color: 'white',
-                                                    fontWeight: '600',
-                                                    fontSize: '13px'
+                                                    borderRadius: '8px',
+                                                    backgroundColor: isSelected ? '#3b82f6' : '#f1f5f9',
+                                                    color: isSelected ? 'white' : '#475569',
+                                                    fontWeight: '700',
+                                                    fontSize: '13px',
+                                                    flexShrink: 0
                                                 }}>
                                                     {String.fromCharCode(65 + idx)}
                                                 </span>
-                                                <span style={{ flex: 1, fontWeight: isSelected ? '500' : '400' }}>
+                                                <span style={{ flex: 1, fontSize: '15px', color: isSelected ? '#1e3a8a' : '#334155', fontWeight: isSelected ? '600' : '400', lineHeight: 1.4 }}>
                                                     {option.option_text}
                                                 </span>
                                             </div>
@@ -1001,38 +1008,50 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         onChange={(e) => handleAnswerChange(question, e.target.value)}
                         style={{ width: '100%' }}
                     >
-                        <Space direction="vertical" style={{ width: '100%', gap: 12 }}>
+                        <Space direction="horizontal" style={{ width: '100%', gap: 16 }}>
                             <div
                                 style={{
-                                    padding: '16px 20px',
-                                    backgroundColor: currentAnswer === 'yes' ? '#e6f7ff' : '#fafafa',
-                                    border: `2px solid ${currentAnswer === 'yes' ? '#1890ff' : '#e8e8e8'}`,
-                                    borderRadius: '8px',
-                                    transition: 'all 0.3s',
-                                    cursor: 'pointer'
+                                    flex: 1,
+                                    padding: '16px 24px',
+                                    backgroundColor: currentAnswer === 'yes' ? '#eff6ff' : '#ffffff',
+                                    border: `1.5px solid ${currentAnswer === 'yes' ? '#3b82f6' : '#e2e8f0'}`,
+                                    borderRadius: '12px',
+                                    transition: 'all 0.2s ease-in-out',
+                                    cursor: 'pointer',
+                                    boxShadow: currentAnswer === 'yes' ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
                                 }}
                                 onClick={() => handleAnswerChange(question, 'yes')}
+                                className="quiz-option-card"
                             >
-                                <Radio value="yes" style={{ fontSize: 16, width: '100%' }}>
-                                    <span style={{ fontWeight: currentAnswer === 'yes' ? '600' : '400', fontSize: '16px' }}>
-                                        ✓ Yes
+                                <Radio value="yes" style={{ fontSize: 16, margin: 0 }}>
+                                    <span style={{ fontWeight: currentAnswer === 'yes' ? '600' : '500', fontSize: '16px', color: currentAnswer === 'yes' ? '#1e3a8a' : '#334155', marginLeft: 6 }}>
+                                        ✓ Oui
                                     </span>
                                 </Radio>
                             </div>
                             <div
                                 style={{
-                                    padding: '16px 20px',
-                                    backgroundColor: currentAnswer === 'no' ? '#e6f7ff' : '#fafafa',
-                                    border: `2px solid ${currentAnswer === 'no' ? '#1890ff' : '#e8e8e8'}`,
-                                    borderRadius: '8px',
-                                    transition: 'all 0.3s',
-                                    cursor: 'pointer'
+                                    flex: 1,
+                                    padding: '16px 24px',
+                                    backgroundColor: currentAnswer === 'no' ? '#fef2f2' : '#ffffff',
+                                    border: `1.5px solid ${currentAnswer === 'no' ? '#ef4444' : '#e2e8f0'}`,
+                                    borderRadius: '12px',
+                                    transition: 'all 0.2s ease-in-out',
+                                    cursor: 'pointer',
+                                    boxShadow: currentAnswer === 'no' ? '0 2px 8px rgba(239, 68, 68, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
                                 }}
                                 onClick={() => handleAnswerChange(question, 'no')}
+                                className="quiz-option-card"
                             >
-                                <Radio value="no" style={{ fontSize: 16, width: '100%' }}>
-                                    <span style={{ fontWeight: currentAnswer === 'no' ? '600' : '400', fontSize: '16px' }}>
-                                        ✗ No
+                                <Radio value="no" style={{ fontSize: 16, margin: 0 }}>
+                                    <span style={{ fontWeight: currentAnswer === 'no' ? '600' : '500', fontSize: '16px', color: currentAnswer === 'no' ? '#991b1b' : '#334155', marginLeft: 6 }}>
+                                        ✗ Non
                                     </span>
                                 </Radio>
                             </div>
@@ -1046,14 +1065,50 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
 
     if (loading) {
         return (
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'center', 
-                alignItems: 'center', 
-                height: '100vh' 
-            }}>
+            <div style={{ padding: '32px 40px', backgroundColor: '#f8fafc', borderRadius: 16 }}>
                 {contextHolder}
-                <Spin size="large" />
+                <div style={{ textAlign: 'center', marginBottom: 32 }}>
+                    <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                        <Spin size="large" />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                        <Skeleton.Input active style={{ width: 140, height: 28, borderRadius: 8 }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <Skeleton.Input active style={{ width: 300, height: 16, borderRadius: 6 }} />
+                    </div>
+                </div>
+                
+                <Row gutter={16} style={{ marginBottom: 24 }}>
+                    {[1, 2, 3].map(i => (
+                        <Col span={8} key={i}>
+                            <Card size="small" style={{ borderRadius: 12, border: '1px solid #f0f0f8', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '8px 0' }}>
+                                    <Skeleton.Avatar active size="small" shape="circle" />
+                                    <Skeleton.Input active style={{ width: '80%', height: 14, borderRadius: 4 }} />
+                                    <Skeleton.Input active style={{ width: '40%', height: 24, borderRadius: 6 }} />
+                                </div>
+                            </Card>
+                        </Col>
+                    ))}
+                </Row>
+                
+                <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #f0f0f8', marginBottom: 24 }}>
+                    <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                        <Skeleton.Avatar active size="small" shape="square" />
+                        <Skeleton.Input active style={{ width: 160, height: 20, borderRadius: 6 }} />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 36 }}>
+                        <Skeleton.Input active style={{ width: '90%', height: 12, borderRadius: 4 }} />
+                        <Skeleton.Input active style={{ width: '70%', height: 12, borderRadius: 4 }} />
+                        <Skeleton.Input active style={{ width: '85%', height: 12, borderRadius: 4 }} />
+                    </div>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                    <Skeleton.Button active style={{ width: 100, height: 40, borderRadius: 8 }} />
+                    <Skeleton.Button active style={{ width: 140, height: 40, borderRadius: 8 }} />
+                </div>
             </div>
         );
     }
@@ -1084,83 +1139,110 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
 
     if (!quizStarted) {
         return (
-            <div style={{ padding: '24px' }}>
+            <div style={{ 
+                position: 'relative',
+                padding: '40px 48px', 
+                background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)',
+                borderRadius: '24px',
+                minHeight: '400px',
+                overflow: 'hidden'
+            }}>
                 {contextHolder}
-                <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                    <QuestionCircleOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
-                    <Title level={3} style={{ marginBottom: 8 }}>Take Quiz</Title>
-                    <Title level={4} style={{ marginBottom: 4, fontWeight: 'normal' }}>{quiz.title}</Title>
-                    <Paragraph style={{ marginBottom: 16 }}>{quiz.description}</Paragraph>
+                {/* Decorative background blur */}
+                <div style={{ position: 'absolute', top: -100, right: -100, width: 300, height: 300, background: 'radial-gradient(circle, rgba(99,102,241,0.1) 0%, rgba(255,255,255,0) 70%)', borderRadius: '50%', pointerEvents: 'none' }} />
+                
+                <div style={{ textAlign: 'center', marginBottom: 36, position: 'relative', zIndex: 1 }}>
+                    <div style={{ 
+                        width: 80, height: 80, borderRadius: '24px', 
+                        background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)', 
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
+                        margin: '0 auto 20px',
+                        boxShadow: '0 8px 24px rgba(99,102,241,0.15)',
+                        border: '1px solid rgba(255,255,255,0.8)'
+                    }}>
+                        <QuestionCircleOutlined style={{ fontSize: 40, color: '#6366f1' }} />
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 8 }}>Take Quiz</div>
+                    <Title level={2} style={{ marginBottom: 12, fontWeight: 800, color: '#1e293b', fontSize: 32 }}>{quiz.title}</Title>
+                    <Paragraph style={{ color: '#64748b', fontSize: 16, maxWidth: 600, margin: '0 auto', lineHeight: 1.6 }}>{quiz.description}</Paragraph>
                 </div>
                     
-                <Row gutter={16} style={{ marginBottom: 20 }}>
+                <Row gutter={24} style={{ marginBottom: 32, position: 'relative', zIndex: 1 }}>
                     <Col span={8}>
-                        <Card size="small" style={{ textAlign: 'center' }}>
-                            <Statistic
-                                title="Questions"
-                                value={quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}
-                                prefix={<QuestionCircleOutlined />}
-                            />
-                        </Card>
+                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#475569' }}><QuestionCircleOutlined /></div>
+                            <div>
+                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Questions</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}</div>
+                            </div>
+                        </div>
                     </Col>
                     <Col span={8}>
-                        <Card size="small" style={{ textAlign: 'center' }}>
-                            <Statistic
-                                title="Time Limit"
-                                value={quiz.duration_minutes ?? '—'}
-                                suffix="min"
-                                prefix={<ClockCircleOutlined />}
-                            />
-                        </Card>
+                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#fdf4ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#c026d3' }}><ClockCircleOutlined /></div>
+                            <div>
+                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Time Limit</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{quiz.duration_minutes ?? '—'}<span style={{ fontSize: 14, fontWeight: 600, marginLeft: 4, color: '#94a3b8' }}>min</span></div>
+                            </div>
+                        </div>
                     </Col>
                     <Col span={8}>
-                        <Card size="small" style={{ textAlign: 'center' }}>
-                            <Statistic
-                                title="Total Points"
-                                value={Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0}
-                                prefix={<CheckCircleOutlined />}
-                            />
-                        </Card>
+                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
+                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#16a34a' }}><CheckCircleOutlined /></div>
+                            <div>
+                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Total Points</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0}</div>
+                            </div>
+                        </div>
                     </Col>
                 </Row>
                 
-                <Alert
-                    message="Important Instructions"
-                    description={
-                        <ul style={{ marginBottom: 0, paddingLeft: 20 }}>
-                            <li>Once you start, the timer will begin immediately</li>
-                            <li>You can navigate between questions using Next/Previous buttons</li>
-                            <li>Your answers are saved automatically</li>
-                            <li>Make sure you have a stable internet connection</li>
-                            <li>The quiz will auto-submit when time runs out</li>
-                        </ul>
-                    }
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 20 }}
-                />
+                <div style={{ background: '#eff6ff', borderRadius: 20, padding: '24px 32px', marginBottom: 32, border: '1px solid #bfdbfe', position: 'relative', zIndex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 'bold' }}>i</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#1e3a8a' }}>Important Instructions</div>
+                    </div>
+                    <ul style={{ marginBottom: 0, paddingLeft: 28, color: '#1e40af', fontSize: 15, lineHeight: 1.8 }}>
+                        <li>Once you start, the timer will begin immediately</li>
+                        <li>You can navigate between questions using Next/Previous buttons</li>
+                        <li>Your answers are saved automatically</li>
+                        <li>Make sure you have a stable internet connection</li>
+                        <li>The quiz will auto-submit when time runs out</li>
+                    </ul>
+                </div>
                 
-                <div style={{ textAlign: 'center' }}>
+                <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
                     {!audioPreloaded && totalAudioClips > 0 && (
-                        <div style={{ marginBottom: 16 }}>
-                            <Text type="secondary">
-                                <Spin size="small" style={{ marginRight: 8 }} />
+                        <div style={{ marginBottom: 20, background: '#f8fafc', display: 'inline-block', padding: '8px 16px', borderRadius: 20, border: '1px solid #e2e8f0' }}>
+                            <Text style={{ color: '#64748b', fontWeight: 500 }}>
+                                <Spin size="small" style={{ marginRight: 10 }} />
                                 Preparing securely encrypted quiz components...
                             </Text>
                         </div>
                     )}
-                    <Space>
-                        <Button onClick={() => navigate('/student-dashboard')}>Cancel</Button>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
+                        <Button 
+                            onClick={() => navigate('/student-dashboard')}
+                            style={{ height: 48, padding: '0 32px', borderRadius: 14, fontSize: 16, fontWeight: 600, color: '#475569', border: '1px solid #cbd5e1' }}
+                        >
+                            Cancel
+                        </Button>
                         <Button 
                             type="primary" 
                             size="large" 
                             onClick={startQuiz}
                             disabled={!audioPreloaded && totalAudioClips > 0}
                             loading={!audioPreloaded && totalAudioClips > 0}
+                            style={{ 
+                                height: 48, padding: '0 40px', borderRadius: 14, fontSize: 16, fontWeight: 700,
+                                background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                                boxShadow: '0 8px 20px rgba(99,102,241,0.3)',
+                                border: 'none'
+                            }}
                         >
                             {(!audioPreloaded && totalAudioClips > 0) ? 'Preparing Quiz...' : 'Start Quiz'}
                         </Button>
-                    </Space>
+                    </div>
                 </div>
             </div>
         );
@@ -1188,11 +1270,12 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
         <div 
             className="quiz-taking-container"
             style={{ 
-                backgroundColor: '#f8f9fa', 
+                backgroundColor: '#f8fafc', 
                 minHeight: 'auto',
                 userSelect: 'none',
                 WebkitUserSelect: 'none',
-                msUserSelect: 'none'
+                msUserSelect: 'none',
+                paddingBottom: 20
             }}
             onCopy={e => e.preventDefault()}
             onCut={e => e.preventDefault()}
@@ -1200,64 +1283,62 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
             onContextMenu={e => e.preventDefault()}
         >
             {contextHolder}
-            {/* Fixed Timer Header */}
+            {/* Premium Sticky Header (Compacted) */}
             <div style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 100,
-                backgroundColor: 'white',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                borderBottom: '2px solid #e8e8e8'
+                background: 'rgba(255, 255, 255, 0.9)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                boxShadow: '0 2px 10px -2px rgba(0,0,0,0.03)',
+                borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
+                padding: '10px 0'
             }}>
-                <div style={{ maxWidth: 1200, margin: '0 auto', padding: '12px 20px' }}>
-                    <Row justify="space-between" align="middle" gutter={[16, 8]}>
-                        <Col xs={24} sm={12} md={10}>
-                            <Title level={4} style={{ margin: 0, color: '#1a1a1a', fontSize: '18px' }}>
+                <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 56px 0 20px' }}>
+                    <Row justify="space-between" align="middle" gutter={[20, 10]}>
+                        <Col xs={24} sm={10} md={10}>
+                            <Title level={5} style={{ margin: 0, color: '#0f172a', fontSize: '16px', fontWeight: 700 }}>
                                 {quiz.title}
                             </Title>
-                            <Text style={{ color: '#666', fontSize: '13px' }}>
-                                Q{currentQuestion + 1}/{questionsLength} • {answeredQuestions} answered
+                            <Text style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>
+                                Q{currentQuestion + 1} of {questionsLength} • <span style={{ color: '#3b82f6' }}>{answeredQuestions} answered</span>
                             </Text>
                         </Col>
-                        <Col xs={12} sm={6} md={5} style={{ textAlign: 'center' }}>
+                        
+                        <Col xs={12} sm={6} md={6} style={{ textAlign: 'center' }}>
                             <div style={{
-                                backgroundColor: timeLeft < 60 ? '#fff2e8' : '#e6f7ff',
-                                padding: '6px 12px',
-                                borderRadius: '8px',
-                                border: `2px solid ${getTimeColor()}`,
-                                display: 'inline-block'
+                                backgroundColor: timeLeft < 60 ? '#fef2f2' : '#ffffff',
+                                padding: '4px 12px',
+                                borderRadius: '12px',
+                                border: `1.5px solid ${timeLeft < 60 ? '#f87171' : '#e2e8f0'}`,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
                             }}>
-                                <ClockCircleOutlined style={{ fontSize: '14px', color: getTimeColor() }} />
+                                <ClockCircleOutlined style={{ fontSize: '15px', color: getTimeColor() }} />
                                 <div style={{
-                                    fontSize: '18px',
+                                    fontSize: '16px',
                                     fontWeight: '700',
                                     color: getTimeColor(),
-                                    fontFamily: 'monospace'
+                                    fontFamily: '"SF Mono", "Roboto Mono", monospace',
+                                    letterSpacing: '0.5px'
                                 }}>
                                     {formatTime(timeLeft)}
                                 </div>
                             </div>
                         </Col>
-                        <Col xs={12} sm={6} md={4}>
-                            <Progress
-                                type="circle"
-                                percent={progress}
-                                strokeColor={{
-                                    '0%': '#1890ff',
-                                    '100%': '#52c41a'
-                                }}
-                                width={60}
-                                format={() => `${progress.toFixed(0)}%`}
-                            />
-                        </Col>
-                        <Col xs={24} md={5}>
+                        
+                        <Col xs={12} sm={8} md={8}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 260 }}>
                                     {quiz.questions.map((q, idx) => {
                                         const isCurrent = idx === currentQuestion;
                                         const isAnswered = answeredSet.has(q.id);
                                         const isVisited = visitedQuestions.has(q.id);
-                                        let bg = isAnswered ? '#52c41a' : (isCurrent ? '#1890ff' : (isVisited ? '#ffd591' : '#d9d9d9'));
+                                        let bg = isAnswered ? '#10b981' : (isCurrent ? '#4f46e5' : (isVisited ? '#f59e0b' : '#f1f5f9'));
+                                        let color = isAnswered || isCurrent || isVisited ? '#fff' : '#475569';
                                         
                                         const isAudioQ = !!q.audio_clip_id;
                                         
@@ -1266,16 +1347,17 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                                 key={q.id}
                                                 size="small"
                                                 style={{
-                                                    width: 28,
-                                                    height: 28,
+                                                    width: 24,
+                                                    height: 24,
                                                     padding: 0,
                                                     backgroundColor: bg,
-                                                    color: '#fff',
-                                                    border: isAudioQ ? '2px solid #06b6d4' : 'none',
-                                                    borderRadius: '4px',
+                                                    color: color,
+                                                    border: isAudioQ ? '1.5px solid #06b6d4' : 'none',
+                                                    borderRadius: '6px',
                                                     fontWeight: '600',
                                                     fontSize: isAudioQ ? '10px' : '11px',
-                                                    minWidth: '28px'
+                                                    minWidth: '24px',
+                                                    transform: isCurrent ? 'scale(1.05)' : 'none',
                                                 }}
                                                 onClick={() => setCurrentQuestion(idx)}
                                             >
@@ -1284,71 +1366,86 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                                         );
                                     })}
                                 </div>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'nowrap', alignItems: 'center' }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 9, height: 9, backgroundColor: '#1890ff', borderRadius: '2px', flexShrink: 0 }}></div>
-                                        <span style={{ fontSize: '9px', color: '#666' }}>Cur</span>
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 2 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 8, height: 8, backgroundColor: '#4f46e5', borderRadius: '3px' }}></div>
+                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Cur</span>
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 9, height: 9, backgroundColor: '#52c41a', borderRadius: '2px', flexShrink: 0 }}></div>
-                                        <span style={{ fontSize: '9px', color: '#666' }}>Done</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 8, height: 8, backgroundColor: '#10b981', borderRadius: '3px' }}></div>
+                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Done</span>
                                     </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 9, height: 9, backgroundColor: '#ffd591', borderRadius: '2px', flexShrink: 0 }}></div>
-                                        <span style={{ fontSize: '9px', color: '#666' }}>Seen</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                                        <div style={{ width: 8, height: 8, backgroundColor: '#f59e0b', borderRadius: '3px' }}></div>
+                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Seen</span>
                                     </div>
                                 </div>
                             </div>
                         </Col>
                     </Row>
+                    <div style={{ marginTop: 8 }}>
+                        <Progress 
+                            percent={progress} 
+                            showInfo={true} 
+                            format={() => <span style={{ color: '#64748b', fontWeight: 600, fontSize: '12px' }}>{Math.round(progress)}%</span>}
+                            strokeColor={{ '0%': '#4f46e5', '100%': '#10b981' }} 
+                            trailColor="#e2e8f0"
+                            size="small" 
+                        />
+                    </div>
                 </div>
             </div>
 
-            <div style={{ maxWidth: 1200, margin: '16px auto 0', padding: '0 20px 0' }}>
-                {/* Question Card */}
-                <Card
+            <div style={{ maxWidth: 1000, margin: '16px auto 0', padding: '0 20px' }}>
+                {/* Premium Question Card (Compacted) */}
+                <div
                     style={{
-                        borderRadius: '12px',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                        border: '1px solid #e8e8e8'
+                        backgroundColor: '#ffffff',
+                        borderRadius: '20px',
+                        boxShadow: '0 4px 20px -5px rgba(0,0,0,0.05)',
+                        border: '1px solid #e2e8f0',
+                        padding: '24px 32px',
+                        position: 'relative',
+                        overflow: 'hidden'
                     }}
-                    bodyStyle={{ padding: '20px' }}
                 >
-                    <div style={{ marginBottom: 12 }}>
+                    <div style={{ marginBottom: 20 }}>
                         <div style={{
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
-                            marginBottom: 12,
-                            paddingBottom: 10,
-                            borderBottom: '2px solid #f0f0f0'
+                            marginBottom: 16,
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                                 <div style={{
-                                    backgroundColor: '#1890ff',
-                                    color: 'white',
+                                    background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+                                    color: '#4f46e5',
                                     width: '36px',
                                     height: '36px',
-                                    borderRadius: '50%',
+                                    borderRadius: '12px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     fontWeight: '700',
-                                    fontSize: '16px'
+                                    fontSize: '16px',
                                 }}>
                                     {currentQuestion + 1}
                                 </div>
-                                <Title level={4} style={{ margin: 0, color: '#1a1a1a', fontSize: '18px' }}>
+                                <Title level={4} style={{ margin: 0, color: '#0f172a', fontWeight: 700 }}>
                                     Question {currentQuestion + 1}
                                 </Title>
                             </div>
                             <div style={{
-                                backgroundColor: '#f0f5ff',
-                                padding: '6px 14px',
-                                borderRadius: '6px',
-                                border: '1px solid #adc6ff'
+                                backgroundColor: '#f0fdf4',
+                                padding: '4px 12px',
+                                borderRadius: '10px',
+                                border: '1px solid #bbf7d0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6
                             }}>
-                                <Text strong style={{ color: '#1890ff', fontSize: '15px' }}>
+                                <CheckCircleOutlined style={{ color: '#16a34a', fontSize: '13px' }} />
+                                <Text strong style={{ color: '#15803d', fontSize: '13px' }}>
                                     {formatNumber(currentQ.points ?? 0)} pts
                                 </Text>
                             </div>
@@ -1393,17 +1490,11 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             );
                         })()}
 
-                        <div style={{
-                            backgroundColor: '#fafafa',
-                            padding: '16px',
-                            borderRadius: '8px',
-                            border: '1px solid #e8e8e8',
-                            marginBottom: 12
-                        }}>
+                        <div style={{ marginTop: 12, paddingLeft: 48 }}>
                             <Paragraph style={{
-                                fontSize: 16,
+                                fontSize: '16px',
                                 lineHeight: 1.5,
-                                color: '#1a1a1a',
+                                color: '#1e293b',
                                 margin: 0,
                                 fontWeight: '500'
                             }}>
@@ -1412,7 +1503,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         </div>
                     </div>
 
-                    <div style={{ marginBottom: 12 }}>
+                    <div style={{ marginBottom: 24, paddingLeft: 48 }}>
                         {renderQuestion(currentQ)}
                     </div>
 
@@ -1421,17 +1512,21 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        paddingTop: 12,
-                        borderTop: '2px solid #f0f0f0'
+                        paddingTop: 20,
+                        borderTop: '1px solid #f1f5f9'
                     }}>
                         <Button
                             onClick={previousQuestion}
                             disabled={currentQuestion === 0}
-                            size="large"
                             style={{
-                                borderRadius: '8px',
-                                minWidth: '110px',
-                                fontWeight: '500'
+                                borderRadius: '10px',
+                                padding: '0 24px',
+                                height: '42px',
+                                fontWeight: '600',
+                                fontSize: '14px',
+                                border: '1.5px solid #e2e8f0',
+                                color: currentQuestion === 0 ? '#94a3b8' : '#475569',
+                                background: 'transparent'
                             }}
                         >
                             ← Previous
@@ -1441,15 +1536,17 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             {currentQuestion === questionsLength - 1 ? (
                                 <Button
                                     type="primary"
-                                    danger
-                                    size="large"
                                     onClick={() => setShowConfirmModal(true)}
                                     disabled={submitting}
                                     style={{
-                                        borderRadius: '8px',
-                                        minWidth: '130px',
+                                        borderRadius: '10px',
+                                        padding: '0 24px',
+                                        height: '42px',
                                         fontWeight: '600',
-                                        height: '42px'
+                                        fontSize: '14px',
+                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                        border: 'none',
+                                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)'
                                     }}
                                 >
                                     Submit Quiz
@@ -1457,13 +1554,16 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             ) : (
                                 <Button
                                     type="primary"
-                                    size="large"
                                     onClick={nextQuestion}
                                     style={{
-                                        borderRadius: '8px',
-                                        minWidth: '110px',
-                                        fontWeight: '500',
-                                        height: '42px'
+                                        borderRadius: '10px',
+                                        padding: '0 24px',
+                                        height: '42px',
+                                        fontWeight: '600',
+                                        fontSize: '14px',
+                                        background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
+                                        border: 'none',
+                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
                                     }}
                                 >
                                     Next →
@@ -1471,7 +1571,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                             )}
                         </Space>
                     </div>
-                </Card>
+                </div>
 
             {/* Quiz Results Display */}
             {quizCompleted && quizResults && (
@@ -1581,29 +1681,101 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                 </Card>
             )}
 
-                {/* Submit Confirmation Modal */}
+                {/* Premium Submit Confirmation Modal */}
                 <Modal
-                    title="Submit Quiz"
                     open={showConfirmModal}
-                    onOk={() => submitQuiz(false)}
                     onCancel={() => setShowConfirmModal(false)}
-                    okText="Submit"
-                    cancelText="Cancel"
-                    confirmLoading={submitting}
+                    footer={null}
+                    closable={false}
+                    width={400}
+                    centered
+                    styles={{
+                        content: { padding: 0, borderRadius: 24, overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.1)' }
+                    }}
                 >
-                    <div>
-                        <WarningOutlined style={{ color: '#fa8c16', marginRight: 8 }} />
-                        <Text>Are you sure you want to submit your quiz?</Text>
-                    </div>
-                    <div style={{ marginTop: 16 }}>
-                        <Text type="secondary">
-                            You have answered {answeredQuestions} out of {questionsLength} questions.
+                    <div style={{ textAlign: 'center', padding: '32px 24px' }}>
+                        <div style={{
+                            width: 72,
+                            height: 72,
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            borderRadius: '24px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            margin: '0 auto 24px',
+                            boxShadow: '0 8px 20px rgba(16, 185, 129, 0.25)',
+                            transform: 'rotate(10deg)'
+                        }}>
+                            <div style={{ transform: 'rotate(-10deg)' }}>
+                                <CheckCircleOutlined style={{ fontSize: 36, color: '#fff' }} />
+                            </div>
+                        </div>
+                        
+                        <Title level={3} style={{ margin: '0 0 12px 0', color: '#0f172a', fontWeight: 800 }}>
+                            Ready to Submit?
+                        </Title>
+                        
+                        <div style={{ marginBottom: 32 }}>
+                            <Text style={{ fontSize: '15px', color: '#64748b' }}>
+                                You have answered <strong style={{ color: '#0f172a' }}>{answeredQuestions}</strong> out of <strong style={{ color: '#0f172a' }}>{questionsLength}</strong> questions.
+                            </Text>
                             {answeredQuestions < questionsLength && (
-                                <span style={{ color: '#fa8c16' }}>
-                                    {' '}Unanswered questions will be marked as incorrect.
-                                </span>
+                                <div style={{ 
+                                    marginTop: 16, 
+                                    padding: '12px 16px', 
+                                    backgroundColor: '#fffbeb', 
+                                    border: '1px solid #fde68a',
+                                    borderRadius: '12px',
+                                    color: '#b45309',
+                                    fontWeight: 600,
+                                    fontSize: '13.5px',
+                                    textAlign: 'left',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 10
+                                }}>
+                                    <WarningOutlined style={{ fontSize: 18, marginTop: 2 }} />
+                                    <span>Unanswered questions will be marked incorrect.</span>
+                                </div>
                             )}
-                        </Text>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: 12 }}>
+                            <Button 
+                                size="large"
+                                onClick={() => setShowConfirmModal(false)}
+                                style={{
+                                    flex: 1,
+                                    height: '52px',
+                                    borderRadius: '14px',
+                                    fontWeight: 700,
+                                    fontSize: '15px',
+                                    border: '2px solid #e2e8f0',
+                                    color: '#475569',
+                                    background: 'transparent'
+                                }}
+                            >
+                                Review First
+                            </Button>
+                            <Button 
+                                type="primary" 
+                                size="large"
+                                onClick={() => submitQuiz(false)}
+                                loading={submitting}
+                                style={{
+                                    flex: 1,
+                                    height: '52px',
+                                    borderRadius: '14px',
+                                    fontWeight: 700,
+                                    fontSize: '15px',
+                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                    border: 'none',
+                                    boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)'
+                                }}
+                            >
+                                Submit Now
+                            </Button>
+                        </div>
                     </div>
                 </Modal>
             </div>

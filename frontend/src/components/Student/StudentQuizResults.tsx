@@ -1,23 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-    Card,
-    Table,
-    Typography,
-    Tag,
-    Button,
-    Modal,
-    Row,
-    Col,
-    Statistic,
-    Progress,
-
-    Space,
-    Alert,
-    Spin,
-    Empty,
-    Tooltip,
-    Collapse
+    Table, Button, Modal, Row, Col,
+    Progress, Alert, Empty, Tooltip, Collapse, Skeleton,
+    Select, DatePicker
 } from 'antd';
+
+const { RangePicker } = DatePicker;
 import {
     TrophyOutlined,
     ClockCircleOutlined,
@@ -25,80 +13,99 @@ import {
     EyeOutlined,
     CalendarOutlined,
     FileTextOutlined,
-    BarChartOutlined
+    BarChartOutlined,
+    LockOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Title, Text, Paragraph } = Typography;
 
+/* ── Types ── */
 interface QuizResult {
-    id: number;
-    quiz_id: number;
-    quiz_title: string;
-    quiz_description: string;
-    batch_name: string;
-    // Add end_date and gating flag
-    end_date?: string | null;
-    results_locked?: boolean;
-    score: number | null;
-    max_score: number | null;
-    percentage: number | null;
-    time_taken: number;
-    submitted_at: string;
+    id: number; quiz_id: number; quiz_title: string; quiz_description: string;
+    batch_name: string; end_date?: string | null; results_locked?: boolean;
+    score: number | null; max_score: number | null; percentage: number | null;
+    time_taken: number; submitted_at: string;
     status: 'submitted' | 'auto_submitted' | 'graded';
-    total_questions: number | null;
-    correct_answers: number | null;
+    total_questions: number | null; correct_answers: number | null;
     teacher_feedback?: string;
+    teacher_first_name?: string;
+    teacher_last_name?: string;
 }
-
 interface AudioClipInfo {
-    id: number;
-    duration_seconds?: number;
-    audio_order: number;
-    max_plays: number;
-    has_audio: boolean;
+    id: number; duration_seconds?: number; audio_order: number; max_plays: number; has_audio: boolean;
 }
-
 interface DetailedResult {
-    quiz: {
-        id: number;
-        title: string;
-        description: string;
-        total_marks: number;
-        duration_minutes: number;
-    };
-    submission: {
-        id: number;
-        score: number;
-        max_score: number;
-        percentage: number;
-        time_taken: number;
-        submitted_at: string;
-        teacher_feedback?: string;
-    };
+    quiz: { id: number; title: string; description: string; total_marks: number; duration_minutes: number; };
+    submission: { id: number; score: number; max_score: number; percentage: number; time_taken: number; submitted_at: string; teacher_feedback?: string; };
     questions: Array<{
-        id: number;
-        question_text: string;
-        question_type: string;
-        points: number;
-        student_answer?: string;
-        correct_answer?: string;
-        is_correct?: boolean;
-        score?: number;
-        teacher_feedback?: string;
-        audio_clip_id?: number | null;
-        options?: Array<{
-            id: number;
-            option_text: string;
-            is_correct: boolean;
-        }>;
+        id: number; question_text: string; question_type: string; points: number;
+        student_answer?: string; correct_answer?: string; is_correct?: boolean;
+        score?: number; teacher_feedback?: string; audio_clip_id?: number | null;
+        options?: Array<{ id: number; option_text: string; is_correct: boolean }>;
         selected_options?: number[] | string;
     }>;
     audio_clips?: AudioClipInfo[];
 }
 
+/* ── Helpers ── */
+const scoreColor = (pct: number) => {
+    if (pct >= 80) return '#22c55e';
+    if (pct >= 60) return '#f59e0b';
+    return '#ef4444';
+};
+const gradeText = (pct: number) => {
+    if (pct >= 90) return 'A+';
+    if (pct >= 80) return 'A';
+    if (pct >= 70) return 'B';
+    if (pct >= 60) return 'C';
+    if (pct >= 50) return 'D';
+    return 'F';
+};
+const qScoreColor = (score?: number, points?: number) => {
+    const s = Number(score || 0), p = Number(points || 0);
+    if (p <= 0) return '#94a3b8';
+    if (s <= 0) return '#ef4444';
+    return (s / p) * 100 >= 100 ? '#22c55e' : '#f59e0b';
+};
+const fmtTime = (secs: number) => {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+};
+
+/* ── KPI Card ── */
+const KpiCard = ({ label, value, suffix = '', icon, accent, sub }: {
+    label: string; value: string | number; suffix?: string; icon: React.ReactNode; accent: string; sub?: string;
+}) => (
+    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
+        <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
+                {value}<span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>{suffix}</span>
+            </div>
+            {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{sub}</div>}
+        </div>
+    </div>
+);
+
+/* ── Pill ── */
+const Pill = ({ color, text }: { color: string; text: string }) => {
+    const map: Record<string, { bg: string; fg: string }> = {
+        green: { bg: '#dcfce7', fg: '#15803d' },
+        amber: { bg: '#fffbeb', fg: '#b45309' },
+        red:   { bg: '#fff1f2', fg: '#ef4444' },
+        indigo:{ bg: '#eef2ff', fg: '#4338ca' },
+        gray:  { bg: '#f1f5f9', fg: '#64748b' },
+    };
+    const c = map[color] || map.gray;
+    return <span style={{ fontSize: 11, fontWeight: 700, color: c.fg, background: c.bg, borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>{text}</span>;
+};
+
+/* ══════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════ */
 const StudentQuizResults: React.FC = () => {
     const [results, setResults] = useState<QuizResult[]>([]);
     const [loading, setLoading] = useState(true);
@@ -108,651 +115,580 @@ const StudentQuizResults: React.FC = () => {
     const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
     const { apiCall } = useAuth();
 
-    useEffect(() => {
-        fetchQuizResults();
-    }, []);
+    // Filter states
+    const [batchFilter, setBatchFilter] = useState<string | null>(null);
+    const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
+    const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+    const [gradeFilter, setGradeFilter] = useState<string | null>(null);
+
+    useEffect(() => { fetchQuizResults(); }, []);
 
     const fetchQuizResults = async () => {
         try {
-            const response = await apiCall('/quizzes/student/results');
-
-            if (response.ok) {
-                const data = await response.json();
-                setResults((data.results || []) as QuizResult[]);
-            } else {
-                console.error('Failed to fetch quiz results');
-            }
-        } catch (error) {
-            console.error('Error fetching quiz results:', error);
-        } finally {
-            setLoading(false);
-        }
+            const r = await apiCall('/quizzes/student/results');
+            if (r.ok) { const d = await r.json(); setResults((d.results || []) as QuizResult[]); }
+        } catch { /* silent */ }
+        finally { setLoading(false); }
     };
 
     const fetchDetailedResult = async (quizId: number) => {
         setLoadingQuizId(quizId);
         try {
-            const response = await apiCall(`/quizzes/${quizId}/student-results`);
-
-            if (response.ok) {
-                const data = await response.json();
+            const r = await apiCall(`/quizzes/${quizId}/student-results`);
+            if (r.ok) {
+                const data = await r.json();
                 setSelectedResult(data);
                 setDetailModalVisible(true);
-
-                // Securely preload audio clips via base64 (same IDM-evasion as quiz taking)
-                const clips: AudioClipInfo[] = data.audio_clips || [];
-                const hasAudioClips = clips.filter(c => c.has_audio);
-                if (hasAudioClips.length > 0) {
+                // Preload audio blobs
+                const clips: AudioClipInfo[] = (data.audio_clips || []).filter((c: AudioClipInfo) => c.has_audio);
+                if (clips.length > 0) {
                     const urls: Record<number, string> = {};
-                    await Promise.all(hasAudioClips.map(async (clip) => {
+                    await Promise.all(clips.map(async (clip) => {
                         try {
-                            const audioResp = await apiCall(`/quizzes/audio/${clip.id}/stream`);
-                            if (audioResp.ok) {
-                                const json = await audioResp.json();
-                                if (json.audioData) {
-                                    const byteChars = atob(json.audioData);
-                                    const byteArr = new Uint8Array(byteChars.length);
-                                    for (let i = 0; i < byteChars.length; i++) {
-                                        byteArr[i] = byteChars.charCodeAt(i);
-                                    }
-                                    const blob = new Blob([byteArr], { type: json.contentType || 'audio/wav' });
-                                    urls[clip.id] = URL.createObjectURL(blob);
+                            const ar = await apiCall(`/quizzes/audio/${clip.id}/stream`);
+                            if (ar.ok) {
+                                const j = await ar.json();
+                                if (j.audioData) {
+                                    const bc = atob(j.audioData), ba = new Uint8Array(bc.length);
+                                    for (let i = 0; i < bc.length; i++) ba[i] = bc.charCodeAt(i);
+                                    urls[clip.id] = URL.createObjectURL(new Blob([ba], { type: j.contentType || 'audio/wav' }));
                                 }
                             }
-                        } catch (e) {
-                            console.warn(`Failed to preload audio clip ${clip.id}`, e);
-                        }
+                        } catch (e) { console.warn(`Audio ${clip.id}`, e); }
                     }));
                     setAudioUrls(urls);
                 }
-            } else {
-                console.error('Failed to fetch detailed result');
             }
-        } catch (error) {
-            console.error('Error fetching detailed result:', error);
-        } finally {
-            setLoadingQuizId(null);
-        }
-    };
-
-    const getScoreColor = (percentage: number) => {
-        if (percentage >= 80) return '#52c41a';
-        if (percentage >= 60) return '#faad14';
-        return '#ff4d4f';
-    };
-
-    const getGradeText = (percentage: number) => {
-        if (percentage >= 90) return 'A+';
-        if (percentage >= 80) return 'A';
-        if (percentage >= 70) return 'B';
-        if (percentage >= 60) return 'C';
-        if (percentage >= 50) return 'D';
-        return 'F';
-    };
-
-    // Color logic for individual question scores (multi-choice partial credit handling)
-    const getQuestionScoreColor = (score: number | undefined, points: number | undefined) => {
-        const s = Number(score || 0);
-        const p = Number(points || 0);
-        if (p <= 0) return '#d9d9d9';
-        if (s <= 0) return '#ff4d4f'; // red
-        const pct = (s / p) * 100;
-        if (pct >= 100) return '#52c41a'; // green
-        return '#faad14'; // orange for partial credit
+        } catch { /* silent */ }
+        finally { setLoadingQuizId(null); }
     };
 
     const getQuestionStatus = (q: DetailedResult['questions'][number]) => {
         const isMcq = q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
         if (isMcq) {
-            const color = getQuestionScoreColor(q.score, q.points);
-            const s = Number(q.score || 0);
-            const p = Number(q.points || 0);
-            let text = 'Incorrect';
-            if (p > 0) {
-                if (s <= 0) text = 'Incorrect';
-                else if (s >= p) text = 'Correct';
-                else text = 'Partially Correct';
-            }
+            const s = Number(q.score || 0), p = Number(q.points || 0);
+            const color = qScoreColor(q.score, q.points);
+            const text = p > 0 ? (s <= 0 ? 'Incorrect' : s >= p ? 'Correct' : 'Partial') : 'Incorrect';
             return { color, text, correct: s >= p };
         }
-        return { color: q.is_correct ? '#52c41a' : '#ff4d4f', text: q.is_correct ? 'Correct' : 'Incorrect', correct: !!q.is_correct };
+        return { color: q.is_correct ? '#22c55e' : '#ef4444', text: q.is_correct ? 'Correct' : 'Incorrect', correct: !!q.is_correct };
     };
 
-    const calculateStats = () => {
-        if (results.length === 0) {
-            return {
-                totalQuizzes: 0,
-                averageScore: 0,
-                bestScore: 0,
-                totalTimeSpent: 0
-            };
-        }
+    /* ── Stats ── */
+    const availableBatches = React.useMemo(() => {
+        const set = new Set<string>();
+        results.forEach(r => {
+            if (r.batch_name) set.add(r.batch_name);
+        });
+        return Array.from(set).map(name => ({ value: name, label: name }));
+    }, [results]);
 
-        const unlocked = results.filter(r => !r.results_locked);
-        
-        // Average should be based on total points earned over total points possible (not average of percentages)
-        const valid = unlocked.filter(r => Number(r.max_score || 0) > 0);
-        const sumScores = valid.reduce((sum, r) => sum + Number(r.score || 0), 0);
-        const sumMax = valid.reduce((sum, r) => sum + Number(r.max_score || 0), 0);
-        const avgPercent = sumMax > 0 ? (sumScores / sumMax) * 100 : 0;
-        
-        const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
-        const totalTimeSpent = results.reduce((sum, r) => sum + Number(r.time_taken || 0), 0);
+    const availableTeachers = React.useMemo(() => {
+        const set = new Set<string>();
+        results.forEach(r => {
+            const tName = `${r.teacher_first_name || ''} ${r.teacher_last_name || ''}`.trim();
+            if (tName) set.add(tName);
+        });
+        return Array.from(set).map(name => ({ value: name, label: name }));
+    }, [results]);
 
-        return {
-            totalQuizzes: results.length,
-            averageScore: Math.round(avgPercent),
-            bestScore: Math.round(bestScore),
-            totalTimeSpent: Math.round(totalTimeSpent)
-        };
-    };
+    const availableGrades = React.useMemo(() => {
+        const set = new Set<string>();
+        results.forEach(r => {
+            if (r.percentage != null && !r.results_locked) {
+                set.add(gradeText(Number(r.percentage)));
+            }
+        });
+        const order = ['A+', 'A', 'B', 'C', 'D', 'F'];
+        return Array.from(set).sort((a, b) => order.indexOf(a) - order.indexOf(b)).map(g => ({ value: g, label: `Grade ${g}` }));
+    }, [results]);
 
-    const stats = calculateStats();
+    const filteredResults = React.useMemo(() => {
+        return results.filter(r => {
+            if (batchFilter && r.batch_name !== batchFilter) return false;
+            const tName = `${r.teacher_first_name || ''} ${r.teacher_last_name || ''}`.trim();
+            if (teacherFilter && tName !== teacherFilter) return false;
+            if (dateRange && dateRange[0] && dateRange[1]) {
+                const sDate = dayjs(r.submitted_at);
+                if (sDate.isBefore(dateRange[0].startOf('day')) || sDate.isAfter(dateRange[1].endOf('day'))) {
+                    return false;
+                }
+            }
+            if (gradeFilter && (!r.percentage && r.percentage !== 0 || r.results_locked || gradeText(Number(r.percentage)) !== gradeFilter)) return false;
+            return true;
+        });
+    }, [results, batchFilter, teacherFilter, dateRange, gradeFilter]);
 
+    const unlocked = filteredResults.filter(r => !r.results_locked);
+    const valid = unlocked.filter(r => Number(r.max_score || 0) > 0);
+    const sumS = valid.reduce((s, r) => s + Number(r.score || 0), 0);
+    const sumM = valid.reduce((s, r) => s + Number(r.max_score || 0), 0);
+    const avgScore = sumM > 0 ? Math.round((sumS / sumM) * 100) : 0;
+    const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
+    const totalTime = filteredResults.reduce((s, r) => s + Number(r.time_taken || 0), 0);
+    const avgTimeSecs = filteredResults.length > 0 ? Math.round(totalTime / filteredResults.length) : 0;
+
+    /* ── Columns ── */
     const columns: ColumnsType<QuizResult> = [
         {
-            title: 'Quiz',
-            dataIndex: 'quiz_title',
-            key: 'quiz_title',
-            render: (title: string, record: QuizResult) => (
+            title: 'QUIZ', key: 'quiz', width: 260, fixed: 'left',
+            render: (_, r) => (
                 <div>
-                    <Text strong>{title}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.batch_name}
-                    </Text>
-                    {record.results_locked && (
-                        <div style={{ marginTop: 6 }}>
-                            <Tag color="gold">Results locked until {record.end_date ? dayjs(record.end_date).format('MMM DD, YYYY HH:mm') : 'end'}</Tag>
+                    <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13.5, marginBottom: 3 }}>{r.quiz_title}</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#eef2ff', borderRadius: 20, padding: '2px 8px' }}>
+                        <FileTextOutlined style={{ fontSize: 10, color: '#6366f1' }} />
+                        <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{r.batch_name}</span>
+                    </div>
+                    {r.results_locked && (
+                        <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fffbeb', borderRadius: 20, padding: '2px 8px', marginLeft: 4 }}>
+                            <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
+                            <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Locked until {r.end_date ? dayjs(r.end_date).format('MMM DD, HH:mm') : 'end'}</span>
                         </div>
                     )}
                 </div>
             ),
         },
         {
-            title: 'Score',
-            key: 'score',
-            render: (_, record: QuizResult) => (
+            title: 'SCORE', key: 'score', width: 140,
+            render: (_, r) => r.results_locked ? (
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>Hidden</span>
+            ) : (
                 <div>
-                    {record.results_locked ? (
-                        <>
-                            <Text type="secondary">Hidden until end</Text>
-                            <br />
-                            <Tag color="gold">Locked</Tag>
-                        </>
-                    ) : (
-                        <>
-                            <Text strong style={{ color: getScoreColor(Number(record.percentage || 0)) }}>
-                                {Number(record.score || 0).toFixed(2)}/{Number(record.max_score || 0).toFixed(2)}
-                            </Text>
-                            <br />
-                            <Tag color={getScoreColor(Number(record.percentage || 0))}>
-                                {Number(record.percentage || 0).toFixed(2)}% ({getGradeText(Number(record.percentage || 0))})
-                            </Tag>
-                        </>
-                    )}
+                    <div style={{ fontSize: 15, fontWeight: 800, color: scoreColor(Number(r.percentage || 0)) }}>{Number(r.percentage || 0).toFixed(1)}%</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{Number(r.score || 0).toFixed(1)}/{Number(r.max_score || 0).toFixed(1)} pts</div>
+                    <Pill color={Number(r.percentage || 0) >= 50 ? 'green' : 'red'} text={gradeText(Number(r.percentage || 0))} />
                 </div>
-            ),
+            )
         },
         {
-            title: 'Performance',
-            key: 'performance',
-            render: (_, record: QuizResult) => (
-                <div style={{ width: 120 }}>
-                    {record.results_locked ? (
-                        <Text type="secondary">Hidden</Text>
-                    ) : (
-                        <>
-                            <Progress
-                                percent={Number(record.percentage || 0)}
-                                size="small"
-                                strokeColor={getScoreColor(Number(record.percentage || 0))}
-                                format={(percent) => `${percent}%`}
-                            />
-                            <Text type="secondary" style={{ fontSize: '12px' }}>
-                                {Number(record.correct_answers || 0)}/{Number(record.total_questions || 0)} correct
-                            </Text>
-                        </>
-                    )}
-                </div>
-            ),
-        },
-        {
-            title: 'Time Taken',
-            dataIndex: 'time_taken',
-            key: 'time_taken',
-            render: (time: number) => (
+            title: 'PERFORMANCE', key: 'performance', width: 180,
+            render: (_, r) => r.results_locked ? (
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
+            ) : (
                 <div>
-                    <ClockCircleOutlined style={{ marginRight: 4 }} />
-                    <Text>{Math.floor(time / 60)}m {time % 60}s</Text>
+                    <Progress percent={Number(r.percentage || 0)} size="small" strokeColor={scoreColor(Number(r.percentage || 0))} showInfo={false} strokeLinecap="round" />
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                        {Number(r.correct_answers || 0)}/{Number(r.total_questions || 0)} correct
+                    </div>
                 </div>
             ),
         },
         {
-            title: 'Submitted',
-            dataIndex: 'submitted_at',
-            key: 'submitted_at',
-            render: (date: string) => (
+            title: 'TIME', key: 'time_taken', width: 110,
+            render: (_, r) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 13 }} />
+                    <span style={{ fontSize: 13, color: '#4b5563', fontWeight: 600 }}>{fmtTime(r.time_taken)}</span>
+                </div>
+            ),
+        },
+        {
+            title: 'SUBMITTED', key: 'submitted_at', width: 150,
+            render: (_, r) => (
                 <div>
-                    <CalendarOutlined style={{ marginRight: 4 }} />
-                    <Text>{dayjs(date).format('MMM DD, YYYY')}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {dayjs(date).format('HH:mm')}
-                    </Text>
+                    <div style={{ fontSize: 13, color: '#1a1d2e', fontWeight: 600 }}>{dayjs(r.submitted_at).format('MMM DD, YYYY')}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{dayjs(r.submitted_at).format('HH:mm')}</div>
                 </div>
             ),
         },
         {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, record: QuizResult) => (
-                <Tooltip title={record.results_locked ? 'Results will be available after the quiz ends' : 'View detailed results'}>
-                    <Button
-                        type="primary"
-                        icon={<EyeOutlined />}
-                        onClick={() => !record.results_locked && fetchDetailedResult(record.quiz_id)}
-                        loading={loadingQuizId === record.quiz_id}
-                        disabled={!!record.results_locked}
-                    >
-                        View Details
+            title: 'ACTIONS', key: 'actions', width: 140, fixed: 'right',
+            render: (_, r) => (
+                <Tooltip title={r.results_locked ? 'Results available after quiz ends' : 'View detailed results'}>
+                    <Button size="small" icon={<EyeOutlined />}
+                        loading={loadingQuizId === r.quiz_id}
+                        disabled={!!r.results_locked}
+                        onClick={() => !r.results_locked && fetchDetailedResult(r.quiz_id)}
+                        style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', background: '#f4f3ff', fontWeight: 600, height: 30 }}>
+                        Details
                     </Button>
                 </Tooltip>
             ),
         },
     ];
 
-    if (loading) {
-        return (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-                <Spin size="large" />
+    /* ── Loading skeleton ── */
+    if (loading) return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ marginBottom: 24 }}><Skeleton.Input active style={{ width: 200, height: 26, borderRadius: 8 }} /><div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 140, height: 13, borderRadius: 6 }} /></div></div>
+            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+                {[1,2,3,4].map(i => (
+                    <Col xs={24} sm={12} md={6} key={i}>
+                        <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 12px rgba(99,102,241,0.07)' }}>
+                            <Skeleton.Avatar active size={46} shape="square" style={{ borderRadius: 13 }} />
+                            <div style={{ flex: 1 }}><Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 44, height: 26, borderRadius: 6 }} /></div>
+                        </div>
+                    </Col>
+                ))}
+            </Row>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', flex: 1, overflow: 'hidden', boxShadow: '0 2px 12px rgba(99,102,241,0.07)' }}>
+                {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', borderBottom: '1px solid #f8f8fc' }}>
+                        <div style={{ flex: 3 }}><Skeleton.Input active style={{ width: '60%', height: 13, borderRadius: 5, marginBottom: 5 }} block /><Skeleton.Input active style={{ width: '30%', height: 11, borderRadius: 5 }} block /></div>
+                        <Skeleton.Input active style={{ width: 70, height: 20, borderRadius: 20 }} />
+                        <Skeleton.Input active style={{ width: 80, height: 20, borderRadius: 5 }} />
+                        <Skeleton.Button active size="small" style={{ width: 65, height: 28, borderRadius: 8 }} />
+                    </div>
+                ))}
             </div>
-        );
-    }
+        </div>
+    );
 
+    /* ── Render ── */
     return (
-        <div>
-            <Title level={2}>My Quiz Results</Title>
-            <Paragraph type="secondary">
-                View your quiz performance, scores, and detailed feedback from your teachers.
-            </Paragraph>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-            {/* Statistics Cards */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {/* Header */}
+            <div style={{ marginBottom: 20, flexShrink: 0 }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>My Results</div>
+                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
+                    {filteredResults.length} quiz result{filteredResults.length !== 1 ? 's' : ''} · avg score {avgScore}%
+                </div>
+            </div>
+
+            {/* Filters */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+                <RangePicker
+                    value={dateRange}
+                    onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                    style={{ borderRadius: 8 }}
+                    allowClear
+                />
+                <Select
+                    value={batchFilter}
+                    onChange={setBatchFilter}
+                    allowClear
+                    placeholder="All Batches"
+                    style={{ width: 220 }}
+                    options={availableBatches}
+                    showSearch
+                    optionFilterProp="label"
+                />
+                <Select
+                    value={teacherFilter}
+                    onChange={setTeacherFilter}
+                    allowClear
+                    placeholder="All Teachers"
+                    style={{ width: 220 }}
+                    options={availableTeachers}
+                    showSearch
+                    optionFilterProp="label"
+                />
+                <Select
+                    value={gradeFilter}
+                    onChange={setGradeFilter}
+                    allowClear
+                    placeholder="All Grades"
+                    style={{ width: 140 }}
+                    options={availableGrades}
+                />
+            </div>
+
+            {/* KPI Cards */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
                 <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Total Quizzes"
-                            value={stats.totalQuizzes}
-                            prefix={<FileTextOutlined />}
-                            valueStyle={{ color: '#1890ff' }}
-                        />
-                    </Card>
+                    <KpiCard label="Total Quizzes"   value={filteredResults.length}               icon={<FileTextOutlined />}   accent="#6366f1" />
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Average Score"
-                            value={stats.averageScore}
-                            suffix="%"
-                            prefix={<BarChartOutlined />}
-                            valueStyle={{ color: getScoreColor(stats.averageScore) }}
-                        />
-                    </Card>
+                    <KpiCard label="Average Score"   value={avgScore}  suffix="%"         icon={<BarChartOutlined />}   accent="#6366f1" />
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Best Score"
-                            value={stats.bestScore}
-                            suffix="%"
-                            prefix={<TrophyOutlined />}
-                            valueStyle={{ color: getScoreColor(stats.bestScore) }}
-                        />
-                    </Card>
+                    <KpiCard label="Best Score"      value={Math.round(bestScore)} suffix="%" icon={<TrophyOutlined />} accent="#f59e0b" />
                 </Col>
                 <Col xs={24} sm={12} md={6}>
-                    <Card>
-                        <Statistic
-                            title="Time Spent"
-                            value={Math.floor(stats.totalTimeSpent / 60)}
-                            suffix="minutes"
-                            prefix={<ClockCircleOutlined />}
-                            valueStyle={{ color: '#722ed1' }}
-                        />
-                    </Card>
+                    <KpiCard label="Avg Time Spent"  value={fmtTime(avgTimeSecs)}          icon={<ClockCircleOutlined />} accent="#0ea5e9" sub={`per quiz · ${fmtTime(totalTime)} total`} />
                 </Col>
             </Row>
 
-            {/* Results Table */}
-            <Card title="Quiz Results History">
-                {results.length === 0 ? (
-                    <Empty
-                        description="No quiz results found"
-                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    >
-                        <Text type="secondary">
-                            Complete some quizzes to see your results here.
-                        </Text>
-                    </Empty>
-                ) : (
-                    <Table
-                        columns={columns}
-                        dataSource={Array.isArray(results) ? results : []}
-                        rowKey="id"
-                        pagination={{
-                            pageSize: 10,
-                            showSizeChanger: true,
-                            showQuickJumper: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} results`,
-                        }}
-                    />
-                )}
-            </Card>
+            {/* Table card */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
-            {/* Detailed Result Modal */}
+                {/* Table header bar */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 15 }}>
+                            <BarChartOutlined />
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e' }}>Results History</span>
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#6366f1', borderRadius: 20, padding: '3px 12px' }}>
+                        {filteredResults.length} total
+                    </span>
+                </div>
+
+                {/* Table body — only rows scroll */}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                    {filteredResults.length === 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220 }}>
+                            <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet. Complete some quizzes first!</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        </div>
+                    ) : (
+                        <Table
+                            columns={columns}
+                            dataSource={filteredResults}
+                            rowKey="id"
+                            loading={loading}
+                            pagination={false}
+                            scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                            rowClassName={() => 'result-row'}
+                        />
+                    )}
+                </div>
+            </div>
+
+            {/* ── Detail Modal ── */}
             <Modal
-                title="Quiz Result Details"
+                title={null}
                 open={detailModalVisible}
-                onCancel={() => {
-                    setDetailModalVisible(false);
-                    setSelectedResult(null);
-                    // Revoke blob URLs to free memory
-                    Object.values(audioUrls).forEach(url => URL.revokeObjectURL(url));
-                    setAudioUrls({});
-                }}
+                onCancel={() => { setDetailModalVisible(false); setSelectedResult(null); Object.values(audioUrls).forEach(u => URL.revokeObjectURL(u)); setAudioUrls({}); }}
                 footer={null}
-                width={800}
+                width={960}
+                centered
+                closable={true}
+                closeIcon={
+                    <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', transition: 'all 0.2s', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.1)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1)'; }}
+                    >✕</div>
+                }
+                wrapClassName="result-detail-modal"
+                bodyStyle={{ padding: 0, height: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                style={{ top: 20 }}
             >
                 {selectedResult && (
-                    <div>
-                        {/* Quiz Info */}
-                        <Card size="small" style={{ marginBottom: 16 }}>
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <Title level={4}>{selectedResult.quiz.title}</Title>
-                                    <Paragraph>{selectedResult.quiz.description}</Paragraph>
-                                </Col>
-                                <Col span={12}>
-                                    <Row gutter={[8, 8]}>
-                                        <Col span={12}>
-                                            <Statistic
-                                                title="Your Score"
-                                                value={selectedResult.submission.percentage}
-                                                suffix="%"
-                                                valueStyle={{ color: getScoreColor(selectedResult.submission.percentage) }}
-                                            />
-                                        </Col>
-                                        <Col span={12}>
-                                            <Statistic
-                                                title="Time Taken"
-                                                value={Math.floor(selectedResult.submission.time_taken / 60)}
-                                                suffix="min"
-                                            />
-                                        </Col>
-                                    </Row>
-                                </Col>
-                            </Row>
-                        </Card>
+                    <>
+                        {/* ═══ FIXED HEADER SECTION ═══ */}
+                        <div style={{ flexShrink: 0 }}>
+                            {/* Gradient banner */}
+                            <div style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)', padding: '22px 52px 22px 28px', color: '#fff' }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
+                                    <div>
+                                        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>{selectedResult.quiz.title}</div>
+                                        <div style={{ fontSize: 12, opacity: 0.8 }}>
+                                            <CalendarOutlined style={{ marginRight: 6 }} />
+                                            Submitted {dayjs(selectedResult.submission.submitted_at).format('MMM DD, YYYY · HH:mm')}
+                                            {selectedResult.quiz.description && <span style={{ marginLeft: 12, opacity: 0.7 }}>· {selectedResult.quiz.description.length > 60 ? selectedResult.quiz.description.slice(0, 60) + '…' : selectedResult.quiz.description}</span>}
+                                        </div>
+                                    </div>
+                                    {/* Large grade badge */}
+                                    <div style={{ textAlign: 'center', minWidth: 70 }}>
+                                        <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 900, margin: '0 auto' }}>
+                                            {gradeText(selectedResult.submission.percentage)}
+                                        </div>
+                                        <div style={{ fontSize: 10, fontWeight: 600, marginTop: 4, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 0.6 }}>Grade</div>
+                                    </div>
+                                </div>
 
-                        {/* Teacher Feedback */}
-                        {selectedResult.submission.teacher_feedback && (
-                            <Alert
-                                message="Teacher Feedback"
-                                description={selectedResult.submission.teacher_feedback}
-                                type="info"
-                                showIcon
-                                style={{ marginBottom: 16 }}
-                            />
-                        )}
+                                {/* Score KPIs row */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                                    {[
+                                        { icon: <TrophyOutlined />, label: 'Score', value: `${selectedResult.submission.percentage.toFixed(1)}%` },
+                                        { icon: <CheckCircleOutlined />, label: 'Points', value: `${Number(selectedResult.submission.score).toFixed(2)} / ${Number(selectedResult.submission.max_score).toFixed(2)}` },
+                                        { icon: <ClockCircleOutlined />, label: 'Time Taken', value: fmtTime(selectedResult.submission.time_taken) },
+                                        { icon: <FileTextOutlined />, label: 'Questions', value: `${selectedResult.questions.length}` },
+                                    ].map(item => (
+                                        <div key={item.label} style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(6px)', borderRadius: 12, padding: '10px 14px', textAlign: 'center' }}>
+                                            <div style={{ fontSize: 16, opacity: 0.8, marginBottom: 3 }}>{item.icon}</div>
+                                            <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{item.label}</div>
+                                            <div style={{ fontSize: 16, fontWeight: 800 }}>{item.value}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
 
-                        {/* Question-wise Performance — Grouped by Audio */}
-                        <Card title="Question-wise Performance" size="small"
-                            style={{ userSelect: 'none' }}
-                            onContextMenu={(e: any) => e.preventDefault()}
-                            onCopy={(e: any) => e.preventDefault()}
-                        >
+                            {/* Overall performance bar */}
+                            <div style={{ padding: '14px 28px', background: '#f8f7ff', borderBottom: '1px solid #f0f0f8' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overall Performance</span>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor(selectedResult.submission.percentage) }}>{selectedResult.submission.percentage.toFixed(1)}%</span>
+                                        {(() => {
+                                            const correct = selectedResult.questions.filter(q => {
+                                                const s = Number(q.score || 0), p = Number(q.points || 0);
+                                                return p > 0 && s >= p;
+                                            }).length;
+                                            return <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{correct}/{selectedResult.questions.length} correct</span>;
+                                        })()}
+                                    </div>
+                                </div>
+                                <Progress percent={selectedResult.submission.percentage} strokeColor={scoreColor(selectedResult.submission.percentage)} showInfo={false} strokeLinecap="round" trailColor="#e0e7ff" size={{ height: 10 }} />
+                            </div>
+
+                            {/* Teacher feedback (still fixed) */}
+                            {selectedResult.submission.teacher_feedback && (
+                                <div style={{ padding: '0 28px', paddingTop: 12 }}>
+                                    <Alert
+                                        message={<span style={{ fontWeight: 700, color: '#1a1d2e' }}>Teacher Feedback</span>}
+                                        description={selectedResult.submission.teacher_feedback}
+                                        type="info"
+                                        showIcon
+                                        style={{ borderRadius: 12, border: '1px solid #c7d2fe' }}
+                                    />
+                                </div>
+                            )}
+
+                            {/* Question section header (fixed) */}
+                            <div style={{ padding: '14px 28px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{ width: 30, height: 30, borderRadius: 9, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 14 }}>
+                                        <FileTextOutlined />
+                                    </div>
+                                    <span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 14 }}>Question-wise Review</span>
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#6366f1', borderRadius: 20, padding: '3px 12px' }}>
+                                    {selectedResult.questions.length} questions
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* ═══ SCROLLABLE QUESTION SECTION ═══ */}
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 28px 24px', minHeight: 0 }} onContextMenu={e => e.preventDefault()} onCopy={e => e.preventDefault()}>
                             {(() => {
                                 const questions = selectedResult.questions;
                                 const audioClips: AudioClipInfo[] = selectedResult.audio_clips || [];
-
-                                // Group questions
-                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: typeof questions }
-                                    | { type: 'independent'; question: typeof questions[0] };
+                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: typeof questions } | { type: 'independent'; question: typeof questions[0] };
                                 const groups: QGroup[] = [];
                                 const audioMap = new Map<number, typeof questions>();
-
+                                questions.forEach(q => { if (q.audio_clip_id) { if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []); audioMap.get(q.audio_clip_id)!.push(q); } });
+                                const seen = new Set<number>();
                                 questions.forEach(q => {
-                                    if (q.audio_clip_id) {
-                                        if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []);
-                                        audioMap.get(q.audio_clip_id)!.push(q);
-                                    }
-                                });
-
-                                const processedClips = new Set<number>();
-                                questions.forEach(q => {
-                                    if (q.audio_clip_id && !processedClips.has(q.audio_clip_id)) {
-                                        processedClips.add(q.audio_clip_id);
-                                        const clip = audioClips.find(c => c.id === q.audio_clip_id);
-                                        groups.push({
-                                            type: 'audio',
-                                            clipId: q.audio_clip_id,
-                                            clip: clip || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false },
-                                            questions: audioMap.get(q.audio_clip_id) || []
-                                        });
+                                    if (q.audio_clip_id && !seen.has(q.audio_clip_id)) {
+                                        seen.add(q.audio_clip_id);
+                                        const clip = audioClips.find(c => c.id === q.audio_clip_id) || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false };
+                                        groups.push({ type: 'audio', clipId: q.audio_clip_id, clip, questions: audioMap.get(q.audio_clip_id) || [] });
                                     } else if (!q.audio_clip_id) {
                                         groups.push({ type: 'independent', question: q });
                                     }
                                 });
+                                let gIdx = 0;
 
-                                let globalIdx = 0;
-
-                                const renderQuestion = (question: typeof questions[0], idx: number) => {
-                                    const status = getQuestionStatus(question);
-                                    const isMcq = question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple';
-
+                                const renderQ = (q: typeof questions[0], idx: number) => {
+                                    const st = getQuestionStatus(q);
+                                    const isMcq = q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+                                    const scorePct = Number(q.points) > 0 ? (Number(q.score || 0) / Number(q.points)) * 100 : 0;
                                     return (
                                         <Collapse.Panel
+                                            key={`q-${q.id}`}
                                             header={
                                                 <div style={{ width: '100%' }}>
-                                                    <div style={{ lineHeight: '1.5', fontSize: '13px', color: '#1a1a1a', marginBottom: '6px' }}>
-                                                        <span style={{ fontWeight: 600, color: '#1890ff', marginRight: '6px' }}>Q{idx}.</span>
-                                                        {question.question_text}
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                        <div style={{ flex: 1, fontSize: 13, color: '#1a1d2e', lineHeight: 1.5 }}>
+                                                            <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 6, fontSize: 14 }}>Q{idx}.</span>
+                                                            {q.question_text}
+                                                        </div>
+                                                        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                                                            <span style={{ fontSize: 11, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 20, padding: '3px 10px' }}>
+                                                                {st.correct ? '✓ ' : '✗ '}{st.text}
+                                                            </span>
+                                                            <span style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 20, padding: '3px 10px' }}>
+                                                                {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
+                                                            </span>
+                                                        </div>
                                                     </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
-                                                        <Tag color={status.color} style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '11px', lineHeight: '20px', borderRadius: '10px', fontWeight: 600 }}>
-                                                            {status.correct ? (<><CheckCircleOutlined /> {status.text}</>) : (<>✗ {status.text}</>)}
-                                                        </Tag>
-                                                        <Tag color={getQuestionScoreColor(question.score, question.points)} style={{ margin: 0, whiteSpace: 'nowrap', fontSize: '11px', lineHeight: '20px', borderRadius: '10px', fontWeight: 600 }}>
-                                                            {Number(question.score || 0) % 1 === 0 ? Number(question.score || 0) : Number(question.score || 0).toFixed(2)}/{Number(question.points) % 1 === 0 ? Number(question.points) : Number(question.points).toFixed(2)} pts
-                                                        </Tag>
+                                                    {/* Mini progress for each question */}
+                                                    <div style={{ marginTop: 6 }}>
+                                                        <Progress percent={scorePct} size={{ height: 4 }} strokeColor={st.correct ? '#22c55e' : scorePct > 0 ? '#f59e0b' : '#ef4444'} showInfo={false} strokeLinecap="round" trailColor="#f1f5f9" />
                                                     </div>
                                                 </div>
                                             }
-                                            key={`q-${question.id}`}
                                         >
-                                            {(() => {
-                                                if (isMcq && question.options && question.options.length > 0) {
-                                                    let selectedIds: number[] = [];
-                                                    try {
-                                                        if (Array.isArray((question as any).selected_options)) {
-                                                            selectedIds = (question as any).selected_options as number[];
-                                                        } else if ((question as any).selected_options) {
-                                                            const parsed = JSON.parse((question as any).selected_options as string);
-                                                            if (Array.isArray(parsed)) selectedIds = parsed as number[];
-                                                        }
-                                                    } catch (_) {
-                                                        selectedIds = [];
-                                                    }
-                                                    const selectedOptions = question.options.filter(o => selectedIds.includes(o.id));
+                                            <div style={{ padding: '4px 0' }}>
+                                                {isMcq && q.options && q.options.length > 0 ? (() => {
+                                                    let selIds: number[] = [];
+                                                    try { if (Array.isArray(q.selected_options)) selIds = q.selected_options as number[]; else if (q.selected_options) { const p = JSON.parse(q.selected_options as string); if (Array.isArray(p)) selIds = p; } } catch { selIds = []; }
+                                                    const selOpts = q.options.filter(o => selIds.includes(o.id));
                                                     return (
                                                         <div>
-                                                            <Text type="secondary">Your Answer: </Text>
-                                                            {selectedOptions.length > 0 ? (
-                                                                <Space wrap>
-                                                                    {selectedOptions.map((opt) => (
-                                                                        <Tag key={opt.id} color={opt.is_correct ? 'green' : 'red'}>
-                                                                            {opt.option_text}
-                                                                        </Tag>
-                                                                    ))}
-                                                                </Space>
-                                                            ) : (
-                                                                <Text type="secondary">No answer</Text>
-                                                            )}
-                                                            {question.options.some(o => o.is_correct) && (
-                                                                <div style={{ marginTop: 6 }}>
-                                                                    <Text type="secondary">Correct Answer: </Text>
-                                                                    <Space wrap>
-                                                                        {question.options.filter(o => o.is_correct).map((opt) => (
-                                                                            <Tag key={`c-${opt.id}`} color="green">{opt.option_text}</Tag>
+                                                            <div style={{ marginBottom: 10 }}>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Your Answer</div>
+                                                                {selOpts.length > 0 ? (
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                                        {selOpts.map(o => (
+                                                                            <span key={o.id} style={{ fontSize: 12, fontWeight: 600, color: o.is_correct ? '#15803d' : '#ef4444', background: o.is_correct ? '#dcfce7' : '#fff1f2', borderRadius: 8, padding: '5px 12px', border: `1px solid ${o.is_correct ? '#bbf7d0' : '#fecdd3'}` }}>
+                                                                                {o.is_correct ? '✓ ' : '✗ '}{o.option_text}
+                                                                            </span>
                                                                         ))}
-                                                                    </Space>
+                                                                    </div>
+                                                                ) : <span style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>No answer provided</span>}
+                                                            </div>
+                                                            {q.options.some(o => o.is_correct) && (
+                                                                <div>
+                                                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Correct Answer</div>
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                                        {q.options.filter(o => o.is_correct).map(o => (
+                                                                            <span key={`c-${o.id}`} style={{ fontSize: 12, fontWeight: 600, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: '5px 12px', border: '1px solid #bbf7d0' }}>
+                                                                                ✓ {o.option_text}
+                                                                            </span>
+                                                                        ))}
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>
                                                     );
-                                                }
-                                                return (
-                                                    <>
-                                                        {question.student_answer && (
+                                                })() : (
+                                                    <div>
+                                                        {q.student_answer && (
                                                             <div style={{ marginBottom: 8 }}>
-                                                                <Text type="secondary">Your Answer: </Text>
-                                                                <Text>{question.student_answer}</Text>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Your Answer</div>
+                                                                <div style={{ fontSize: 13, color: '#1a1d2e', background: '#f8fafc', borderRadius: 8, padding: '8px 12px', border: '1px solid #f1f5f9' }}>{q.student_answer}</div>
                                                             </div>
                                                         )}
-                                                        {question.correct_answer && question.student_answer !== question.correct_answer && (
-                                                            <div style={{ marginBottom: 8 }}>
-                                                                <Text type="secondary">Correct Answer: </Text>
-                                                                <Text style={{ color: '#52c41a' }}>{question.correct_answer}</Text>
+                                                        {q.correct_answer && q.student_answer !== q.correct_answer && (
+                                                            <div>
+                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Correct Answer</div>
+                                                                <div style={{ fontSize: 13, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>{q.correct_answer}</div>
                                                             </div>
                                                         )}
-                                                    </>
-                                                );
-                                            })()}
-                                            {question.teacher_feedback && (
-                                                <div style={{ marginTop: 8 }}>
-                                                    <Text type="secondary">Feedback: </Text>
-                                                    <Text italic>{question.teacher_feedback}</Text>
-                                                </div>
-                                            )}
+                                                    </div>
+                                                )}
+                                                {q.teacher_feedback && (
+                                                    <div style={{ marginTop: 10, background: '#fffbeb', borderRadius: 10, padding: '10px 14px', border: '1px solid #fde68a' }}>
+                                                        <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Teacher Feedback</div>
+                                                        <div style={{ fontSize: 12, color: '#4b5563', fontStyle: 'italic' }}>{q.teacher_feedback}</div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </Collapse.Panel>
                                     );
                                 };
 
                                 return (
                                     <div>
-                                        {groups.map((group, gIdx) => {
+                                        {groups.map((group, gi) => {
                                             if (group.type === 'independent') {
-                                                globalIdx++;
-                                                return (
-                                                    <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: 8 }} key={`ind-${group.question.id}`}>
-                                                        {renderQuestion(group.question, globalIdx)}
-                                                    </Collapse>
-                                                );
+                                                gIdx++;
+                                                return <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: 8, borderRadius: 12, border: '1px solid #f0f0f8' }} key={`ind-${group.question.id}`}>{renderQ(group.question, gIdx)}</Collapse>;
                                             }
-
-                                            // Audio Group
-                                            const audioQs = group.questions;
-                                            const correctCount = audioQs.filter(q => {
-                                                const s = Number(q.score || 0);
-                                                const p = Number(q.points || 0);
-                                                return p > 0 && s >= p;
-                                            }).length;
-                                            const totalPtsEarned = audioQs.reduce((s, q) => s + Number(q.score || 0), 0);
-                                            const totalPtsMax = audioQs.reduce((s, q) => s + Number(q.points || 0), 0);
-                                            const sectionPct = totalPtsMax > 0 ? Math.round((totalPtsEarned / totalPtsMax) * 100) : 0;
-                                            const sectionColor = sectionPct >= 80 ? '#52c41a' : sectionPct >= 50 ? '#faad14' : '#ff4d4f';
-
+                                            const qs = group.questions;
+                                            const pts = qs.reduce((s, q) => s + Number(q.score || 0), 0);
+                                            const max = qs.reduce((s, q) => s + Number(q.points || 0), 0);
+                                            const pct = max > 0 ? Math.round((pts / max) * 100) : 0;
                                             return (
-                                                <div key={`audio-${group.clipId}`} style={{
-                                                    marginBottom: '20px',
-                                                    borderRadius: '14px',
-                                                    overflow: 'hidden',
-                                                    border: '2px solid #06b6d4',
-                                                    boxShadow: '0 4px 16px rgba(6,182,212,0.12)'
-                                                }}>
-                                                    {/* Audio Section Header */}
-                                                    <div style={{
-                                                        background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
-                                                        padding: '16px 20px',
-                                                        color: '#fff'
-                                                    }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                                <div style={{
-                                                                    background: 'rgba(255,255,255,0.2)',
-                                                                    width: 34, height: 34, borderRadius: '50%',
-                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                    fontSize: 16
-                                                                }}>🎧</div>
-                                                                <div>
-                                                                    <Text strong style={{ color: '#fff', fontSize: '14px', display: 'block' }}>
-                                                                        Listening Comprehension — Audio {group.clip.audio_order || gIdx + 1}
-                                                                    </Text>
-                                                                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: '11px' }}>
-                                                                        {audioQs.length} question{audioQs.length > 1 ? 's' : ''} linked to this audio
-                                                                    </Text>
-                                                                </div>
+                                                <div key={`audio-${group.clipId}`} style={{ marginBottom: 14, borderRadius: 14, overflow: 'hidden', border: '1.5px solid #06b6d4', boxShadow: '0 2px 12px rgba(6,182,212,0.1)' }}>
+                                                    <div style={{ background: 'linear-gradient(135deg,#0891b2,#22d3ee)', padding: '14px 18px', color: '#fff' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                                                            <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🎧</div>
+                                                            <div>
+                                                                <div style={{ fontWeight: 700, fontSize: 14 }}>Listening — Audio {group.clip.audio_order || gi + 1}</div>
+                                                                <div style={{ fontSize: 11, opacity: 0.8 }}>{qs.length} question{qs.length > 1 ? 's' : ''}</div>
+                                                            </div>
+                                                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                                                {[{ label: 'Points', val: `${pts.toFixed(pts % 1 ? 2 : 0)}/${max.toFixed(max % 1 ? 2 : 0)}` }, { label: 'Score', val: `${pct}%` }].map(it => (
+                                                                    <div key={it.label} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 8, padding: '4px 12px', textAlign: 'center' }}>
+                                                                        <div style={{ fontSize: 10, opacity: 0.7 }}>{it.label}</div>
+                                                                        <div style={{ fontWeight: 700, fontSize: 13 }}>{it.val}</div>
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         </div>
-
-                                                        {/* KPIs */}
-                                                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '8px', padding: '6px 14px',
-                                                                display: 'flex', alignItems: 'center', gap: '6px'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Accuracy</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>{correctCount}/{audioQs.length}</Text>
-                                                            </div>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '8px', padding: '6px 14px',
-                                                                display: 'flex', alignItems: 'center', gap: '6px'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Points</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>
-                                                                    {totalPtsEarned % 1 === 0 ? totalPtsEarned : totalPtsEarned.toFixed(2)}/{totalPtsMax % 1 === 0 ? totalPtsMax : totalPtsMax.toFixed(2)}
-                                                                </Text>
-                                                            </div>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '8px', padding: '6px 14px',
-                                                                display: 'flex', alignItems: 'center', gap: '6px'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px' }}>Score</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '13px' }}>{sectionPct}%</Text>
-                                                                <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: sectionColor }} />
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Secure Audio Player (Blob URL — no network endpoint exposed) */}
                                                         {audioUrls[group.clipId] && (
-                                                            <div style={{ marginTop: '10px' }}>
-                                                                <audio
-                                                                    controls
-                                                                    controlsList="nodownload noplaybackrate"
-                                                                    onContextMenu={(e) => e.preventDefault()}
-                                                                    src={audioUrls[group.clipId]}
-                                                                    style={{
-                                                                        width: '100%', height: '34px',
-                                                                        borderRadius: '8px',
-                                                                        filter: 'invert(1) hue-rotate(180deg)',
-                                                                        opacity: 0.9
-                                                                    }}
-                                                                />
-                                                            </div>
+                                                            <audio controls controlsList="nodownload noplaybackrate" onContextMenu={e => e.preventDefault()} src={audioUrls[group.clipId]}
+                                                                style={{ width: '100%', height: 32, borderRadius: 8, filter: 'invert(1) hue-rotate(180deg)', opacity: 0.9 }} />
                                                         )}
                                                     </div>
-
-                                                    {/* Questions under this audio */}
-                                                    <div style={{ padding: '12px 16px', backgroundColor: '#f0fdfa' }}>
+                                                    <div style={{ background: '#f0fdfa', padding: '10px 14px' }}>
                                                         <Collapse accordion bordered={false} style={{ background: 'transparent' }}>
-                                                            {audioQs.map((q) => {
-                                                                globalIdx++;
-                                                                return renderQuestion(q, globalIdx);
-                                                            })}
+                                                            {qs.map(q => { gIdx++; return renderQ(q, gIdx); })}
                                                         </Collapse>
                                                     </div>
                                                 </div>
@@ -761,10 +697,22 @@ const StudentQuizResults: React.FC = () => {
                                     </div>
                                 );
                             })()}
-                        </Card>
-                    </div>
+                        </div>
+                    </>
                 )}
             </Modal>
+
+            <style>{`
+                .result-row:hover td { background: #f8f7ff !important; }
+                .ant-table-thead > tr > th { background: #fafafa !important; font-weight: 700 !important; color: #4b5563 !important; font-size: 11px !important; text-transform: uppercase !important; letter-spacing: 0.5px !important; }
+                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
+            `}</style>
+            <style>{`
+                .result-detail-modal .ant-modal-close { top: 8px !important; right: 8px !important; width: auto !important; height: auto !important; z-index: 10 !important; }
+                .result-detail-modal .ant-modal-close-x { width: auto !important; height: auto !important; line-height: 1 !important; }
+                .result-detail-modal .ant-modal-header { display: none !important; }
+                .result-detail-modal .ant-modal-content { border-radius: 16px !important; overflow: hidden !important; padding: 0 !important; }
+            `}</style>
         </div>
     );
 };

@@ -197,12 +197,15 @@ async function reconcileOverdueQuizzes(db) {
         `);
 
         for (const row of overdueInProgress) {
-            // Persist autosaved answers (if any)
-            const submission = await db.get('SELECT id, auto_saved_data, started_at FROM quiz_submissions WHERE id = ?', [row.submission_id]);
+            const submission = await db.get('SELECT id, auto_saved_data, started_at, quiz_id FROM quiz_submissions WHERE id = ?', [row.submission_id]);
             let answers = [];
             try { answers = submission?.auto_saved_data ? JSON.parse(submission.auto_saved_data) : []; } catch {}
 
-            for (const ans of answers) {
+            const validQuestions = await db.all('SELECT id FROM questions WHERE quiz_id = ?', [row.quiz_id]);
+            const validQuestionIds = new Set(validQuestions.map(q => q.id));
+            const validAnswers = answers.filter(ans => ans.question_id && validQuestionIds.has(ans.question_id));
+
+            for (const ans of validAnswers) {
                 await db.run(`
                     INSERT INTO student_answers (submission_id, question_id, answer_text, selected_options)
                     VALUES (?, ?, ?, ?)

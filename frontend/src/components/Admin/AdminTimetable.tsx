@@ -2,8 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Calendar, dayjsLocalizer, Views } from 'react-big-calendar';
 import dayjs from 'dayjs';
 import {
-    Card,
-    Select,
+        Select,
     Space,
     Typography,
     Button,
@@ -13,11 +12,13 @@ import {
     Row,
     Col,
     Spin,
+    Skeleton,
     message,
     Badge,
     Statistic,
     Avatar,
-    List
+    List,
+    
 } from 'antd';
 import {
     CalendarOutlined,
@@ -87,7 +88,7 @@ const AdminTimetable: React.FC = () => {
     const [teachers, setTeachers] = useState<Teacher[]>([]);
     const [selectedTeacher, setSelectedTeacher] = useState<number[] | null>(null);
     const [timetableData, setTimetableData] = useState<TimetableEntry[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
     const [selectedEvent, setSelectedEvent] = useState<TimetableEntry | null>(null);
     const [studentListModalVisible, setStudentListModalVisible] = useState(false);
@@ -442,33 +443,41 @@ const AdminTimetable: React.FC = () => {
     const overallStats = getOverallStats();
 
     return (
-        <Card style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ marginBottom: 16, flexShrink: 0 }}>
-                <Row justify="space-between" align="middle">
+        <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
+            {/* ── Premium Header ── */}
+            <div style={{ marginBottom: 20, flexShrink: 0 }}>
+                <Row justify="space-between" align="middle" style={{ marginBottom: 20 }}>
                     <Col>
-                        <Title level={2} style={{ margin: 0 }}>
-                            <CalendarOutlined /> Teacher Timetable
-                        </Title>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
+                            Teacher Timetable
+                        </div>
+                        <Text style={{ fontSize: 13, color: '#94a3b8' }}>
+                            Weekly schedule overview · {timetableData.length} sessions across {uniqueTeachers.length} teachers
+                        </Text>
                     </Col>
                     <Col>
-                        <Space>
-                            <Button 
-                                icon={<ReloadOutlined />} 
-                                onClick={fetchTimetable}
-                                loading={loading}
-                            >
-                                Refresh
-                            </Button>
-                        </Space>
+                        <Button
+                            icon={<ReloadOutlined />}
+                            onClick={fetchTimetable}
+                            loading={loading}
+                            style={{ borderRadius: 10, fontWeight: 600, borderColor: '#e0e7ff', color: '#6366f1' }}
+                        >
+                            Refresh
+                        </Button>
                     </Col>
                 </Row>
-                
-                <Row gutter={16} style={{ marginTop: 16 }}>
-                    <Col span={8}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            <Text strong>
-                                <FilterOutlined /> Filter by Teacher:
-                            </Text>
+
+                {/* Filter + KPI row */}
+                <Row gutter={16} align="stretch">
+                    <Col xs={24} md={8}>
+                        <div style={{
+                            background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8',
+                            boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+                            padding: '16px 20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+                        }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <FilterOutlined /> Filter by Teacher
+                            </div>
                             <Select
                                 mode="multiple"
                                 placeholder="Select teachers or 'All'"
@@ -488,100 +497,111 @@ const AdminTimetable: React.FC = () => {
                                     </Option>
                                 ))}
                             </Select>
-                        </Space>
+                        </div>
                     </Col>
-                    
-                    <Col span={16}>
-                        <Card 
-                            size="small" 
-                            style={{ 
-                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                                color: 'white',
-                                borderRadius: '12px',
-                                border: 'none'
-                            }}
-                        >
-                            <Row gutter={24}>
-                                <Col span={8}>
-                                    <Statistic
-                                        title={<span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>Total Classes</span>}
-                                        value={overallStats.totalClasses}
-                                        valueStyle={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}
-                                        prefix={<CalendarOutlined style={{ color: 'white' }} />}
-                                    />
-                                </Col>
-                                <Col span={8}>
-                                    <Statistic
-                                        title={<span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>Physical Classes</span>}
-                                        value={overallStats.physicalClasses}
-                                        valueStyle={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}
-                                        prefix={<span style={{ color: 'white' }}>📍</span>}
-                                    />
-                                </Col>
-                                <Col span={8}>
-                                    <Statistic
-                                        title={<span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>Online Classes</span>}
-                                        value={overallStats.onlineClasses}
-                                        valueStyle={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}
-                                        prefix={<span style={{ color: 'white' }}>🌐</span>}
-                                    />
-                                </Col>
-                            </Row>
-                        </Card>
-                    </Col>
+
+                    {/* KPI pills */}
+                    {[
+                        { label: 'Total Classes', value: overallStats.totalClasses, icon: <CalendarOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
+                        { label: 'Physical', value: overallStats.physicalClasses, icon: <EnvironmentOutlined />, gradient: 'linear-gradient(135deg, #ec4899, #f472b6)', accent: '#ec4899' },
+                        { label: 'Online', value: overallStats.onlineClasses, icon: <LinkOutlined />, gradient: 'linear-gradient(135deg, #22c55e, #4ade80)', accent: '#22c55e' },
+                    ].map(kpi => (
+                        <Col xs={24} md={5} lg={5} key={kpi.label}>
+                            <div style={{
+                                borderRadius: 16, padding: '16px 20px',
+                                background: '#fff', border: '1px solid #f0f0f8',
+                                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+                                display: 'flex', alignItems: 'center', gap: 14, height: '100%',
+                            }}>
+                                <div style={{
+                                    width: 42, height: 42, borderRadius: 12,
+                                    background: kpi.gradient,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 18, color: '#fff', flexShrink: 0,
+                                    boxShadow: `0 4px 12px ${kpi.accent}40`,
+                                }}>
+                                    {kpi.icon}
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
+                                    <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
+                                </div>
+                            </div>
+                        </Col>
+                    ))}
                 </Row>
 
-                <Row style={{ marginTop: 12 }}>
-                    <Col span={24}>
-                        <Space direction="vertical" style={{ width: '100%' }}>
-                            {/* Teacher Legend - Only visible when all teachers or multiple teachers are selected */}
-                            {(selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1)) && uniqueTeachers.length > 0 && (
-                                <Space wrap>
-                                    <Text type="secondary">Teachers:</Text>
-                                    {uniqueTeachers.map(teacher => (
-                                        <Tag 
-                                            key={teacher.teacher_id}
-                                            color={teacherColors[teacher.teacher_id]?.primary}
-                                            style={{ 
-                                                color: 'white',
-                                                fontWeight: 'bold',
-                                                border: `1px solid ${teacherColors[teacher.teacher_id]?.border}`
-                                            }}
-                                        >
-                                            {teacher.teacher_name}
-                                        </Tag>
-                                    ))}
-                                </Space>
-                            )}
-                            
-                            {/* Per-batch Legend - Only visible when exactly one teacher is selected */}
-                            {selectedTeacher && selectedTeacher.length === 1 && uniqueBatches.length > 0 && (
-                                <Space wrap>
-                                    <Text type="secondary">
-                                        {uniqueBatches[0]?.teacher_name}'s Batches:
-                                    </Text>
-                                    {uniqueBatches.map(batch => (
-                                        <Tag 
-                                            key={batch.batch_id}
-                                            color={batchColors[batch.batch_id]?.primary}
-                                            style={{ 
-                                                color: 'white',
-                                                fontWeight: 'bold',
-                                                border: `1px solid ${batchColors[batch.batch_id]?.border}`
-                                            }}
-                                        >
-                                            {batch.batch_name} ({batch.french_level})
-                                        </Tag>
-                                    ))}
-                                </Space>
-                            )}
-                        </Space>
-                    </Col>
-                </Row>
+                {/* Teacher / Batch legend */}
+                <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                    {(selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1)) && uniqueTeachers.length > 0 && (
+                        <>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginRight: 4 }}>Teachers:</span>
+                            {uniqueTeachers.map(teacher => (
+                                <Tag
+                                    key={teacher.teacher_id}
+                                    color={teacherColors[teacher.teacher_id]?.primary}
+                                    style={{ color: 'white', fontWeight: 700, borderRadius: 8, border: 'none', fontSize: 12, padding: '2px 10px' }}
+                                >
+                                    {teacher.teacher_name}
+                                </Tag>
+                            ))}
+                        </>
+                    )}
+                    {selectedTeacher && selectedTeacher.length === 1 && uniqueBatches.length > 0 && (
+                        <>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginRight: 4 }}>
+                                {uniqueBatches[0]?.teacher_name}'s Batches:
+                            </span>
+                            {uniqueBatches.map(batch => (
+                                <Tag
+                                    key={batch.batch_id}
+                                    color={batchColors[batch.batch_id]?.primary}
+                                    style={{ color: 'white', fontWeight: 700, borderRadius: 8, border: 'none', fontSize: 12, padding: '2px 10px' }}
+                                >
+                                    {batch.batch_name} ({batch.french_level})
+                                </Tag>
+                            ))}
+                        </>
+                    )}
+                </div>
             </div>
 
-            <div style={{ flex: 1, minHeight: 0 }}>
-                <Spin spinning={loading}>
+            {/* ── Calendar Area ── */}
+            <div style={{
+                flex: 1, minHeight: 0,
+                background: '#fff', borderRadius: 16,
+                border: '1px solid #f0f0f8',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+                overflow: 'hidden',
+            }}>
+                {loading ? (
+                    /* Full-area skeleton */
+                    <div style={{ padding: 24 }}>
+                        {/* Day headers skeleton */}
+                        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                                <div key={d} style={{ flex: 1, textAlign: 'center' }}>
+                                    <Skeleton.Button active style={{ width: '80%', height: 28, borderRadius: 8 }} block />
+                                </div>
+                            ))}
+                        </div>
+                        {/* Time rows skeleton */}
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(r => (
+                            <div key={r} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                <Skeleton.Input active style={{ width: 50, height: 20, borderRadius: 4 }} />
+                                {[1, 2, 3, 4, 5, 6, 7].map(c => (
+                                    <div key={c} style={{ flex: 1 }}>
+                                        {(r + c) % 3 === 0 ? (
+                                            <Skeleton.Button active style={{ width: '90%', height: 36, borderRadius: 6 }} block />
+                                        ) : (
+                                            <div style={{ height: 20 }} />
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                ) : (
                     <Calendar
                         localizer={localizer}
                         events={calendarEvents}
@@ -592,7 +612,7 @@ const AdminTimetable: React.FC = () => {
                         eventPropGetter={eventStyleGetter}
                         components={{
                             event: CustomEvent,
-                            toolbar: () => null, // Remove the toolbar completely
+                            toolbar: () => null,
                             week: {
                                 header: CustomHeader
                             }
@@ -608,7 +628,7 @@ const AdminTimetable: React.FC = () => {
                         popup
                         popupOffset={30}
                     />
-                </Spin>
+                )}
             </div>
 
             <Modal
@@ -825,7 +845,7 @@ const AdminTimetable: React.FC = () => {
                     )}
                 </Spin>
             </Modal>
-        </Card>
+        </div>
     );
 };
 

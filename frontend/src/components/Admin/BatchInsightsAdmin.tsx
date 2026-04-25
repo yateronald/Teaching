@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Space, Typography, Tabs, Card, Modal, Tag, Spin, message } from 'antd';
-import { ArrowLeftOutlined, CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Button, Space, Typography, Tabs, Card, Modal, Tag, Spin, message, Skeleton, ConfigProvider } from 'antd';
+import { ArrowLeftOutlined, CalendarOutlined, InfoCircleOutlined, LineChartOutlined, TeamOutlined } from '@ant-design/icons';
 import BatchInsights from '../Teacher/BatchInsights';
 import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
@@ -11,7 +11,7 @@ import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import BatchStudentInsight from './BatchStudentInsight';
 
-const { Title, Text } = Typography;
+
 // Removed deprecated TabPane extraction
 
 interface Schedule {
@@ -100,30 +100,102 @@ const BatchInsightsAdmin: React.FC = () => {
     }
   };
 
-  if (!batchId) return null;
+  // Full-page Skeleton Loading state
+  if (loading && schedules.length === 0 && !viewModalVisible) {
+      return (
+          <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+              <div style={{ flexShrink: 0, marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Space align="center" size="middle">
+                          <Skeleton.Button active shape="circle" style={{ width: 40, height: 40 }} />
+                          <div>
+                              <Skeleton.Input active style={{ width: 200, height: 28, borderRadius: 8, marginBottom: 8 }} block />
+                              <Skeleton.Input active style={{ width: 140, height: 16, borderRadius: 6 }} block />
+                          </div>
+                      </Space>
+                  </div>
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                  <Space size="large">
+                      <Skeleton.Input active style={{ width: 100, height: 24, borderRadius: 6 }} />
+                      <Skeleton.Input active style={{ width: 120, height: 24, borderRadius: 6 }} />
+                      <Skeleton.Input active style={{ width: 130, height: 24, borderRadius: 6 }} />
+                  </Space>
+              </div>
+              <div style={{ flex: 1, border: '1px solid #f0f0f8', borderRadius: 16, padding: 24, background: '#fff' }}>
+                  <Skeleton active paragraph={{ rows: 6 }} />
+              </div>
+          </div>
+      );
+  }
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
-      <Space align="center" style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <Title level={3} style={{ margin: 0 }}>Batch Insights</Title>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>Back</Button>
-      </Space>
-      <Text type="secondary">Administrator view</Text>
+    <ConfigProvider
+      theme={{
+        token: {
+          colorPrimary: '#6366f1',
+          borderRadius: 8,
+          fontFamily: 'Inter, -apple-system, sans-serif'
+        },
+        components: {
+          Tabs: {
+            titleFontSize: 15,
+            itemColor: '#64748b',
+            itemSelectedColor: '#6366f1',
+            itemHoverColor: '#818cf8',
+          },
+          Card: {
+            borderRadiusLG: 16,
+          }
+        }
+      }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+        {/* Premium Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexShrink: 0 }}>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <Button 
+                type="text" 
+                icon={<ArrowLeftOutlined />} 
+                onClick={() => navigate(-1)}
+                style={{ 
+                    width: 40, height: 40, borderRadius: 12, 
+                    background: '#f8fafc', border: '1px solid #e2e8f0',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+            />
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', letterSpacing: -0.5 }}>
+                Batch Insights
+              </div>
+              <Typography.Text style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>
+                Administrator Overview and Analytics
+              </Typography.Text>
+            </div>
+          </div>
+        </div>
 
-      <Tabs 
-        defaultActiveKey="insights"
-        items={[
+        {/* Content Area */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Tabs 
+            defaultActiveKey="insights"
+            style={{ height: '100%' }}
+            items={[
           {
             key: 'insights',
-            label: 'Insights',
-            children: <BatchInsights batchId={batchId} />
+            label: <span><LineChartOutlined /> Performance Insights</span>,
+            children: (
+              <div style={{ padding: '4px 0', overflowY: 'auto', height: 'calc(100vh - 200px)' }}>
+                <BatchInsights batchId={batchId as string} />
+              </div>
+            )
           },
           {
             key: 'schedule',
-            label: <span><CalendarOutlined /> Schedule</span>,
+            label: <span><CalendarOutlined /> Master Schedule</span>,
             children: (
-              <>
-                <Card title="Batch Calendar">
+              <div style={{ overflowY: 'auto', height: 'calc(100vh - 200px)' }}>
+                <Card title="Interactive Calendar" bordered={false} style={{ boxShadow: '0 2px 12px rgba(99,102,241,0.04)', border: '1px solid #f1f5f9' }}>
                   {loading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 240 }}>
                       <Spin />
@@ -143,16 +215,21 @@ const BatchInsightsAdmin: React.FC = () => {
                     />
                   )}
                 </Card>
-                <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-                  <InfoCircleOutlined /> This calendar shows all class meetings, quizzes, and events scheduled for this batch.
-                </Typography.Paragraph>
-              </>
+                <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 8, color: '#64748b', fontSize: 13, border: '1px solid #e2e8f0' }}>
+                  <InfoCircleOutlined style={{ color: '#6366f1' }} /> 
+                  This calendar provides a comprehensive view of all class meetings, interactive sessions, and deadlines.
+                </div>
+              </div>
             )
           },
           {
             key: 'student-insight',
-            label: 'Student Insight',
-            children: <BatchStudentInsight batchId={batchId} />
+            label: <span><TeamOutlined /> Student Overview</span>,
+            children: (
+              <div style={{ padding: '4px 0', overflowY: 'auto', height: 'calc(100vh - 200px)' }}>
+                <BatchStudentInsight batchId={batchId as string} />
+              </div>
+            )
           }
         ]}
       />
@@ -195,7 +272,9 @@ const BatchInsightsAdmin: React.FC = () => {
           </Space>
         ) : null}
       </Modal>
-    </Space>
+        </div>
+      </div>
+    </ConfigProvider>
   );
 };
 

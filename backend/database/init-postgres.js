@@ -134,6 +134,35 @@ class PostgreSQLDatabase {
                 } catch (audioErr) {
                     console.warn('⚠️  Audio schema check:', audioErr.message);
                 }
+
+                // Auto-apply resources multiple batches schema additions
+                try {
+                    await this.client.query(`
+                        CREATE TABLE IF NOT EXISTS resource_batches (
+                            resource_id INTEGER NOT NULL REFERENCES resources(id) ON DELETE CASCADE,
+                            batch_id INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+                            PRIMARY KEY (resource_id, batch_id)
+                        )
+                    `);
+                    
+                    // Check if old batch_id column still exists in resources
+                    const batchColExists = await this.client.query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'resources' AND column_name = 'batch_id'
+                    `);
+                    if (batchColExists.rows.length > 0) {
+                        // Migrate existing data
+                        await this.client.query(`
+                            INSERT INTO resource_batches (resource_id, batch_id)
+                            SELECT id, batch_id FROM resources WHERE batch_id IS NOT NULL
+                            ON CONFLICT DO NOTHING
+                        `);
+                        // Note: We don't drop the batch_id column here just in case, but new queries will rely on resource_batches
+                        console.log('✅ Migrated legacy batch_id allocations to resource_batches table');
+                    }
+                } catch (resErr) {
+                    console.warn('⚠️  Resources multiple batches schema check:', resErr.message);
+                }
             }
             
             return true;

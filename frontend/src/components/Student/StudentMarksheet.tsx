@@ -1,523 +1,496 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Statistic, Typography, Table, Tag, Empty, Spin, Progress, Tooltip, Alert, Select, Modal, Button } from 'antd';
-import { BarChartOutlined, CheckCircleOutlined, RiseOutlined, CalendarOutlined, DashboardOutlined } from '@ant-design/icons';
+import { Table, Empty, Progress, Tooltip, Alert, Select, Modal, Button, Row, Col, Skeleton } from 'antd';
+import { BarChartOutlined, CheckCircleOutlined, RiseOutlined, CalendarOutlined, DashboardOutlined, TrophyOutlined, FileTextOutlined, BookOutlined, LockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import { BarChart } from '@mui/x-charts';
 
-const { Title, Text, Paragraph } = Typography;
 
+
+/* ── Types ── */
 interface QuizResult {
-  id: number;
-  quiz_id: number;
-  quiz_title: string;
-  batch_id: number | null;
-  batch_name: string | null;
-  score: number | null;
-  max_score: number | null;
-  percentage: number | null;
-  submitted_at: string | null;
-  results_locked?: boolean | 0 | 1;
+    id: number; quiz_id: number; quiz_title: string;
+    batch_id: number | null; batch_name: string | null;
+    score: number | null; max_score: number | null; percentage: number | null;
+    submitted_at: string | null;
+    results_locked?: boolean | 0 | 1;
 }
-
 interface BatchAggregate {
-  batch_id: number | null;
-  batch_name: string;
-  quizzes_count: number;
-  completed_count: number;
-  average_percentage: number;
-  best_percentage: number;
-  lowest_percentage: number;
-  last_quiz_date: string | null;
-  pass_rate: number; // percentage
+    batch_id: number | null; batch_name: string;
+    quizzes_count: number; completed_count: number;
+    average_percentage: number; best_percentage: number; lowest_percentage: number;
+    last_quiz_date: string | null; pass_rate: number;
 }
 
-const toFixed = (v: number | null | undefined, d = 2) => {
-  if (v == null || isNaN(Number(v))) return 0;
-  return Number(Number(v).toFixed(d));
+/* ── Helpers ── */
+const toFixed = (v: number | null | undefined, d = 2) => { if (v == null || isNaN(Number(v))) return 0; return Number(Number(v).toFixed(d)); };
+const gradeFromPercent = (p: number) => { if (p >= 95) return 'A+'; if (p >= 90) return 'A'; if (p >= 85) return 'A-'; if (p >= 80) return 'B+'; if (p >= 75) return 'B'; if (p >= 70) return 'B-'; if (p >= 65) return 'C+'; if (p >= 60) return 'C'; if (p >= 55) return 'D+'; if (p >= 50) return 'D'; return 'F'; };
+const scoreColor = (pct: number) => { if (pct >= 80) return '#22c55e'; if (pct >= 60) return '#f59e0b'; return '#ef4444'; };
+const gradeAccent = (g: string) => {
+    if (['A+','A','A-'].includes(g)) return { fg: '#15803d', bg: '#dcfce7' };
+    if (['B+','B','B-'].includes(g)) return { fg: '#b45309', bg: '#fffbeb' };
+    if (['C+','C','D+','D'].includes(g)) return { fg: '#c2410c', bg: '#fff7ed' };
+    return { fg: '#ef4444', bg: '#fff1f2' };
 };
 
-// Grade helpers
-const gradeFromPercent = (p: number) => {
-  if (p >= 95) return 'A+';
-  if (p >= 90) return 'A';
-  if (p >= 85) return 'A-';
-  if (p >= 80) return 'B+';
-  if (p >= 75) return 'B';
-  if (p >= 70) return 'B-';
-  if (p >= 65) return 'C+';
-  if (p >= 60) return 'C';
-  if (p >= 55) return 'D+';
-  if (p >= 50) return 'D';
-  return 'F';
-};
-const gradeColor = (g: string) => {
-  switch (g) {
-    case 'A+':
-    case 'A':
-    case 'A-':
-      return 'green';
-    case 'B+':
-    case 'B':
-    case 'B-':
-      return 'gold';
-    case 'C+':
-    case 'C':
-    case 'D+':
-    case 'D':
-      return 'orange';
-    default:
-      return 'red';
-  }
-};
-
-const StudentMarksheet: React.FC = () => {
-  const { apiCall } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<QuizResult[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedBatches, setSelectedBatches] = useState<string[]>(['all']);
-  const [analyzerOpen, setAnalyzerOpen] = useState(false);
-
-  useEffect(() => {
-    const fetchResults = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await apiCall('/quizzes/student/results');
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || err.message || 'Failed to fetch results');
-        }
-        const data: any = await res.json();
-        // API returns { results: QuizResult[] }
-        setResults(Array.isArray(data?.results) ? (data.results as QuizResult[]) : (Array.isArray(data) ? data : []));
-      } catch (e: any) {
-        setError(e?.message || 'Failed to load results');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchResults();
-  }, [apiCall]);
-
-  // Batch options
-  const batchOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of results) {
-      const key = String(r.batch_id ?? 'unassigned');
-      const label = r.batch_name ?? 'Unassigned';
-      map.set(key, label);
-    }
-    const opts = Array.from(map.entries()).map(([value, label]) => ({ value, label }));
-    return [{ value: 'all', label: 'All Batches' }, ...opts];
-  }, [results]);
-
-  const isAllSelected = selectedBatches.includes('all') || selectedBatches.length === 0;
-
-  // Show Performance by Batch only when 'All Batches' is selected
-  // or when more than two specific batches are selected.
-  const showPerformanceByBatch = useMemo(() => {
-    if (isAllSelected) return true;
-    const countSpecific = selectedBatches.filter(v => v !== 'all').length;
-    return countSpecific > 2; // more than two
-  }, [isAllSelected, selectedBatches]);
-
-  const filteredResults = useMemo(() => {
-    if (isAllSelected) return results;
-    const setVals = new Set(selectedBatches);
-    return results.filter(r => setVals.has(String(r.batch_id ?? 'unassigned')));
-  }, [results, selectedBatches, isAllSelected]);
-
-  const completedResults = useMemo(
-    () => filteredResults.filter(r => !r.results_locked && r.percentage != null),
-    [filteredResults]
-  );
-
-  const totals = useMemo(() => {
-    const totalScore = completedResults.reduce((s, r) => s + (Number(r.score) || 0), 0);
-    const maxScore = completedResults.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
-    return { totalScore: toFixed(totalScore), maxScore: toFixed(maxScore) };
-  }, [completedResults]);
-
-  const overall = useMemo(() => {
-    if (completedResults.length === 0) {
-      return { total: 0, average: 0, best: 0, grade: '—' };
-    }
-    const total = completedResults.length;
-    
-    // Calculate average as total score obtained / total possible score
-    const totalScoreObtained = completedResults.reduce((s, r) => s + (Number(r.score) || 0), 0);
-    const totalPossibleScore = completedResults.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
-    const avg = totalPossibleScore > 0 ? (totalScoreObtained / totalPossibleScore) * 100 : 0;
-    
-    const validPercentages = completedResults.map(r => Number(r.percentage) || 0).filter(p => !isNaN(p));
-    const best = validPercentages.length > 0 ? Math.max(...validPercentages) : 0;
-    const grade = gradeFromPercent(avg);
-    return { total, average: toFixed(avg), best: toFixed(best), grade };
-  }, [completedResults]);
-
-  const batchAggregates: BatchAggregate[] = useMemo(() => {
-    const map = new Map<string, BatchAggregate & { total_score: number; total_max_score: number }>();
-    for (const r of filteredResults) {
-      const key = String(r.batch_id ?? 'unassigned');
-      if (!map.has(key)) {
-        map.set(key, {
-          batch_id: r.batch_id ?? null,
-          batch_name: r.batch_name ?? 'Unassigned',
-          quizzes_count: 0,
-          completed_count: 0,
-          average_percentage: 0,
-          best_percentage: 0,
-          lowest_percentage: 100,
-          last_quiz_date: null,
-          pass_rate: 0,
-          total_score: 0,
-          total_max_score: 0,
-        });
-      }
-      const agg = map.get(key)!;
-      agg.quizzes_count += 1;
-      if (!r.results_locked && r.percentage != null) {
-        agg.completed_count += 1;
-        const percentage = Number(r.percentage) || 0;
-        const score = Number(r.score) || 0;
-        const maxScore = Number(r.max_score) || 0;
-        
-        // Accumulate total scores for proper average calculation
-        agg.total_score += score;
-        agg.total_max_score += maxScore;
-        
-        agg.best_percentage = Math.max(agg.best_percentage, percentage);
-        agg.lowest_percentage = Math.min(agg.lowest_percentage, percentage);
-        if (r.submitted_at) {
-          if (!agg.last_quiz_date || dayjs(r.submitted_at).isAfter(dayjs(agg.last_quiz_date))) {
-            agg.last_quiz_date = r.submitted_at;
-          }
-        }
-      }
-    }
-
-    const arr: BatchAggregate[] = [];
-    map.forEach((agg) => {
-      if (agg.completed_count > 0 && agg.total_max_score > 0) {
-        // Calculate average as total score obtained / total possible score
-        agg.average_percentage = toFixed((agg.total_score / agg.total_max_score) * 100);
-      } else {
-        agg.average_percentage = 0;
-      }
-      // Remove the temporary properties before adding to array
-      const { total_score, total_max_score, ...finalAgg } = agg;
-      arr.push(finalAgg);
-    });
-
-    return arr.sort((a, b) => (b.average_percentage - a.average_percentage));
-  }, [filteredResults]);
-
-  const selectedAggregates = useMemo(() => {
-    if (isAllSelected) return batchAggregates;
-    const setVals = new Set(selectedBatches);
-    return batchAggregates.filter(b => setVals.has(String(b.batch_id ?? 'unassigned')));
-  }, [batchAggregates, selectedBatches, isAllSelected]);
-
-  const canAnalyze = selectedAggregates.length >= 2;
-
-  const columns = [
-    {
-      title: 'Batch',
-      dataIndex: 'batch_name',
-      key: 'batch_name',
-      render: (v: string) => <Text strong>{v}</Text>,
-    },
-    {
-      title: 'Quizzes (Completed/Total)',
-      key: 'quizzes',
-      render: (_: any, row: BatchAggregate) => (
-        <span>{row.completed_count}/{row.quizzes_count}</span>
-      ),
-    },
-    {
-      title: 'Average',
-      dataIndex: 'average_percentage',
-      key: 'avg',
-      render: (v: number) => {
-        const grade = gradeFromPercent(v || 0);
-        const color = gradeColor(grade);
-        return (
-          <span>
-            <b style={{ color }}>{v.toFixed(2)}%</b>
-            <div style={{ width: 120 }}>
-              <Progress 
-                percent={Number(v.toFixed(2))} 
-                size="small" 
-                strokeColor={color}
-                showInfo={false} 
-              />
+/* ── KPI Card ── */
+const KpiCard = ({ label, value, suffix = '', icon, accent, sub }: {
+    label: string; value: string | number; suffix?: string; icon: React.ReactNode; accent: string; sub?: string;
+}) => (
+    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16, height: '100%' }}>
+        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
+                {value}<span style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>{suffix}</span>
             </div>
-          </span>
-        );
-      },
-      sorter: (a: BatchAggregate, b: BatchAggregate) => a.average_percentage - b.average_percentage,
-      defaultSortOrder: 'descend' as const,
-    },
-    {
-      title: 'Grade',
-      key: 'grade',
-      render: (_: any, row: BatchAggregate) => {
-        const g = gradeFromPercent(row.average_percentage || 0);
-        return <Tag color={gradeColor(g)}>{g}</Tag>;
-      },
-      sorter: (a: any, b: any) => (a.average_percentage || 0) - (b.average_percentage || 0),
-    },
-    {
-      title: 'Best',
-      dataIndex: 'best_percentage',
-      key: 'best',
-      render: (v: number) => `${v.toFixed(2)}%`,
-      sorter: (a: BatchAggregate, b: BatchAggregate) => a.best_percentage - b.best_percentage,
-    },
-    {
-      title: 'Lowest',
-      dataIndex: 'lowest_percentage',
-      key: 'low',
-      render: (v: number) => `${v.toFixed(2)}%`,
-      sorter: (a: BatchAggregate, b: BatchAggregate) => a.lowest_percentage - b.lowest_percentage,
-    },
-    {
-      title: 'Last Quiz',
-      dataIndex: 'last_quiz_date',
-      key: 'last',
-      render: (v: string | null) => v ? dayjs(v).format('MMM DD, YYYY HH:mm') : '—',
-      sorter: (a: BatchAggregate, b: BatchAggregate) => dayjs(a.last_quiz_date || 0).valueOf() - dayjs(b.last_quiz_date || 0).valueOf(),
-    },
-  ];
-
-  const breakdownColumns = [
-    { title: 'Quiz', dataIndex: 'quiz_title', key: 'quiz_title' },
-    { title: 'Batch', dataIndex: 'batch_name', key: 'batch_name', render: (v: string | null) => v || 'Unassigned' },
-    { title: 'Score', key: 'score', render: (_: any, r: QuizResult) => (
-      <span>
-        <b>{toFixed(r.score)}/{toFixed(r.max_score)}</b>
-        <Tag color={(r.percentage || 0) >= 70 ? 'green' : (r.percentage || 0) >= 50 ? 'gold' : 'red'} style={{ marginLeft: 8 }}>
-          {toFixed(r.percentage)}%
-        </Tag>
-      </span>
-    ) },
-    { title: 'Progress', key: 'progress', render: (_: any, r: QuizResult) => (
-      <div style={{ width: 120 }}>
-        <Progress percent={Number(toFixed(r.percentage || 0))} size="small" status={(r.percentage || 0) >= 50 ? 'success' : 'exception'} showInfo={false} />
-      </div>
-    ) },
-    { title: 'Submitted', dataIndex: 'submitted_at', key: 'submitted_at', render: (v: string | null) => v ? dayjs(v).format('MMM DD, YYYY HH:mm') : '—',
-      sorter: (a: QuizResult, b: QuizResult) => dayjs(a.submitted_at || 0).valueOf() - dayjs(b.submitted_at || 0).valueOf() },
-  ];
-
-  const breakdownResults = useMemo(() => (
-    completedResults.slice().sort((a, b) => dayjs(b.submitted_at || 0).valueOf() - dayjs(a.submitted_at || 0).valueOf())
-  ), [completedResults]);
-
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: 50 }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ backgroundColor: '#f8f9fa', minHeight: '100vh', padding: '20px' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ marginBottom: 24, textAlign: 'center' }}>
-          <Title level={2} style={{ color: '#1a1a1a', marginBottom: 8 }}>Academic Performance Report</Title>
-          <Paragraph type="secondary" style={{ fontSize: '16px', color: '#666' }}>
-            Comprehensive overview of your quiz performance across all enrolled batches
-          </Paragraph>
+            {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{sub}</div>}
         </div>
-
-        {error && (
-          <Alert type="error" message="Failed to load results" description={error} showIcon style={{ marginBottom: 20, borderRadius: '8px' }} />
-        )}
-
-        {/* Controls */}
-        <Card style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Text strong style={{ color: '#1a1a1a' }}>Filter by Batch:</Text>
-              <Select
-                mode="multiple"
-                value={selectedBatches}
-                onChange={(vals) => {
-                  if (vals.includes('all')) setSelectedBatches(['all']);
-                  else setSelectedBatches(vals);
-                }}
-                options={batchOptions}
-                style={{ minWidth: 280 }}
-                placeholder="Select batches"
-                maxTagCount="responsive"
-              />
-            </div>
-            <Button
-              type="primary"
-              icon={<BarChartOutlined />}
-              disabled={!canAnalyze}
-              onClick={() => setAnalyzerOpen(true)}
-              style={{ borderRadius: '6px' }}
-            >
-              Analyze Performance
-            </Button>
-          </div>
-        </Card>
-
-        {/* Summary Statistics */}
-        <div style={{ marginBottom: 32 }}>
-          <Text strong style={{ fontSize: '18px', color: '#1a1a1a', display: 'block', marginBottom: 16 }}>Performance Summary</Text>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: 20,
-            }}
-          >
-            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-              <Statistic
-                title={<span style={{ color: '#666', fontSize: '14px' }}>Completed Quizzes</span>}
-                value={overall.total}
-                prefix={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-              />
-            </Card>
-            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-              <Statistic
-                title={<span style={{ color: '#666', fontSize: '14px' }}>Average Score</span>}
-                value={overall.average}
-                suffix="%"
-                prefix={<DashboardOutlined style={{ color: '#1890ff' }} />}
-                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-              />
-            </Card>
-            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-              <Statistic
-                title={<span style={{ color: '#666', fontSize: '14px' }}>Best Score</span>}
-                value={overall.best}
-                suffix="%"
-                prefix={<RiseOutlined style={{ color: '#faad14' }} />}
-                valueStyle={{ color: '#1a1a1a', fontSize: '28px', fontWeight: '600' }}
-              />
-            </Card>
-            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-              <div>
-                <Text style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: 8 }}>Overall Grade</Text>
-                <div style={{ fontSize: '28px', fontWeight: '600', color: '#1a1a1a' }}>
-                  {overall.grade === '—' ? <Text type="secondary" style={{ fontSize: '24px' }}>—</Text> : (
-                    <Tag
-                      color={gradeColor(overall.grade)}
-                      style={{
-                        fontSize: '18px',
-                        padding: '4px 12px',
-                        borderRadius: '6px',
-                        fontWeight: '600'
-                      }}
-                    >
-                      {overall.grade}
-                    </Tag>
-                  )}
-                </div>
-              </div>
-            </Card>
-            <Card style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}>
-              <div>
-                <Text style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: 8 }}>Total Score</Text>
-                <div style={{ fontSize: '28px', fontWeight: '600', color: '#1a1a1a' }}>
-                  {totals.totalScore}/{totals.maxScore}
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-
-        {/* Performance by Batch */}
-        {showPerformanceByBatch && (
-          <Card
-            title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>Performance by Batch</span>}
-            style={{ marginBottom: 24, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}
-          >
-            {batchAggregates.length === 0 ? (
-              <Empty description="No quiz results available yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <Table
-                columns={columns as any}
-                dataSource={batchAggregates}
-                rowKey={(r) => String(r.batch_id ?? 'unassigned')}
-                pagination={{ pageSize: 5, showSizeChanger: true }}
-                style={{ borderRadius: '6px' }}
-              />
-            )}
-          </Card>
-        )}
-
-        {/* Detailed Quiz Results */}
-        <Card
-          title={<span style={{ color: '#1a1a1a', fontSize: '16px', fontWeight: '600' }}>Detailed Quiz Results</span>}
-          style={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #e8e8e8' }}
-        >
-          {breakdownResults.length === 0 ? (
-            <Empty description="No completed quizzes to display" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          ) : (
-            <Table
-              columns={breakdownColumns as any}
-              dataSource={breakdownResults}
-              rowKey={(r) => String(r.id)}
-              pagination={{ pageSize: 8, showSizeChanger: true }}
-              style={{ borderRadius: '6px' }}
-            />
-          )}
-        </Card>
-
-        {/* Performance Analyzer Modal */}
-        <Modal
-          title={<span style={{ color: '#1a1a1a', fontSize: '18px', fontWeight: '600' }}>Performance Analysis</span>}
-          open={analyzerOpen}
-          width={900}
-          onCancel={() => setAnalyzerOpen(false)}
-          footer={<Button onClick={() => setAnalyzerOpen(false)} style={{ borderRadius: '6px' }}>Close</Button>}
-          style={{ borderRadius: '8px' }}
-        >
-          {!canAnalyze ? (
-            <Alert type="info" showIcon message="Select at least two batches to analyze" style={{ borderRadius: '6px' }} />
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 24 }}>
-              <div>
-                <Text strong style={{ color: '#1a1a1a', fontSize: '16px', marginBottom: 16, display: 'block' }}>Average Score by Batch</Text>
-                <BarChart
-                  height={300}
-                  xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
-                  series={[{ data: selectedAggregates.map(a => toFixed(a.average_percentage)), color: '#1890ff', label: 'Average %' }]}
-                />
-              </div>
-              <div>
-                <Text strong style={{ color: '#1a1a1a', fontSize: '16px', marginBottom: 16, display: 'block' }}>Completion Rate by Batch</Text>
-                <BarChart
-                  height={300}
-                  xAxis={[{ scaleType: 'band', data: selectedAggregates.map(a => a.batch_name) }]}
-                  series={[{ data: selectedAggregates.map(a => a.quizzes_count ? toFixed((a.completed_count / a.quizzes_count) * 100) : 0), color: '#52c41a', label: 'Completion %' }]}
-                />
-              </div>
-            </div>
-          )}
-        </Modal>
-
-        {/* Footer Information */}
-        <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <Tooltip title="Results may be locked until the quiz end date as decided by your teacher.">
-            <Text type="secondary" style={{ fontSize: '14px' }}>
-              <CalendarOutlined style={{ marginRight: 8 }} />
-              Quiz results are released according to your teacher's schedule
-            </Text>
-          </Tooltip>
-        </div>
-      </div>
     </div>
-  );
+);
+
+/* ── Grade Badge ── */
+const GradeBadge = ({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' | 'lg' }) => {
+    const a = gradeAccent(grade);
+    const px = size === 'lg' ? '14px 22px' : size === 'md' ? '5px 14px' : '3px 10px';
+    const fs = size === 'lg' ? 22 : size === 'md' ? 14 : 11;
+    return <span style={{ fontSize: fs, fontWeight: 800, color: a.fg, background: a.bg, borderRadius: 20, padding: px, whiteSpace: 'nowrap' }}>{grade}</span>;
+};
+
+/* ── Custom tab pills (for section switching) ── */
+const TABS = ['By Batch', 'Detailed Results'] as const;
+type TabKey = typeof TABS[number];
+
+/* ══════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════ */
+const StudentMarksheet: React.FC = () => {
+    const { apiCall } = useAuth();
+    const [loading, setLoading] = useState(true);
+    const [results, setResults] = useState<QuizResult[]>([]);
+    const [error, setError] = useState<string | null>(null);
+    const [selectedBatches, setSelectedBatches] = useState<string[]>(['all']);
+    const [analyzerOpen, setAnalyzerOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<TabKey>('By Batch');
+
+    useEffect(() => {
+        (async () => {
+            setLoading(true); setError(null);
+            try {
+                const res = await apiCall('/quizzes/student/results');
+                if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Failed to fetch'); }
+                const data: any = await res.json();
+                setResults(Array.isArray(data?.results) ? data.results : Array.isArray(data) ? data : []);
+            } catch (e: any) { setError(e?.message || 'Failed to load results'); }
+            finally { setLoading(false); }
+        })();
+    }, [apiCall]);
+
+    /* ── Batch options ── */
+    const batchOptions = useMemo(() => {
+        const m = new Map<string, string>();
+        results.forEach(r => m.set(String(r.batch_id ?? 'unassigned'), r.batch_name ?? 'Unassigned'));
+        return [{ value: 'all', label: 'All Batches' }, ...Array.from(m.entries()).map(([v, l]) => ({ value: v, label: l }))];
+    }, [results]);
+
+    const isAll = selectedBatches.includes('all') || selectedBatches.length === 0;
+    const showBatchTable = isAll || selectedBatches.filter(v => v !== 'all').length > 2;
+
+    const filtered = useMemo(() => {
+        if (isAll) return results;
+        const s = new Set(selectedBatches);
+        return results.filter(r => s.has(String(r.batch_id ?? 'unassigned')));
+    }, [results, selectedBatches, isAll]);
+
+    const completed = useMemo(() => filtered.filter(r => !r.results_locked && r.percentage != null), [filtered]);
+
+    const totals = useMemo(() => {
+        const ts = completed.reduce((s, r) => s + (Number(r.score) || 0), 0);
+        const ms = completed.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
+        return { totalScore: toFixed(ts), maxScore: toFixed(ms) };
+    }, [completed]);
+
+    const overall = useMemo(() => {
+        if (completed.length === 0) return { total: 0, average: 0, best: 0, grade: '—' };
+        const ts = completed.reduce((s, r) => s + (Number(r.score) || 0), 0);
+        const ms = completed.reduce((s, r) => s + (Number(r.max_score) || 0), 0);
+        const avg = ms > 0 ? (ts / ms) * 100 : 0;
+        const best = Math.max(...completed.map(r => Number(r.percentage || 0)));
+        return { total: completed.length, average: toFixed(avg), best: toFixed(best), grade: gradeFromPercent(avg) };
+    }, [completed]);
+
+    /* ── Batch aggregates ── */
+    const batchAggs: BatchAggregate[] = useMemo(() => {
+        const m = new Map<string, BatchAggregate & { total_score: number; total_max_score: number }>();
+        filtered.forEach(r => {
+            const key = String(r.batch_id ?? 'unassigned');
+            if (!m.has(key)) m.set(key, { batch_id: r.batch_id ?? null, batch_name: r.batch_name ?? 'Unassigned', quizzes_count: 0, completed_count: 0, average_percentage: 0, best_percentage: 0, lowest_percentage: 100, last_quiz_date: null, pass_rate: 0, total_score: 0, total_max_score: 0 });
+            const a = m.get(key)!;
+            a.quizzes_count++;
+            if (!r.results_locked && r.percentage != null) {
+                a.completed_count++;
+                a.total_score += Number(r.score) || 0;
+                a.total_max_score += Number(r.max_score) || 0;
+                a.best_percentage = Math.max(a.best_percentage, Number(r.percentage) || 0);
+                a.lowest_percentage = Math.min(a.lowest_percentage, Number(r.percentage) || 0);
+                if (r.submitted_at && (!a.last_quiz_date || dayjs(r.submitted_at).isAfter(dayjs(a.last_quiz_date)))) a.last_quiz_date = r.submitted_at;
+            }
+        });
+        const arr: BatchAggregate[] = [];
+        m.forEach(a => {
+            if (a.completed_count > 0 && a.total_max_score > 0) a.average_percentage = toFixed((a.total_score / a.total_max_score) * 100);
+            else a.average_percentage = 0;
+            const { total_score: _ts, total_max_score: _ms, ...rest } = a;
+            arr.push(rest);
+        });
+        return arr.sort((a, b) => b.average_percentage - a.average_percentage);
+    }, [filtered]);
+
+    const selectedAggs = useMemo(() => {
+        if (isAll) return batchAggs;
+        const s = new Set(selectedBatches);
+        return batchAggs.filter(b => s.has(String(b.batch_id ?? 'unassigned')));
+    }, [batchAggs, selectedBatches, isAll]);
+    const canAnalyze = selectedAggs.length >= 2;
+
+    /* ── Columns: batch performance ── */
+    const batchCols = [
+        {
+            title: 'BATCH', dataIndex: 'batch_name', key: 'batch_name', width: 180, fixed: 'left' as const,
+            render: (v: string) => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 14 }}><BookOutlined /></div>
+                    <span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13.5 }}>{v}</span>
+                </div>
+            ),
+        },
+        {
+            title: 'PROGRESS', key: 'quizzes', width: 130,
+            render: (_: any, row: BatchAggregate) => (
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1a1d2e' }}>{row.completed_count}<span style={{ color: '#94a3b8', fontWeight: 500 }}>/{row.quizzes_count}</span></div>
+                    <Progress percent={row.quizzes_count > 0 ? Math.round((row.completed_count / row.quizzes_count) * 100) : 0} size="small" strokeColor="#6366f1" showInfo={false} strokeLinecap="round" />
+                </div>
+            ),
+        },
+        {
+            title: 'AVERAGE', dataIndex: 'average_percentage', key: 'avg', width: 160,
+            render: (v: number) => (
+                <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: scoreColor(v) }}>{v.toFixed(1)}%</span>
+                        <GradeBadge grade={gradeFromPercent(v)} size="sm" />
+                    </div>
+                    <Progress percent={Number(v.toFixed(1))} size="small" strokeColor={scoreColor(v)} showInfo={false} strokeLinecap="round" />
+                </div>
+            ),
+            sorter: (a: BatchAggregate, b: BatchAggregate) => a.average_percentage - b.average_percentage,
+            defaultSortOrder: 'descend' as const,
+        },
+        {
+            title: 'BEST', dataIndex: 'best_percentage', key: 'best', width: 100,
+            render: (v: number) => <span style={{ fontSize: 13, fontWeight: 700, color: '#22c55e' }}>{v.toFixed(1)}%</span>,
+            sorter: (a: BatchAggregate, b: BatchAggregate) => a.best_percentage - b.best_percentage,
+        },
+        {
+            title: 'LOWEST', dataIndex: 'lowest_percentage', key: 'low', width: 100,
+            render: (v: number) => <span style={{ fontSize: 13, fontWeight: 700, color: '#ef4444' }}>{v.toFixed(1)}%</span>,
+            sorter: (a: BatchAggregate, b: BatchAggregate) => a.lowest_percentage - b.lowest_percentage,
+        },
+        {
+            title: 'LAST QUIZ', dataIndex: 'last_quiz_date', key: 'last', width: 150,
+            render: (v: string | null) => v ? (
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1d2e' }}>{dayjs(v).format('MMM DD, YYYY')}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{dayjs(v).format('HH:mm')}</div>
+                </div>
+            ) : <span style={{ color: '#94a3b8' }}>—</span>,
+            sorter: (a: BatchAggregate, b: BatchAggregate) => dayjs(a.last_quiz_date || 0).valueOf() - dayjs(b.last_quiz_date || 0).valueOf(),
+        },
+    ];
+
+    /* ── Columns: detailed results ── */
+    const detailCols = [
+        {
+            title: 'QUIZ', dataIndex: 'quiz_title', key: 'quiz_title', width: 260, fixed: 'left' as const,
+            render: (v: string, r: QuizResult) => (
+                <div>
+                    <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13.5, marginBottom: 3 }}>{v}</div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#eef2ff', borderRadius: 20, padding: '2px 8px' }}>
+                        <BookOutlined style={{ fontSize: 10, color: '#6366f1' }} />
+                        <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{r.batch_name || 'Unassigned'}</span>
+                    </div>
+                    {r.results_locked && (
+                        <div style={{ marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fffbeb', borderRadius: 20, padding: '2px 8px', marginLeft: 4 }}>
+                            <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
+                            <span style={{ fontSize: 10, color: '#b45309', fontWeight: 600 }}>Locked</span>
+                        </div>
+                    )}
+                </div>
+            ),
+        },
+        {
+            title: 'SCORE', key: 'score', width: 140,
+            render: (_: any, r: QuizResult) => r.results_locked ? <span style={{ color: '#94a3b8', fontSize: 12 }}>Hidden</span> : (
+                <div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: scoreColor(Number(r.percentage || 0)) }}>{toFixed(r.percentage)}%</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{toFixed(r.score)}/{toFixed(r.max_score)} pts</div>
+                </div>
+            ),
+        },
+        {
+            title: 'GRADE', key: 'grade', width: 80,
+            render: (_: any, r: QuizResult) => r.results_locked ? <span style={{ color: '#94a3b8' }}>—</span> : <GradeBadge grade={gradeFromPercent(Number(r.percentage || 0))} size="sm" />,
+        },
+        {
+            title: 'PERFORMANCE', key: 'progress', width: 170,
+            render: (_: any, r: QuizResult) => r.results_locked ? <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span> : (
+                <div>
+                    <Progress percent={Number(toFixed(r.percentage || 0))} size="small" strokeColor={scoreColor(Number(r.percentage || 0))} showInfo={false} strokeLinecap="round" />
+                </div>
+            ),
+        },
+        {
+            title: 'SUBMITTED', dataIndex: 'submitted_at', key: 'submitted_at', width: 150,
+            render: (v: string | null) => v ? (
+                <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1a1d2e' }}>{dayjs(v).format('MMM DD, YYYY')}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{dayjs(v).format('HH:mm')}</div>
+                </div>
+            ) : <span style={{ color: '#94a3b8' }}>—</span>,
+            sorter: (a: QuizResult, b: QuizResult) => dayjs(a.submitted_at || 0).valueOf() - dayjs(b.submitted_at || 0).valueOf(),
+        },
+    ];
+
+    const breakdownResults = useMemo(() =>
+        completed.slice().sort((a, b) => dayjs(b.submitted_at || 0).valueOf() - dayjs(a.submitted_at || 0).valueOf()),
+    [completed]);
+
+    /* ═══════════════════════════════════
+       SKELETON LOADING
+    ═══════════════════════════════════ */
+    if (loading) return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <div style={{ marginBottom: 24 }}>
+                <Skeleton.Input active style={{ width: 260, height: 26, borderRadius: 8 }} />
+                <div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 180, height: 13, borderRadius: 6 }} /></div>
+            </div>
+            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+                {[1,2,3,4,5].map(i => (
+                    <Col xs={24} sm={12} md={i <= 4 ? 6 : 24} lg={i <= 5 ? (i <= 4 ? 5 : 4) : 6} key={i}>
+                        <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 12px rgba(99,102,241,0.07)' }}>
+                            <Skeleton.Avatar active size={46} shape="square" style={{ borderRadius: 13 }} />
+                            <div style={{ flex: 1 }}><Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 50, height: 26, borderRadius: 6 }} /></div>
+                        </div>
+                    </Col>
+                ))}
+            </Row>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', flex: 1, overflow: 'hidden' }}>
+                {[1,2,3,4,5].map(i => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', borderBottom: '1px solid #f8f8fc' }}>
+                        <div style={{ flex: 3 }}><Skeleton.Input active style={{ width: '50%', height: 13, borderRadius: 5, marginBottom: 5 }} block /><Skeleton.Input active style={{ width: '25%', height: 11, borderRadius: 5 }} block /></div>
+                        <Skeleton.Input active style={{ width: 70, height: 20, borderRadius: 20 }} />
+                        <Skeleton.Input active style={{ width: 80, height: 14, borderRadius: 5 }} />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    /* ═══════════════════════════════════
+       MAIN RENDER
+    ═══════════════════════════════════ */
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+            {/* ── Header ── */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexShrink: 0, flexWrap: 'wrap', gap: 12 }}>
+                <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>Academic Marksheet</div>
+                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
+                        {overall.total} completed quiz{overall.total !== 1 ? 'zes' : ''} · avg {overall.average}% · grade {overall.grade}
+                    </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Select
+                        mode="multiple"
+                        value={selectedBatches}
+                        onChange={vals => {
+                            const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
+                            if (justSelectedAll || vals.length === 0) {
+                                setSelectedBatches(['all']);
+                            } else {
+                                setSelectedBatches(vals.filter(v => v !== 'all'));
+                            }
+                        }}
+                        options={batchOptions}
+                        style={{ minWidth: 220 }}
+                        placeholder="Filter by batch"
+                        maxTagCount="responsive"
+                    />
+                    <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
+                        <Button
+                            icon={<BarChartOutlined />}
+                            disabled={!canAnalyze}
+                            onClick={() => setAnalyzerOpen(true)}
+                            style={{ borderRadius: 10, height: 36, fontWeight: 600, background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined, color: canAnalyze ? '#fff' : undefined, border: canAnalyze ? 'none' : undefined }}
+                        >
+                            Compare
+                        </Button>
+                    </Tooltip>
+                </div>
+            </div>
+
+            {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />}
+
+            {/* ── KPI Cards (5 across) ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 20, flexShrink: 0 }}>
+                <KpiCard label="Completed" value={overall.total} icon={<CheckCircleOutlined />} accent="#22c55e" />
+                <KpiCard label="Average Score" value={overall.average} suffix="%" icon={<DashboardOutlined />} accent="#6366f1" />
+                <KpiCard label="Best Score" value={overall.best} suffix="%" icon={<RiseOutlined />} accent="#f59e0b" />
+                <KpiCard label="Overall Grade" value={overall.grade === '—' ? '—' : overall.grade} icon={<TrophyOutlined />} accent={overall.grade === '—' ? '#94a3b8' : gradeAccent(overall.grade).fg} />
+                <KpiCard label="Total Points" value={`${totals.totalScore}`} suffix={`/ ${totals.maxScore}`} icon={<FileTextOutlined />} accent="#0ea5e9" />
+            </div>
+
+            {/* ── Table card: flex-1, only rows scroll ── */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+
+                {/* Custom tab bar */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                        {TABS.map(tab => {
+                            const isActive = activeTab === tab;
+                            const count = tab === 'By Batch' ? batchAggs.length : breakdownResults.length;
+                            return (
+                                <button key={tab} onClick={() => setActiveTab(tab)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: 6, padding: '14px 16px',
+                                        border: 'none', background: 'none', cursor: 'pointer',
+                                        fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                        color: isActive ? '#6366f1' : '#94a3b8',
+                                        borderBottom: isActive ? '2px solid #6366f1' : '2px solid transparent',
+                                        marginBottom: -1, whiteSpace: 'nowrap', transition: 'all 0.15s', outline: 'none',
+                                    }}
+                                >
+                                    {tab}
+                                    <span style={{ fontSize: 11, fontWeight: 700, background: isActive ? '#eef2ff' : '#f1f5f9', color: isActive ? '#6366f1' : '#94a3b8', borderRadius: 20, padding: '1px 8px' }}>{count}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <Tooltip title="Quiz results are released per your teacher's schedule">
+                        <span style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <CalendarOutlined style={{ fontSize: 12 }} /> Release schedule applies
+                        </span>
+                    </Tooltip>
+                </div>
+
+                {/* Table body — only rows scroll */}
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                    {activeTab === 'By Batch' ? (
+                        !showBatchTable ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
+                                <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>Select "All Batches" or more than 2 batches to view comparison</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                            </div>
+                        ) : batchAggs.length === 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
+                                <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results available yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                            </div>
+                        ) : (
+                            <Table
+                                columns={batchCols as any}
+                                dataSource={batchAggs}
+                                rowKey={r => String(r.batch_id ?? 'unassigned')}
+                                pagination={false}
+                                scroll={{ y: 'calc(100vh - 400px)', x: 850 }}
+                                rowClassName={() => 'mark-row'}
+                            />
+                        )
+                    ) : (
+                        breakdownResults.length === 0 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
+                                <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No completed quizzes to display</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                            </div>
+                        ) : (
+                            <Table
+                                columns={detailCols as any}
+                                dataSource={breakdownResults}
+                                rowKey={r => String(r.id)}
+                                pagination={false}
+                                scroll={{ y: 'calc(100vh - 400px)', x: 800 }}
+                                rowClassName={() => 'mark-row'}
+                            />
+                        )
+                    )}
+                </div>
+            </div>
+
+            {/* ── Performance Analyzer Modal ── */}
+            <Modal
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 16 }}><BarChartOutlined /></div>
+                        <div>
+                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15 }}>Performance Comparison</div>
+                            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>{selectedAggs.length} batches selected</div>
+                        </div>
+                    </div>
+                }
+                open={analyzerOpen}
+                width={900}
+                onCancel={() => setAnalyzerOpen(false)}
+                footer={<Button onClick={() => setAnalyzerOpen(false)} style={{ borderRadius: 10, height: 38 }}>Close</Button>}
+            >
+                {!canAnalyze ? (
+                    <Alert type="info" showIcon message="Select at least two batches to analyze" style={{ borderRadius: 12 }} />
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                        {/* Batch summary cards */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 12 }}>
+                            {selectedAggs.map(a => {
+                                const g = gradeFromPercent(a.average_percentage);
+                                return (
+                                    <div key={String(a.batch_id)} style={{ borderRadius: 14, border: `1.5px solid ${scoreColor(a.average_percentage)}30`, padding: '14px 16px', background: '#fafafe' }}>
+                                        <div style={{ height: 3, borderRadius: 3, background: scoreColor(a.average_percentage), marginBottom: 10 }} />
+                                        <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13, marginBottom: 6 }}>{a.batch_name}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ fontSize: 22, fontWeight: 800, color: scoreColor(a.average_percentage) }}>{a.average_percentage.toFixed(1)}%</span>
+                                            <GradeBadge grade={g} size="sm" />
+                                        </div>
+                                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{a.completed_count}/{a.quizzes_count} quizzes</div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Charts */}
+                        <div style={{ borderRadius: 14, border: '1px solid #f0f0f8', padding: 20, background: '#fafafe' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 14 }}>Average Score by Batch</div>
+                            <BarChart
+                                height={280}
+                                xAxis={[{ scaleType: 'band', data: selectedAggs.map(a => a.batch_name) }]}
+                                series={[{ data: selectedAggs.map(a => toFixed(a.average_percentage)), color: '#6366f1', label: 'Average %' }]}
+                            />
+                        </div>
+                        <div style={{ borderRadius: 14, border: '1px solid #f0f0f8', padding: 20, background: '#fafafe' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 14 }}>Completion Rate by Batch</div>
+                            <BarChart
+                                height={280}
+                                xAxis={[{ scaleType: 'band', data: selectedAggs.map(a => a.batch_name) }]}
+                                series={[{ data: selectedAggs.map(a => a.quizzes_count ? toFixed((a.completed_count / a.quizzes_count) * 100) : 0), color: '#22c55e', label: 'Completion %' }]}
+                            />
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            <style>{`
+                .mark-row:hover td { background: #f8f7ff !important; }
+                .ant-table-thead > tr > th { background: #fafafa !important; font-weight: 700 !important; color: #4b5563 !important; font-size: 11px !important; text-transform: uppercase !important; letter-spacing: 0.5px !important; }
+                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
+            `}</style>
+        </div>
+    );
 };
 
 export default StudentMarksheet;

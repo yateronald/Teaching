@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    Card, Row, Col, Statistic, Table, Select, DatePicker, Button, Space,
-    Typography, Tag, Progress, Empty, message, Input, Badge, Skeleton
+    Row, Col, Table, Select, DatePicker, Button, Space,
+    Typography, Tag, Progress, Empty, message, Input, Badge, Skeleton, AutoComplete
 } from 'antd';
 import {
     TeamOutlined, CalendarOutlined, CheckCircleOutlined, CloseCircleOutlined,
@@ -13,7 +13,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
 // ============================================================
@@ -93,6 +93,8 @@ const AttendanceManagement: React.FC = () => {
     const [batchFilter, setBatchFilter] = useState<number | null>(null);
     const [teacherFilter, setTeacherFilter] = useState<number | null>(null);
     const [searchText, setSearchText] = useState('');
+    const [studentFilter, setStudentFilter] = useState<number | null>(null);
+    const [autoCompleteOptions, setAutoCompleteOptions] = useState<{value: string, label: string, student_id: number}[]>([]);
 
     // Data
     const [overview, setOverview] = useState<OverviewData | null>(null);
@@ -117,12 +119,13 @@ const AttendanceManagement: React.FC = () => {
         const p = new URLSearchParams();
         if (batchFilter) p.set('batch_id', String(batchFilter));
         if (teacherFilter && isAdmin) p.set('teacher_id', String(teacherFilter));
+        if (studentFilter) p.set('student_id', String(studentFilter));
         if (dateRange) {
             p.set('date_from', dateRange[0].format('YYYY-MM-DD'));
             p.set('date_to', dateRange[1].format('YYYY-MM-DD'));
         }
         return p.toString();
-    }, [batchFilter, teacherFilter, dateRange, isAdmin]);
+    }, [batchFilter, teacherFilter, studentFilter, dateRange, isAdmin]);
 
     // Fetch all data in parallel
     const fetchAll = useCallback(async () => {
@@ -223,6 +226,30 @@ const AttendanceManagement: React.FC = () => {
         const q = searchText.toLowerCase();
         return `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q);
     });
+
+    const handleStudentSearch = (value: string) => {
+        setSearchText(value);
+        if (!value) {
+            setAutoCompleteOptions([]);
+            setStudentFilter(null);
+            return;
+        }
+        const q = value.toLowerCase();
+        
+        // Find unique matching students by name/email
+        const matches = students
+            .filter(s => `${s.first_name} ${s.last_name}`.toLowerCase().includes(q) || s.email?.toLowerCase().includes(q))
+            .map(s => ({ value: `${s.first_name} ${s.last_name}`, label: `${s.first_name} ${s.last_name} (${s.email})`, student_id: s.id }));
+            
+        // Deduplicate by value and take top 5
+        const unique = Array.from(new Map(matches.map(m => [m.value, m])).values()).slice(0, 5);
+        setAutoCompleteOptions(unique);
+    };
+
+    const handleStudentSelect = (val: string, option: any) => {
+        setSearchText(val);
+        setStudentFilter(option.student_id);
+    };
 
     // ============================================================
     // Sessions Table Columns
@@ -343,21 +370,133 @@ const AttendanceManagement: React.FC = () => {
     // ============================================================
     // Render
     // ============================================================
+    // ============================================================
+    // Full-page Skeleton
+    // ============================================================
+    const SkeletonDashboardBody = () => (
+        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+            {/* KPI skeleton */}
+            <Row gutter={[14, 14]} style={{ marginBottom: 24 }}>
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                    <Col xs={12} sm={8} md={4} key={i}>
+                        <div style={{ borderRadius: 16, padding: '18px 20px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 14 }}>
+                            <Skeleton.Avatar active size={44} shape="square" style={{ borderRadius: 12 }} />
+                            <div style={{ flex: 1 }}>
+                                <Skeleton.Input active style={{ width: '70%', height: 10, borderRadius: 4, marginBottom: 8 }} block />
+                                <Skeleton.Input active style={{ width: 40, height: 22, borderRadius: 6 }} />
+                            </div>
+                        </div>
+                    </Col>
+                ))}
+            </Row>
+
+            {/* Charts skeleton */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+                <Col xs={24} lg={8}>
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa' }}>
+                            <Skeleton.Input active style={{ width: 180, height: 16, borderRadius: 4 }} />
+                        </div>
+                        <div style={{ padding: 20 }}>
+                            {[1, 2, 3].map(i => (
+                                <div key={i} style={{ marginBottom: 16 }}>
+                                    <Skeleton.Input active style={{ width: '100%', height: 12, borderRadius: 4, marginBottom: 6 }} block />
+                                    <Skeleton.Button active style={{ height: 8, borderRadius: 4 }} block />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </Col>
+                <Col xs={24} lg={16}>
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa' }}>
+                            <Skeleton.Input active style={{ width: 220, height: 16, borderRadius: 4 }} />
+                        </div>
+                        <div style={{ padding: 20 }}>
+                            {[1, 2, 3, 4].map(i => (
+                                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                                    <Skeleton.Input active style={{ width: 20, height: 14, borderRadius: 4 }} />
+                                    <Skeleton.Input active style={{ width: 130, height: 14, borderRadius: 4 }} />
+                                    <div style={{ flex: 1 }}><Skeleton.Button active style={{ height: 8, borderRadius: 4 }} block /></div>
+                                    <Skeleton.Input active style={{ width: 40, height: 14, borderRadius: 4 }} />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </Col>
+            </Row>
+
+            {/* Table skeleton */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa' }}>
+                    <Skeleton.Input active style={{ width: 120, height: 16, borderRadius: 4 }} />
+                </div>
+                <div style={{ padding: 20 }}>
+                    {[1, 2, 3, 4, 5].map(i => (
+                        <Skeleton.Input key={i} active style={{ width: '100%', height: 18, borderRadius: 4, marginBottom: 14 }} block />
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+
+    const SkeletonDashboard = () => (
+        <div>
+            {/* Header skeleton */}
+            <div style={{ marginBottom: 24 }}>
+                <Skeleton.Input active style={{ width: 260, height: 28, borderRadius: 8 }} />
+                <div style={{ marginTop: 8 }}>
+                    <Skeleton.Input active style={{ width: 340, height: 14, borderRadius: 6 }} />
+                </div>
+            </div>
+
+            {/* Filter bar skeleton */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {[200, 160, 160, 180].map((w, i) => (
+                    <Skeleton.Input key={i} active style={{ width: w, height: 32, borderRadius: 8 }} />
+                ))}
+            </div>
+
+            <SkeletonDashboardBody />
+        </div>
+    );
+
+    // ============================================================
+    // Render
+    // ============================================================
+    if (loading && !overview) return <SkeletonDashboard />;
+
     return (
         <div>
             {/* Header + Filters */}
-            <div style={{ marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ marginBottom: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
                     <div>
-                        <Title level={3} style={{ margin: 0, fontWeight: 700 }}>📊 Attendance Dashboard</Title>
-                        <Text type="secondary">Comprehensive attendance tracking and analytics</Text>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
+                            Attendance Dashboard
+                        </div>
+                        <Text style={{ fontSize: 13, color: '#94a3b8' }}>
+                            Comprehensive tracking · {overview?.total_sessions ?? 0} sessions · {overview?.total_students ?? 0} students
+                        </Text>
                     </div>
                     <Space>
-                        <Button icon={<ReloadOutlined />} onClick={fetchAll} loading={loading}>Refresh</Button>
-                        <Button icon={<DownloadOutlined />} onClick={exportCSV}>Export CSV</Button>
+                        <Button icon={<ReloadOutlined />} onClick={fetchAll} loading={loading}
+                            style={{ borderRadius: 10, fontWeight: 600, borderColor: '#e0e7ff', color: '#6366f1' }}>
+                            Refresh
+                        </Button>
+                        <Button icon={<DownloadOutlined />} onClick={exportCSV}
+                            style={{ borderRadius: 10, fontWeight: 600, borderColor: '#e0e7ff', color: '#6366f1' }}>
+                            Export CSV
+                        </Button>
                     </Space>
                 </div>
-                <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
+
+                {/* Filter bar */}
+                <div style={{
+                    background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8',
+                    boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+                    padding: '14px 20px',
+                }}>
                     <Space wrap size="middle">
                         <RangePicker
                             value={dateRange}
@@ -372,101 +511,154 @@ const AttendanceManagement: React.FC = () => {
                             <Select value={teacherFilter} onChange={setTeacherFilter} allowClear placeholder="All Teachers" style={{ width: 180 }}
                                 options={teacherList.map(t => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))} showSearch optionFilterProp="label" />
                         )}
-                        <Input placeholder="Search student..." prefix={<SearchOutlined />} allowClear
-                            value={searchText} onChange={e => setSearchText(e.target.value)} style={{ width: 200, borderRadius: 8 }} />
+                        <AutoComplete
+                            options={autoCompleteOptions}
+                            onSearch={handleStudentSearch}
+                            onSelect={handleStudentSelect}
+                            value={searchText}
+                            onChange={(val) => handleStudentSearch(val || '')}
+                            style={{ width: 220 }}
+                        >
+                            <Input placeholder="Search student..." prefix={<SearchOutlined />} style={{ borderRadius: 8 }} allowClear />
+                        </AutoComplete>
                     </Space>
-                </Card>
+                </div>
             </div>
 
-            {/* Stats Row */}
-            <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
-                {(loading ? Array(6).fill(null) : [
-                    { label: 'Total Sessions', value: overview?.total_sessions ?? 0, icon: <CalendarOutlined />, color: '#1a56db' },
-                    { label: 'Total Students', value: overview?.total_students ?? 0, icon: <TeamOutlined />, color: '#7c3aed' },
-                    { label: 'Avg Attendance', value: `${Math.round(overview?.overall_attendance_rate ?? 0)}%`, icon: <BarChartOutlined />, color: getAttendanceColor(overview?.overall_attendance_rate ?? 0) },
-                    { label: 'Present', value: overview?.total_present ?? 0, icon: <CheckCircleOutlined />, color: '#52c41a' },
-                    { label: 'Late', value: overview?.total_late ?? 0, icon: <ClockCircleOutlined />, color: '#faad14' },
-                    { label: 'Absent', value: overview?.total_absent ?? 0, icon: <CloseCircleOutlined />, color: '#ff4d4f' },
-                ]).map((s, i) => (
+            {loading ? <SkeletonDashboardBody /> : (
+                <>
+                    {/* KPI Cards */}
+                    <Row gutter={[14, 14]} style={{ marginBottom: 24 }}>
+                {[
+                    { label: 'Total Sessions', value: overview?.total_sessions ?? 0, icon: <CalendarOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
+                    { label: 'Total Students', value: overview?.total_students ?? 0, icon: <TeamOutlined />, gradient: 'linear-gradient(135deg, #8b5cf6, #a78bfa)', accent: '#8b5cf6' },
+                    { label: 'Avg Attendance', value: `${Math.round(overview?.overall_attendance_rate ?? 0)}%`, icon: <BarChartOutlined />, gradient: `linear-gradient(135deg, ${getAttendanceColor(overview?.overall_attendance_rate ?? 0)}, ${getAttendanceColor(overview?.overall_attendance_rate ?? 0)}cc)`, accent: getAttendanceColor(overview?.overall_attendance_rate ?? 0) },
+                    { label: 'Present', value: overview?.total_present ?? 0, icon: <CheckCircleOutlined />, gradient: 'linear-gradient(135deg, #22c55e, #4ade80)', accent: '#22c55e' },
+                    { label: 'Late', value: overview?.total_late ?? 0, icon: <ClockCircleOutlined />, gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)', accent: '#f59e0b' },
+                    { label: 'Absent', value: overview?.total_absent ?? 0, icon: <CloseCircleOutlined />, gradient: 'linear-gradient(135deg, #ef4444, #f87171)', accent: '#ef4444' },
+                ].map((kpi, i) => (
                     <Col xs={12} sm={8} md={4} key={i}>
-                        <Card size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}>
-                            {loading ? <Skeleton active paragraph={false} /> : (
-                                <Statistic title={s!.label} value={s!.value} prefix={<span style={{ color: s!.color }}>{s!.icon}</span>}
-                                    valueStyle={{ fontSize: 24, fontWeight: 700, color: s!.color }} />
-                            )}
-                        </Card>
+                        <div style={{
+                            borderRadius: 16, padding: '18px 20px',
+                            background: '#fff', border: '1px solid #f0f0f8',
+                            boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+                            display: 'flex', alignItems: 'center', gap: 14,
+                            transition: 'all 0.2s ease', cursor: 'default',
+                        }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(99,102,241,0.06)'; }}
+                        >
+                            <div style={{
+                                width: 44, height: 44, borderRadius: 12,
+                                background: kpi.gradient,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 18, color: '#fff', flexShrink: 0,
+                                boxShadow: `0 4px 12px ${kpi.accent}40`,
+                            }}>
+                                {kpi.icon}
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
+                                <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
+                            </div>
+                        </div>
                     </Col>
                 ))}
             </Row>
 
             {/* Insights Row */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                 {/* Attendance Breakdown */}
                 <Col xs={24} lg={8}>
-                    <Card title="📊 Attendance Breakdown" size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', height: '100%' }}>
-                        {totalAttendanceSlots > 0 ? (
-                            <div>
-                                <div style={{ marginBottom: 16 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                        <Text><CheckCircleOutlined style={{ color: '#52c41a' }} /> Present</Text>
-                                        <Text strong style={{ color: '#52c41a' }}>{totalPresent} ({totalAttendanceSlots > 0 ? Math.round(totalPresent * 100 / totalAttendanceSlots) : 0}%)</Text>
-                                    </div>
-                                    <Progress percent={totalAttendanceSlots > 0 ? Math.round(totalPresent * 100 / totalAttendanceSlots) : 0} strokeColor="#52c41a" showInfo={false} />
-                                </div>
-                                <div style={{ marginBottom: 16 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                        <Text><ClockCircleOutlined style={{ color: '#faad14' }} /> Late</Text>
-                                        <Text strong style={{ color: '#faad14' }}>{totalLate} ({totalAttendanceSlots > 0 ? Math.round(totalLate * 100 / totalAttendanceSlots) : 0}%)</Text>
-                                    </div>
-                                    <Progress percent={totalAttendanceSlots > 0 ? Math.round(totalLate * 100 / totalAttendanceSlots) : 0} strokeColor="#faad14" showInfo={false} />
-                                </div>
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                        <Text><CloseCircleOutlined style={{ color: '#ff4d4f' }} /> Absent</Text>
-                                        <Text strong style={{ color: '#ff4d4f' }}>{totalAbsent} ({totalAttendanceSlots > 0 ? Math.round(totalAbsent * 100 / totalAttendanceSlots) : 0}%)</Text>
-                                    </div>
-                                    <Progress percent={totalAttendanceSlots > 0 ? Math.round(totalAbsent * 100 / totalAttendanceSlots) : 0} strokeColor="#ff4d4f" showInfo={false} />
-                                </div>
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', height: '100%', overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 14 }}>
+                                <BarChartOutlined />
                             </div>
-                        ) : (
-                            <Empty description="No attendance data" style={{ padding: 20 }} />
-                        )}
-                    </Card>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Attendance Breakdown</span>
+                        </div>
+                        <div style={{ padding: '20px' }}>
+                            {totalAttendanceSlots > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                                    {[
+                                        { label: 'Present', count: totalPresent, color: '#22c55e', icon: <CheckCircleOutlined /> },
+                                        { label: 'Late', count: totalLate, color: '#f59e0b', icon: <ClockCircleOutlined /> },
+                                        { label: 'Absent', count: totalAbsent, color: '#ef4444', icon: <CloseCircleOutlined /> },
+                                    ].map(item => {
+                                        const pct = totalAttendanceSlots > 0 ? Math.round(item.count * 100 / totalAttendanceSlots) : 0;
+                                        return (
+                                            <div key={item.label}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                                    <span style={{ fontSize: 13, fontWeight: 600, color: '#475569', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <span style={{ color: item.color }}>{item.icon}</span> {item.label}
+                                                    </span>
+                                                    <span style={{ fontSize: 13, fontWeight: 800, color: item.color }}>{item.count} ({pct}%)</span>
+                                                </div>
+                                                <div style={{ width: '100%', height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+                                                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: 4, background: `linear-gradient(90deg, ${item.color}, ${item.color}cc)`, transition: 'width 0.6s ease' }} />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <Empty description="No attendance data" style={{ padding: 20 }} />
+                            )}
+                        </div>
+                    </div>
                 </Col>
 
                 {/* Batch Rankings */}
                 <Col xs={24} lg={16}>
-                    <Card title="🏆 Batch Attendance Rankings" size="small" style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', height: '100%' }}>
-                        {sortedBatches.length > 0 ? (
-                            <div>
-                                {sortedBatches.map((b, i) => {
-                                    const rate = Math.round(b.avg_attendance_rate || 0);
-                                    return (
-                                        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: i < sortedBatches.length - 1 ? 12 : 0 }}>
-                                            <Text style={{ width: 20, textAlign: 'center', fontSize: 12, color: '#94a3b8' }}>{i + 1}</Text>
-                                            <Text strong style={{ width: 160, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.name}</Text>
-                                            <div style={{ flex: 1 }}>
-                                                <Progress percent={rate} strokeColor={getAttendanceColor(rate)} size="small" showInfo={false} />
-                                            </div>
-                                            <Text strong style={{ width: 45, textAlign: 'right', color: getAttendanceColor(rate), fontSize: 13 }}>{rate}%</Text>
-                                            <Text type="secondary" style={{ width: 60, textAlign: 'right', fontSize: 11 }}>{b.total_students} students</Text>
-                                        </div>
-                                    );
-                                })}
+                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', height: '100%', overflow: 'hidden' }}>
+                        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+                                🏆
                             </div>
-                        ) : (
-                            <Empty description="No batch data" style={{ padding: 20 }} />
-                        )}
-                    </Card>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Batch Attendance Rankings</span>
+                        </div>
+                        <div style={{ padding: '16px 20px' }}>
+                            {sortedBatches.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                                    {sortedBatches.map((b, i) => {
+                                        const rate = Math.round(b.avg_attendance_rate || 0);
+                                        const medals = ['🥇', '🥈', '🥉'];
+                                        return (
+                                            <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                                                <span style={{ width: 24, textAlign: 'center', fontSize: i < 3 ? 16 : 12, color: '#94a3b8', fontWeight: 700 }}>
+                                                    {i < 3 ? medals[i] : i + 1}
+                                                </span>
+                                                <span style={{ width: 160, fontSize: 13, fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {b.name}
+                                                </span>
+                                                <div style={{ flex: 1, height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+                                                    <div style={{ width: `${rate}%`, height: '100%', borderRadius: 4, background: `linear-gradient(90deg, ${getAttendanceColor(rate)}, ${getAttendanceColor(rate)}cc)`, transition: 'width 0.6s ease' }} />
+                                                </div>
+                                                <span style={{ width: 45, textAlign: 'right', fontWeight: 800, color: getAttendanceColor(rate), fontSize: 13 }}>{rate}%</span>
+                                                <span style={{ width: 65, textAlign: 'right', fontSize: 11, color: '#94a3b8' }}>{b.total_students} studs</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <Empty description="No batch data" style={{ padding: 20 }} />
+                            )}
+                        </div>
+                    </div>
                 </Col>
             </Row>
 
             {/* Sessions Table */}
-            <Card
-                title={<Space><span>📅 Sessions</span><Badge count={sessions.length} style={{ backgroundColor: '#1a56db' }} /></Space>}
-                size="small"
-                style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', marginBottom: 20 }}
-            >
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', overflow: 'hidden', marginBottom: 24 }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 30, height: 30, borderRadius: 9, background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1d4ed8', fontSize: 14 }}>
+                            <CalendarOutlined />
+                        </div>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Sessions</span>
+                        <Badge count={sessions.length} style={{ backgroundColor: '#6366f1' }} />
+                    </div>
+                </div>
                 <Table
                     columns={sessionColumns}
                     dataSource={sessions}
@@ -488,7 +680,7 @@ const AttendanceManagement: React.FC = () => {
                                     <Space wrap size={[16, 8]}>
                                         {details.map((d: any, i: number) => (
                                             <Tag key={i} color={d.status === 'present' ? 'green' : d.status === 'late' ? 'orange' : 'red'}
-                                                style={{ borderRadius: 6, padding: '2px 10px' }}>
+                                                style={{ borderRadius: 8, padding: '3px 12px', fontWeight: 600, border: 'none' }}>
                                                 {d.status === 'present' ? '✓' : d.status === 'late' ? '⏰' : '✗'} {d.student_name}
                                             </Tag>
                                         ))}
@@ -499,14 +691,17 @@ const AttendanceManagement: React.FC = () => {
                     }}
                     locale={{ emptyText: <Empty description="No sessions found" /> }}
                 />
-            </Card>
+            </div>
 
             {/* Student Attendance Table */}
-            <Card
-                title={<Space><span>👥 Student Attendance</span><Badge count={filteredStudents.length} style={{ backgroundColor: '#7c3aed' }} /></Space>}
-                size="small"
-                style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)', marginBottom: 20 }}
-            >
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', overflow: 'hidden', marginBottom: 24 }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 9, background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', fontSize: 14 }}>
+                        <TeamOutlined />
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Student Attendance</span>
+                    <Badge count={filteredStudents.length} style={{ backgroundColor: '#8b5cf6' }} />
+                </div>
                 <Table
                     columns={studentColumns}
                     dataSource={filteredStudents}
@@ -517,20 +712,23 @@ const AttendanceManagement: React.FC = () => {
                     size="small"
                     onRow={(record) => ({
                         style: {
-                            backgroundColor: (record.attendance_rate || 0) < 50 ? '#fff1f0' :
-                                (record.attendance_rate || 0) < 70 ? '#fffbe6' : undefined,
+                            backgroundColor: (record.attendance_rate || 0) < 50 ? '#fef2f2' :
+                                (record.attendance_rate || 0) < 70 ? '#fffbeb' : undefined,
                         },
                     })}
                     locale={{ emptyText: <Empty description="No student data found" /> }}
                 />
-            </Card>
+            </div>
 
             {/* Batch Summary Table */}
-            <Card
-                title={<Space><span>📚 Batch Summary</span><Badge count={batches.length} style={{ backgroundColor: '#059669' }} /></Space>}
-                size="small"
-                style={{ borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}
-            >
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 9, background: '#d1fae5', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#059669', fontSize: 14 }}>
+                        <CalendarOutlined />
+                    </div>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Batch Summary</span>
+                    <Badge count={batches.length} style={{ backgroundColor: '#059669' }} />
+                </div>
                 <Table
                     columns={batchColumns}
                     dataSource={batches}
@@ -541,9 +739,12 @@ const AttendanceManagement: React.FC = () => {
                     size="small"
                     locale={{ emptyText: <Empty description="No batch data found" /> }}
                 />
-            </Card>
+            </div>
+                </>
+            )}
         </div>
     );
 };
 
 export default AttendanceManagement;
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Table,
     Button,
@@ -9,12 +9,14 @@ import {
     message,
     Space,
     Typography,
-    Tag,
-    Card,
+        Card,
     Divider,
     Switch,
-    Dropdown
-} from 'antd';
+    Dropdown,
+    Skeleton,
+    DatePicker,
+        } from 'antd';
+import dayjs from 'dayjs';
 import {
     PlusOutlined,
     EditOutlined,
@@ -54,6 +56,9 @@ const UserManagement: React.FC = () => {
     const [passwordResetLoading, setPasswordResetLoading] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
     const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+    const [searchText, setSearchText] = useState('');
+    const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
     const [form] = Form.useForm();
     const [passwordForm] = Form.useForm();
     const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
@@ -290,12 +295,25 @@ const UserManagement: React.FC = () => {
         }
     };
 
-    const getRoleColor = (role: string) => {
+    const getRoleStyle = (role: string) => {
         switch (role) {
-            case 'admin': return 'red';
-            case 'teacher': return 'blue';
-            case 'student': return 'green';
-            default: return 'default';
+            case 'admin': return { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
+            case 'teacher': return { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
+            case 'student': return { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' };
+            default: return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+        }
+    };
+
+    const getInitials = (first: string, last: string) => {
+        return `${(first || '')[0] || ''}${(last || '')[0] || ''}`.toUpperCase();
+    };
+
+    const getAvatarColor = (role: string) => {
+        switch (role) {
+            case 'admin': return 'linear-gradient(135deg, #ef4444, #f87171)';
+            case 'teacher': return 'linear-gradient(135deg, #3b82f6, #60a5fa)';
+            case 'student': return 'linear-gradient(135deg, #10b981, #34d399)';
+            default: return 'linear-gradient(135deg, #6366f1, #818cf8)';
         }
     };
 
@@ -303,15 +321,26 @@ const UserManagement: React.FC = () => {
         {
             title: 'Name',
             key: 'name',
-            width: 180,
+            width: 220,
             fixed: 'left',
             render: (_, record) => (
-                <div>
-                    <div style={{ fontWeight: 600, color: '#262626' }}>
-                        {`${record.first_name} ${record.last_name}`}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                        width: 34, height: 34, borderRadius: 10,
+                        background: getAvatarColor(record.role),
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                    }}>
+                        {getInitials(record.first_name, record.last_name)}
                     </div>
-                    <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
-                        ID: {record.id}
+                    <div>
+                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, lineHeight: 1.3 }}>
+                            {`${record.first_name} ${record.last_name}`}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            ID: {record.id}
+                        </div>
                     </div>
                 </div>
             ),
@@ -320,41 +349,58 @@ const UserManagement: React.FC = () => {
             title: 'Email',
             dataIndex: 'email',
             key: 'email',
-            width: 220,
+            width: 240,
             ellipsis: true,
             render: (email: string) => (
-                <div style={{ color: '#595959' }}>
+                <span style={{ color: '#64748b', fontSize: 12.5 }}>
                     {email}
-                </div>
+                </span>
             ),
         },
         {
             title: 'Role',
             dataIndex: 'role',
             key: 'role',
-            width: 100,
-            render: (role: string) => (
-                <Tag color={getRoleColor(role)} style={{ fontWeight: 500 }}>
-                    {role.toUpperCase()}
-                </Tag>
-            ),
+            width: 110,
+            render: (role: string) => {
+                const s = getRoleStyle(role);
+                return (
+                    <span style={{
+                        display: 'inline-block',
+                        padding: '3px 12px',
+                        borderRadius: 20,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.5,
+                        background: s.bg,
+                        color: s.color,
+                        border: `1px solid ${s.border}`,
+                    }}>
+                        {role}
+                    </span>
+                );
+            },
         },
         {
             title: 'Status',
             dataIndex: 'is_active',
             key: 'status',
-            width: 90,
+            width: 100,
             render: (isActive: boolean) => (
-                <Tag 
-                    color={isActive ? 'green' : 'red'} 
-                    style={{ 
-                        fontWeight: 500,
-                        minWidth: '70px',
-                        textAlign: 'center'
-                    }}
-                >
-                    {isActive ? 'ACTIVE' : 'DISABLED'}
-                </Tag>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{
+                        width: 7, height: 7, borderRadius: '50%',
+                        background: isActive ? '#22c55e' : '#ef4444',
+                        boxShadow: isActive ? '0 0 6px #22c55e80' : '0 0 6px #ef444480',
+                    }} />
+                    <span style={{
+                        fontSize: 12, fontWeight: 600,
+                        color: isActive ? '#16a34a' : '#dc2626',
+                    }}>
+                        {isActive ? 'Active' : 'Disabled'}
+                    </span>
+                </div>
             ),
         },
         {
@@ -363,34 +409,43 @@ const UserManagement: React.FC = () => {
             key: 'failed_login_attempts',
             width: 110,
             align: 'center',
-            render: (attempts: number) => (
-                <Tag 
-                    color={attempts >= 5 ? 'red' : attempts >= 3 ? 'orange' : 'default'}
-                    style={{ fontWeight: 500 }}
-                >
-                    {attempts || 0}
-                </Tag>
-            ),
+            render: (attempts: number) => {
+                const val = attempts || 0;
+                const color = val >= 5 ? '#dc2626' : val >= 3 ? '#f59e0b' : '#94a3b8';
+                return (
+                    <span style={{
+                        display: 'inline-block',
+                        padding: '2px 10px',
+                        borderRadius: 8,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: color,
+                        background: val >= 3 ? (val >= 5 ? '#fef2f2' : '#fffbeb') : '#f8fafc',
+                    }}>
+                        {val}
+                    </span>
+                );
+            },
         },
         {
             title: 'Created At',
             dataIndex: 'created_at',
             key: 'created_at',
-            width: 120,
+            width: 130,
             render: (date: string) => (
-                <div style={{ color: '#8c8c8c', fontSize: '13px' }}>
+                <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}>
                     {new Date(date).toLocaleDateString('en-US', {
                         month: 'short',
                         day: 'numeric',
                         year: 'numeric'
                     })}
-                </div>
+                </span>
             ),
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 120,
+            width: 100,
             fixed: 'right',
             align: 'center',
             render: (_, record) => {
@@ -398,14 +453,14 @@ const UserManagement: React.FC = () => {
                 const menuItems: MenuProps['items'] = [
                     {
                         key: 'edit',
-                        icon: <EditOutlined style={{ color: '#1890ff' }} />,
-                        label: <span style={{ color: '#262626' }}>Edit User</span>,
+                        icon: <EditOutlined style={{ color: '#6366f1' }} />,
+                        label: <span style={{ color: '#1e293b' }}>Edit User</span>,
                         onClick: () => handleEdit(record),
                     },
                     {
                         key: 'reset-password',
-                        icon: <KeyOutlined style={{ color: '#722ed1' }} />,
-                        label: <span style={{ color: '#262626' }}>Reset Password</span>,
+                        icon: <KeyOutlined style={{ color: '#8b5cf6' }} />,
+                        label: <span style={{ color: '#1e293b' }}>Reset Password</span>,
                         onClick: () => handleResetPassword(record),
                     },
                     {
@@ -414,10 +469,10 @@ const UserManagement: React.FC = () => {
                     {
                         key: 'toggle-status',
                         icon: record.is_active ? 
-                            <StopOutlined style={{ color: '#ff4d4f' }} /> : 
-                            <CheckCircleOutlined style={{ color: '#52c41a' }} />,
+                            <StopOutlined style={{ color: '#ef4444' }} /> : 
+                            <CheckCircleOutlined style={{ color: '#22c55e' }} />,
                         label: (
-                            <span style={{ color: record.is_active ? '#ff4d4f' : '#52c41a' }}>
+                            <span style={{ color: record.is_active ? '#ef4444' : '#22c55e' }}>
                                 {record.is_active ? 'Deactivate User' : 'Activate User'}
                             </span>
                         ),
@@ -434,8 +489,8 @@ const UserManagement: React.FC = () => {
                                 cancelText: 'No',
                                 okButtonProps: {
                                     style: {
-                                        backgroundColor: record.is_active ? '#ff4d4f' : '#52c41a',
-                                        borderColor: record.is_active ? '#ff4d4f' : '#52c41a'
+                                        backgroundColor: record.is_active ? '#ef4444' : '#22c55e',
+                                        borderColor: record.is_active ? '#ef4444' : '#22c55e'
                                     }
                                 },
                                 onOk: () => handleToggleStatus(record),
@@ -447,8 +502,8 @@ const UserManagement: React.FC = () => {
                     },
                     {
                         key: 'delete',
-                        icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
-                        label: <span style={{ color: '#ff4d4f' }}>Delete User</span>,
+                        icon: <DeleteOutlined style={{ color: '#ef4444' }} />,
+                        label: <span style={{ color: '#ef4444' }}>Delete User</span>,
                         disabled: isOwnAdmin,
                         onClick: () => {
                             if (isOwnAdmin) {
@@ -470,17 +525,20 @@ const UserManagement: React.FC = () => {
                 return (
                     <Space size="small">
                         <Button
-                            type="primary"
+                            type="text"
                             size="small"
                             icon={<EyeOutlined />}
                             onClick={() => handleEdit(record)}
                             title="Quick Edit"
                             style={{
-                                borderRadius: '6px',
-                                height: '28px',
+                                borderRadius: 8,
+                                height: 30, width: 30,
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center'
+                                justifyContent: 'center',
+                                color: '#6366f1',
+                                background: '#eef2ff',
+                                border: 'none',
                             }}
                         />
                         <Dropdown
@@ -493,23 +551,23 @@ const UserManagement: React.FC = () => {
                                 size="small"
                                 icon={<MoreOutlined />}
                                 style={{ 
-                                    border: '1px solid #d9d9d9',
-                                    borderRadius: '6px',
-                                    height: '28px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: 8,
+                                    height: 30, width: 30,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    backgroundColor: '#fafafa',
+                                    backgroundColor: '#f8fafc',
                                     transition: 'all 0.2s ease'
                                 }}
                                 title="More Actions"
                                 onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#f0f0f0';
-                                    e.currentTarget.style.borderColor = '#b7b7b7';
+                                    e.currentTarget.style.backgroundColor = '#eef2ff';
+                                    e.currentTarget.style.borderColor = '#c7d2fe';
                                 }}
                                 onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#fafafa';
-                                    e.currentTarget.style.borderColor = '#d9d9d9';
+                                    e.currentTarget.style.backgroundColor = '#f8fafc';
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
                                 }}
                             />
                         </Dropdown>
@@ -519,40 +577,238 @@ const UserManagement: React.FC = () => {
         },
     ];
 
+    // Derived Statistics for Dashboard
+    const totalUsers = users.length;
+    const adminCount = users.filter(u => u.role === 'admin').length;
+    const teacherCount = users.filter(u => u.role === 'teacher').length;
+    const studentCount = users.filter(u => u.role === 'student').length;
+    const inactiveCount = users.filter(u => !u.is_active).length;
+
+    // Computed Filtered List
+    const filteredUsers = useMemo(() => {
+        return users.filter(u => {
+            const matchesSearch = (u.first_name + ' ' + u.last_name).toLowerCase().includes(searchText.toLowerCase()) || 
+                                  (u.email || '').toLowerCase().includes(searchText.toLowerCase());
+            const matchesRole = selectedRoles.length === 0 || selectedRoles.includes(u.role);
+            
+            let matchesDate = true;
+            if (dateRangeFilter && dateRangeFilter.length === 2 && u.created_at) {
+                const start = dayjs(u.created_at);
+                if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) matchesDate = false;
+            }
+
+            return matchesSearch && matchesRole && matchesDate;
+        });
+    }, [users, searchText, selectedRoles, dateRangeFilter]);
+
+    // ============================================================
+    // Full-page Skeleton
+    // ============================================================
+    if (loading && users.length === 0) {
+        return (
+            <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+                {/* Header skeleton */}
+                <div style={{ flexShrink: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                        <div>
+                            <Skeleton.Input active style={{ width: 220, height: 26, borderRadius: 8 }} />
+                            <div style={{ marginTop: 8 }}>
+                                <Skeleton.Input active style={{ width: 360, height: 14, borderRadius: 6 }} />
+                            </div>
+                        </div>
+                        <Skeleton.Button active style={{ width: 140, height: 40, borderRadius: 10 }} />
+                    </div>
+
+                    {/* KPI skeleton */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px', marginBottom: 20 }}>
+                        {[1, 2, 3, 4, 5].map(i => (
+                            <div key={i} style={{ borderRadius: 14, padding: '14px 16px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 12 }}>
+                                <Skeleton.Avatar active size={40} shape="square" style={{ borderRadius: 10 }} />
+                                <div style={{ flex: 1 }}>
+                                    <Skeleton.Input active style={{ width: '60%', height: 10, borderRadius: 4, marginBottom: 8 }} block />
+                                    <Skeleton.Input active style={{ width: 36, height: 22, borderRadius: 6 }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Table skeleton */}
+                <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <Skeleton.Avatar active size={30} shape="square" style={{ borderRadius: 9 }} />
+                        <Skeleton.Input active style={{ width: 120, height: 16, borderRadius: 4 }} />
+                    </div>
+                    {/* Table header skeleton */}
+                    <div style={{ padding: '12px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', gap: 24 }}>
+                        {[140, 200, 80, 80, 80, 100, 80].map((w, i) => (
+                            <Skeleton.Input key={i} active style={{ width: w, height: 12, borderRadius: 4 }} />
+                        ))}
+                    </div>
+                    {/* Table rows skeleton */}
+                    <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px' }}>
+                        {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '14px 0', borderBottom: '1px solid #f8f9fb' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 140 }}>
+                                    <Skeleton.Avatar active size={34} shape="square" style={{ borderRadius: 10 }} />
+                                    <div>
+                                        <Skeleton.Input active style={{ width: 90, height: 12, borderRadius: 4, marginBottom: 4 }} />
+                                        <Skeleton.Input active style={{ width: 40, height: 9, borderRadius: 4 }} />
+                                    </div>
+                                </div>
+                                <Skeleton.Input active style={{ width: 180, height: 12, borderRadius: 4 }} />
+                                <Skeleton.Input active style={{ width: 60, height: 20, borderRadius: 12 }} />
+                                <Skeleton.Input active style={{ width: 55, height: 12, borderRadius: 4 }} />
+                                <Skeleton.Input active style={{ width: 25, height: 14, borderRadius: 6 }} />
+                                <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 4 }} />
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
+                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <Card style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }} bodyStyle={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                <Title level={2} style={{ margin: 0 }}>
-                    <UserOutlined /> User Management
-                </Title>
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={handleAdd}
-                >
-                    Add User
-                </Button>
+        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
+            {/* Fixed Header Area */}
+            <div style={{ flexShrink: 0 }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
+                            User Management
+                        </div>
+                        <Typography.Text style={{ fontSize: 13, color: '#94a3b8' }}>
+                            Manage administrators, teachers, and students across the platform
+                        </Typography.Text>
+                    </div>
+                    <Button
+                        type="primary"
+                        icon={<PlusOutlined />}
+                        onClick={handleAdd}
+                        style={{ borderRadius: 10, fontWeight: 600, height: 40, background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+                    >
+                        Add New User
+                    </Button>
+                </div>
+
+                {/* KPI Dashboard */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px', marginBottom: 20 }}>
+                    {[
+                        { label: 'Total Users', value: totalUsers, icon: <UserOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
+                        { label: 'Admins', value: adminCount, icon: <KeyOutlined />, gradient: 'linear-gradient(135deg, #ef4444, #f87171)', accent: '#ef4444' },
+                        { label: 'Teachers', value: teacherCount, icon: <EditOutlined />, gradient: 'linear-gradient(135deg, #3b82f6, #60a5fa)', accent: '#3b82f6' },
+                        { label: 'Students', value: studentCount, icon: <UserOutlined />, gradient: 'linear-gradient(135deg, #10b981, #34d399)', accent: '#10b981' },
+                        { label: 'Disabled', value: inactiveCount, icon: <StopOutlined />, gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)', accent: '#f59e0b' },
+                    ].map((kpi, i) => (
+                        <div key={i} style={{
+                            borderRadius: 14, padding: '14px 16px',
+                            background: '#fff', border: '1px solid #f0f0f8',
+                            boxShadow: '0 2px 12px rgba(99,102,241,0.04)',
+                            display: 'flex', alignItems: 'center', gap: 12,
+                            transition: 'all 0.2s ease', cursor: 'default',
+                        }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(99,102,241,0.04)'; }}
+                        >
+                            <div style={{
+                                width: 40, height: 40, borderRadius: 10,
+                                background: kpi.gradient,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 16, color: '#fff', flexShrink: 0,
+                                boxShadow: `0 4px 12px ${kpi.accent}40`,
+                            }}>
+                                {kpi.icon}
+                            </div>
+                            <div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
+                                <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-                <Table
-                    columns={columns}
-                    dataSource={users}
-                    rowKey="id"
-                    loading={loading}
-                    scroll={{ x: 900, y: 'calc(100vh - 280px)' }}
-                    pagination={{
-                        pageSize: 15,
-                        showSizeChanger: true,
-                        showQuickJumper: true,
-                        showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
-                        pageSizeOptions: ['10', '15', '25', '50'],
-                    }}
-                />
+            {/* Table Container — fills remaining height */}
+            <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5fa', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', fontSize: 14 }}>
+                                <UserOutlined />
+                            </div>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>User Directory</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', padding: '2px 10px', borderRadius: 12 }}>{filteredUsers.length} of {totalUsers} users</span>
+                        </div>
+                    </div>
+                    {/* Advanced Filter Bar */}
+                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                        <Input.Search 
+                            placeholder="Search by student or teacher name, or email..." 
+                            allowClear 
+                            onChange={e => setSearchText(e.target.value)} 
+                            style={{ width: 320 }} 
+                        />
+                        <Select
+                            mode="multiple"
+                            placeholder="Filter by Role"
+                            allowClear
+                            style={{ minWidth: 200 }}
+                            onChange={setSelectedRoles}
+                            options={[
+                                { label: 'Administrator', value: 'admin' },
+                                { label: 'Teacher', value: 'teacher' },
+                                { label: 'Student', value: 'student' }
+                            ]}
+                        />
+                        <DatePicker.RangePicker 
+                            onChange={setDateRangeFilter} 
+                            allowClear 
+                            style={{ minWidth: 240 }} 
+                        />
+                    </div>
+                </div>
+                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+                    <Table
+                        columns={columns}
+                        dataSource={filteredUsers}
+                        rowKey="id"
+                        loading={loading}
+                        scroll={{ x: 1000 }}
+                        size="middle"
+                        pagination={{
+                            pageSize: 15,
+                            showSizeChanger: true,
+                            showQuickJumper: true,
+                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
+                            pageSizeOptions: ['10', '15', '25', '50'],
+                            style: { padding: '12px 20px', margin: 0 },
+                        }}
+                    />
+                </div>
             </div>
 
             <Modal
-                title={editingUser ? 'Edit User' : 'Add User'}
+                title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ 
+                            width: 40, height: 40, borderRadius: 10, 
+                            background: editingUser ? '#eff6ff' : '#ecfdf5', 
+                            color: editingUser ? '#2563eb' : '#10b981', 
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 
+                        }}>
+                            {editingUser ? <EditOutlined /> : <PlusOutlined />}
+                        </div>
+                        <span style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
+                            {editingUser ? 'Edit User Profile' : 'Create New User'}
+                        </span>
+                    </div>
+                }
                 open={modalVisible}
                 onCancel={() => {
                     if (!submitLoading) {
@@ -562,22 +818,33 @@ const UserManagement: React.FC = () => {
                     }
                 }}
                 footer={null}
-                width={600}
+                width={650}
                 maskClosable={!submitLoading}
                 closable={!submitLoading}
+                styles={{ 
+                    header: { paddingBottom: 16, borderBottom: '1px solid #f1f5f9', marginBottom: 24, margin: '-4px -24px 24px', padding: '24px 32px 16px' }, 
+                    body: { padding: '0 8px' }, 
+                    content: { borderRadius: 20, overflow: 'hidden', padding: '24px 24px 32px' } 
+                }}
             >
                 <Form
                     form={form}
                     layout="vertical"
                     onFinish={handleSubmit}
+                    requiredMark={(label, info) => (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>{label}</span>
+                            {info.required && <span style={{ color: '#ef4444' }}>*</span>}
+                        </div>
+                    )}
                 >
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                         <Form.Item
                             name="first_name"
                             label="First Name"
                             rules={[{ required: true, message: 'Please input first name!' }]}
                         >
-                            <Input placeholder="Enter first name" />
+                            <Input size="large" placeholder="Enter first name" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
                         </Form.Item>
 
                         <Form.Item
@@ -585,7 +852,7 @@ const UserManagement: React.FC = () => {
                             label="Last Name"
                             rules={[{ required: true, message: 'Please input last name!' }]}
                         >
-                            <Input placeholder="Enter last name" />
+                            <Input size="large" placeholder="Enter last name" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
                         </Form.Item>
                     </div>
 
@@ -598,9 +865,11 @@ const UserManagement: React.FC = () => {
                         ]}
                     >
                         <Input 
+                            size="large"
                             placeholder="Enter username" 
                             disabled={!!editingUser}
-                            prefix={<UserOutlined />}
+                            prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
+                            style={{ borderRadius: 8, borderColor: '#e2e8f0' }}
                         />
                     </Form.Item>
 
@@ -612,44 +881,36 @@ const UserManagement: React.FC = () => {
                             { type: 'email', message: 'Please enter a valid email!' }
                         ]}
                     >
-                        <Input placeholder="Enter email" />
+                        <Input size="large" placeholder="Enter email" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
                     </Form.Item>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                         <Form.Item
                             name="role"
                             label="Role"
                             rules={[{ required: true, message: 'Please select a role!' }]}
                         >
-                            <Select placeholder="Select role" disabled={isOwnAdminEdit}>
+                            <Select size="large" placeholder="Select role" disabled={isOwnAdminEdit}>
                                 <Option value="admin">
                                     <Space>
-                                        <Tag color="red">Admin</Tag>
-                                        Full system access
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
+                                        <span style={{ fontWeight: 600 }}>Admin</span>
                                     </Space>
                                 </Option>
                                 <Option value="teacher">
                                     <Space>
-                                        <Tag color="blue">Teacher</Tag>
-                                        Manage classes & students
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
+                                        <span style={{ fontWeight: 600 }}>Teacher</span>
                                     </Space>
                                 </Option>
                                 <Option value="student">
                                     <Space>
-                                        <Tag color="green">Student</Tag>
-                                        Access learning materials
+                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+                                        <span style={{ fontWeight: 600 }}>Student</span>
                                     </Space>
                                 </Option>
                             </Select>
                         </Form.Item>
-
-                        {!editingUser && (
-                            <Form.Item name="password" label="Password">
-                                <div style={{ color: '#888' }}>
-                                  Password will be auto-generated (10 characters: letters and numbers) and emailed to the user.
-                                </div>
-                            </Form.Item>
-                        )}
 
                         <Form.Item
                             name="is_active"
@@ -661,55 +922,67 @@ const UserManagement: React.FC = () => {
                                 checkedChildren="Active" 
                                 unCheckedChildren="Disabled"
                                 disabled={isOwnAdminEdit}
-                                style={{ backgroundColor: isActiveValue ? '#52c41a' : '#ff4d4f' }}
+                                style={{ backgroundColor: isActiveValue ? '#10b981' : '#f43f5e', height: 26, width: 70 }}
                             />
                         </Form.Item>
                     </div>
 
-                    {editingUser && (
+                    {!editingUser && (
                         <div style={{ 
-                            background: '#f6ffed', 
-                            border: '1px solid #b7eb8f', 
-                            borderRadius: '6px', 
-                            padding: '12px', 
-                            marginBottom: '16px' 
+                            background: '#f8fafc', border: '1px dashed #cbd5e1', 
+                            borderRadius: '12px', padding: '16px', marginTop: 8, marginBottom: 24 
                         }}>
-                            <Space>
-                                <KeyOutlined style={{ color: '#52c41a' }} />
-                                <span style={{ color: '#389e0d' }}>
-                                    To change the password, use the "Reset Password" button in the user list.
-                                </span>
-                            </Space>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <div style={{ fontSize: 18, color: '#64748b' }}>
+                                    <KeyOutlined />
+                                </div>
+                                <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
+                                    <span style={{ fontWeight: 700, display: 'block', marginBottom: 2, color: '#1e293b' }}>Auto-Generated Password</span>
+                                    A secure 10-character password will be generated automatically and emailed to the user.
+                                </div>
+                            </div>
                         </div>
                     )}
 
-                    <Divider />
+                    {editingUser && (
+                        <div style={{ 
+                            background: '#fff7ed', border: '1px solid #fed7aa', 
+                            borderRadius: '12px', padding: '16px', marginTop: 8, marginBottom: 24 
+                        }}>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <div style={{ fontSize: 18, color: '#f97316' }}>
+                                    <KeyOutlined />
+                                </div>
+                                <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.5 }}>
+                                    To change this user's password, please use the <strong>"Reset Password"</strong> action from their row menu in the main table.
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
-                    <Form.Item style={{ marginBottom: 0 }}>
-                        <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                            <Button 
-                                onClick={() => {
-                                    setModalVisible(false);
-                                    form.resetFields();
-                                    setEditingUser(null);
-                                }}
-                                disabled={submitLoading}
-                            >
-                                Cancel
-                            </Button>
-                            <Button 
-                                type="primary" 
-                                htmlType="submit"
-                                loading={submitLoading}
-                                disabled={submitLoading}
-                            >
-                                {submitLoading 
-                                    ? (editingUser ? 'Updating...' : 'Creating...') 
-                                    : (editingUser ? 'Update User' : 'Create User')
-                                }
-                            </Button>
-                        </Space>
-                    </Form.Item>
+                    <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'flex-end', paddingTop: 20, borderTop: '1px solid #f1f5f9' }}>
+                        <Button 
+                            size="large"
+                            onClick={() => {
+                                setModalVisible(false);
+                                form.resetFields();
+                                setEditingUser(null);
+                            }}
+                            disabled={submitLoading}
+                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 24px' }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            size="large"
+                            type="primary" 
+                            htmlType="submit"
+                            loading={submitLoading}
+                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 32px', background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
+                        >
+                            {editingUser ? 'Save Changes' : 'Create User'}
+                        </Button>
+                    </div>
                 </Form>
             </Modal>
 
@@ -814,7 +1087,7 @@ const UserManagement: React.FC = () => {
                     </>
                 )}
             </Modal>
-        </Card>
+        </div>
     );
 };
 

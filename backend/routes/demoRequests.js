@@ -94,7 +94,7 @@ router.post('/', [
 // Get all demo requests with filtering and statistics
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
-        const { status, country, level, page = 1, limit = 10, search } = req.query;
+        const { status, country, level, page = 1, limit = 10, search, start_date, end_date } = req.query;
         // Ensure numeric pagination values for PostgreSQL LIMIT/OFFSET
         const pageNum = parseInt(page, 10) || 1;
         const limitNum = parseInt(limit, 10) || 10;
@@ -123,6 +123,11 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
         if (search) {
             whereConditions.push(`(dr.full_name ILIKE $${paramIndex++} OR dr.email ILIKE $${paramIndex++})`);
             queryParams.push(`%${search}%`, `%${search}%`);
+        }
+
+        if (start_date && end_date) {
+            whereConditions.push(`dr.created_at >= $${paramIndex++} AND dr.created_at <= $${paramIndex++}::timestamp + interval '1 day'`);
+            queryParams.push(start_date, end_date);
         }
 
         const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
@@ -195,7 +200,7 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
 router.get('/my-demos', authenticateToken, authorizeRoles('teacher'), async (req, res) => {
     try {
         const teacherId = req.user.id;
-        const { status, page = 1, limit = 10 } = req.query;
+        const { status, page = 1, limit = 10, start_date, end_date } = req.query;
         
         // Ensure numeric pagination values for PostgreSQL LIMIT/OFFSET
         const pageNum = parseInt(page, 10) || 1;
@@ -210,6 +215,11 @@ router.get('/my-demos', authenticateToken, authorizeRoles('teacher'), async (req
         if (status) {
             whereConditions.push(`dr.status = $${paramIndex++}`);
             queryParams.push(status);
+        }
+
+        if (start_date && end_date) {
+            whereConditions.push(`dr.demo_scheduled_at >= $${paramIndex++} AND dr.demo_scheduled_at <= $${paramIndex++}`);
+            queryParams.push(start_date, end_date);
         }
 
         const whereClause = `WHERE ${whereConditions.join(' AND ')}`;

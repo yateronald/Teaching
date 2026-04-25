@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Space, Divider, List, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip } from 'antd';
+import { Card, Row, Col, Statistic, Typography, Space, Divider, List, Tag, Empty, message, Select, DatePicker, Slider, Button, Tooltip, Skeleton } from 'antd';
 import { PieChart, BarChart, LineChart, ScatterChart } from '@mui/x-charts';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -123,15 +123,58 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
     setPassMarkLocal(quiz?.passing_score ?? 60);
   };
 
-  if (loading) return <div style={{padding:24, display:'flex', alignItems:'center', justifyContent:'center', minHeight:260}}><Spin /></div>;
-  if (!quiz) return <Empty description="Quiz not found" />;
+  if (loading) {
+    return (
+      <div style={{ padding: '32px' }}>
+        <Skeleton active title={{ width: 300 }} paragraph={{ rows: 1 }} />
+        <Card style={{ marginTop: '32px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
+            <Skeleton active paragraph={{ rows: 2 }} />
+        </Card>
+        <Row gutter={[16,16]} style={{ marginTop: '24px' }}>
+          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
+        </Row>
+        <Card style={{ marginTop: '24px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
+            <Skeleton active paragraph={{ rows: 6 }} />
+        </Card>
+      </div>
+    );
+  }
+  if (!quiz) return (
+      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+          <Empty description={<Text type="secondary">Quiz details not found.</Text>} />
+      </div>
+  );
 
   return (
-    <Space direction="vertical" style={{ width:'100%' }} size="large">
-      <div>
-        <Title level={4} style={{ marginBottom: 0 }}>{quiz.title}</Title>
-        <Text type="secondary">Insights dashboard</Text>
+    <div style={{ margin: '0 auto', backgroundColor: '#fcfcfc', minHeight: '100%' }}>
+      {/* Edge-to-Edge Hero Header Section */}
+      <div style={{ 
+          padding: '40px 32px 32px', 
+          background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
+          boxShadow: '0 10px 30px rgba(37, 99, 235, 0.15)',
+          position: 'relative',
+          overflow: 'hidden'
+      }}>
+          {/* Decorative background circle */}
+          <div style={{
+              position: 'absolute', right: '-10%', top: '-20%', width: '300px', height: '300px',
+              borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%)',
+              pointerEvents: 'none'
+          }} />
+
+          <Title level={2} style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px' }}>
+              {quiz.title}
+          </Title>
+          <Text style={{ fontSize: '16px', display: 'block', marginTop: '12px', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '80%' }}>
+              Global insights and visual analytics overview spanning all student submissions.
+          </Text>
       </div>
+
+      <div style={{ padding: '32px' }}>
+        <Space direction="vertical" style={{ width:'100%' }} size="large">
 
       {/* Filters */}
       <Card size="small" bodyStyle={{ paddingBottom: 8 }}>
@@ -282,7 +325,9 @@ const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
 
       <Divider style={{ margin: 0 }} />
       <Text type="secondary">Charts reflect applied filters. Hover to explore values. Data is live from quiz submissions.</Text>
-    </Space>
+      </Space>
+      </div>
+    </div>
   );
 };
 
