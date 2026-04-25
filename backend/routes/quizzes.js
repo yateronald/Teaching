@@ -204,8 +204,67 @@ const autoSubmitExpiredSubmissions = async (db) => {
 // Get all quizzes (filtered by role)
 router.get('/', authenticateToken, async (req, res) => {
     try {
-        await autoSubmitExpiredSubmissions(req.db);
+        // Fire-and-forget: auto-submit expired submissions without blocking the response
+        autoSubmitExpiredSubmissions(req.db).catch(err => console.error('Background auto-submit error:', err));
         
+        // For students, use an optimized query that fetches submission status in one go (no N+1)
+        if (req.user.role === 'student') {
+            const quizzes = await req.db.all(`
+                SELECT 
+                    q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
+                    q.duration_minutes, q.total_marks, q.created_at, q.updated_at,
+                    u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                    (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as total_questions,
+                    string_agg(DISTINCT b.name, ',') as batch_names,
+                    qs.status as sub_status, qs.started_at as sub_started_at, qs.submitted_at as sub_submitted_at,
+                    qs.total_score as sub_total_score, qs.max_score as sub_max_score, qs.percentage as sub_percentage
+                FROM quizzes q
+                LEFT JOIN users u ON q.teacher_id = u.id
+                JOIN quiz_batches qb ON q.id = qb.quiz_id
+                JOIN batch_students bs ON qb.batch_id = bs.batch_id
+                LEFT JOIN batches b ON qb.batch_id = b.id
+                LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id AND qs.student_id = ?
+                WHERE bs.student_id = ? AND q.status = 'published'
+                GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
+                         q.duration_minutes, q.total_marks, q.created_at, q.updated_at,
+                         u.first_name, u.last_name,
+                         qs.status, qs.started_at, qs.submitted_at, qs.total_score, qs.max_score, qs.percentage
+                ORDER BY q.created_at DESC
+            `, [req.user.id, req.user.id]);
+
+            const now = new Date();
+            for (let quiz of quizzes) {
+                // Map submission fields inline (no extra query)
+                const rawStatus = quiz.sub_status || 'not_started';
+                quiz.submission_status = ['submitted', 'auto_submitted', 'graded'].includes(rawStatus) ? 'completed' : rawStatus;
+                quiz.submission = quiz.sub_status ? {
+                    status: quiz.sub_status, started_at: quiz.sub_started_at, submitted_at: quiz.sub_submitted_at,
+                    total_score: quiz.sub_total_score, max_score: quiz.sub_max_score, percentage: quiz.sub_percentage
+                } : null;
+
+                quiz.can_start = !quiz.start_date || new Date(quiz.start_date) <= now;
+                quiz.has_ended = !!(quiz.end_date && new Date(quiz.end_date) < now);
+                quiz.can_view_results = !quiz.end_date || new Date(quiz.end_date) <= now;
+                if (!quiz.can_view_results && quiz.submission) {
+                    quiz.submission.percentage = null;
+                    quiz.submission.total_score = null;
+                    quiz.submission.max_score = null;
+                }
+
+                // Coerce numeric fields
+                quiz.total_questions = quiz.total_questions != null ? Number(quiz.total_questions) : 0;
+                if (quiz.duration_minutes != null) quiz.duration_minutes = Number(quiz.duration_minutes);
+                if (quiz.total_marks != null) quiz.total_marks = Number(quiz.total_marks);
+
+                // Clean up temp fields
+                delete quiz.sub_status; delete quiz.sub_started_at; delete quiz.sub_submitted_at;
+                delete quiz.sub_total_score; delete quiz.sub_max_score; delete quiz.sub_percentage;
+            }
+
+            return res.json(quizzes);
+        }
+
+        // Teacher/Admin path (unchanged heavy query — they need aggregation stats)
         let sql = `
             SELECT 
                 q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
@@ -230,49 +289,11 @@ router.get('/', authenticateToken, async (req, res) => {
         if (req.user.role === 'teacher') {
             sql += ' WHERE q.teacher_id = ?';
             params.push(req.user.id);
-        } else if (req.user.role === 'student') {
-            sql += `
-                WHERE q.id IN (
-                    SELECT DISTINCT qb.quiz_id 
-                    FROM quiz_batches qb
-                    JOIN batch_students bs ON qb.batch_id = bs.batch_id
-                    WHERE bs.student_id = ? AND q.status = 'published'
-                )
-            `;
-            params.push(req.user.id);
         }
 
         sql += ' GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at, u.first_name, u.last_name ORDER BY q.created_at DESC';
 
         const quizzes = await req.db.all(sql, params);
-
-        // For students, add submission status and accessibility info
-        if (req.user.role === 'student') {
-            for (let quiz of quizzes) {
-                const submission = await req.db.get(`
-                    SELECT status, started_at, submitted_at, total_score, max_score, percentage
-                    FROM quiz_submissions 
-                    WHERE quiz_id = ? AND student_id = ?
-                `, [quiz.id, req.user.id]);
-
-                const rawStatus = submission ? submission.status : 'not_started';
-                const computedStatus = ['submitted', 'auto_submitted', 'graded'].includes(rawStatus) ? 'completed' : rawStatus;
-                quiz.submission_status = computedStatus;
-                quiz.submission = submission || null;
-
-                const now = new Date();
-                quiz.can_start = !quiz.start_date || new Date(quiz.start_date) <= now;
-                quiz.has_ended = !!(quiz.end_date && new Date(quiz.end_date) < now);
-
-                // Results visibility for students: hide until end_date has passed
-                quiz.can_view_results = !quiz.end_date || new Date(quiz.end_date) <= now;
-                if (!quiz.can_view_results && quiz.submission) {
-                    quiz.submission.percentage = null;
-                    quiz.submission.total_score = null;
-                    quiz.submission.max_score = null;
-                }
-            }
-        }
 
         // Coerce numeric fields for Postgres compatibility so frontend tables show correct counts
         for (let quiz of quizzes) {

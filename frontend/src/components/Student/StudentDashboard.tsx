@@ -24,7 +24,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
-import { BarChart, LineChart, PieChart } from '@mui/x-charts';
+import { PieChart } from '@mui/x-charts';
 
 const { Text } = Typography;
 dayjs.extend(utc);
@@ -143,6 +143,81 @@ const TYPE_COLORS: Record<string, { text: string; bg: string }> = {
     assignment: { text: '#f59e0b', bg: '#fffbeb' },
 };
 const typeStyle = (t: string) => TYPE_COLORS[t] || { text: '#64748b', bg: '#f8fafc' };
+
+/* ══════════════════════════════════════════
+   Custom SVG Score Over Time Chart
+══════════════════════════════════════════ */
+const ScoreOverTimeChart: React.FC<{ data: any[] }> = ({ data }) => {
+    const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+    const W = 420, H = 220, PX = 44, PY = 20, PB = 30;
+    const chartW = W - PX - 10, chartH = H - PY - PB;
+    const points = data.map((r, i) => {
+        const pct = Number(r.percentage ?? 0);
+        const x = PX + (data.length > 1 ? (i / (data.length - 1)) * chartW : chartW / 2);
+        const y = PY + chartH - (pct / 100) * chartH;
+        return { x, y, pct, date: dayjs(r.submitted_at).format('MMM DD'), title: r.quiz_title };
+    });
+    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+    const areaPath = linePath + ` L${points[points.length - 1].x},${PY + chartH} L${points[0].x},${PY + chartH} Z`;
+    const gridLines = [0, 25, 50, 75, 100];
+
+    return (
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 240 }}>
+            {gridLines.map(v => {
+                const y = PY + chartH - (v / 100) * chartH;
+                return (
+                    <g key={v}>
+                        <line x1={PX} y1={y} x2={W - 10} y2={y} stroke="#f1f5f9" strokeWidth={1} />
+                        <text x={PX - 6} y={y + 4} textAnchor="end" fill="#94a3b8" fontSize={10}>{v}</text>
+                    </g>
+                );
+            })}
+            <path d={areaPath} fill="url(#scoreGrad)" opacity={0.15} />
+            <defs>
+                <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+            </defs>
+            <path d={linePath} fill="none" stroke="#6366f1" strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+            {points.map((p, i) => {
+                const step = Math.max(1, Math.ceil(points.length / 8));
+                if (i % step !== 0 && i !== points.length - 1) return null;
+                return <text key={i} x={p.x} y={H - 6} textAnchor="middle" fill="#94a3b8" fontSize={9}>{p.date}</text>;
+            })}
+            {points.map((p, i) => (
+                <g key={i}>
+                    <circle cx={p.x} cy={p.y} r={16} fill="transparent"
+                        onMouseEnter={() => setHoverIdx(i)} onMouseLeave={() => setHoverIdx(null)}
+                        style={{ cursor: 'pointer' }} />
+                    <circle cx={p.x} cy={p.y} r={hoverIdx === i ? 6 : 4}
+                        fill={hoverIdx === i ? scoreColor(p.pct) : '#6366f1'} stroke="#fff" strokeWidth={2}
+                        style={{ transition: 'r 0.15s', pointerEvents: 'none' }} />
+                </g>
+            ))}
+            {hoverIdx !== null && (() => {
+                const p = points[hoverIdx];
+                const tw = 130, th = 44;
+                let tx = p.x - tw / 2;
+                if (tx < 4) tx = 4;
+                if (tx + tw > W - 4) tx = W - tw - 4;
+                // Flip tooltip below the point if too close to top
+                const above = p.y - th - 12;
+                const below = p.y + 14;
+                const ty = above >= 0 ? above : below;
+                return (
+                    <g style={{ pointerEvents: 'none' }}>
+                        <line x1={p.x} y1={p.y + 6} x2={p.x} y2={PY + chartH} stroke={scoreColor(p.pct)} strokeWidth={1} strokeDasharray="3,3" opacity={0.4} />
+                        <rect x={tx} y={ty} width={tw} height={th} rx={8} fill="#1e293b" opacity={0.95} />
+                        <text x={tx + 10} y={ty + 16} fill="#e2e8f0" fontSize={10} fontWeight={600}>{p.title?.slice(0, 18) || p.date}</text>
+                        <text x={tx + 10} y={ty + 34} fill={scoreColor(p.pct)} fontSize={13} fontWeight={800}>{p.pct.toFixed(1)}%</text>
+                        <text x={tx + tw - 10} y={ty + 34} textAnchor="end" fill="#94a3b8" fontSize={10}>{p.date}</text>
+                    </g>
+                );
+            })()}
+        </svg>
+    );
+};
 
 /* ══════════════════════════════════════════
    MAIN COMPONENT
@@ -420,7 +495,7 @@ const StudentDashboard: React.FC = () => {
 
                 {/* LEFT: Charts */}
                 <Col xs={24} lg={16}>
-                    {/* Score over time + Bar chart */}
+                    {/* Score over time + Score by Quiz */}
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                         <Col xs={24} md={12}>
                             <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: 24, height: 340 }}>
@@ -428,25 +503,37 @@ const StudentDashboard: React.FC = () => {
                                 {sortedResults.length === 0 ? (
                                     <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 40 }} />
                                 ) : (
-                                    <LineChart
-                                        xAxis={[{ scaleType: 'point', data: sortedResults.map(r => dayjs(r.submitted_at).format('MMM DD')) }]}
-                                        series={[{ data: sortedResults.map(r => Number(Number(r.percentage ?? 0).toFixed(2))), label: 'Score %', color: '#6366f1' }]}
-                                        height={260}
-                                    />
+                                    <ScoreOverTimeChart data={sortedResults} />
                                 )}
                             </div>
                         </Col>
                         <Col xs={24} md={12}>
                             <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: 24, height: 340 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 16 }}>Scores by Quiz (Top 10)</div>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 12 }}>Top Scores (Best 8)</div>
                                 {sortedResults.length === 0 ? (
                                     <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 40 }} />
                                 ) : (
-                                    <BarChart
-                                        xAxis={[{ scaleType: 'band', data: sortedResults.slice(-10).map(r => r.quiz_title?.length > 10 ? r.quiz_title.slice(0, 10) + '…' : r.quiz_title) }]}
-                                        series={[{ data: sortedResults.slice(-10).map(r => Number(Number(r.percentage ?? 0).toFixed(2))), color: '#6366f1' }]}
-                                        height={260}
-                                    />
+                                    <div style={{ overflowY: 'auto', maxHeight: 270 }}>
+                                        {[...sortedResults].sort((a, b) => Number(b.percentage ?? 0) - Number(a.percentage ?? 0)).slice(0, 8).map((r, i) => {
+                                            const pct = Number(Number(r.percentage ?? 0).toFixed(1));
+                                            const clr = scoreColor(pct);
+                                            return (
+                                                <div key={i} style={{ marginBottom: 10 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                        <Tooltip title={r.quiz_title}>
+                                                            <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                                                                {r.quiz_title}
+                                                            </span>
+                                                        </Tooltip>
+                                                        <span style={{ fontSize: 12, fontWeight: 700, color: clr }}>{pct}%</span>
+                                                    </div>
+                                                    <div style={{ height: 8, borderRadius: 4, background: '#f1f5f9', overflow: 'hidden' }}>
+                                                        <div style={{ height: '100%', width: `${Math.min(pct, 100)}%`, borderRadius: 4, background: clr, transition: 'width 0.4s ease' }} />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
                                 )}
                             </div>
                         </Col>

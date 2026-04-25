@@ -120,7 +120,40 @@ const StudentQuizzes: React.FC = () => {
     const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
-    useEffect(() => { fetchQuizzes(); fetchAttempts(); }, []);
+    useEffect(() => { fetchData(); }, []);
+
+    const fetchData = async () => {
+        setLoading(true);
+        setAttemptsLoading(true);
+        try {
+            const [quizzesResp, attemptsResp] = await Promise.all([
+                apiCall('/quizzes'),
+                apiCall('/quizzes/student/results'),
+            ]);
+
+            if (quizzesResp.ok) {
+                const data = await quizzesResp.json();
+                const raw = Array.isArray(data) ? data : (data.quizzes || []);
+                setQuizzes(raw.map((q: any) => ({ ...q, total_questions: Number(q?.total_questions ?? 0), duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0, total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined })));
+            } else messageApi.error('Failed to fetch quizzes');
+
+            if (attemptsResp.ok) {
+                const data = await attemptsResp.json();
+                const results = (data?.results || []) as any[];
+                setAttempts(results.filter((r: any) => r && r.results_locked === false).map((r: any, idx: number) => ({
+                    id: r.id ?? idx, quiz_id: r.quiz_id, quiz_title: r.quiz_title,
+                    score: Number(r.percentage ?? 0), total_score: Number(r.score ?? 0), max_score: Number(r.max_score ?? 0),
+                    total_questions: Number(r.total_questions ?? 0), correct_answers: Number(r.correct_answers ?? 0),
+                    time_taken: Number(r.time_taken ?? 0), completed_at: r.submitted_at || r.completed_at,
+                    passed: Number(r.percentage ?? 0) >= 50, attempt_number: 1,
+                    batch_name: r.batch_name,
+                    teacher_first_name: r.teacher_first_name,
+                    teacher_last_name: r.teacher_last_name
+                })));
+            } else messageApi.error('Failed to fetch attempts');
+        } catch { messageApi.error('Error loading quiz data'); }
+        finally { setLoading(false); setAttemptsLoading(false); }
+    };
 
     const availableBatches = React.useMemo(() => {
         const set = new Set<string>();
@@ -192,41 +225,6 @@ const StudentQuizzes: React.FC = () => {
             passed_quizzes: filteredAttempts.filter(a => a.score >= 50).length,
         });
     }, [filteredQuizzes, filteredAttempts]);
-
-    const fetchQuizzes = async () => {
-        setLoading(true);
-        try {
-            const r = await apiCall('/quizzes');
-            if (r.ok) {
-                const data = await r.json();
-                const raw = Array.isArray(data) ? data : (data.quizzes || []);
-                setQuizzes(raw.map((q: any) => ({ ...q, total_questions: Number(q?.total_questions ?? 0), duration_minutes: q?.duration_minutes != null ? Number(q.duration_minutes) : 0, total_marks: q?.total_marks != null ? Number(q.total_marks) : undefined })));
-            } else messageApi.error('Failed to fetch quizzes');
-        } catch { messageApi.error('Error fetching quizzes'); }
-        finally { setLoading(false); }
-    };
-
-    const fetchAttempts = async () => {
-        setAttemptsLoading(true);
-        try {
-            const r = await apiCall('/quizzes/student/results');
-            if (r.ok) {
-                const data = await r.json();
-                const results = (data?.results || []) as any[];
-                setAttempts(results.filter((r: any) => r && r.results_locked === false).map((r: any, idx: number) => ({
-                    id: r.id ?? idx, quiz_id: r.quiz_id, quiz_title: r.quiz_title,
-                    score: Number(r.percentage ?? 0), total_score: Number(r.score ?? 0), max_score: Number(r.max_score ?? 0),
-                    total_questions: Number(r.total_questions ?? 0), correct_answers: Number(r.correct_answers ?? 0),
-                    time_taken: Number(r.time_taken ?? 0), completed_at: r.submitted_at || r.completed_at,
-                    passed: Number(r.percentage ?? 0) >= 50, attempt_number: 1,
-                    batch_name: r.batch_name,
-                    teacher_first_name: r.teacher_first_name,
-                    teacher_last_name: r.teacher_last_name
-                })));
-            } else messageApi.error('Failed to fetch attempts');
-        } catch { messageApi.error('Error fetching attempts'); }
-        finally { setAttemptsLoading(false); }
-    };
 
     const getQuizStatus = (quiz: Quiz) => {
         const now = dayjs();
@@ -702,8 +700,7 @@ const StudentQuizzes: React.FC = () => {
     function handleQuizComplete() {
         setQuizTakingVisible(false);
         setSelectedQuizId(null);
-        fetchAttempts();
-        fetchQuizzes();
+        fetchData();
         messageApi.success('Quiz completed successfully!');
     }
 };
