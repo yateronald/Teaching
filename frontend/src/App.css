@@ -146,3 +146,45 @@
 .reaction-picker-emoji:hover {
   background-color: #f5f5f5;
 }
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — Tablet & Small Screens
+══════════════════════════════════════════ */
+
+/* Tablet: 768px – 1024px */
+@media (max-width: 1024px) {
+  /* KPI cards — smaller padding, smaller text */
+  .ant-statistic-title { font-size: 11px !important; }
+  .ant-statistic-content-value { font-size: 20px !important; }
+
+  /* Tables — tighter cells */
+  .ant-table-cell { padding: 10px 12px !important; font-size: 12px !important; }
+  .ant-table-thead > tr > th { padding: 8px 12px !important; font-size: 10px !important; }
+
+  /* Modals — don't exceed viewport */
+  .ant-modal { max-width: 95vw !important; }
+  .ant-modal-body { max-height: 80vh !important; overflow-y: auto !important; }
+
+  /* Filter bars — wrap nicely */
+  .ant-space-wrap { gap: 8px !important; }
+  .ant-input, .ant-select, .ant-picker { font-size: 13px !important; }
+}
+
+/* Small tablet / large phone: < 768px */
+@media (max-width: 768px) {
+  /* KPI cards — stack 2 per row */
+  .ant-row > .ant-col-xs-24.ant-col-sm-12 { flex: 0 0 50% !important; max-width: 50% !important; }
+  .ant-row > .ant-col-xs-24.ant-col-sm-8 { flex: 0 0 50% !important; max-width: 50% !important; }
+
+  /* Tables — horizontal scroll, smaller text */
+  .ant-table-cell { padding: 8px 10px !important; font-size: 11px !important; }
+  .ant-table-thead > tr > th { font-size: 9px !important; padding: 6px 10px !important; }
+
+  /* Filters — full width inputs */
+  .ant-input { width: 100% !important; }
+  .ant-select { width: 100% !important; min-width: 0 !important; }
+  .ant-picker { width: 100% !important; }
+
+  /* Modals — near full screen */
+  .ant-modal { max-width: 98vw !important; margin: 8px !important; }
+}

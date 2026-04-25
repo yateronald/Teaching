@@ -426,7 +426,7 @@ const StudentQuizzes: React.FC = () => {
                 <RangePicker
                     value={dateRange}
                     onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                    style={{ borderRadius: 8 }}
+                    style={{ borderRadius: 8, flex: '1 1 200px', minWidth: 180 }}
                     allowClear
                 />
                 <Select
@@ -434,7 +434,7 @@ const StudentQuizzes: React.FC = () => {
                     onChange={setBatchFilter}
                     allowClear
                     placeholder="All Batches"
-                    style={{ width: 220 }}
+                    style={{ flex: '1 1 160px', minWidth: 140 }}
                     options={availableBatches}
                     showSearch
                     optionFilterProp="label"
@@ -444,7 +444,7 @@ const StudentQuizzes: React.FC = () => {
                     onChange={setTeacherFilter}
                     allowClear
                     placeholder="All Teachers"
-                    style={{ width: 220 }}
+                    style={{ flex: '1 1 160px', minWidth: 140 }}
                     options={availableTeachers}
                     showSearch
                     optionFilterProp="label"

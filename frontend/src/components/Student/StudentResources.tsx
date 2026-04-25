@@ -281,11 +281,11 @@ const StudentResources: React.FC = () => {
             <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 {/* Search Bar */}
                 <div style={{ display: 'flex', gap: 12, padding: '16px 20px', borderBottom: '1px solid #f0f0f8', background: '#fafafa', flexWrap: 'wrap', flexShrink: 0 }}>
-                    <Input placeholder="Search files..." prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} value={search} onChange={e => setSearch(e.target.value)} allowClear style={{ width: 240, borderRadius: 10, height: 38 }} />
-                    <Select value={catFilter} onChange={setCatFilter} style={{ width: 140, height: 38 }} options={[{ value: 'all', label: 'All Types' }, ...Object.entries(CAT).map(([k, v]) => ({ value: k, label: v.label }))]} />
-                    <DatePicker.RangePicker onChange={setDateRangeFilter} allowClear style={{ width: 240, borderRadius: 10, height: 38 }} />
-                    <Select value={batchFilter} onChange={setBatchFilter} allowClear placeholder="All Batches" style={{ width: 180, height: 38 }} options={batches} />
-                    <Select value={teacherFilter} onChange={setTeacherFilter} allowClear placeholder="All Teachers" style={{ width: 180, height: 38 }} options={availableTeachers} />
+                    <Input placeholder="Search files..." prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} value={search} onChange={e => setSearch(e.target.value)} allowClear style={{ flex: '1 1 180px', minWidth: 140, borderRadius: 10, height: 38 }} />
+                    <Select value={catFilter} onChange={setCatFilter} style={{ flex: '0 1 140px', minWidth: 120, height: 38 }} options={[{ value: 'all', label: 'All Types' }, ...Object.entries(CAT).map(([k, v]) => ({ value: k, label: v.label }))]} />
+                    <DatePicker.RangePicker onChange={setDateRangeFilter} allowClear style={{ flex: '1 1 200px', minWidth: 180, borderRadius: 10, height: 38 }} />
+                    <Select value={batchFilter} onChange={setBatchFilter} allowClear placeholder="All Batches" style={{ flex: '1 1 150px', minWidth: 130, height: 38 }} options={batches} />
+                    <Select value={teacherFilter} onChange={setTeacherFilter} allowClear placeholder="All Teachers" style={{ flex: '1 1 150px', minWidth: 130, height: 38 }} options={availableTeachers} />
                 </div>
                 {/* Table wrapper */}
                 <div style={{ flex: 1, overflow: 'hidden' }}>

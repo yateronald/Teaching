@@ -55,10 +55,19 @@ const SIDEBAR_STYLE: React.CSSProperties = {
 };
 
 const Layout: React.FC = () => {
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 1024);
     const { user, logout, isAdmin, isTeacher, isStudent } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+
+    // Auto-collapse sidebar on tablet/small screens
+    useEffect(() => {
+        const handleResize = () => {
+            if (window.innerWidth <= 1024) setCollapsed(true);
+        };
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     /* ── page title ── */
     const getPageTitle = (path: string): string => {

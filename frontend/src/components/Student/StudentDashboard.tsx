@@ -79,26 +79,26 @@ const KpiCard = ({ label, value, icon, accent, suffix = '', onClick }: {
     <div
         onClick={onClick}
         style={{
-            borderRadius: 16, padding: '20px 22px',
+            borderRadius: 14, padding: '14px 16px',
             background: '#fff', border: '1px solid #f0f0f8',
             boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-            display: 'flex', alignItems: 'center', gap: 16,
+            display: 'flex', alignItems: 'center', gap: 12,
             cursor: onClick ? 'pointer' : 'default',
             transition: 'box-shadow 0.18s',
         }}
         onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 24px rgba(99,102,241,0.16)'; }}
         onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(99,102,241,0.07)'; }}
     >
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 11, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: accent, flexShrink: 0 }}>
             {icon}
         </div>
-        <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}<span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{suffix}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
+                {value}<span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{suffix}</span>
             </div>
         </div>
-        {onClick && <RightOutlined style={{ marginLeft: 'auto', color: '#c7d2fe', fontSize: 12 }} />}
+        {onClick && <RightOutlined style={{ marginLeft: 'auto', color: '#c7d2fe', fontSize: 11 }} />}
     </div>
 );
 
@@ -433,7 +433,7 @@ const StudentDashboard: React.FC = () => {
             </div>
             {/* Body skeleton */}
             <Row gutter={[20, 20]}>
-                <Col xs={24} lg={16}>
+                <Col xs={24} xl={16}>
                     <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', padding: 24, marginBottom: 20 }}>
                         <Skeleton active paragraph={{ rows: 6 }} />
                     </div>
@@ -441,7 +441,7 @@ const StudentDashboard: React.FC = () => {
                         <Skeleton active paragraph={{ rows: 4 }} />
                     </div>
                 </Col>
-                <Col xs={24} lg={8}>
+                <Col xs={24} xl={8}>
                     {[1,2,3].map(i => (
                         <div key={i} style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', padding: 20, marginBottom: 16 }}>
                             <Skeleton active paragraph={{ rows: 3 }} />
@@ -460,7 +460,7 @@ const StudentDashboard: React.FC = () => {
 
             {/* ── Page header ── */}
             <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>Student Dashboard</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>Student Dashboard</div>
                 <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
                     {stats.totalBatches} batch{stats.totalBatches !== 1 ? 'es' : ''} · {stats.upcomingClasses} upcoming class{stats.upcomingClasses !== 1 ? 'es' : ''} · avg score {stats.averageScore}%
                 </div>
@@ -494,7 +494,7 @@ const StudentDashboard: React.FC = () => {
             <Row gutter={[20, 20]}>
 
                 {/* LEFT: Charts */}
-                <Col xs={24} lg={16}>
+                <Col xs={24} xl={16}>
                     {/* Score over time + Score by Quiz */}
                     <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                         <Col xs={24} md={12}>
@@ -587,7 +587,7 @@ const StudentDashboard: React.FC = () => {
                 </Col>
 
                 {/* RIGHT: Upcoming schedule + quizzes */}
-                <Col xs={24} lg={8}>
+                <Col xs={24} xl={8}>
 
                     {/* Upcoming Schedule */}
                     <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: 22, marginBottom: 16 }}>

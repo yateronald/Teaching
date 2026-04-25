@@ -598,7 +598,7 @@ const StudentSchedule: React.FC = () => {
                         onChange={setBatchFilter}
                         allowClear
                         placeholder="All Batches"
-                        style={{ width: 200 }}
+                        style={{ flex: '1 1 160px', minWidth: 140 }}
                         options={availableBatches}
                         showSearch
                         optionFilterProp="label"
@@ -608,7 +608,7 @@ const StudentSchedule: React.FC = () => {
                         onChange={setTeacherFilter}
                         allowClear
                         placeholder="All Teachers"
-                        style={{ width: 200 }}
+                        style={{ flex: '1 1 160px', minWidth: 140 }}
                         options={availableTeachers}
                         showSearch
                         optionFilterProp="label"
@@ -660,9 +660,9 @@ const StudentSchedule: React.FC = () => {
                 )}
 
                 {/* Main Content Flex Area */}
-                <div style={{ display: 'flex', gap: 20, flex: 1, minHeight: 0 }}>
+                <div style={{ display: 'flex', gap: 20, flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
                     {/* Calendar Section */}
-                    <div className="schedule-calendar-wrap" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: '16px 20px', minWidth: 0 }}>
+                    <div className="schedule-calendar-wrap" style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: '16px 20px', minWidth: 0 }}>
                                 <FullCalendar
                                     plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                                     initialView="dayGridMonth"
@@ -683,7 +683,7 @@ const StudentSchedule: React.FC = () => {
                         </div>
                     
                     {/* Side Panel */}
-                    <div style={{ width: 340, display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flexShrink: 0, minHeight: 0 }}>
+                    <div style={{ flex: '0 0 340px', maxWidth: '100%', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flexShrink: 0, minHeight: 0 }}>
                         <Tabs 
                             defaultActiveKey="today" 
                             size="small"

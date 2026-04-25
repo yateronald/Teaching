@@ -324,7 +324,7 @@ const StudentMarksheet: React.FC = () => {
                             }
                         }}
                         options={batchOptions}
-                        style={{ minWidth: 220 }}
+                        style={{ minWidth: 180, flex: '1 1 180px' }}
                         placeholder="Filter by batch"
                         maxTagCount="responsive"
                     />
