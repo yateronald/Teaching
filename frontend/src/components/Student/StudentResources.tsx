@@ -89,8 +89,22 @@ const StudentResources: React.FC = () => {
     /* ── Secure Actions ── */
     const secureDownload = async (id: number, fileName: string) => {
         try {
-            const resp = await apiCall(`/resources/${id}/download`);
+            const resp = await apiCall(`/resources/${id}/download?json=true`);
             if (resp.ok) {
+                const contentType = resp.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    const data = await resp.json();
+                    if (data.url) {
+                        const a = document.createElement('a');
+                        a.href = data.url;
+                        a.download = fileName;
+                        a.target = '_blank';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        return;
+                    }
+                }
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');

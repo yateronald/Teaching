@@ -431,6 +431,9 @@ router.get('/:id/download', authenticateToken, async (req, res) => {
             const kdrive = getKDriveService();
             const downloadUrl = await kdrive.getDownloadUrl(resource.kdrive_file_id);
             if (downloadUrl) {
+                if (req.query.json === 'true') {
+                    return res.json({ url: downloadUrl });
+                }
                 return res.redirect(downloadUrl);
             }
             // fallback if getDownloadUrl fails
