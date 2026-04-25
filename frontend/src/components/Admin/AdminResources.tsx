@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-    Row, Col, Table, Select, Input, Space, Typography,
+    Table, Select, Input, Space, Typography,
     Button, Modal, Empty, Progress, message, Skeleton, DatePicker
 } from 'antd';
 import {
@@ -358,60 +358,58 @@ const AdminResources: React.FC = () => {
                     </div>
                     
                     {/* Global Dashboard Filters */}
-                    <Space wrap size="middle">
-                        <Input placeholder="Search resources..." prefix={<SearchOutlined />} allowClear
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                        <Input placeholder="Search..." prefix={<SearchOutlined />} allowClear
                             value={searchText} onChange={e => setSearchText(e.target.value)}
-                            style={{ width: 220, borderRadius: 8 }} />
-                        <Select value={filterCategory} onChange={setFilterCategory} style={{ width: 140 }}
+                            style={{ flex: '1 1 160px', minWidth: 120, borderRadius: 8 }} />
+                        <Select value={filterCategory} onChange={setFilterCategory} style={{ flex: '0 1 130px', minWidth: 110 }}
                             options={[{ value: 'all', label: 'All Types' }, ...Object.entries(CAT).map(([k, v]) => ({ value: k, label: v.label }))]} />
-                        <Select value={filterTeacher} onChange={setFilterTeacher} allowClear placeholder="Teacher" style={{ width: 140, borderRadius: 8 }}
+                        <Select value={filterTeacher} onChange={setFilterTeacher} allowClear placeholder="Teacher" style={{ flex: '1 1 130px', minWidth: 110, borderRadius: 8 }}
                             options={teachers.map(t => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))} showSearch optionFilterProp="label" />
-                        <Select value={filterBatch} onChange={setFilterBatch} allowClear placeholder="Batch" style={{ width: 160, borderRadius: 8 }}
+                        <Select value={filterBatch} onChange={setFilterBatch} allowClear placeholder="Batch" style={{ flex: '1 1 130px', minWidth: 110, borderRadius: 8 }}
                             options={batches.map(b => ({ value: b.id, label: b.name }))} showSearch optionFilterProp="label" />
-                        <DatePicker.RangePicker onChange={setDateRangeFilter} allowClear style={{ width: 260, borderRadius: 8 }} />
-                    </Space>
+                        <DatePicker.RangePicker onChange={setDateRangeFilter} allowClear style={{ flex: '1 1 200px', minWidth: 180, borderRadius: 8 }} />
+                    </div>
                 </div>
 
                 {/* Stats Row */}
-                <Row gutter={[12, 12]} style={{ marginBottom: 20 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, marginBottom: 20 }}>
                     {[
-                        { label: 'Total Resources', value: filtered.length, icon: <FolderOutlined />, color: '#1a56db', bg: '#eff6ff' },
-                        { label: 'Storage Used', value: fmtSize(totalStorage), icon: <DatabaseOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
-                        { label: 'Cloud Files', value: cloudCount, icon: <CloudOutlined />, color: '#0891b2', bg: '#ecfeff' },
-                        { label: 'Local Files', value: localCount, icon: <DatabaseOutlined />, color: '#64748b', bg: '#f8fafc' },
+                        { label: 'Total', value: filtered.length, icon: <FolderOutlined />, color: '#1a56db', bg: '#eff6ff' },
+                        { label: 'Storage', value: fmtSize(totalStorage), icon: <DatabaseOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
+                        { label: 'Cloud', value: cloudCount, icon: <CloudOutlined />, color: '#0891b2', bg: '#ecfeff' },
+                        { label: 'Local', value: localCount, icon: <DatabaseOutlined />, color: '#64748b', bg: '#f8fafc' },
                         ...Object.entries(CAT).map(([k, v]) => ({
                             label: v.label, value: filtered.filter(r => r.category === k).length, icon: v.icon, color: v.color, bg: v.bg
                         })),
                     ].map((s, i) => (
-                        <Col xs={12} sm={8} md={6} lg={4} xl={3} key={i}>
-                            <div style={{ 
-                                background: '#fff', borderRadius: 14, padding: '12px 14px',
-                                border: '1px solid #f0f0f8', boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
-                                display: 'flex', alignItems: 'center', gap: 10, transition: 'all 0.2s',
-                                cursor: 'default'
-                            }}
-                            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
-                                <div style={{
-                                    width: 36, height: 36, borderRadius: 10, background: s.bg,
-                                    color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16
-                                }}>
-                                    {s.icon}
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
-                                    <div style={{ fontSize: 16, fontWeight: 800, color: '#1e293b' }}>{s.value}</div>
-                                </div>
+                        <div key={i} style={{ 
+                            background: '#fff', borderRadius: 14, padding: '10px 12px',
+                            border: '1px solid #f0f0f8', boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
+                            display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s',
+                            cursor: 'default'
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                            <div style={{
+                                width: 32, height: 32, borderRadius: 9, background: s.bg,
+                                color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0
+                            }}>
+                                {s.icon}
                             </div>
-                        </Col>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
+                                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' }}>{s.value}</div>
+                            </div>
+                        </div>
                     ))}
-                </Row>
+                </div>
             </div>
 
             {/* Content Area - Scrollable */}
             <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
                 {/* Insights Section */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, flexShrink: 0 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, flexShrink: 0 }}>
                     {/* Resources per Teacher */}
                     <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: 20 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>

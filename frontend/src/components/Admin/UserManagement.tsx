@@ -58,6 +58,7 @@ const UserManagement: React.FC = () => {
     const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
     const [searchText, setSearchText] = useState('');
     const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+    const [statusFilter, setStatusFilter] = useState<string | null>(null);
     const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
     const [form] = Form.useForm();
     const [passwordForm] = Form.useForm();
@@ -591,15 +592,19 @@ const UserManagement: React.FC = () => {
                                   (u.email || '').toLowerCase().includes(searchText.toLowerCase());
             const matchesRole = selectedRoles.length === 0 || selectedRoles.includes(u.role);
             
+            let matchesStatus = true;
+            if (statusFilter === 'active') matchesStatus = u.is_active === true;
+            else if (statusFilter === 'disabled') matchesStatus = u.is_active === false;
+
             let matchesDate = true;
             if (dateRangeFilter && dateRangeFilter.length === 2 && u.created_at) {
                 const start = dayjs(u.created_at);
                 if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) matchesDate = false;
             }
 
-            return matchesSearch && matchesRole && matchesDate;
+            return matchesSearch && matchesRole && matchesStatus && matchesDate;
         });
-    }, [users, searchText, selectedRoles, dateRangeFilter]);
+    }, [users, searchText, selectedRoles, statusFilter, dateRangeFilter]);
 
     // ============================================================
     // Full-page Skeleton
@@ -752,13 +757,13 @@ const UserManagement: React.FC = () => {
                             placeholder="Search by student or teacher name, or email..." 
                             allowClear 
                             onChange={e => setSearchText(e.target.value)} 
-                            style={{ width: 320 }} 
+                            style={{ flex: '1 1 240px', minWidth: 180 }} 
                         />
                         <Select
                             mode="multiple"
                             placeholder="Filter by Role"
                             allowClear
-                            style={{ minWidth: 200 }}
+                            style={{ flex: '0 1 200px', minWidth: 160 }}
                             onChange={setSelectedRoles}
                             options={[
                                 { label: 'Administrator', value: 'admin' },
@@ -766,10 +771,21 @@ const UserManagement: React.FC = () => {
                                 { label: 'Student', value: 'student' }
                             ]}
                         />
+                        <Select
+                            placeholder="Status"
+                            allowClear
+                            value={statusFilter}
+                            onChange={setStatusFilter}
+                            style={{ flex: '0 1 140px', minWidth: 120 }}
+                            options={[
+                                { label: 'Active', value: 'active' },
+                                { label: 'Disabled', value: 'disabled' },
+                            ]}
+                        />
                         <DatePicker.RangePicker 
                             onChange={setDateRangeFilter} 
                             allowClear 
-                            style={{ minWidth: 240 }} 
+                            style={{ flex: '1 1 220px', minWidth: 200 }} 
                         />
                     </div>
                 </div>

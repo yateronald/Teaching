@@ -64,10 +64,10 @@ const KpiCard: React.FC<{
   accent: string; gradient: string; sub?: string;
 }> = ({ label, value, icon, accent, gradient, sub }) => (
   <div style={{
-    borderRadius: 18, padding: '22px 24px',
+    borderRadius: 14, padding: '14px 16px',
     background: '#fff', border: '1px solid #f0f0f8',
     boxShadow: '0 2px 16px rgba(99,102,241,0.06)',
-    display: 'flex', alignItems: 'center', gap: 16,
+    display: 'flex', alignItems: 'center', gap: 12,
     transition: 'all 0.2s ease',
     cursor: 'default',
     position: 'relative',
@@ -76,25 +76,24 @@ const KpiCard: React.FC<{
     onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
     onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 16px rgba(99,102,241,0.06)'; }}
   >
-    {/* Subtle background accent */}
-    <div style={{ position: 'absolute', right: -20, top: -20, width: 80, height: 80, borderRadius: '50%', background: gradient, opacity: 0.08, pointerEvents: 'none' }} />
+    <div style={{ position: 'absolute', right: -20, top: -20, width: 70, height: 70, borderRadius: '50%', background: gradient, opacity: 0.08, pointerEvents: 'none' }} />
     <div style={{
-      width: 48, height: 48, borderRadius: 14,
+      width: 40, height: 40, borderRadius: 11,
       background: gradient,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 22, color: '#fff', flexShrink: 0,
+      fontSize: 18, color: '#fff', flexShrink: 0,
       boxShadow: `0 4px 12px ${accent}40`,
     }}>
       {icon}
     </div>
-    <div style={{ position: 'relative', zIndex: 1 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>
+    <div style={{ position: 'relative', zIndex: 1, minWidth: 0, flex: 1 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
         {label}
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: '#1e293b', lineHeight: 1 }}>
+      <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1 }}>
         {value}
       </div>
-      {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>}
     </div>
   </div>
 );
@@ -357,7 +356,7 @@ const AdminDashboard: React.FC = () => {
     <div>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
           Admin Dashboard
         </div>
         <Text style={{ fontSize: 13, color: '#94a3b8' }}>
@@ -583,8 +582,8 @@ const AdminDashboard: React.FC = () => {
                   background: '#f8fafc', borderRadius: 14, padding: '18px 16px',
                   border: '1px solid #f1f5f9', textAlign: 'center',
                 }}>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: item.color, lineHeight: 1 }}>{item.value}</div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>{item.label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: item.color, lineHeight: 1 }}>{item.value}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginTop: 5, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</div>
                 </div>
               ))}
             </div>
