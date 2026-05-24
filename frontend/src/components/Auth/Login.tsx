@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Form, Input, Button, message, Spin } from 'antd';
 import { UserOutlined, LockOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -33,6 +33,28 @@ const Login: React.FC = () => {
 
   const { t, i18n } = useTranslation();
   const [langOpen, setLangOpen] = useState(false);
+  const langSwitcherRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click — replaces the racy onBlur+setTimeout pattern
+  // that was preventing language changes from registering.
+  useEffect(() => {
+    if (!langOpen) return;
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (langSwitcherRef.current && !langSwitcherRef.current.contains(e.target as Node)) {
+        setLangOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [langOpen]);
+
+  const handleSelectLang = (lng: 'en' | 'fr') => {
+    if (i18n.language !== lng) {
+      i18n.changeLanguage(lng);
+      try { localStorage.setItem('i18n_lang', lng); } catch { /* ignore */ }
+    }
+    setLangOpen(false);
+  };
 
   const from = location.state?.from?.pathname || '/';
 
@@ -108,11 +130,11 @@ const Login: React.FC = () => {
           </div>
           <div className="login-brand-bar-right">
             {/* Language switcher dropdown */}
-            <div className={`lp-lang-switcher${langOpen ? ' is-open' : ''}`}>
+            <div ref={langSwitcherRef} className={`lp-lang-switcher${langOpen ? ' is-open' : ''}`}>
               <button
+                type="button"
                 className="lp-lang-toggle"
                 onClick={() => setLangOpen((o) => !o)}
-                onBlur={() => setTimeout(() => setLangOpen(false), 150)}
                 aria-label="Switch language"
                 aria-expanded={langOpen}
               >
@@ -127,14 +149,16 @@ const Login: React.FC = () => {
               {langOpen && (
                 <div className="lp-lang-dropdown">
                   <button
+                    type="button"
                     className={`lp-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
-                    onClick={() => { i18n.changeLanguage('en'); setLangOpen(false); }}
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
                   >
                     <span>🇬🇧</span> English
                   </button>
                   <button
+                    type="button"
                     className={`lp-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
-                    onClick={() => { i18n.changeLanguage('fr'); setLangOpen(false); }}
+                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
                   >
                     <span>🇫🇷</span> Français
                   </button>

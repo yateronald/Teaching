@@ -24,7 +24,7 @@ function safeFormatTime(input) {
 }
 
 /**
- * Notification sent when a teacher updates the details of an upcoming class.
+ * Notification sent when a teacher updates the details of an upcoming class.hh
  *
  * @param {{
  *   studentName?: string,
