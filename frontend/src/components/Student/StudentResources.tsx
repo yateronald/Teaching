@@ -6,6 +6,7 @@ import {
     FileTextOutlined, ExpandOutlined, CompressOutlined, DesktopOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 
 
@@ -85,6 +86,24 @@ const StudentResources: React.FC = () => {
     }, [catFilter, batchFilter, apiCall]);
 
     useEffect(() => { fetchResources(); }, [fetchResources]);
+
+    // Deep-link: ?focus=<resourceId> scrolls to and pulses the matching row.
+    const [searchParams] = useSearchParams();
+    const focusId = searchParams.get('focus');
+    useEffect(() => {
+        if (!focusId || loading) return;
+        const idNum = Number(focusId);
+        if (!Number.isFinite(idNum)) return;
+        const tid = setTimeout(() => {
+            const el = document.querySelector(`[data-focus-id="${idNum}"]`) as HTMLElement | null;
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('focus-pulse');
+                setTimeout(() => el.classList.remove('focus-pulse'), 2500);
+            }
+        }, 250);
+        return () => clearTimeout(tid);
+    }, [focusId, loading, resources]);
 
     /* ── Secure Actions ── */
     const secureDownload = async (id: number, fileName: string) => {
@@ -300,7 +319,11 @@ const StudentResources: React.FC = () => {
                             rowKey="id"
                             pagination={false}
                             scroll={{ y: 'calc(100vh - 430px)', x: 800 }}
-                            onRow={(r) => ({ onClick: () => openPreview(r), style: { cursor: 'pointer' } })}
+                            onRow={(r) => ({
+                                onClick: () => openPreview(r),
+                                style: { cursor: 'pointer' },
+                                'data-focus-id': r.id,
+                            } as any)}
                             rowClassName={() => 'resource-row'}
                         />
                     )}
@@ -397,6 +420,16 @@ const StudentResources: React.FC = () => {
                 .preview-modal .ant-modal-close-x { width: auto !important; height: auto !important; line-height: 1 !important; }
                 .preview-modal .ant-modal-header { display: none !important; }
                 .preview-modal .ant-modal-content { border-radius: ${previewFullscreen ? '0' : '16px'} !important; overflow: hidden !important; padding: 0 !important; }
+
+                .focus-pulse {
+                    animation: focus-pulse-anim 2.5s ease-out;
+                    scroll-margin-top: 100px;
+                }
+                @keyframes focus-pulse-anim {
+                    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5), 0 0 0 0 rgba(99,102,241,0.3); background-color: rgba(99,102,241,0.10); }
+                    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.2), 0 0 0 12px rgba(99,102,241,0.05); }
+                    100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
+                }
             `}</style>
         </div>
     );

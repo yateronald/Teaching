@@ -1,0 +1,43 @@
+# Robots.txt for Learn French with Natives
+# https://www.learnfrenchwithnatives.com
+
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /dashboard
+Disallow: /student-dashboard
+Disallow: /teacher-dashboard
+Disallow: /force-change-password
+Disallow: /api/
+
+# Major search engine bots
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Slurp
+Allow: /
+
+# AI / LLM crawlers (Anthropic, OpenAI, Perplexity, etc.)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+# Crawl rate hint
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://www.learnfrenchwithnatives.com/sitemap.xml

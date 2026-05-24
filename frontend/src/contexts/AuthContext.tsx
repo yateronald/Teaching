@@ -10,6 +10,8 @@ interface User {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    // Optional profile photo (kDrive file id). When null/undefined the UI shows a default icon.
+    profile_photo_kdrive_file_id?: string | null;
     // Password policy fields (may be undefined depending on endpoint)
     must_change_password?: number | boolean;
     password_expires_at?: string | null;
@@ -26,6 +28,7 @@ interface AuthContextType {
     changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
     apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
     verifyToken: () => Promise<boolean>;
+    refreshUser: () => Promise<boolean>;
     isAuthenticated: boolean;
     isAdmin: boolean;
     isTeacher: boolean;
@@ -59,7 +62,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const [loading, setLoading] = useState<boolean>(true);
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
 
-    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://teaching-api.onrender.com/api';
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
     // Use Ant Design App context message instance to avoid static function warning
     const { message } = AntApp.useApp();
@@ -224,6 +227,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return response.ok;
         } catch (error) {
             console.error('Token verification failed:', error);
+            return false;
+        }
+    };
+
+    // Refresh the cached user object from the server (used after profile changes
+    // like a new profile photo so other components — header/sidebar — update).
+    const refreshUser = async () => {
+        if (!token) return false;
+        try {
+            const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!response.ok) return false;
+            const data = await response.json();
+            if (data?.user) setUser(data.user);
+            return true;
+        } catch (error) {
+            console.error('refreshUser failed:', error);
             return false;
         }
     };
@@ -401,6 +422,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         changePassword,
         apiCall,
         verifyToken,
+        refreshUser,
         isAuthenticated: !!token && !!user,
         isAdmin: user?.role === 'admin',
         isTeacher: user?.role === 'teacher',

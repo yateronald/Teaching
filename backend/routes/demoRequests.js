@@ -425,6 +425,23 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
             WHERE dr.id = ?
         `, [id]);
 
+        // 🔔 Notify the assigned teacher in-app
+        try {
+            const { createNotification } = require('../services/notificationService');
+            await createNotification(req.db, {
+                user_id: parseInt(teacher_id),
+                type: 'demo_assigned',
+                title: 'New demo class assigned',
+                message: `${updatedDemo?.full_name || 'A student'} has a demo scheduled. Check your demo requests.`,
+                link: `/app/teacher-demos?demo=${id}`,
+                entity_type: 'demo_request',
+                entity_id: parseInt(id),
+                sender_id: req.user.id,
+            });
+        } catch (notifErr) {
+            console.warn('[notifications] demo_assigned failed:', notifErr.message);
+        }
+
         // Send email notifications
         try {
             // Send notification to student

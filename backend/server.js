@@ -13,6 +13,7 @@ console.log('📊 Using PostgreSQL database');
 const QuizReminderScheduler = require('./services/quizReminderScheduler');
 const reminderService = require('./services/reminderService');
 const authRoutes = require('./routes/auth');
+const profilePhotoRoutes = require('./routes/profilePhoto');
 const userRoutes = require('./routes/users');
 const batchRoutes = require('./routes/batches');
 const quizRoutes = require('./routes/quizzes');
@@ -73,6 +74,8 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+// Profile photo upload/stream/delete — mounted under /api/auth so URLs are /api/auth/profile-photo
+app.use('/api/auth', profilePhotoRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/email-change', require('./routes/emailChange'));
 app.use('/api/password-reset', require('./routes/passwordReset'));
@@ -83,6 +86,25 @@ app.use('/api/schedules', scheduleRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
 app.use('/api/demo-requests', demoRequestRoutes);
+
+app.use('/api/notifications', require('./routes/notifications'));
+
+const aiCreditsRoutes = require('./routes/aiCredits');
+app.use('/api/ai-credits', aiCreditsRoutes);
+
+const tcfExamPrepRoutes = require('./routes/tcfExamPrep');
+app.use('/api/tcf', tcfExamPrepRoutes);
+
+const meetingRoutes = require('./routes/meetings');
+app.use('/api/meetings', meetingRoutes);
+
+// LiveKit webhooks (PUBLIC — verified by LiveKit signature, NOT JWT-authed).
+// req.db and req.io are already attached by the global middleware above.
+const livekitWebhookRoutes = require('./routes/livekitWebhook');
+app.use('/api/webhooks', livekitWebhookRoutes);
+
+const eoSimulationRoutes = require('./routes/eoSimulation');
+app.use('/api/eo-simulation', eoSimulationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -101,6 +123,56 @@ app.use((err, req, res, next) => {
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
+});
+
+// --- Socket.IO connection handler for meetings ---
+io.on('connection', (socket) => {
+  // Join meeting room for real-time events
+  socket.on('meeting:join-room', (meetingId) => {
+    socket.join(`meeting:${meetingId}`);
+  });
+
+  // Join user-specific room for private notifications
+  socket.on('user:join', (userId) => {
+    socket.join(`user:${userId}`);
+  });
+
+  // Student requests admission from lobby
+  socket.on('meeting:request-admission', (data) => {
+    const { meetingId, userId, userName, userAvatar } = data;
+    // Forward to teacher in the meeting room
+    io.to(`meeting:${meetingId}`).emit('meeting:admission-request', {
+      meetingId, userId, userName, userAvatar,
+    });
+  });
+
+  // Hand raise
+  socket.on('meeting:raise-hand', (data) => {
+    io.to(`meeting:${data.meetingId}`).emit('meeting:hand-raised', data);
+  });
+
+  socket.on('meeting:lower-hand', (data) => {
+    io.to(`meeting:${data.meetingId}`).emit('meeting:hand-lowered', data);
+  });
+
+  // Emoji reactions
+  socket.on('meeting:reaction', (data) => {
+    io.to(`meeting:${data.meetingId}`).emit('meeting:reaction', data);
+  });
+
+  // Announcements
+  socket.on('meeting:announcement', (data) => {
+    io.to(`meeting:${data.meetingId}`).emit('meeting:announcement', data);
+  });
+
+  // Chat messages
+  socket.on('meeting:chat-message', (data) => {
+    io.to(`meeting:${data.meetingId}`).emit('meeting:chat-message', data);
+  });
+
+  socket.on('disconnect', () => {
+    // Cleanup handled by LiveKit
+  });
 });
 
 // --- Quiz Auto-Reconciliation (auto-submit + auto-grade) ---
@@ -295,7 +367,11 @@ async function startServer() {
         // Initialize class reminder service
         reminderService.start();
         console.log('📅 Class reminder service initialized');
-        
+
+        // Initialize meeting recording cleanup (30-day retention)
+        const recordingCleanupService = require('./services/recordingCleanupService');
+        recordingCleanupService.start(database);
+
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
@@ -320,6 +396,7 @@ async function startServer() {
 process.on('SIGINT', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
     reminderService.stop();
+    try { require('./services/recordingCleanupService').stop(); } catch {}
     await database.close();
     process.exit(0);
 });
@@ -327,6 +404,7 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
     reminderService.stop();
+    try { require('./services/recordingCleanupService').stop(); } catch {}
     await database.close();
     process.exit(0);
 });

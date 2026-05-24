@@ -1,6 +1,8 @@
+import './i18n';
 import '@ant-design/v5-patch-for-react-19';
 import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
 import App from './App.tsx'
 import { brandingUtils } from './utils/branding'
@@ -26,6 +28,8 @@ const Boot = () => {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Boot />
+    <HelmetProvider>
+      <Boot />
+    </HelmetProvider>
   </StrictMode>,
 )

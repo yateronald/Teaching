@@ -1,71 +1,32 @@
 /* React Big Calendar Styles */
 @import 'react-big-calendar/lib/css/react-big-calendar.css';
 
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+/* ════════════════════════════════════════════════════════════════════
+   Base reset — keep MINIMAL. We deliberately do NOT define a global
+   `:root { color: ... }`, `:root { background-color: ... }`,
+   `:root { color-scheme: light dark }`, or `button { background-color: ... }`
+   here.
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
+   Why: those are the Vite + React boilerplate defaults, and they cascade
+   into Ant Design popups (Select dropdown, DatePicker, RangePicker, etc.)
+   that are mounted at document.body via getPopupContainer. The boilerplate
+   sets a dark background-color and a near-white inherited color on :root,
+   plus a solid `#1a1a1a` background on every <button>. Inside an AntD
+   <Modal>, the popup IS rendered above the mask (z-index works) but its
+   children inherit the boilerplate dark-theme colors — so the popup looks
+   "invisible" or empty even though it is technically on top.
+   Removing the boilerplate lets AntD's own design tokens take effect.
+   ════════════════════════════════════════════════════════════════════ */
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Custom styles for improved timetable layout */
@@ -129,9 +90,32 @@ button:focus-visible {
 }
 /* Ensure header text has room for descenders like 'y' */
 .rbc-time-header .rbc-header {
-   display: flex !important;
-   align-items: center !important;
-   justify-content: center !important;
-   padding: 10px 12px !important;
-   min-height: 56px !important;
- }
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 10px 12px !important;
+  min-height: 56px !important;
+}
+
+
+/* ════════════════════════════════════════════════════════════════════
+   Global fix: ensure AntD popups (Select dropdown, DatePicker, TimePicker,
+   Cascader, Dropdown menu, AutoComplete, Mentions) always render ABOVE
+   antd Modals. Antd Modal default z-index is 1000; bumping popups to 9999
+   ensures they always appear on top, regardless of stacking context.
+   ════════════════════════════════════════════════════════════════════ */
+.ant-select-dropdown,
+.ant-picker-dropdown,
+.ant-dropdown,
+.ant-cascader-dropdown,
+.ant-mentions-dropdown,
+.ant-color-picker-dropdown,
+.ant-tour {
+  z-index: 9999 !important;
+}
+
+/* Tooltip + Popover: also bump above modals */
+.ant-tooltip,
+.ant-popover {
+  z-index: 9998 !important;
+}

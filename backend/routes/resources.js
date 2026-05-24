@@ -303,6 +303,31 @@ router.post('/', [
             }
         }
 
+        // 🔔 Send in-app notifications to all students in the assigned batches
+        // (single bulk notification per upload — not per file, to avoid spam)
+        try {
+            if (batchIds.length > 0 && newResources.length > 0) {
+                const { createBulkNotifications, getStudentsInBatches } = require('../services/notificationService');
+                const studentIds = await getStudentsInBatches(req.db, batchIds);
+                const fileCount = newResources.length;
+                const firstTitle = newResources[0].title || newResources[0].file_name || 'a file';
+                const message = fileCount === 1
+                    ? `Your teacher uploaded "${firstTitle}".`
+                    : `Your teacher uploaded ${fileCount} new resources.`;
+                await createBulkNotifications(req.db, studentIds, {
+                    type: 'resource_uploaded',
+                    title: 'New resource available',
+                    message,
+                    link: `/app/my-resources?resource=${newResources[0].id}`,
+                    entity_type: 'resource',
+                    entity_id: newResources[0].id,
+                    sender_id: req.user.id,
+                });
+            }
+        } catch (notifErr) {
+            console.warn('[notifications] resource_uploaded failed:', notifErr.message);
+        }
+
         res.status(201).json({ message: 'Files uploaded successfully', resources: newResources });
     } catch (error) {
         if (req.files) req.files.forEach(f => cleanTemp(f.path));

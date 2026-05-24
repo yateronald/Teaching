@@ -30,7 +30,11 @@ import {
     LoadingOutlined,
     InfoCircleOutlined,
     MinusCircleOutlined,
-    SoundOutlined
+    SoundOutlined,
+    FileTextOutlined,
+    BarChartOutlined,
+    TrophyOutlined,
+    SettingOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -1017,77 +1021,77 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
     const totalPoints = quiz.questions.reduce((sum, q) => sum + q.marks, 0);
 
     return (
-        <div style={{ margin: '0 auto', padding: '0', position: 'relative' }}>
-            {/* Sticky Gradient Header */}
+        <div style={{ margin: '0 auto', padding: '0', position: 'relative', background: '#fafbfd' }}>
+            {/* ═══════════════════════════════════════════════════════════════════
+                Sticky header — clean, modern, professional
+                ═══════════════════════════════════════════════════════════════════ */}
             <div style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 30,
-                background: 'linear-gradient(135deg, #1e3a5f 0%, #2563eb 50%, #7c3aed 100%)',
-                borderRadius: 0,
-                padding: '20px 28px',
-                marginBottom: 20,
-                color: 'white',
-                overflow: 'hidden',
-                boxShadow: '0 4px 20px rgba(37,99,235,0.25)',
+                background: '#ffffff',
+                borderBottom: '1px solid #eef0f5',
+                padding: '20px 32px',
+                boxShadow: '0 1px 0 rgba(15,23,42,0.04)',
             }}>
-                {/* Decorative circles */}
-                <div style={{
-                    position: 'absolute', top: -20, right: -20,
-                    width: 120, height: 120,
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '50%',
-                }} />
-                <div style={{
-                    position: 'absolute', bottom: -30, right: 80,
-                    width: 80, height: 80,
-                    background: 'rgba(255,255,255,0.04)',
-                    borderRadius: '50%',
-                }} />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Space align="center" size={16}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        {/* Icon tile with subtle brand gradient */}
                         <div style={{
-                            width: 48, height: 48,
-                            borderRadius: 14,
-                            background: 'rgba(255,255,255,0.15)',
+                            width: 44, height: 44,
+                            borderRadius: 12,
+                            background: 'linear-gradient(135deg, #eef2ff 0%, #ede9fe 100%)',
+                            border: '1px solid rgba(99,102,241,0.18)',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 24,
+                            color: '#4338ca',
+                            fontSize: 20,
+                            flexShrink: 0,
                         }}>
-                            {quizId ? '✏️' : '📝'}
+                            <FileTextOutlined />
                         </div>
                         <div>
-                            <Title level={3} style={{ color: 'white', margin: 0, fontWeight: 700, fontSize: 22 }}>
+                            <div style={{
+                                fontSize: 11, fontWeight: 700,
+                                color: '#6366f1',
+                                letterSpacing: 1.2,
+                                textTransform: 'uppercase',
+                                marginBottom: 2,
+                            }}>
+                                {quizId ? 'Edit mode' : 'New quiz'}
+                            </div>
+                            <Title level={3} style={{ color: '#0f172a', margin: 0, fontWeight: 700, fontSize: 19, letterSpacing: -0.3, lineHeight: 1.2 }}>
                                 {quizId ? 'Edit Quiz' : 'Create New Quiz'}
                             </Title>
-                            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>
-                                {quizId ? 'Update your quiz details, questions, and settings' : 'Build a new quiz for your students'}
+                            <Text style={{ color: '#64748b', fontSize: 12.5, fontWeight: 500 }}>
+                                {quizId ? 'Update details, questions, and settings' : 'Build a new quiz for your students'}
                             </Text>
                         </div>
-                    </Space>
-                    {/* Close Button */}
+                    </div>
+
+                    {/* Close button — neutral, refined */}
                     <button
                         onClick={() => onClose ? onClose() : navigate('/teacher-dashboard')}
                         style={{
                             width: 36, height: 36,
-                            borderRadius: '50%',
-                            border: '2px solid rgba(255,255,255,0.3)',
-                            background: 'rgba(255,255,255,0.1)',
-                            color: 'white',
-                            fontSize: 18,
+                            borderRadius: 10,
+                            border: '1px solid #e2e8f0',
+                            background: '#ffffff',
+                            color: '#64748b',
+                            fontSize: 16,
                             cursor: 'pointer',
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            backdropFilter: 'blur(4px)',
-                            transition: 'all 0.2s',
+                            transition: 'all 0.18s ease',
                             flexShrink: 0,
-                            zIndex: 10,
                         }}
                         onMouseEnter={e => {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.25)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.5)';
+                            e.currentTarget.style.background = '#f8fafc';
+                            e.currentTarget.style.color = '#0f172a';
+                            e.currentTarget.style.borderColor = '#cbd5e1';
                         }}
                         onMouseLeave={e => {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
-                            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)';
+                            e.currentTarget.style.background = '#ffffff';
+                            e.currentTarget.style.color = '#64748b';
+                            e.currentTarget.style.borderColor = '#e2e8f0';
                         }}
                     >
                         ✕
@@ -1219,12 +1223,26 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 />
             )}
 
+            <div style={{ padding: '24px 32px 0' }}>
             <Row gutter={24}>
                 <Col xs={24} lg={16}>
                     {/* Quiz Details Form */}
                     <Card
-                        title={<span style={{ fontSize: '16px', fontWeight: 600 }}>📋 Quiz Details</span>}
-                        style={{ marginBottom: 24, borderRadius: 12, border: 'none', boxShadow: '0 1px 8px rgba(0,0,0,0.04)' }}
+                        title={
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 700, color: '#0f172a', letterSpacing: -0.2 }}>
+                                <span style={{
+                                    width: 28, height: 28, borderRadius: 8,
+                                    background: 'rgba(99,102,241,0.10)',
+                                    color: '#4338ca',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 13,
+                                }}>
+                                    <FileTextOutlined />
+                                </span>
+                                Quiz Details
+                            </span>
+                        }
+                        style={{ marginBottom: 24, borderRadius: 14, border: '1px solid #eef0f5', boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}
                     >
                         <Form
                             key={quizId ? `edit-${quizId}` : `new-${formResetKey}`}
@@ -1271,8 +1289,11 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 <TextArea rows={3} placeholder="Enter special instructions" style={{ borderRadius: 8 }} />
                             </Form.Item>
 
-                            <Divider style={{ margin: '20px 0 16px' }}>
-                                <span style={{ fontSize: '14px', fontWeight: 600, color: '#595959' }}>⚙️ Settings</span>
+                            <Divider style={{ margin: '24px 0 18px', borderColor: '#e2e8f0' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 700, color: '#64748b', letterSpacing: 1, textTransform: 'uppercase' }}>
+                                    <SettingOutlined style={{ fontSize: 12, color: '#6366f1' }} />
+                                    Settings
+                                </span>
                             </Divider>
 
                             <Row gutter={16}>
@@ -1357,8 +1378,11 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 </Col>
                             </Row>
 
-                            <Divider style={{ margin: '20px 0 16px' }}>
-                                <span style={{ fontSize: '14px', fontWeight: 600, color: '#595959' }}>💯 Scoring Options</span>
+                            <Divider style={{ margin: '24px 0 18px', borderColor: '#e2e8f0' }}>
+                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 11.5, fontWeight: 700, color: '#64748b', letterSpacing: 1, textTransform: 'uppercase' }}>
+                                    <TrophyOutlined style={{ fontSize: 12, color: '#f59e0b' }} />
+                                    Scoring Options
+                                </span>
                             </Divider>
                             
                             <Row gutter={16}>
@@ -1634,38 +1658,53 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 <Col xs={24} lg={8}>
                     {/* Quiz Summary */}
                     <Card
-                        title={<span style={{ fontSize: '16px', fontWeight: 600 }}>📊 Quiz Summary</span>}
+                        title={
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontSize: 15, fontWeight: 700, color: '#0f172a', letterSpacing: -0.2 }}>
+                                <span style={{
+                                    width: 28, height: 28, borderRadius: 8,
+                                    background: 'rgba(34,197,94,0.10)',
+                                    color: '#16a34a',
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 13,
+                                }}>
+                                    <BarChartOutlined />
+                                </span>
+                                Quiz Summary
+                            </span>
+                        }
                         style={{
                             position: 'sticky',
                             top: 20,
-                            borderRadius: 12,
-                            border: 'none',
-                            boxShadow: '0 1px 8px rgba(0,0,0,0.04)'
+                            borderRadius: 14,
+                            border: '1px solid #eef0f5',
+                            boxShadow: '0 1px 3px rgba(15,23,42,0.04)'
                         }}
                     >
-                        <Space direction="vertical" style={{ width: '100%' }} size={16}>
+                        <Space direction="vertical" style={{ width: '100%' }} size={12}>
                             <div style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 padding: '14px 16px',
-                                backgroundColor: '#f0f5ff',
-                                borderRadius: 10
+                                background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)',
+                                borderRadius: 12,
+                                border: '1px solid rgba(99,102,241,0.15)',
                             }}>
-                                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Questions</Text>
-                                <Text strong style={{ fontSize: 22, color: '#1890ff' }}>{quiz.questions.length}</Text>
+                                <Text style={{ fontSize: 12.5, fontWeight: 600, color: '#475569' }}>Questions</Text>
+                                <Text strong style={{ fontSize: 22, color: '#4338ca', letterSpacing: -0.5 }}>{quiz.questions.length}</Text>
                             </div>
-                            
+
                             <div style={{
                                 display: 'flex',
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 padding: '14px 16px',
-                                backgroundColor: '#f6ffed',
-                                borderRadius: 10
+                                background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+                                borderRadius: 12,
+                                border: '1px solid rgba(16,185,129,0.15)',
                             }}>
-                                <Text type="secondary" style={{ fontSize: 13, fontWeight: 500 }}>Total Points</Text>
-                                <Text strong style={{ fontSize: 22, color: '#52c41a' }}>{totalPoints}</Text>
+                                <Text style={{ fontSize: 12.5, fontWeight: 600, color: '#475569' }}>Total Points</Text>
+                                <Text strong style={{ fontSize: 22, color: '#059669', letterSpacing: -0.5 }}>{totalPoints}</Text>
                             </div>
 
                             {/* Audio Clips */}
@@ -1758,6 +1797,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     </Card>
                 </Col>
             </Row>
+            </div>
 
             {/* Fixed Bottom Save Bar */}
             <div style={{
@@ -1766,8 +1806,8 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 left: 0,
                 right: 0,
                 background: '#fff',
-                borderTop: '2px solid #f0f0f0',
-                padding: '14px 24px',
+                borderTop: '1px solid #eef0f5',
+                padding: '14px 32px',
                 display: 'flex',
                 justifyContent: 'flex-end',
                 gap: 12,

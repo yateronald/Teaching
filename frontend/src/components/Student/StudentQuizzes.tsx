@@ -21,6 +21,7 @@ import {
     WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import QuizTaking, { type QuizTakingHandle } from '../Quiz/QuizTaking';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
@@ -119,6 +120,11 @@ const StudentQuizzes: React.FC = () => {
     const [batchFilter, setBatchFilter] = useState<string | null>(null);
     const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+
+    // Deep-link: ?focus=<quizId> highlights the matching quiz card and
+    // auto-switches to the tab that contains it.
+    const [searchParams] = useSearchParams();
+    const focusId = searchParams.get('focus');
 
     useEffect(() => { fetchData(); }, []);
 
@@ -358,6 +364,36 @@ const StudentQuizzes: React.FC = () => {
     const upcomingQuizzes = filteredQuizzes.filter(q => getQuizStatus(q).status === 'upcoming');
     const completedQuizzes = filteredQuizzes.filter(q => q.submission_status === 'completed');
 
+    // When a deep-link ?focus=<quizId> arrives, jump to the tab that contains it
+    // and pulse-highlight the row. We wait until the data is loaded so the row exists.
+    // /my-quizzes only receives quiz-id focuses (from quiz_published notifications).
+    useEffect(() => {
+        if (!focusId) return;
+        if (loading || attemptsLoading) return;
+        const idNum = Number(focusId);
+        if (!Number.isFinite(idNum)) return;
+
+        // Pick the tab containing this quiz
+        let nextTab: TabKey | null = null;
+        if (activeQuizzes.some(q => q.id === idNum)) nextTab = 'Available';
+        else if (upcomingQuizzes.some(q => q.id === idNum)) nextTab = 'Upcoming';
+        else if (completedQuizzes.some(q => q.id === idNum)) nextTab = 'Completed';
+
+        if (nextTab && nextTab !== activeTab) setActiveTab(nextTab);
+
+        // After paint, scroll the row into view and add the pulse class
+        const tid = setTimeout(() => {
+            const el = document.querySelector(`[data-focus-id="${idNum}"]`) as HTMLElement | null;
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('focus-pulse');
+                setTimeout(() => el.classList.remove('focus-pulse'), 2500);
+            }
+        }, 250);
+        return () => clearTimeout(tid);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusId, loading, attemptsLoading, activeQuizzes, upcomingQuizzes, completedQuizzes]);
+
     const TAB_DATA: Record<TabKey, { data: Quiz[] | QuizAttempt[]; columns: any; loading: boolean; empty: string }> = {
         Available:  { data: activeQuizzes,    columns: quizColumns,   loading, empty: 'No active quizzes available' },
         Upcoming:   { data: upcomingQuizzes,  columns: quizColumns,   loading, empty: 'No upcoming quizzes' },
@@ -519,11 +555,27 @@ const StudentQuizzes: React.FC = () => {
                             scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
                             pagination={false}
                             rowClassName={() => 'quiz-table-row'}
+                            onRow={(row: any) => ({
+                                'data-focus-id': row?.id,
+                            } as any)}
                             style={{ height: '100%' }}
                         />
                     )}
                 </div>
             </div>
+
+            {/* Pulse animation used to highlight a deep-linked quiz row */}
+            <style>{`
+                .focus-pulse {
+                    animation: focus-pulse-anim 2.5s ease-out;
+                    scroll-margin-top: 100px;
+                }
+                @keyframes focus-pulse-anim {
+                    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5), 0 0 0 0 rgba(99,102,241,0.3); background-color: rgba(99,102,241,0.10); }
+                    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.2), 0 0 0 12px rgba(99,102,241,0.05); }
+                    100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
+                }
+            `}</style>
 
             {/* ── Quiz Detail Modal ── */}
             <Modal

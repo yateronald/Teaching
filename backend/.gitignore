@@ -64,3 +64,6 @@ jspm_packages/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Local schema backups produced by database/backup-schema.js
+database/backups/

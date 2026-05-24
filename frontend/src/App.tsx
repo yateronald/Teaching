@@ -21,6 +21,7 @@ import StudentResources from './components/Student/StudentResources';
 import StudentSchedule from './components/Student/StudentSchedule';
 import StudentQuizResults from './components/Student/StudentQuizResults';
 import StudentMarksheet from './components/Student/StudentMarksheet';
+import StudentExamPreparation from './components/Student/StudentExamPreparation';
 import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
@@ -28,6 +29,11 @@ import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
 import AdminTimetable from './components/Admin/AdminTimetable';
 import AdminSettings from './components/Admin/AdminSettings';
 import AdminResources from './components/Admin/AdminResources';
+import ExamPreparation from './components/Admin/ExamPreparation';
+import MeetingList from './components/Meeting/MeetingList';
+import MeetingPage from './components/Meeting/MeetingRoom';
+import MeetingAttendance from './components/Meeting/MeetingAttendance';
+import MeetingJoinLink from './components/Meeting/MeetingJoinLink';
 import { BRAND_CONFIG } from './utils/branding';
 import ForcePasswordChange from './components/Auth/ForcePasswordChange';
 
@@ -38,8 +44,15 @@ function App() {
         token: {
           colorPrimary: BRAND_CONFIG.colors.primary,
           borderRadius: 6,
+          // Bump the popup base z-index so Select/DatePicker/Dropdown popups
+          // ALWAYS render on top of antd Modals (modal default z-index is 1000).
+          zIndexPopupBase: 2000,
         },
       }}
+      // Mount all popups (Select dropdown, DatePicker, TimePicker, Cascader, etc.)
+      // at document.body so they're never trapped inside a parent stacking context
+      // (e.g. a Modal body whose 'transform' or 'overflow' creates a new context).
+      getPopupContainer={() => document.body}
     >
       <AntApp>
         <AuthProvider>
@@ -121,6 +134,11 @@ function App() {
                 <Route path="admin-resources" element={
                   <ProtectedRoute requiredRole="admin">
                     <AdminResources />
+                  </ProtectedRoute>
+                } />
+                <Route path="exam-preparation" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <ExamPreparation />
                   </ProtectedRoute>
                 } />
                 <Route path="batches/:batchId/insights" element={
@@ -217,6 +235,17 @@ function App() {
                     <StudentSchedule />
                   </ProtectedRoute>
                 } />
+                <Route path="my-exams" element={
+                  <ProtectedRoute requiredRole="student">
+                    <StudentExamPreparation />
+                  </ProtectedRoute>
+                } />
+
+                {/* Meeting Routes (all authenticated users) */}
+                <Route path="meetings" element={<MeetingList />} />
+                <Route path="meeting/:id" element={<MeetingPage />} />
+                <Route path="meeting-join/:roomName" element={<MeetingJoinLink />} />
+                <Route path="meeting-attendance" element={<MeetingAttendance />} />
               </Route>
             </Routes>
             </Router>

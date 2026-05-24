@@ -163,6 +163,73 @@ class PostgreSQLDatabase {
                 } catch (resErr) {
                     console.warn('⚠️  Resources multiple batches schema check:', resErr.message);
                 }
+
+                // Auto-apply notifications schema (in-app notifications for
+                // students/teachers). If an older table with different columns
+                // (body / link_path / actor_user_id) is present, migrate it to
+                // the current schema (message / link / sender_id).
+                try {
+                    // Detect a stale schema and drop+recreate. Notification rows
+                    // are ephemeral so this is safe.
+                    const legacyCol = await this.client.query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'notifications' AND column_name IN ('body','link_path','actor_user_id')
+                    `);
+                    if (legacyCol.rows.length > 0) {
+                        await this.client.query(`DROP TABLE IF EXISTS notifications CASCADE`);
+                        console.log('♻️  Dropped legacy notifications table to apply new schema');
+                    }
+                    await this.client.query(`
+                        CREATE TABLE IF NOT EXISTS notifications (
+                            id SERIAL PRIMARY KEY,
+                            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                            type VARCHAR(40) NOT NULL,
+                            title VARCHAR(255) NOT NULL,
+                            message TEXT NOT NULL,
+                            link VARCHAR(500),
+                            entity_type VARCHAR(40),
+                            entity_id INTEGER,
+                            sender_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                            is_read BOOLEAN NOT NULL DEFAULT FALSE,
+                            read_at TIMESTAMP WITH TIME ZONE,
+                            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `);
+                    await this.client.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read, created_at DESC)`);
+                    await this.client.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user_recent ON notifications(user_id, created_at DESC)`);
+                } catch (notifErr) {
+                    console.warn('⚠️  Notifications schema check skipped:', notifErr.message);
+                }
+
+                // Auto-apply AI credits schema
+                try {
+                    await this.client.query(`
+                        CREATE TABLE IF NOT EXISTS student_ai_credits (
+                            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                            ee_credits INTEGER NOT NULL DEFAULT 0,
+                            eo_credits INTEGER NOT NULL DEFAULT 0,
+                            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `);
+                    await this.client.query(`
+                        CREATE TABLE IF NOT EXISTS ai_credit_transactions (
+                            id SERIAL PRIMARY KEY,
+                            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                            credit_type VARCHAR(10) NOT NULL CHECK (credit_type IN ('ee', 'eo')),
+                            delta INTEGER NOT NULL,
+                            reason VARCHAR(50) NOT NULL,
+                            actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                            related_entity_type VARCHAR(40),
+                            related_entity_id INTEGER,
+                            notes TEXT,
+                            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                    `);
+                    await this.client.query(`CREATE INDEX IF NOT EXISTS idx_credit_tx_user_recent ON ai_credit_transactions(user_id, created_at DESC)`);
+                    await this.client.query(`CREATE INDEX IF NOT EXISTS idx_credit_tx_user_type ON ai_credit_transactions(user_id, credit_type, created_at DESC)`);
+                } catch (creditErr) {
+                    console.warn('⚠️  AI credits schema check skipped:', creditErr.message);
+                }
             }
             
             return true;

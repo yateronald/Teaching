@@ -1532,6 +1532,25 @@ router.patch('/:id/status', [
                     // Continue with other students even if one email fails
                 }
             }
+
+            // Fire in-app notifications (non-blocking; never fails the publish action)
+            if (students && students.length > 0) {
+                try {
+                    const { createBulkNotifications } = require('../services/notificationService');
+                    const studentIds = students.map(s => s.student_id);
+                    await createBulkNotifications(req.db, studentIds, {
+                        type: 'quiz_published',
+                        title: 'New quiz available',
+                        message: `${quizDetails.title} — your teacher just published a new quiz.`,
+                        link: `/app/my-quizzes?quiz=${id}`,
+                        entity_type: 'quiz',
+                        entity_id: parseInt(id),
+                        sender_id: req.user.id,
+                    });
+                } catch (notifErr) {
+                    console.warn('[notifications] quiz_published failed:', notifErr.message);
+                }
+            }
         }
 
         res.json({ message: `Quiz ${status} successfully` });
@@ -2093,6 +2112,31 @@ router.post('/:id/submissions/:submissionId/publish', authenticateToken, teacher
 
         if (result.changes === 0) {
             return res.status(400).json({ error: 'Submission not found or not graded yet' });
+        }
+
+        // Fire in-app notification to the student (non-blocking)
+        try {
+            const { notifyUsers } = require('../services/notificationService');
+            const sub = await req.db.get(
+                `SELECT qs.id, qs.student_id, qs.quiz_id, q.title
+                 FROM quiz_submissions qs
+                 JOIN quizzes q ON qs.quiz_id = q.id
+                 WHERE qs.id = ?`,
+                [submissionId]
+            );
+            if (sub) {
+                await notifyUsers(req.db, [sub.student_id], {
+                    type: 'grade_published',
+                    title: `Your grade is ready: ${sub.title}`,
+                    body: 'Your teacher has published the grade for your quiz.',
+                    link_path: `/app/my-results?focus=${sub.id}`,
+                    entity_type: 'quiz_submission',
+                    entity_id: sub.id,
+                    actor_user_id: req.user.id,
+                });
+            }
+        } catch (notifyErr) {
+            console.error('Notification failed (grade_published):', notifyErr.message);
         }
 
         res.json({ message: 'Grades published successfully' });

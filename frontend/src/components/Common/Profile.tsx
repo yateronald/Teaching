@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Form,
     Input,
@@ -21,6 +21,9 @@ import {
     IdcardOutlined,
     SafetyOutlined,
     CheckCircleFilled,
+    CameraOutlined,
+    LoadingOutlined,
+    DeleteOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
@@ -35,6 +38,7 @@ interface UserProfile {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    profile_photo_kdrive_file_id?: string | null;
 }
 
 const formatDateSafe = (value?: string | null) => {
@@ -96,7 +100,7 @@ const SecurityRow = ({ icon, title, subtitle, actionLabel, onAction, danger = fa
 );
 
 const Profile: React.FC = () => {
-    const { apiCall, updateProfile, changePassword, isAdmin } = useAuth();
+    const { apiCall, updateProfile, changePassword, isAdmin, token, refreshUser } = useAuth();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -107,6 +111,11 @@ const Profile: React.FC = () => {
     const [emailModalOpen, setEmailModalOpen] = useState(false);
     const [pwLoading, setPwLoading] = useState(false);
 
+    // Profile-photo state
+    const [photoUploading, setPhotoUploading] = useState(false);
+    const [photoVersion, setPhotoVersion] = useState(0); // bumped on upload to bust the <img> cache
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     const displayName = useMemo(() => {
         if (!profile) return '';
         const fn = profile.first_name?.trim() || '';
@@ -114,10 +123,16 @@ const Profile: React.FC = () => {
         return `${fn} ${ln}`.trim() || profile.username || 'User';
     }, [profile]);
 
-    const initials = useMemo(() => {
-        if (!profile) return '?';
-        return `${profile.first_name?.[0] || ''}${profile.last_name?.[0] || ''}`.toUpperCase() || '?';
-    }, [profile]);
+    const hasPhoto = !!profile?.profile_photo_kdrive_file_id;
+    const photoSrc = useMemo(() => {
+        if (!hasPhoto || !profile) return '';
+        // Build absolute URL; the <img> tag can't send Authorization headers,
+        // so we pass the JWT as a query token (the auth middleware accepts it).
+        const apiBase = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:5000/api';
+        const t = token ? `&token=${encodeURIComponent(token)}` : '';
+        // photoVersion forces React/browser to refetch after upload/remove.
+        return `${apiBase}/auth/profile-photo/${profile.id}?v=${photoVersion}${t}`;
+    }, [hasPhoto, profile, photoVersion, token]);
 
     useEffect(() => { fetchProfile(); }, []);
 
@@ -159,6 +174,77 @@ const Profile: React.FC = () => {
             else if (result.error) message.error(result.error);
         } catch { message.error('Error changing password'); }
         finally { setPwLoading(false); }
+    };
+
+    /* ── Profile photo: trigger picker ── */
+    const triggerPhotoPicker = () => {
+        if (photoUploading) return;
+        fileInputRef.current?.click();
+    };
+
+    /* ── Profile photo: validate + upload ── */
+    const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        // Reset the input so picking the same file again still triggers `change`.
+        if (e.target) e.target.value = '';
+        if (!file) return;
+
+        // Client-side validation (server validates again).
+        const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+        if (!ALLOWED.includes(file.type)) {
+            message.error('Please select a JPG, PNG, WEBP, or GIF image');
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            message.error('Image must be 5MB or less');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        setPhotoUploading(true);
+        try {
+            const response = await apiCall('/auth/profile-photo', {
+                method: 'POST',
+                body: formData,
+            });
+            if (response.ok) {
+                message.success('Profile photo updated');
+                setPhotoVersion(v => v + 1);
+                await Promise.all([fetchProfile(), refreshUser()]);
+            } else {
+                let errMsg = 'Failed to upload photo';
+                try { const data = await response.json(); errMsg = data.error || errMsg; } catch {}
+                message.error(errMsg);
+            }
+        } catch (err) {
+            console.error('Photo upload error:', err);
+            message.error('Network error while uploading photo');
+        } finally {
+            setPhotoUploading(false);
+        }
+    };
+
+    /* ── Profile photo: remove ── */
+    const handleRemovePhoto = async () => {
+        if (photoUploading) return;
+        setPhotoUploading(true);
+        try {
+            const response = await apiCall('/auth/profile-photo', { method: 'DELETE' });
+            if (response.ok) {
+                message.success('Profile photo removed');
+                setPhotoVersion(v => v + 1);
+                await Promise.all([fetchProfile(), refreshUser()]);
+            } else {
+                message.error('Failed to remove photo');
+            }
+        } catch (err) {
+            console.error('Photo remove error:', err);
+            message.error('Network error while removing photo');
+        } finally {
+            setPhotoUploading(false);
+        }
     };
 
     const roleConfig = ROLE_CONFIG[profile?.role || ''] || ROLE_CONFIG.student;
@@ -209,22 +295,98 @@ const Profile: React.FC = () => {
                     }}>
                         {/* gradient banner */}
                         <div style={{ height: 80, background: roleConfig.gradient, position: 'relative' }}>
-                            <div style={{
-                                position: 'absolute', bottom: -44, left: '50%', transform: 'translateX(-50%)',
-                                width: 88, height: 88, borderRadius: '50%',
-                                background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                                border: '4px solid #fff',
-                                boxShadow: '0 4px 20px rgba(99,102,241,0.3)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 28, fontWeight: 800, color: '#fff',
-                            }}>
-                                {initials}
+                            {/* Hidden file input — re-used via ref */}
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                style={{ display: 'none' }}
+                                onChange={handlePhotoSelected}
+                            />
+
+                            {/* Avatar wrapper (clickable) */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                aria-label={hasPhoto ? 'Change profile photo' : 'Upload profile photo'}
+                                onClick={triggerPhotoPicker}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') triggerPhotoPicker(); }}
+                                style={{
+                                    position: 'absolute', bottom: -44, left: '50%', transform: 'translateX(-50%)',
+                                    width: 88, height: 88, borderRadius: '50%',
+                                    background: hasPhoto ? '#f4f3ff' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                    border: '4px solid #fff',
+                                    boxShadow: '0 4px 20px rgba(99,102,241,0.3)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#fff',
+                                    cursor: photoUploading ? 'wait' : 'pointer',
+                                    overflow: 'hidden',
+                                    outline: 'none',
+                                }}
+                            >
+                                {hasPhoto ? (
+                                    <img
+                                        src={photoSrc}
+                                        alt="Profile"
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                                    />
+                                ) : (
+                                    <UserOutlined style={{ fontSize: 38, color: '#fff' }} />
+                                )}
+
+                                {/* Loading overlay */}
+                                {photoUploading && (
+                                    <div style={{
+                                        position: 'absolute', inset: 0, borderRadius: '50%',
+                                        background: 'rgba(15,23,42,0.55)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    }}>
+                                        <LoadingOutlined style={{ color: '#fff', fontSize: 24 }} spin />
+                                    </div>
+                                )}
+
+                                {/* Camera overlay button */}
+                                <button
+                                    type="button"
+                                    aria-label="Change profile photo"
+                                    onClick={(e) => { e.stopPropagation(); triggerPhotoPicker(); }}
+                                    disabled={photoUploading}
+                                    style={{
+                                        position: 'absolute', bottom: 2, right: 2,
+                                        width: 28, height: 28, borderRadius: '50%',
+                                        background: '#fff',
+                                        border: '2px solid #fff',
+                                        boxShadow: '0 2px 8px rgba(15,23,42,0.18)',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        color: '#6366f1',
+                                        cursor: photoUploading ? 'not-allowed' : 'pointer',
+                                        padding: 0,
+                                    }}
+                                >
+                                    <CameraOutlined style={{ fontSize: 13 }} />
+                                </button>
                             </div>
                         </div>
 
                         {/* identity */}
                         <div style={{ textAlign: 'center', paddingTop: 56, paddingBottom: 28, paddingInline: 24 }}>
                             <div style={{ fontSize: 18, fontWeight: 800, color: '#1a1d2e', marginBottom: 6 }}>{displayName}</div>
+
+                            {/* Remove photo link (only when one exists) */}
+                            {hasPhoto && (
+                                <div style={{ marginTop: -2, marginBottom: 10 }}>
+                                    <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<DeleteOutlined />}
+                                        onClick={handleRemovePhoto}
+                                        disabled={photoUploading}
+                                        style={{ color: '#ef4444', fontSize: 12, fontWeight: 600, padding: 0, height: 'auto' }}
+                                    >
+                                        Remove photo
+                                    </Button>
+                                </div>
+                            )}
 
                             {/* Role pill */}
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: roleConfig.bg, borderRadius: 20, padding: '4px 14px', marginBottom: 20 }}>

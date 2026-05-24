@@ -17,6 +17,7 @@ import {
     LockOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -122,6 +123,25 @@ const StudentQuizResults: React.FC = () => {
     const [gradeFilter, setGradeFilter] = useState<string | null>(null);
 
     useEffect(() => { fetchQuizResults(); }, []);
+
+    // Deep-link: ?focus=<submissionId> from grade_published notification —
+    // pulse-highlight the matching row.
+    const [searchParams] = useSearchParams();
+    const focusId = searchParams.get('focus');
+    useEffect(() => {
+        if (!focusId || loading) return;
+        const idNum = Number(focusId);
+        if (!Number.isFinite(idNum)) return;
+        const tid = setTimeout(() => {
+            const el = document.querySelector(`[data-focus-id="${idNum}"]`) as HTMLElement | null;
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el.classList.add('focus-pulse');
+                setTimeout(() => el.classList.remove('focus-pulse'), 2500);
+            }
+        }, 250);
+        return () => clearTimeout(tid);
+    }, [focusId, loading, results]);
 
     const fetchQuizResults = async () => {
         try {
@@ -431,6 +451,9 @@ const StudentQuizResults: React.FC = () => {
                             pagination={false}
                             scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
                             rowClassName={() => 'result-row'}
+                            onRow={(r) => ({
+                                'data-focus-id': r.id,
+                            } as any)}
                         />
                     )}
                 </div>
@@ -706,6 +729,16 @@ const StudentQuizResults: React.FC = () => {
                 .result-row:hover td { background: #f8f7ff !important; }
                 .ant-table-thead > tr > th { background: #fafafa !important; font-weight: 700 !important; color: #4b5563 !important; font-size: 11px !important; text-transform: uppercase !important; letter-spacing: 0.5px !important; }
                 .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
+
+                .focus-pulse {
+                    animation: focus-pulse-anim 2.5s ease-out;
+                    scroll-margin-top: 100px;
+                }
+                @keyframes focus-pulse-anim {
+                    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5), 0 0 0 0 rgba(99,102,241,0.3); background-color: rgba(99,102,241,0.10); }
+                    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.2), 0 0 0 12px rgba(99,102,241,0.05); }
+                    100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
+                }
             `}</style>
             <style>{`
                 .result-detail-modal .ant-modal-close { top: 8px !important; right: 8px !important; width: auto !important; height: auto !important; z-index: 10 !important; }

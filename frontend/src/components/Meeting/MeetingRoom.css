@@ -1,0 +1,686 @@
+/* ════════════════════════════════════════════════════════════
+   Meeting Room — Dark Theme with Fullscreen & Presenter Layout
+   ════════════════════════════════════════════════════════════ */
+
+.meeting-status-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  text-align: center;
+  padding: 40px 20px;
+}
+.meeting-status-icon { font-size: 64px; margin-bottom: 20px; }
+.meeting-status-title { font-size: 24px; font-weight: 800; color: #1e293b; margin-bottom: 8px; }
+.meeting-status-subtitle { font-size: 14px; color: #94a3b8; max-width: 400px; margin-bottom: 20px; line-height: 1.6; }
+
+/* ── Room Layout ── */
+.meeting-room {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+/* ── FULLSCREEN MODE (same as default now, kept for toggle logic) ── */
+.meeting-room.meeting-fullscreen {
+  /* Already fullscreen by default */
+}
+
+/* ── Announcement Banner ── */
+.meeting-announcement {
+  position: relative;
+  z-index: 100;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: slideDown 0.3s ease-out;
+  flex-shrink: 0;
+}
+.announcement-close {
+  margin-left: auto;
+  background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; padding: 0 4px;
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+/* ── Header ── */
+.meeting-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.meeting-title { font-size: 14px; font-weight: 700; color: #f1f5f9; }
+.meeting-meta { display: flex; align-items: center; gap: 8px; margin-top: 1px; }
+.meeting-participant-count { font-size: 11px; color: #94a3b8; }
+
+/* ── Main Content Area ── */
+.meeting-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+
+/* ══════════════════════════════════════════
+   GRID LAYOUT (no screen share)
+   ══════════════════════════════════════════ */
+.meeting-video-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 6px;
+  padding: 6px;
+  overflow: hidden;
+  align-content: center;
+}
+
+.video-tile {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1e293b;
+  aspect-ratio: 16 / 9;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+.video-tile.speaking {
+  border-color: #22c55e;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.25);
+}
+.video-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.4); }
+.video-tile video { width: 100%; height: 100%; object-fit: cover; }
+
+.video-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%;
+  background: linear-gradient(135deg, #1e293b, #334155);
+}
+.video-avatar {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; font-weight: 800; color: #fff;
+}
+.video-avatar.small { width: 36px; height: 36px; font-size: 16px; }
+
+.video-overlay {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 4px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+  display: flex; align-items: center; justify-content: space-between;
+}
+.video-name {
+  font-size: 11px; font-weight: 600; color: #fff;
+  display: flex; align-items: center; gap: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.host-badge {
+  background: #6366f1; color: #fff; font-size: 8px;
+  padding: 1px 4px; border-radius: 3px; font-weight: 700; flex-shrink: 0;
+}
+.screen-badge {
+  background: #22c55e; color: #fff; font-size: 8px;
+  padding: 1px 4px; border-radius: 3px; font-weight: 700; flex-shrink: 0;
+}
+.video-indicators { display: flex; gap: 4px; }
+
+/* ══════════════════════════════════════════
+   PRESENTER LAYOUT (screen share active)
+   ══════════════════════════════════════════ */
+.presenter-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.presenter-main {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.screen-share-tile {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: #000;
+}
+.screen-share-tile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.presenter-strip {
+  display: flex;
+  gap: 4px;
+  padding: 4px 6px;
+  background: rgba(15, 23, 42, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+  flex-shrink: 0;
+  min-height: 80px;
+  max-height: 100px;
+  align-items: center;
+}
+
+.strip-tile {
+  position: relative;
+  width: 110px;
+  min-width: 110px;
+  height: 72px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e293b;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+  transition: border-color 0.2s;
+}
+.strip-tile.speaking {
+  border-color: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
+}
+.strip-tile video { width: 100%; height: 100%; object-fit: cover; }
+
+.strip-name {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 2px 4px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7));
+  font-size: 9px; font-weight: 600; color: #fff;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  display: flex; align-items: center; gap: 2px;
+}
+
+/* ── Control Bar ── */
+.meeting-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(15, 23, 42, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+.controls-left, .controls-center, .controls-right {
+  display: flex; align-items: center; gap: 6px;
+}
+
+.control-btn {
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 15px; transition: all 0.15s;
+}
+.control-btn:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* LiveKit TrackToggle overrides */
+.meeting-controls .lk-button {
+  width: 38px !important; height: 38px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #e2e8f0 !important;
+  padding: 0 !important; min-width: unset !important;
+}
+.meeting-controls .lk-button:hover { background: rgba(255, 255, 255, 0.12) !important; }
+.meeting-controls .lk-button[data-lk-muted="true"] {
+  background: rgba(239, 68, 68, 0.2) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #ef4444 !important;
+}
+
+.end-btn {
+  background: #ef4444 !important; border-color: #ef4444 !important; color: #fff !important;
+  width: auto !important; padding: 0 14px !important; gap: 5px; font-weight: 600; font-size: 12px;
+}
+.end-btn:hover { background: #dc2626 !important; }
+.leave-btn {
+  background: rgba(239, 68, 68, 0.15) !important; border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #ef4444 !important; width: auto !important; padding: 0 14px !important;
+  gap: 5px; font-weight: 600; font-size: 12px;
+}
+
+/* ── Side Panels ── */
+.meeting-side-panel {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 300px;
+  background: #1e293b;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex; flex-direction: column;
+  z-index: 50;
+  animation: slideIn 0.2s ease-out;
+}
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.side-panel-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-weight: 700; font-size: 13px; color: #f1f5f9;
+}
+.side-panel-close {
+  background: none; border: none; color: #94a3b8; font-size: 18px; cursor: pointer;
+}
+
+/* Chat */
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.chat-message {
+  padding: 6px 8px; background: rgba(255, 255, 255, 0.04); border-radius: 6px;
+}
+.chat-sender { font-size: 10px; font-weight: 700; color: #6366f1; margin-right: 4px; }
+.chat-time { font-size: 9px; color: #64748b; }
+.chat-text { font-size: 12px; color: #e2e8f0; margin-top: 1px; line-height: 1.4; }
+.chat-input-row {
+  display: flex; gap: 6px; padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Participants */
+.participants-list { flex: 1; overflow-y: auto; padding: 6px 10px; }
+.participant-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px; border-radius: 6px; transition: background 0.15s;
+}
+.participant-item:hover { background: rgba(255, 255, 255, 0.04); }
+.participant-avatar {
+  width: 28px; height: 28px; border-radius: 6px;
+  background: linear-gradient(135deg, #6366f1, #4338ca);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.participant-info { flex: 1; min-width: 0; }
+.participant-name { font-size: 12px; font-weight: 600; color: #f1f5f9; }
+.participant-indicators { display: flex; gap: 3px; }
+
+/* Admission */
+.admission-section {
+  padding: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(245, 158, 11, 0.05);
+}
+.admission-title { font-size: 11px; font-weight: 700; color: #f59e0b; margin-bottom: 6px; }
+.admission-item {
+  display: flex; align-items: center; justify-content: space-between; padding: 4px 0;
+}
+.admission-name { font-size: 12px; color: #f1f5f9; font-weight: 600; }
+.admission-actions { display: flex; gap: 4px; }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .meeting-video-grid {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 3px; padding: 3px;
+  }
+  .meeting-side-panel { width: 100%; }
+  .meeting-controls { padding: 6px 10px; }
+  .control-btn { width: 34px; height: 34px; font-size: 13px; }
+  .presenter-strip { min-height: 60px; max-height: 70px; }
+  .strip-tile { width: 80px; min-width: 80px; height: 52px; }
+}
+
+/* When in presenter mode, adjust grid for fewer participants */
+.has-screenshare .meeting-video-grid {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+
+/* ══════════════════════════════════════════
+   WHITEBOARD OVERLAY
+   ══════════════════════════════════════════ */
+.whiteboard-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 60;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.whiteboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+  flex-shrink: 0;
+  z-index: 10;
+}
+.whiteboard-container {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+/* Excalidraw must fill its container */
+.whiteboard-container .excalidraw-container,
+.whiteboard-container .excalidraw {
+  width: 100% !important;
+  height: 100% !important;
+}
+.whiteboard-container > div {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ── Active button state ── */
+.control-btn.active-btn {
+  background: rgba(99, 102, 241, 0.2) !important;
+  border-color: rgba(99, 102, 241, 0.4) !important;
+  color: #6366f1 !important;
+}
+
+/* ── Poll panel dark inputs ── */
+.poll-panel .ant-input {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #e2e8f0 !important;
+}
+.poll-panel .ant-input::placeholder {
+  color: #64748b !important;
+}
+
+
+/* ══════════════════════════════════════════
+   PRE-JOIN DEVICE SETUP SCREEN
+   ══════════════════════════════════════════ */
+.meeting-prejoin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 20px;
+}
+.prejoin-container {
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+.prejoin-header {
+  padding: 20px 24px 0;
+  text-align: center;
+}
+.prejoin-content {
+  padding: 16px 24px;
+}
+.prejoin-actions {
+  padding: 16px 24px 20px;
+  display: flex;
+  gap: 10px;
+}
+
+/* Dark theme overrides for device settings selects */
+.prejoin-content .ant-select-selector,
+.settings-panel .ant-select-selector {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.settings-panel .ant-select-selector {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #e2e8f0 !important;
+}
+.settings-panel .ant-select-selection-item {
+  color: #e2e8f0 !important;
+}
+.settings-panel .ant-select-arrow {
+  color: #94a3b8 !important;
+}
+
+
+/* ── Announcement Input Bar ── */
+.announcement-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(245, 158, 11, 0.08);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.15);
+  flex-shrink: 0;
+}
+.announcement-input-bar .ant-input {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+}
+.announcement-input-bar .ant-input::placeholder {
+  color: #94a3b8 !important;
+}
+
+
+/* ── Force Ant Design modals above the meeting room ──
+   IMPORTANT: scope these rules with body:has(.meeting-room) so they
+   ONLY apply while a meeting room is mounted. Without scoping, these
+   rules would push EVERY modal in the app to z-index 99999 — far
+   above the popup z-index (9999) used by Select / DatePicker / etc.,
+   making popups invisible behind the modal mask everywhere
+   (e.g. on /app/quiz-management, /app/resources). */
+body:has(.meeting-room) .ant-modal-root {
+  z-index: 99999 !important;
+}
+body:has(.meeting-room) .ant-modal-mask {
+  z-index: 99998 !important;
+}
+body:has(.meeting-room) .ant-modal-wrap {
+  z-index: 99999 !important;
+}
+/* Inside a meeting room, also bump popups above the elevated modal
+   so Select / DatePicker dropdowns inside in-meeting modals stay
+   on top. */
+body:has(.meeting-room) .ant-select-dropdown,
+body:has(.meeting-room) .ant-picker-dropdown,
+body:has(.meeting-room) .ant-dropdown,
+body:has(.meeting-room) .ant-cascader-dropdown,
+body:has(.meeting-room) .ant-mentions-dropdown,
+body:has(.meeting-room) .ant-color-picker-dropdown,
+body:has(.meeting-room) .ant-tour {
+  z-index: 100000 !important;
+}
+body:has(.meeting-room) .ant-tooltip,
+body:has(.meeting-room) .ant-popover {
+  z-index: 99999 !important;
+}
+
+
+/* ── Inline Confirmation Dialog ── */
+.meeting-confirm-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+.meeting-confirm-dialog {
+  background: #fff;
+  border-radius: 16px;
+  padding: 32px 40px;
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.2s ease-out;
+}
+@keyframes scaleIn {
+  from { transform: scale(0.9); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+
+/* ══════════════════════════════════════════
+   FLOATING EMOJI REACTIONS
+   ══════════════════════════════════════════ */
+.floating-emoji {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: floatUp 3s ease-out forwards;
+  pointer-events: none;
+}
+.floating-emoji-icon {
+  font-size: 48px;
+  filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3));
+}
+.floating-emoji-name {
+  font-size: 10px;
+  color: #fff;
+  background: rgba(0,0,0,0.5);
+  padding: 1px 8px;
+  border-radius: 8px;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+@keyframes floatUp {
+  0% { transform: translateY(0) translateX(0) scale(0.5); opacity: 0; }
+  10% { transform: translateY(-20px) translateX(var(--drift, 0px)) scale(1.2); opacity: 1; }
+  30% { transform: translateY(-100px) translateX(var(--drift, 0px)) scale(1); opacity: 1; }
+  100% { transform: translateY(-400px) translateX(var(--drift, 0px)) scale(0.6); opacity: 0; }
+}
+.floating-emoji:nth-child(odd) { --drift: -40px; }
+.floating-emoji:nth-child(even) { --drift: 40px; }
+.floating-emoji:nth-child(3n) { --drift: -80px; left: 45%; }
+.floating-emoji:nth-child(3n+1) { --drift: 60px; left: 55%; }
+
+/* ── Emoji Picker Popup ── */
+.emoji-picker-popup {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  animation: scaleIn 0.15s ease-out;
+  z-index: 100;
+}
+.emoji-pick-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+.emoji-pick-btn:hover {
+  background: rgba(255,255,255,0.1);
+  transform: scale(1.2);
+}
+
+/* ── Raised Hands Bar ── */
+.raised-hands-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fbbf24;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  animation: slideDown 0.2s ease-out;
+}
+.raised-hands-clear {
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 10px;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+/* ── Hand Raised Button Active ── */
+.hand-raised-btn {
+  background: rgba(245, 158, 11, 0.2) !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+}
+
+
+/* Recording indicator pulse */
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.2); }
+}
+.recording-btn-active {
+  background: rgba(239, 68, 68, 0.22) !important;
+  border-color: #ef4444 !important;
+  color: #fca5a5 !important;
+  width: auto !important;
+  min-width: 78px;
+  padding: 0 12px !important;
+}
+.recording-btn-idle {
+  background: rgba(239, 68, 68, 0.10) !important;
+  border-color: rgba(239, 68, 68, 0.45) !important;
+  color: #ef4444 !important;
+  width: auto !important;
+  min-width: 64px;
+  padding: 0 12px !important;
+  transition: background 0.18s ease, transform 0.12s ease;
+}
+.recording-btn-idle:hover {
+  background: rgba(239, 68, 68, 0.18) !important;
+  transform: translateY(-1px);
+}

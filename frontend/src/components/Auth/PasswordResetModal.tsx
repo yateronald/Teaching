@@ -6,6 +6,7 @@ import {
   CheckCircleFilled,
   ClockCircleOutlined,
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import './PasswordResetModal.css';
 
@@ -20,6 +21,7 @@ const RESEND_COOLDOWN_SEC = 30;
 
 const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' }) => {
   const { requestPasswordReset, verifyPasswordReset, completePasswordReset } = useAuth();
+  const { t } = useTranslation();
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'request' | 'verify' | 'reset'>('request');
@@ -68,7 +70,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
   const handleClose = () => { resetState(); onClose(); };
 
   const handleRequest = async () => {
-    if (!email) { message.error('Please enter your email'); return; }
+    if (!email) { message.error(t('reset.email_required')); return; }
     setLoading(true);
     try {
       const res = await requestPasswordReset(email);
@@ -82,7 +84,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
 
   const handleVerify = async () => {
     const code = otpDigits.join('');
-    if (code.length !== OTP_LENGTH) { message.error('Please enter the 6-digit code'); return; }
+    if (code.length !== OTP_LENGTH) { message.error(t('reset.otp_required')); return; }
     setLoading(true);
     try {
       const res = await verifyPasswordReset(email, code);
@@ -105,7 +107,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
   };
 
   const handleCompleteReset = async (values: any) => {
-    if (!resetToken) { message.error('Reset session is invalid. Please start again.'); setStep('request'); return; }
+    if (!resetToken) { message.error(t('reset.session_invalid')); setStep('request'); return; }
     setLoading(true);
     try {
       const res = await completePasswordReset(email, resetToken, values.newPassword);
@@ -160,11 +162,11 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
           <div className="pw-reset-header-icon">
             <LockOutlined />
           </div>
-          <h3>Reset Password</h3>
+          <h3>{t('reset.title')}</h3>
           <p>
-            {step === 'request' && 'Enter your email to receive a secure verification code.'}
-            {step === 'verify' && 'Enter the 6-digit code sent to your email.'}
-            {step === 'reset' && 'Choose a strong new password for your account.'}
+            {step === 'request' && t('reset.intro_email')}
+            {step === 'verify' && t('reset.intro_otp')}
+            {step === 'reset' && t('reset.intro_new_password')}
           </p>
         </div>
 
@@ -174,9 +176,9 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
           size="small"
           className="pw-reset-steps"
           items={[
-            { title: 'Account' },
-            { title: 'Verify' },
-            { title: 'New Password' },
+            { title: t('reset.step_account') },
+            { title: t('reset.step_verify') },
+            { title: t('reset.step_new_password') },
           ]}
         />
 
@@ -184,25 +186,25 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
         {step === 'request' && (
           <Form layout="vertical" form={form} onFinish={handleRequest} initialValues={{ email }} className="pw-reset-form">
             <Form.Item
-              label="Email address"
+              label={t('reset.email_label')}
               name="email"
               rules={[
-                { required: true, message: 'Please enter your email' },
-                { type: 'email', message: 'Enter a valid email address' },
+                { required: true, message: t('reset.email_required') },
+                { type: 'email', message: t('reset.email_invalid') },
               ]}
             >
               <Input
                 prefix={<MailOutlined style={{ color: '#94a3b8' }} />}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
+                placeholder={t('reset.email_placeholder')}
                 size="large"
               />
             </Form.Item>
             <div className="pw-reset-actions">
-              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">{t('reset.btn_cancel')}</Button>
               <Button type="primary" htmlType="submit" loading={loading} className="pw-reset-primary-btn">
-                Send Code
+                {t('reset.btn_send_code')}
               </Button>
             </div>
           </Form>
@@ -213,7 +215,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
           <div>
             <div className="pw-reset-sent-banner">
               <CheckCircleFilled />
-              <p>Code sent to <strong>{email}</strong>. Check your inbox and spam folder.</p>
+              <p>{t('reset.otp_sent_prefix')}<strong>{email}</strong>{t('reset.otp_sent_suffix')}</p>
             </div>
 
             <div className="pw-reset-otp-row" onPaste={handlePaste}>
@@ -228,7 +230,7 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
                   maxLength={1}
                   placeholder="·"
                   className="pw-reset-otp-input"
-                  aria-label={`Digit ${idx + 1}`}
+                  aria-label={t('reset.otp_digit_aria', { index: idx + 1 })}
                 />
               ))}
             </div>
@@ -236,22 +238,22 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
             <div className="pw-reset-verify-footer">
               <span className={`pw-reset-timer ${timerClass}`}>
                 <ClockCircleOutlined />
-                {timeLeft > 0 ? `Expires in ${minutes}:${seconds}` : 'Code expired'}
+                {timeLeft > 0 ? t('reset.otp_expires_in', { minutes, seconds }) : t('reset.otp_expired')}
               </span>
               <div className="pw-reset-verify-actions">
                 <Button type="link" onClick={handleResend} disabled={resendCooldown > 0 || loading} className="pw-reset-resend-btn">
-                  Resend{resendCooldown > 0 ? ` (${resendCooldown}s)` : ''}
+                  {resendCooldown > 0 ? t('reset.otp_resend_in', { seconds: resendCooldown }) : t('reset.otp_resend')}
                 </Button>
                 <Button size="small" onClick={() => setStep('request')} className="pw-reset-diff-email-btn">
-                  Different email
+                  {t('reset.different_email')}
                 </Button>
               </div>
             </div>
 
             <div className="pw-reset-actions">
-              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">{t('reset.btn_cancel')}</Button>
               <Button type="primary" onClick={handleVerify} loading={loading} className="pw-reset-primary-btn">
-                Verify Code
+                {t('reset.btn_verify')}
               </Button>
             </div>
           </div>
@@ -261,39 +263,39 @@ const PasswordResetModal: React.FC<Props> = ({ open, onClose, initialEmail = '' 
         {step === 'reset' && (
           <Form layout="vertical" form={form} onFinish={handleCompleteReset} className="pw-reset-form">
             <div className="pw-reset-new-pw-info">
-              <CheckCircleFilled style={{ color: '#22c55e' }} />
-              <p>Email verified for <strong>{email}</strong>. Set your new password below.</p>
+              <CheckCircleFilled style={{ color: '#16a34a' }} />
+              <p>{t('reset.verified_prefix')}<strong>{email}</strong>{t('reset.verified_suffix')}</p>
             </div>
             <Form.Item
-              label="New Password"
+              label={t('reset.new_password_label')}
               name="newPassword"
               rules={[
-                { required: true, message: 'Please enter a new password' },
-                { min: 6, message: 'Must be at least 6 characters' },
+                { required: true, message: t('reset.new_password_required') },
+                { min: 6, message: t('reset.new_password_min') },
               ]}
             >
-              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder="Enter new password" />
+              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder={t('reset.new_password_placeholder')} />
             </Form.Item>
             <Form.Item
-              label="Confirm Password"
+              label={t('reset.confirm_password_label')}
               name="confirmPassword"
               dependencies={['newPassword']}
               rules={[
-                { required: true, message: 'Please confirm your password' },
+                { required: true, message: t('reset.confirm_password_required') },
                 ({ getFieldValue }) => ({
                   validator(_, value) {
                     if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                    return Promise.reject(new Error('Passwords do not match'));
+                    return Promise.reject(new Error(t('reset.confirm_password_match')));
                   },
                 }),
               ]}
             >
-              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder="Confirm new password" />
+              <Input.Password prefix={<LockOutlined style={{ color: '#94a3b8' }} />} size="large" placeholder={t('reset.confirm_password_placeholder')} />
             </Form.Item>
             <div className="pw-reset-actions">
-              <Button onClick={handleClose} className="pw-reset-cancel-btn">Cancel</Button>
+              <Button onClick={handleClose} className="pw-reset-cancel-btn">{t('reset.btn_cancel')}</Button>
               <Button type="primary" htmlType="submit" loading={loading} className="pw-reset-primary-btn">
-                Reset Password
+                {t('reset.btn_reset')}
               </Button>
             </div>
           </Form>

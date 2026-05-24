@@ -228,7 +228,7 @@ router.put('/profile', [
 
         // Fetch updated user
         const updatedUser = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, created_at, profile_photo_kdrive_file_id FROM users WHERE id = ?',
             [userId]
         );
 

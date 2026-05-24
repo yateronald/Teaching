@@ -1,364 +1,147 @@
-const { baseHtml } = require('./base');
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
 
-function formatDate(dateStr) {
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+function safeFormatDate(input) {
+    if (!input) return null;
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return String(input);
+    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-function formatTime(timeStr) {
-  let t;
-  if (timeStr && timeStr.includes('T')) {
-    t = new Date(timeStr);
-  } else {
-    t = new Date(`2000-01-01T${timeStr}`);
-  }
-  if (isNaN(t.getTime())) return timeStr;
-  return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+function safeFormatTime(input) {
+    if (!input) return null;
+    let t;
+    if (input instanceof Date) {
+        t = input;
+    } else if (typeof input === 'string' && input.includes('T')) {
+        t = new Date(input);
+    } else if (typeof input === 'string') {
+        t = new Date(`2000-01-01T${input}`);
+    } else {
+        return null;
+    }
+    if (isNaN(t.getTime())) return String(input);
+    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-function formatExpiryTime(expiryStr) {
-  const expiry = new Date(expiryStr);
-  if (isNaN(expiry.getTime())) return expiryStr;
-  return expiry.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
+/**
+ * Attendance access-code email sent at class start time.
+ *
+ * @param {{
+ *   studentName?: string,
+ *   classTitle?: string,
+ *   teacherName?: string,
+ *   batchName?: string,
+ *   accessCode: string,
+ *   sessionDate?: string|Date,
+ *   startTime?: string|Date,
+ *   endTime?: string|Date,
+ *   expiresAt?: string|Date,
+ *   joinLink?: string,
+ * }} args
+ */
 function buildAccessCodeTemplate({
-  studentName,
-  classTitle,
-  teacherName,
-  batchName,
-  accessCode,
-  sessionDate,
-  startTime,
-  endTime,
-  expiresAt,
-  joinLink,
-  logoCid
+    studentName,
+    classTitle,
+    teacherName,
+    batchName,
+    accessCode,
+    sessionDate,
+    startTime,
+    endTime,
+    expiresAt,
+    joinLink,
 }) {
-  const subject = `🔑 Your Access Code for ${classTitle} — Join Now!`;
+    const safeStudent = studentName || 'there';
+    const safeClass = classTitle || 'your class';
+    const safeCode = String(accessCode || '');
 
-  const formattedStartTime = formatTime(startTime);
-  const formattedEndTime = formatTime(endTime);
-  const formattedDate = formatDate(sessionDate);
-  const formattedExpiryTime = formatExpiryTime(expiresAt);
+    const subject = `Your access code for ${safeClass}`;
+    const preheader = safeCode
+        ? `Use code ${safeCode} to mark your attendance.`
+        : 'Use the access code inside to mark your attendance.';
 
-  // Split code into individual characters for stylish display
-  const codeChars = accessCode.split('').map(char =>
-    `<td style="background: #ffffff; border: 2px solid #E5E7EB; border-radius: 8px; width: 44px; height: 52px; text-align: center; vertical-align: middle; font-size: 24px; font-weight: 800; font-family: 'Courier New', monospace; color: #1F2937; letter-spacing: 0;">${char}</td>`
-  ).join('<td style="width: 6px;"></td>');
+    const dateStr = safeFormatDate(sessionDate);
+    const start = safeFormatTime(startTime);
+    const end = safeFormatTime(endTime);
+    const timeRange = start && end ? `${start} – ${end}` : (start || end || null);
+    const expiryStr = safeFormatTime(expiresAt);
 
-  const bodyHtml = `
-    <!-- Hero Section -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 24px;">
-      <tr>
-        <td align="center">
-          <table cellspacing="0" cellpadding="0" role="presentation">
-            <tr>
-              <td style="background: linear-gradient(135deg, #DBEAFE, #C7D2FE); border-radius: 50%; width: 72px; height: 72px; text-align: center; vertical-align: middle;">
-                <span style="font-size: 32px; line-height: 72px;">🔑</span>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-      <tr>
-        <td align="center" style="padding-top: 16px;">
-          <h2 style="margin: 0; font-size: 22px; font-weight: 700; color: #1E3A8A; letter-spacing: -0.3px;">Your Class Has Started!</h2>
-          <p style="margin: 6px 0 0; font-size: 14px; color: #9CA3AF; font-weight: 400;">Use the code below to join and mark your attendance</p>
-        </td>
-      </tr>
-    </table>
-
-    <!-- Greeting -->
-    <p style="margin: 0 0 20px; font-size: 15px; color: #374151; line-height: 1.6;">
-      Hello <strong style="color: #111827;">${studentName || 'there'}</strong>,
-    </p>
-
-    <p style="margin: 0 0 28px; font-size: 15px; color: #6B7280; line-height: 1.7;">
-      Your class <strong style="color: #374151;">${classTitle}</strong> with <strong style="color: #374151;">${teacherName}</strong> has just started! Enter the access code below on your student dashboard to join and be marked as present.
-    </p>
-
-    <!-- Access Code Card -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 24px;">
-      <tr>
-        <td style="background: linear-gradient(135deg, #1E3A8A, #3B82F6); border-radius: 16px; padding: 28px 20px; text-align: center;">
-          <span style="font-size: 12px; color: #93C5FD; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600; display: block; margin-bottom: 16px;">Your Access Code</span>
-
-          <!-- Code Characters -->
-          <table cellspacing="0" cellpadding="0" role="presentation" style="margin: 0 auto;">
-            <tr>
-              ${codeChars}
-            </tr>
-          </table>
-
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-top: 16px;">
+    const codeBox = safeCode
+        ? `
+          <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin: 0 0 22px;">
             <tr>
               <td align="center">
-                <table cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="background: rgba(255,255,255,0.15); border-radius: 20px; padding: 6px 16px;">
-                      <span style="font-size: 12px; color: #BFDBFE;">⏱ Expires at <strong style="color: #ffffff;">${formattedExpiryTime}</strong></span>
-                    </td>
-                  </tr>
-                </table>
+                <div style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:10px; padding:18px 24px; font-size:32px; font-weight:700; color:#0f172a; letter-spacing:8px;">
+                  ${escapeHtml(safeCode)}
+                </div>
               </td>
             </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
+          </table>`
+        : '';
 
-    ${joinLink ? `
-    <!-- Join Button -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 24px;">
-      <tr>
-        <td align="center">
-          <a href="${joinLink}" target="_blank"
-             style="background: linear-gradient(135deg, #10B981, #059669); color: #ffffff; text-decoration: none; padding: 14px 36px; border-radius: 10px; font-weight: 700; font-size: 16px; display: inline-block;">
-            🚀 Join Class Directly
-          </a>
-        </td>
-      </tr>
-    </table>
-    ` : ''}
+    const detailRows = [
+        { label: 'Class', value: escapeHtml(safeClass) },
+        { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
+        { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
+        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
+        { label: 'Time', value: timeRange ? escapeHtml(timeRange) : null },
+    ];
 
-    <!-- Class Details Card -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 24px;">
-      <tr>
-        <td style="background: #FAFAFA; border: 1px solid #E5E7EB; border-radius: 12px; overflow: hidden;">
-          <!-- Card header -->
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-            <tr>
-              <td style="background: linear-gradient(135deg, #1F2937, #374151); padding: 14px 20px;">
-                <span style="color: #F9FAFB; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;">📋 Session Details</span>
-              </td>
-            </tr>
-          </table>
+    const expiryStrip = expiryStr
+        ? infoStrip({ tone: 'warn', text: `This code expires at ${escapeHtml(expiryStr)}. Enter it before then so you're marked present.` })
+        : '';
 
-          <!-- Card body -->
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="padding: 0 20px;">
-            <!-- Class Name -->
-            <tr>
-              <td style="padding: 16px 0 12px; border-bottom: 1px solid #F3F4F6;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 36px; vertical-align: top; padding-top: 2px;">
-                      <span style="font-size: 16px;">📖</span>
-                    </td>
-                    <td>
-                      <span style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px;">Class</span>
-                      <span style="font-size: 15px; color: #111827; font-weight: 600;">${classTitle}</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <!-- Date -->
-            <tr>
-              <td style="padding: 12px 0; border-bottom: 1px solid #F3F4F6;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 36px; vertical-align: top; padding-top: 2px;">
-                      <span style="font-size: 16px;">📅</span>
-                    </td>
-                    <td>
-                      <span style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px;">Date</span>
-                      <span style="font-size: 15px; color: #111827; font-weight: 600;">${formattedDate}</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <!-- Time -->
-            <tr>
-              <td style="padding: 12px 0; border-bottom: 1px solid #F3F4F6;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 36px; vertical-align: top; padding-top: 2px;">
-                      <span style="font-size: 16px;">🕐</span>
-                    </td>
-                    <td>
-                      <span style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px;">Time</span>
-                      <span style="font-size: 15px; color: #111827; font-weight: 600;">${formattedStartTime} – ${formattedEndTime}</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <!-- Batch -->
-            <tr>
-              <td style="padding: 12px 0; border-bottom: 1px solid #F3F4F6;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 36px; vertical-align: top; padding-top: 2px;">
-                      <span style="font-size: 16px;">👥</span>
-                    </td>
-                    <td>
-                      <span style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px;">Batch</span>
-                      <span style="font-size: 15px; color: #111827; font-weight: 600;">${batchName}</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <!-- Teacher -->
-            <tr>
-              <td style="padding: 12px 0 16px;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 36px; vertical-align: top; padding-top: 2px;">
-                      <span style="font-size: 16px;">👩‍🏫</span>
-                    </td>
-                    <td>
-                      <span style="font-size: 12px; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px;">Teacher</span>
-                      <span style="font-size: 15px; color: #111827; font-weight: 600;">${teacherName}</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
+    const cta = joinLink ? ctaButton({ label: 'Join class', href: joinLink }) : '';
 
-    <!-- How to Join Steps -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 24px;">
-      <tr>
-        <td style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-radius: 10px; padding: 20px;">
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-            <tr>
-              <td align="center" style="padding-bottom: 12px;">
-                <span style="font-size: 22px; display: block; margin-bottom: 4px;">⚡</span>
-                <span style="font-size: 15px; font-weight: 700; color: #92400E;">How to Join</span>
-              </td>
-            </tr>
-          </table>
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-            <tr>
-              <td style="padding: 6px 0;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 32px; vertical-align: top;">
-                      <span style="background: #F59E0B; color: #ffffff; font-size: 12px; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: inline-block; text-align: center; line-height: 22px;">1</span>
-                    </td>
-                    <td style="font-size: 14px; color: #78350F; line-height: 1.5;">Go to your <strong>student dashboard</strong></td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 32px; vertical-align: top;">
-                      <span style="background: #F59E0B; color: #ffffff; font-size: 12px; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: inline-block; text-align: center; line-height: 22px;">2</span>
-                    </td>
-                    <td style="font-size: 14px; color: #78350F; line-height: 1.5;">Find your class and click <strong>"Join Class"</strong></td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 32px; vertical-align: top;">
-                      <span style="background: #F59E0B; color: #ffffff; font-size: 12px; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: inline-block; text-align: center; line-height: 22px;">3</span>
-                    </td>
-                    <td style="font-size: 14px; color: #78350F; line-height: 1.5;">Enter the access code: <strong>${accessCode}</strong></td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding: 6px 0;">
-                <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-                  <tr>
-                    <td style="width: 32px; vertical-align: top;">
-                      <span style="background: #10B981; color: #ffffff; font-size: 12px; font-weight: 700; width: 22px; height: 22px; border-radius: 50%; display: inline-block; text-align: center; line-height: 22px;">✓</span>
-                    </td>
-                    <td style="font-size: 14px; color: #78350F; line-height: 1.5;">You'll be <strong>marked as present!</strong></td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
+    const bodyHtml = `
+      <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">Hi <strong>${escapeHtml(safeStudent)}</strong>,</p>
+      <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">
+        ${teacherName
+            ? `Your class with <strong style="color:#0f172a;">${escapeHtml(teacherName)}</strong> has just started.`
+            : 'Your class has just started.'} Enter the code below in the dashboard to mark yourself present.
+      </p>
 
-    <!-- Expiry Warning -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation" style="margin-bottom: 28px;">
-      <tr>
-        <td style="background: #FEF2F2; border: 1px solid #FECACA; border-radius: 10px; padding: 14px 20px;">
-          <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-            <tr>
-              <td style="width: 28px; vertical-align: middle;">
-                <span style="font-size: 16px;">⏰</span>
-              </td>
-              <td style="font-size: 13px; color: #991B1B; line-height: 1.5;">
-                <strong>Important:</strong> This access code expires at <strong>${formattedExpiryTime}</strong>. Make sure to join before it expires!
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
+      ${codeBox}
 
-    <!-- Support -->
-    <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
-      <tr>
-        <td align="center">
-          <p style="margin: 0; font-size: 14px; color: #9CA3AF; line-height: 1.5;">
-            Having trouble joining? Contact your teacher or our support team immediately.
-          </p>
-        </td>
-      </tr>
-    </table>
-  `;
+      ${detailCard({ title: 'Session details', rows: detailRows })}
 
-  const html = baseHtml({
-    subject,
-    headerTitle: 'Class Access Code',
-    bodyHtml,
-    logoCid
-  });
+      ${expiryStrip}
 
-  const text = `YOUR ACCESS CODE IS READY
+      ${cta}
 
-Hello ${studentName || 'there'},
+      <p style="margin: 18px 0 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
+        Trouble joining? Reach out to your teacher.
+      </p>
+    `;
 
-Your class "${classTitle}" with ${teacherName} has started!
+    const html = baseHtml({
+        subject,
+        preheader,
+        eyebrow: 'ATTENDANCE',
+        title: 'Your access code',
+        bodyHtml,
+    });
 
-ACCESS CODE: ${accessCode}
-Expires at: ${formattedExpiryTime}
+    const textLines = [
+        `Hi ${safeStudent},`,
+        '',
+        teacherName
+            ? `Your class with ${teacherName} has just started.`
+            : 'Your class has just started.',
+        'Enter the code below in the dashboard to mark yourself present.',
+        '',
+        safeCode ? `Access code: ${safeCode}` : '',
+        '',
+        'SESSION DETAILS',
+        ...detailRows
+            .filter(r => r.value)
+            .map(r => `${r.label}: ${String(r.value).replace(/<[^>]+>/g, '')}`),
+    ];
+    if (expiryStr) textLines.push('', `This code expires at ${expiryStr}.`);
+    if (joinLink) textLines.push('', `Join class: ${joinLink}`);
+    const text = textLines.filter(Boolean).join('\n');
 
-Session Details:
-• Class: ${classTitle}
-• Date: ${formattedDate}
-• Time: ${formattedStartTime} – ${formattedEndTime}
-• Batch: ${batchName}
-• Teacher: ${teacherName}
-
-How to Join:
-1. Go to your student dashboard
-2. Find your class and click "Join Class"
-3. Enter the access code: ${accessCode}
-4. You'll be marked as present!
-
-Important: This access code expires at ${formattedExpiryTime}. Make sure to join before it expires!
-
-Having trouble? Contact your teacher or our support team.
-
-© ${new Date().getFullYear()} Learn French with Natives. All rights reserved.`;
-
-  return {
-    subject,
-    html,
-    text: text.trim()
-  };
+    return { subject, html, text };
 }
 
 module.exports = { buildAccessCodeTemplate };

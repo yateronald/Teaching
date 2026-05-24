@@ -2,75 +2,442 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+
+    <!-- Favicons & PWA -->
     <link rel="icon" type="image/png" href="/logo.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#2563EB" />
-    
-    <!-- SEO Meta Tags -->
-    <title>Learn French with Native Speakers | FrenchMaster - Online French Language Platform</title>
-    <meta name="description" content="Master French with certified native speakers. Expert preparation for TEF Canada, DELF, DALF, TCF, TEFAQ. Join 1000+ satisfied students learning French for work, immigration, or personal growth." />
-    <meta name="keywords" content="learn french online, french language courses, TEF Canada preparation, DELF courses, DALF exam, TCF test prep, TEFAQ preparation, native french teachers, online french classes, french for immigration, french immersion" />
-    <meta name="author" content="FrenchMaster" />
-    <meta name="robots" content="index, follow" />
-    
-    <!-- Open Graph Meta Tags -->
-    <meta property="og:title" content="Learn French with Native Speakers | FrenchMaster" />
-    <meta property="og:description" content="Master French with certified native speakers. Expert preparation for TEF Canada, DELF, DALF, TCF, TEFAQ exams." />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#4338ca" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Learn French with Natives" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         PRIMARY SEO META — English (default). Updated dynamically per-route
+         and per-language by react-helmet-async (<SEO /> component).
+         ════════════════════════════════════════════════════════════════════ -->
+    <title>Learn French Online with Native Teachers — TEF, TCF, DELF, DALF Prep | Learn French with Natives</title>
+    <meta name="description" content="Learn French online with certified native teachers. Personalized coaching for TEF Canada, TCF, DELF, DALF and TEFAQ exams. 98% pass rate, 1000+ students. Book your free demo. Aprende francés / Französisch lernen / Apprendre le français." />
+    <meta name="keywords" content="learn French online, learn French, French native teachers, French language course, French tutor online, TEF Canada preparation, TEF Canada online prep, TCF Canada, TCF Quebec, DELF preparation, DALF preparation, TEFAQ, French exam prep, French for immigration, French Express Entry, French CLB 7, French CLB 9, French speaking practice, French listening practice, AI French simulation, French speaking AI, French oral exam prep, online French classes, private French tutor, French immersion online, French B2 C1 C2, beginner French, intermediate French, advanced French, French for work, French for visa, French for Canada immigration, French Quebec immigration, French citizenship test, French for students, French for kids, business French, conversational French, apprendre le français, cours de français en ligne, professeur de français natif, préparation TEF, préparation TCF, préparation DELF, préparation DALF, examen de français en ligne, aprender francés, aprender francés en línea, profesor de francés nativo, preparación TEF Canada, examen de francés, Französisch lernen, Französisch online, Französisch Lehrer, TEF Vorbereitung, francese, imparare il francese online, corsi di francese, francês, aprender francês online, تعلم الفرنسية, دورات اللغة الفرنسية, 学法语, 法语在线课程, फ्रेंच सीखें, फ्रेंच ऑनलाइन" />
+    <meta name="author" content="Learn French with Natives" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="bingbot" content="index, follow" />
+    <meta name="rating" content="general" />
+    <meta name="distribution" content="global" />
+    <meta name="coverage" content="Worldwide" />
+    <meta name="audience" content="all" />
+    <meta name="subject" content="French language learning, exam preparation (TEF, TCF, DELF, DALF, TEFAQ)" />
+    <meta name="topic" content="Online French language education with native teachers" />
+    <meta name="abstract" content="Online French learning platform with certified native teachers. Specialized prep for TEF Canada, TCF, DELF, DALF, TEFAQ for immigration, work, study and personal growth." />
+    <meta name="geo.region" content="CA" />
+    <meta name="geo.placename" content="Worldwide" />
+    <meta name="language" content="English, French" />
+    <meta name="revisit-after" content="7 days" />
+    <link rel="canonical" href="https://www.learnfrenchwithnatives.com/" />
+
+    <!-- Hreflang for multilingual indexing (English, French + major learner markets) -->
+    <link rel="alternate" hreflang="en" href="https://www.learnfrenchwithnatives.com/" />
+    <link rel="alternate" hreflang="en-US" href="https://www.learnfrenchwithnatives.com/" />
+    <link rel="alternate" hreflang="en-CA" href="https://www.learnfrenchwithnatives.com/" />
+    <link rel="alternate" hreflang="en-GB" href="https://www.learnfrenchwithnatives.com/" />
+    <link rel="alternate" hreflang="en-IN" href="https://www.learnfrenchwithnatives.com/" />
+    <link rel="alternate" hreflang="fr" href="https://www.learnfrenchwithnatives.com/?lang=fr" />
+    <link rel="alternate" hreflang="fr-CA" href="https://www.learnfrenchwithnatives.com/?lang=fr" />
+    <link rel="alternate" hreflang="fr-FR" href="https://www.learnfrenchwithnatives.com/?lang=fr" />
+    <link rel="alternate" hreflang="x-default" href="https://www.learnfrenchwithnatives.com/" />
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         Open Graph (Facebook, LinkedIn, WhatsApp share previews)
+         ════════════════════════════════════════════════════════════════════ -->
+    <meta property="og:site_name" content="Learn French with Natives" />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="/assets/Logo.png" />
+    <meta property="og:url" content="https://www.learnfrenchwithnatives.com/" />
+    <meta property="og:title" content="Learn French Online with Native Teachers — TEF, TCF, DELF, DALF Prep" />
+    <meta property="og:description" content="Master French with certified native speakers. Personalized prep for TEF Canada, TCF, DELF, DALF. 98% pass rate. Book your free demo today." />
+    <meta property="og:image" content="https://www.learnfrenchwithnatives.com/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Learn French with Natives — French language platform" />
     <meta property="og:locale" content="en_US" />
-    
-    <!-- Twitter Card Meta Tags -->
+    <meta property="og:locale:alternate" content="en_CA" />
+    <meta property="og:locale:alternate" content="en_GB" />
+    <meta property="og:locale:alternate" content="en_IN" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta property="og:locale:alternate" content="fr_CA" />
+    <meta property="og:locale:alternate" content="es_ES" />
+    <meta property="og:locale:alternate" content="de_DE" />
+    <meta property="og:locale:alternate" content="it_IT" />
+    <meta property="og:locale:alternate" content="pt_BR" />
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         Twitter / X Card
+         ════════════════════════════════════════════════════════════════════ -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Learn French with Native Speakers | FrenchMaster" />
-    <meta name="twitter:description" content="Master French with certified native speakers. Join 1000+ satisfied students." />
-    <meta name="twitter:image" content="/assets/Logo.png" />
-    
-    <!-- Schema.org Markup for Courses -->
+    <meta name="twitter:site" content="@learnfrenchnatives" />
+    <meta name="twitter:title" content="Learn French Online with Native Teachers" />
+    <meta name="twitter:description" content="Master French with certified native speakers. TEF Canada, TCF, DELF, DALF prep. 98% pass rate. Free demo available." />
+    <meta name="twitter:image" content="https://www.learnfrenchwithnatives.com/assets/og-image.png" />
+    <meta name="twitter:image:alt" content="Learn French with Natives" />
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         Performance: preconnect to font CDN
+         ════════════════════════════════════════════════════════════════════ -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- ════════════════════════════════════════════════════════════════════
+         Structured Data (JSON-LD) — EducationalOrganization
+         ════════════════════════════════════════════════════════════════════ -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
       "@type": "EducationalOrganization",
-      "name": "FrenchMaster",
-      "description": "Professional French language learning platform with native speakers",
-      "url": "https://www.frenchmaster.com",
-      "logo": "/assets/Logo.png",
-      "sameAs": [],
+      "@id": "https://www.learnfrenchwithnatives.com/#organization",
+      "name": "Learn French with Natives",
+      "alternateName": "LFWN",
+      "url": "https://www.learnfrenchwithnatives.com/",
+      "logo": "https://www.learnfrenchwithnatives.com/logo.png",
+      "image": "https://www.learnfrenchwithnatives.com/assets/og-image.png",
+      "description": "Online French language platform with certified native teachers. Specializing in TEF Canada, TCF, DELF, DALF and TEFAQ exam preparation.",
+      "email": "support@learnfrenchwithnatives.com",
+      "areaServed": "Worldwide",
+      "knowsLanguage": ["French", "English"],
+      "sameAs": [
+        "https://www.facebook.com/learnfrenchwithnatives",
+        "https://www.instagram.com/learnfrenchwithnatives",
+        "https://www.linkedin.com/company/learn-french-with-natives"
+      ],
       "aggregateRating": {
         "@type": "AggregateRating",
         "ratingValue": "4.9",
-        "ratingCount": "1000",
+        "ratingCount": "500",
         "bestRating": "5",
         "worstRating": "1"
       },
-      "offers": {
-        "@type": "AggregateOffer",
-        "priceCurrency": "USD",
-        "lowPrice": "99",
-        "highPrice": "499"
+      "hasCredential": {
+        "@type": "EducationalOccupationalCredential",
+        "credentialCategory": "Certification",
+        "name": "TEF · TCF · DELF · DALF · TEFAQ Preparation"
       }
     }
     </script>
-    
+
+    <!-- WebSite + SearchAction (lets Google show a site search box) -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "Course",
-      "name": "French Language Courses",
-      "description": "Comprehensive French language courses including TEF Canada, DELF, DALF, TCF, and TEFAQ exam preparation",
-      "provider": {
-        "@type": "EducationalOrganization",
-        "name": "FrenchMaster"
+      "@type": "WebSite",
+      "@id": "https://www.learnfrenchwithnatives.com/#website",
+      "url": "https://www.learnfrenchwithnatives.com/",
+      "name": "Learn French with Natives",
+      "description": "Learn French online with certified native teachers. Exam preparation for TEF, TCF, DELF and DALF.",
+      "publisher": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+      "inLanguage": ["en", "fr"]
+    }
+    </script>
+
+    <!-- Course catalog: each major exam preparation as a Course -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "Course",
+          "name": "TEF Canada Preparation",
+          "description": "Comprehensive preparation for the Test d'Évaluation de Français Canada — required for Express Entry and Canadian citizenship. Mock exams, native examiners, all four skills.",
+          "provider": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+          "educationalLevel": "Beginner to Advanced",
+          "inLanguage": "fr",
+          "teaches": ["Speaking", "Listening", "Reading", "Writing"],
+          "courseMode": "online",
+          "hasCourseInstance": {
+            "@type": "CourseInstance",
+            "courseMode": "online",
+            "courseWorkload": "PT20H"
+          }
+        },
+        {
+          "@type": "Course",
+          "name": "TCF / TCF Canada Preparation",
+          "description": "Test de Connaissance du Français preparation, including TCF Canada for Quebec immigration. Targeted speaking and listening practice.",
+          "provider": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+          "educationalLevel": "Beginner to Advanced",
+          "inLanguage": "fr",
+          "courseMode": "online"
+        },
+        {
+          "@type": "Course",
+          "name": "DELF / DALF Preparation",
+          "description": "Official DELF (A1–B2) and DALF (C1–C2) French diploma preparation with full mock exams.",
+          "provider": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+          "educationalLevel": "Beginner to Advanced",
+          "inLanguage": "fr",
+          "courseMode": "online"
+        },
+        {
+          "@type": "Course",
+          "name": "TEFAQ Preparation",
+          "description": "Test d'Évaluation de Français Adapté au Québec — speaking and listening exam preparation for Quebec immigration.",
+          "provider": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+          "educationalLevel": "Intermediate to Advanced",
+          "inLanguage": "fr",
+          "courseMode": "online"
+        }
+      ]
+    }
+    </script>
+
+    <!-- FAQ structured data — boosts featured snippets on Google -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How can I prepare for TEF Canada online?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Learn French with Natives offers personalized 1-on-1 sessions with certified native French teachers, full mock TEF Canada exams, AI-powered speaking simulation for the Expression Orale, and detailed examiner-style feedback for all four skills."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What is the difference between TEF and TCF?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "TEF (Test d'Évaluation de Français) and TCF (Test de Connaissance du Français) are both official French proficiency exams. TEF Canada and TCF Canada are accepted by Immigration, Refugees and Citizenship Canada (IRCC) for Express Entry and citizenship. Choose based on your immigration program and test availability."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Are your French teachers native speakers?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes. Every teacher on our platform is a certified native French speaker with several years of teaching experience and specialized training for TEF, TCF, DELF and DALF exam preparation."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I book a free demo lesson?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yes — we offer a 100% free, no-commitment discovery session where we assess your level, discuss your goals and exam timeline, and pair you with the right teacher."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What CLB score do I need for Canadian Express Entry?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Most Express Entry programs require at least CLB 7 in all four skills (Speaking, Listening, Reading, Writing). For maximum points under the French-language Comprehensive Ranking System bonus, aim for CLB 7 or higher."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "How long does it take to prepare for the TEF Canada exam?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Preparation time varies by starting level. Most students reach CLB 7 within 3 to 6 months of consistent training (3–4 sessions per week). Higher targets like CLB 9 may take 6 to 12 months. We provide a personalized roadmap after your free demo."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do you offer French classes for beginners (A1)?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Absolutely. Our curriculum covers every level from A1 (complete beginner) through C2 (mastery), aligned with the CEFR framework. We also offer dedicated programs for kids (ages 6–16), business French, and conversational French."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Comment se préparer au TEF Canada en ligne ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Learn French with Natives propose des cours individuels avec des professeurs natifs certifiés, des examens blancs complets pour le TEF Canada, une simulation IA pour l'expression orale, et un retour détaillé style examinateur pour les quatre compétences."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Quel score CLB est requis pour Entrée Express ?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "La plupart des programmes Entrée Express exigent au moins CLB 7 dans les quatre compétences (Expression orale, Compréhension orale, Compréhension écrite, Expression écrite). Pour le maximum de points bonus dans le SCG, visez CLB 7 ou plus."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Cómo puedo prepararme para el TEF Canada en línea?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Learn French with Natives ofrece clases personalizadas con profesores nativos de francés certificados, exámenes simulados completos del TEF Canada, simulación de expresión oral con IA y retroalimentación detallada al estilo del examinador en las cuatro destrezas."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <!-- Service schema — captures "online French course" search intents -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Service",
+      "serviceType": "Online French Language Lessons and Exam Preparation",
+      "provider": { "@id": "https://www.learnfrenchwithnatives.com/#organization" },
+      "areaServed": [
+        { "@type": "Country", "name": "Canada" },
+        { "@type": "Country", "name": "United States" },
+        { "@type": "Country", "name": "United Kingdom" },
+        { "@type": "Country", "name": "India" },
+        { "@type": "Country", "name": "Worldwide" }
+      ],
+      "audience": {
+        "@type": "EducationalAudience",
+        "educationalRole": "student"
       },
-      "coursePrerequisites": "No prerequisites required",
-      "educationalLevel": "Beginner to Advanced",
-      "inLanguage": "French",
-      "availableLanguage": ["French", "English"]
+      "category": "Language Learning",
+      "availableChannel": {
+        "@type": "ServiceChannel",
+        "serviceUrl": "https://www.learnfrenchwithnatives.com/",
+        "availableLanguage": ["en", "fr"]
+      },
+      "offers": {
+        "@type": "Offer",
+        "availability": "https://schema.org/InStock",
+        "url": "https://www.learnfrenchwithnatives.com/",
+        "description": "Free demo lesson with no commitment"
+      }
+    }
+    </script>
+
+    <!-- BreadcrumbList — helps Google show breadcrumb navigation in SERPs -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Home",
+          "item": "https://www.learnfrenchwithnatives.com/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "Exam Preparation",
+          "item": "https://www.learnfrenchwithnatives.com/#exams"
+        },
+        {
+          "@type": "ListItem",
+          "position": 3,
+          "name": "How It Works",
+          "item": "https://www.learnfrenchwithnatives.com/#how"
+        }
+      ]
     }
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        SSR-friendly fallback content. ALL search engines (including those that
+        don't execute JavaScript) and AI crawlers can read this. Rich keyword
+        coverage + multilingual headings to surface for "learn French" queries
+        across many languages.
+      -->
+      <noscript>
+        <header>
+          <h1>Learn French Online with Native Teachers — TEF, TCF, DELF, DALF Preparation</h1>
+          <p><strong>Learn French with Natives</strong> is an online French language platform with certified native French teachers. We specialize in personalized exam preparation for <strong>TEF Canada, TCF Canada, TCF Quebec, DELF, DALF</strong> and <strong>TEFAQ</strong>. <strong>98% of our 1,000+ students pass their target exam</strong> — for immigration to Canada (Express Entry, Quebec), citizenship, university studies, work, or personal growth.</p>
+        </header>
+
+        <section>
+          <h2>Why choose Learn French with Natives?</h2>
+          <ul>
+            <li>100% native French teachers, certified and experienced</li>
+            <li>Personalized 1-on-1 lessons or small group classes</li>
+            <li>Full mock exams for TEF, TCF, DELF, DALF, TEFAQ</li>
+            <li>AI-powered speaking simulation for the Expression Orale</li>
+            <li>Flexible scheduling — choose your time zone</li>
+            <li>98% exam pass rate · 4.9/5 rating from 500+ reviews</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>French exams we prepare you for</h2>
+          <ul>
+            <li><strong>TEF Canada</strong> — Required for Canadian Express Entry and citizenship (CLB 7, CLB 9)</li>
+            <li><strong>TCF / TCF Canada / TCF Quebec</strong> — Test de Connaissance du Français for immigration</li>
+            <li><strong>DELF (A1, A2, B1, B2)</strong> — Diplôme d'études en langue française</li>
+            <li><strong>DALF (C1, C2)</strong> — Diplôme approfondi de langue française</li>
+            <li><strong>TEFAQ</strong> — Test d'évaluation de français adapté au Québec</li>
+            <li>Business French, Conversational French, French for Kids (ages 6–16)</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2>How it works — 4 simple steps</h2>
+          <ol>
+            <li>Book your free demo session — no commitment</li>
+            <li>Receive your personalized learning plan</li>
+            <li>Learn live with your native French teacher</li>
+            <li>Pass your French exam with confidence</li>
+          </ol>
+        </section>
+
+        <section lang="fr">
+          <h2>Apprenez le français en ligne avec des professeurs natifs</h2>
+          <p>Préparation personnalisée pour <strong>TEF Canada, TCF, DELF, DALF</strong> et <strong>TEFAQ</strong>. Cours individuels avec professeurs natifs certifiés. <strong>98 % de réussite</strong> aux examens. Réservez votre démo gratuite dès aujourd'hui.</p>
+        </section>
+
+        <section lang="es">
+          <h2>Aprende francés en línea con profesores nativos</h2>
+          <p>Preparación personalizada para los exámenes <strong>TEF Canada, TCF, DELF, DALF</strong> y <strong>TEFAQ</strong> con profesores nativos certificados. 98 % de aprobación. Reserva tu demostración gratuita.</p>
+        </section>
+
+        <section lang="de">
+          <h2>Französisch online mit muttersprachlichen Lehrern lernen</h2>
+          <p>Individuelle Vorbereitung auf <strong>TEF Canada, TCF, DELF, DALF</strong> und <strong>TEFAQ</strong> mit zertifizierten muttersprachlichen Französischlehrern. 98 % Bestehensquote. Buchen Sie jetzt Ihre kostenlose Probestunde.</p>
+        </section>
+
+        <section lang="it">
+          <h2>Impara il francese online con insegnanti madrelingua</h2>
+          <p>Preparazione personalizzata per <strong>TEF Canada, TCF, DELF, DALF</strong> e <strong>TEFAQ</strong> con insegnanti madrelingua certificati. 98% di superamento. Prenota la tua demo gratuita.</p>
+        </section>
+
+        <section lang="pt">
+          <h2>Aprenda francês online com professores nativos</h2>
+          <p>Preparação personalizada para os exames <strong>TEF Canada, TCF, DELF, DALF</strong> e <strong>TEFAQ</strong> com professores nativos certificados. 98% de aprovação. Reserve sua demonstração gratuita.</p>
+        </section>
+
+        <section lang="hi">
+          <h2>नेटिव शिक्षकों के साथ ऑनलाइन फ्रेंच सीखें</h2>
+          <p>प्रमाणित नेटिव फ्रेंच शिक्षकों के साथ <strong>TEF Canada, TCF, DELF, DALF</strong> और <strong>TEFAQ</strong> के लिए व्यक्तिगत तैयारी। 98% पास दर। अपना मुफ्त डेमो बुक करें।</p>
+        </section>
+
+        <section lang="ar" dir="rtl">
+          <h2>تعلم اللغة الفرنسية عبر الإنترنت مع معلمين ناطقين بها</h2>
+          <p>تحضير شخصي لامتحانات <strong>TEF Canada وTCF وDELF وDALF وTEFAQ</strong> مع معلمين ناطقين باللغة الفرنسية ومعتمدين. نسبة نجاح 98٪. احجز عرضك التجريبي المجاني اليوم.</p>
+        </section>
+
+        <section lang="zh">
+          <h2>与法语母语教师在线学习法语</h2>
+          <p>由经过认证的法语母语教师提供 <strong>TEF Canada、TCF、DELF、DALF</strong> 和 <strong>TEFAQ</strong> 考试的个性化准备。98% 的通过率。立即预约您的免费试听课。</p>
+        </section>
+
+        <footer>
+          <h2>Contact</h2>
+          <p>Email: <a href="mailto:support@learnfrenchwithnatives.com">support@learnfrenchwithnatives.com</a></p>
+          <p>Please enable JavaScript to use the interactive platform.</p>
+          <p><a href="/login">Sign in to your student space</a></p>
+        </footer>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -493,7 +493,7 @@ const QuizManagement: React.FC = () => {
                 onCancel={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
                 footer={null} width={1200} closable={false} style={{ top: 20 }}
                 destroyOnClose
-                styles={{ body: { padding: 0, maxHeight: 'calc(100vh - 60px)', overflowY: 'auto' } }}
+                styles={{ body: { padding: 0 } }}
             >
                 <QuizBuilder
                     quizId={selectedQuizId?.toString()}

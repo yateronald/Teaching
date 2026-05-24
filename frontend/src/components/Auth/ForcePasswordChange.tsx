@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Form, Input, Button } from 'antd';
 import { LockOutlined, SafetyCertificateOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../contexts/AuthContext';
 import { ASSET_PATHS } from '../../utils/assets';
 import './ForcePasswordChange.css';
@@ -11,6 +12,7 @@ const ForcePasswordChange: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { changePassword, user, isAuthenticated, loading } = useAuth();
+  const { t } = useTranslation();
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -47,22 +49,22 @@ const ForcePasswordChange: React.FC = () => {
           <div className="fpc-left-bg" />
           <div className="fpc-left-content">
             <img src={ASSET_PATHS.LOGOS.MAIN} alt="Logo" className="fpc-logo" />
-            <h1 className="fpc-left-title">Secure Your<br />Account</h1>
+            <h1 className="fpc-left-title">{t('forceChange.left_title_1')}<br />{t('forceChange.left_title_2')}</h1>
             <p className="fpc-left-desc">
-              A strong password keeps your account safe. Update it now to continue using the platform.
+              {t('forceChange.left_desc')}
             </p>
             <div className="fpc-left-tips">
               <div className="fpc-tip">
                 <CheckCircleFilled className="fpc-tip-icon" />
-                <span>At least 6 characters long</span>
+                <span>{t('forceChange.tip_1')}</span>
               </div>
               <div className="fpc-tip">
                 <CheckCircleFilled className="fpc-tip-icon" />
-                <span>Mix letters, numbers & symbols</span>
+                <span>{t('forceChange.tip_2')}</span>
               </div>
               <div className="fpc-tip">
                 <CheckCircleFilled className="fpc-tip-icon" />
-                <span>Don't reuse old passwords</span>
+                <span>{t('forceChange.tip_3')}</span>
               </div>
             </div>
           </div>
@@ -75,65 +77,65 @@ const ForcePasswordChange: React.FC = () => {
               <div className="fpc-header-icon">
                 <SafetyCertificateOutlined />
               </div>
-              <h2>Update Your Password</h2>
-              <p>For security reasons, please set a new password before continuing.</p>
+              <h2>{t('forceChange.title')}</h2>
+              <p>{t('forceChange.subtitle')}</p>
             </div>
 
             <Form form={form} layout="vertical" onFinish={onFinish} className="fpc-form">
               <Form.Item
                 name="currentPassword"
-                label="Current Password"
+                label={t('forceChange.current_password_label')}
                 rules={[
-                  { required: true, message: 'Please enter your current password' },
-                  { min: 6, message: 'Must be at least 6 characters' },
+                  { required: true, message: t('forceChange.current_password_required') },
+                  { min: 6, message: t('forceChange.current_password_min') },
                 ]}
               >
                 <Input.Password
                   prefix={<LockOutlined className="fpc-input-icon" />}
-                  placeholder="Enter current password"
+                  placeholder={t('forceChange.current_password_placeholder')}
                   className="fpc-input"
                 />
               </Form.Item>
 
               <Form.Item
                 name="newPassword"
-                label="New Password"
+                label={t('forceChange.new_password_label')}
                 rules={[
-                  { required: true, message: 'Please enter a new password' },
-                  { min: 6, message: 'Must be at least 6 characters' },
+                  { required: true, message: t('forceChange.new_password_required') },
+                  { min: 6, message: t('forceChange.new_password_min') },
                 ]}
               >
                 <Input.Password
                   prefix={<LockOutlined className="fpc-input-icon" />}
-                  placeholder="Enter new password"
+                  placeholder={t('forceChange.new_password_placeholder')}
                   className="fpc-input"
                 />
               </Form.Item>
 
               <Form.Item
                 name="confirmPassword"
-                label="Confirm New Password"
+                label={t('forceChange.confirm_password_label')}
                 dependencies={['newPassword']}
                 rules={[
-                  { required: true, message: 'Please confirm your new password' },
+                  { required: true, message: t('forceChange.confirm_password_required') },
                   ({ getFieldValue }) => ({
                     validator(_, value) {
                       if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                      return Promise.reject(new Error('Passwords do not match'));
+                      return Promise.reject(new Error(t('forceChange.confirm_password_match')));
                     },
                   }),
                 ]}
               >
                 <Input.Password
                   prefix={<LockOutlined className="fpc-input-icon" />}
-                  placeholder="Confirm new password"
+                  placeholder={t('forceChange.confirm_password_placeholder')}
                   className="fpc-input"
                 />
               </Form.Item>
 
               <Form.Item style={{ marginBottom: 0 }}>
                 <Button type="primary" htmlType="submit" loading={submitting} block className="fpc-submit-btn">
-                  Update Password
+                  {t('forceChange.btn_submit')}
                 </Button>
               </Form.Item>
             </Form>

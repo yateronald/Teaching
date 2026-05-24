@@ -435,6 +435,38 @@ router.post('/', [
             batch: newBatch
         });
 
+        // 🔔 Notify all students added to this batch about the new schedule
+        try {
+            if (studentRows && studentRows.length > 0 && Array.isArray(timetable) && timetable.length > 0) {
+                const { createBulkNotifications } = require('../services/notificationService');
+                const studentIds = studentRows.map(s => s.id);
+                await createBulkNotifications(req.db, studentIds, {
+                    type: 'schedule_created',
+                    title: 'New schedule for your batch',
+                    message: `Your batch "${name}" has a new class schedule. Check your timetable.`,
+                    link: `/app/my-schedule`,
+                    entity_type: 'batch',
+                    entity_id: batchId,
+                    sender_id: req.user.id,
+                });
+            } else if (studentRows && studentRows.length > 0) {
+                // No timetable yet — at least signal the new batch assignment
+                const { createBulkNotifications } = require('../services/notificationService');
+                const studentIds = studentRows.map(s => s.id);
+                await createBulkNotifications(req.db, studentIds, {
+                    type: 'batch_assigned',
+                    title: 'You\'ve been added to a batch',
+                    message: `You\'ve been added to "${name}". Welcome aboard!`,
+                    link: `/app/my-schedule`,
+                    entity_type: 'batch',
+                    entity_id: batchId,
+                    sender_id: req.user.id,
+                });
+            }
+        } catch (notifErr) {
+            console.warn('[notifications] schedule_created failed:', notifErr.message);
+        }
+
         // Fire-and-forget background email dispatch
         setImmediate(async () => {
             try {
@@ -623,6 +655,31 @@ router.put('/:id', [
             WHERE b.id = ?
         `, [id]);
 
+        // 🔔 Notify all students in this batch when the schedule changes.
+        if (Array.isArray(timetable)) {
+            try {
+                const { createBulkNotifications } = require('../services/notificationService');
+                const students = await req.db.all(
+                    'SELECT student_id FROM batch_students WHERE batch_id = ?',
+                    [id]
+                );
+                const studentIds = students.map(s => s.student_id);
+                if (studentIds.length > 0) {
+                    await createBulkNotifications(req.db, studentIds, {
+                        type: 'schedule_created',
+                        title: 'Schedule updated',
+                        message: `The class schedule for "${updatedBatch?.name || 'your batch'}" was updated.`,
+                        link: `/app/my-schedule`,
+                        entity_type: 'batch',
+                        entity_id: parseInt(id),
+                        sender_id: req.user.id,
+                    });
+                }
+            } catch (notifErr) {
+                console.warn('[notifications] schedule_created (update) failed:', notifErr.message);
+            }
+        }
+
         res.json({
             message: 'Batch updated successfully',
             batch: updatedBatch
@@ -669,6 +726,7 @@ router.post('/:id/students', [
 
         // Add students to batch (ignore duplicates)
         let addedCount = 0;
+        const addedStudentIds = [];
         for (const studentId of student_ids) {
             try {
                 await req.db.run(
@@ -676,12 +734,39 @@ router.post('/:id/students', [
                     [id, studentId]
                 );
                 addedCount++;
+                addedStudentIds.push(studentId);
             } catch (error) {
                 // Ignore duplicate entries
                 if (!error.message.includes('UNIQUE constraint failed')) {
                     throw error;
                 }
             }
+        }
+
+        // 🔔 Notify the newly-added students about their batch assignment
+        try {
+            if (addedStudentIds.length > 0) {
+                const { createBulkNotifications } = require('../services/notificationService');
+                const batchInfo = await req.db.get('SELECT name FROM batches WHERE id = ?', [id]);
+                const tt = await req.db.get(
+                    'SELECT COUNT(*)::int AS c FROM batch_timetables WHERE batch_id = $1',
+                    [id]
+                );
+                const hasSchedule = (tt?.c || 0) > 0;
+                await createBulkNotifications(req.db, addedStudentIds, {
+                    type: hasSchedule ? 'schedule_created' : 'batch_assigned',
+                    title: hasSchedule ? 'New schedule for your batch' : 'You\'ve been added to a batch',
+                    message: hasSchedule
+                        ? `You\'ve been added to "${batchInfo?.name || 'a batch'}". Check your timetable for class times.`
+                        : `You\'ve been added to "${batchInfo?.name || 'a batch'}". Welcome aboard!`,
+                    link: `/app/my-schedule`,
+                    entity_type: 'batch',
+                    entity_id: parseInt(id),
+                    sender_id: req.user.id,
+                });
+            }
+        } catch (notifErr) {
+            console.warn('[notifications] batch_assigned failed:', notifErr.message);
         }
 
         res.json({
@@ -890,6 +975,30 @@ router.put('/:id/timetable', [
                     schedule.link
                 ]
             );
+        }
+
+        // 🔔 Notify all students in this batch about the schedule change
+        try {
+            const { createBulkNotifications } = require('../services/notificationService');
+            const batchInfo = await req.db.get('SELECT name FROM batches WHERE id = ?', [id]);
+            const students = await req.db.all(
+                'SELECT student_id FROM batch_students WHERE batch_id = ?',
+                [id]
+            );
+            const studentIds = students.map(s => s.student_id);
+            if (studentIds.length > 0) {
+                await createBulkNotifications(req.db, studentIds, {
+                    type: 'schedule_created',
+                    title: 'Schedule updated',
+                    message: `The class schedule for "${batchInfo?.name || 'your batch'}" was updated.`,
+                    link: `/app/my-schedule`,
+                    entity_type: 'batch',
+                    entity_id: parseInt(id),
+                    sender_id: req.user.id,
+                });
+            }
+        } catch (notifErr) {
+            console.warn('[notifications] schedule_created (timetable PUT) failed:', notifErr.message);
         }
 
         res.json({ message: 'Timetable updated successfully' });

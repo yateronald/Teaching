@@ -1,141 +1,128 @@
-const { baseHtml } = require('./base');
+const { baseHtml, detailCard, ctaButton, escapeHtml } = require('./base');
 
-function buildClassReminderTemplate({ 
-    studentName, 
-    className, 
-    teacherName, 
-    batchName, 
-    startTime, 
-    endTime, 
-    date, 
-    location, 
-    locationMode, 
-    link, 
-    logoCid 
+function safeFormatDate(input) {
+    if (!input) return null;
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return String(input);
+    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+function safeFormatTime(input) {
+    if (!input) return null;
+    let t;
+    if (input instanceof Date) {
+        t = input;
+    } else if (typeof input === 'string' && input.includes('T')) {
+        t = new Date(input);
+    } else if (typeof input === 'string') {
+        t = new Date(`2000-01-01T${input}`);
+    } else {
+        return null;
+    }
+    if (isNaN(t.getTime())) return String(input);
+    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+/**
+ * 5-minute reminder sent to students before a class begins.
+ *
+ * @param {{
+ *   studentName?: string,
+ *   className?: string,
+ *   teacherName?: string,
+ *   batchName?: string,
+ *   startTime?: string|Date,
+ *   endTime?: string|Date,
+ *   date?: string|Date,
+ *   location?: string,
+ *   locationMode?: string,
+ *   link?: string,
+ * }} args
+ */
+function buildClassReminderTemplate({
+    studentName,
+    className,
+    teacherName,
+    batchName,
+    startTime,
+    endTime,
+    date,
+    location,
+    locationMode,
+    link,
 }) {
-    const subject = `⏰ Class Starting Soon: ${className} in 5 minutes!`;
-    
-    // Format time nicely
-    const formatTime = (timeStr) => {
-        const time = new Date(`2000-01-01T${timeStr}`);
-        return time.toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            minute: '2-digit', 
-            hour12: true 
-        });
-    };
+    const safeStudent = studentName || 'there';
+    const safeClass = className || 'your class';
 
-    const formattedStartTime = formatTime(startTime);
-    const formattedEndTime = formatTime(endTime);
-    
-    // Quick access instruction for online classes
-    const quickAccessButton = locationMode === 'online'
-        ? `<div style="text-align: center; margin: 24px 0;">
-             <p style="color: #6B7280; font-size: 15px; margin-bottom: 8px;">Please log in to your dashboard to join the class.</p>
-           </div>`
-        : '';
+    const subject = `Starting soon: ${safeClass}`;
+    const preheader = `${safeClass} starts in 5 minutes.`;
 
-    // Location display for reminder
-    const locationDisplay = locationMode === 'online' 
-        ? `<div style="background: linear-gradient(135deg, #3B82F6, #1D4ED8); color: white; padding: 16px; border-radius: 12px; margin: 16px 0; text-align: center;">
-             <div style="font-size: 18px; margin-bottom: 8px;">💻</div>
-             <strong style="font-size: 16px;">Online Class</strong>
-           </div>`
-        : `<div style="background: linear-gradient(135deg, #10B981, #059669); color: white; padding: 16px; border-radius: 12px; margin: 16px 0; text-align: center;">
-             <div style="font-size: 18px; margin-bottom: 8px;">📍</div>
-             <strong style="font-size: 16px;">Physical Location</strong>
-             <br><span style="color: #A7F3D0; font-weight: 500;">${location || 'Check your class details'}</span>
-           </div>`;
+    const dateStr = safeFormatDate(date);
+    const start = safeFormatTime(startTime);
+    const end = safeFormatTime(endTime);
+    const timeRange = start && end ? `${start} – ${end}` : (start || end || null);
+
+    let locationValue = null;
+    if (locationMode === 'online' && link) {
+        locationValue = `Online — <a href="${escapeHtml(link)}" style="color:#4338ca; font-weight:600; text-decoration:none;">join</a>`;
+    } else if (locationMode === 'physical' && location) {
+        locationValue = escapeHtml(location);
+    } else if (locationMode === 'physical') {
+        locationValue = 'In-person (venue confirmed soon)';
+    } else {
+        locationValue = 'Online (open dashboard to join)';
+    }
+
+    const detailRows = [
+        { label: 'Class', value: escapeHtml(safeClass) },
+        { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
+        { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
+        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
+        { label: 'Time', value: timeRange ? escapeHtml(timeRange) : null },
+        { label: 'Location', value: locationValue },
+    ];
+
+    const dashboardUrl = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
 
     const bodyHtml = `
-        <div style="text-align: center; margin-bottom: 32px;">
-            <div style="background: linear-gradient(135deg, #EF4444, #DC2626); color: white; padding: 24px; border-radius: 16px; display: inline-block; animation: pulse 2s infinite;">
-                <div style="font-size: 32px; margin-bottom: 8px;">⏰</div>
-                <h2 style="margin: 0; font-size: 22px; font-weight: 700;">Class Starting Soon!</h2>
-                <p style="margin: 8px 0 0; font-size: 16px; opacity: 0.9;">Only 5 minutes left</p>
-            </div>
-        </div>
+      <p style="margin:0 0 14px; font-size:15px; color:#0f172a;">Hi <strong>${escapeHtml(safeStudent)}</strong>,</p>
+      <p style="margin:0 0 22px; font-size:14.5px; color:#475569; line-height:1.65;">
+        ${teacherName
+            ? `Your class with <strong style="color:#0f172a;">${escapeHtml(teacherName)}</strong> begins in 5 minutes.`
+            : 'Your class begins in 5 minutes.'} Get your materials ready and head in when you can.
+      </p>
 
-        <p style="margin: 0 0 24px; font-size: 16px; color: #374151; text-align: center;">
-            Hello <strong>${studentName || 'there'}</strong>,
-        </p>
-        
-        <p style="margin: 0 0 24px; font-size: 15px; line-height: 1.6; color: #6B7280; text-align: center;">
-            Your class <strong>${className}</strong> with <strong>${teacherName}</strong> is starting in just <strong style="color: #EF4444;">5 minutes</strong>!
-        </p>
+      ${detailCard({ title: 'Class details', rows: detailRows })}
 
-        ${quickAccessButton}
+      ${ctaButton({ label: 'Open dashboard', href: dashboardUrl })}
 
-        <div style="background: #F8FAFC; border: 2px solid #E2E8F0; border-radius: 16px; padding: 24px; margin: 24px 0;">
-            <h3 style="margin: 0 0 20px; color: #1F2937; font-size: 18px; font-weight: 700; display: flex; align-items: center; justify-content: center;">
-                <span style="margin-right: 8px;">📚</span>
-                Quick Class Info
-            </h3>
-            
-            <div style="display: grid; gap: 12px; text-align: center;">
-                <div style="padding: 12px; background: white; border-radius: 8px;">
-                    <div style="color: #6B7280; font-size: 14px; margin-bottom: 4px;">Class</div>
-                    <div style="color: #1F2937; font-weight: 600; font-size: 16px;">${className}</div>
-                </div>
-                
-                <div style="padding: 12px; background: white; border-radius: 8px;">
-                    <div style="color: #6B7280; font-size: 14px; margin-bottom: 4px;">Time</div>
-                    <div style="color: #1F2937; font-weight: 600; font-size: 16px;">${formattedStartTime} - ${formattedEndTime}</div>
-                </div>
-                
-                <div style="padding: 12px; background: white; border-radius: 8px;">
-                    <div style="color: #6B7280; font-size: 14px; margin-bottom: 4px;">Batch</div>
-                    <div style="color: #1F2937; font-weight: 600; font-size: 16px;">${batchName}</div>
-                </div>
-            </div>
-        </div>
-
-        ${locationDisplay}
-
-        <div style="background: linear-gradient(135deg, #FEF3C7, #FDE68A); border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
-            <div style="font-size: 20px; margin-bottom: 8px;">📝</div>
-            <p style="margin: 0; color: #92400E; font-weight: 600; font-size: 15px;">
-                Make sure you have your materials ready and a quiet space for learning!
-            </p>
-        </div>
-
-        <div style="text-align: center; margin: 32px 0;">
-            <p style="margin: 0; color: #6B7280; font-size: 14px;">
-                See you in class! Bonne chance! 🇫🇷
-            </p>
-        </div>
-
-        <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 32px 0;" />
-        
-        <p style="margin: 0; font-size: 12px; color: #9CA3AF; text-align: center;">
-            This is an automated reminder. If you have any issues joining the class, contact your teacher immediately.
-        </p>
+      <p style="margin: 18px 0 0; font-size: 13px; color: #94a3b8; line-height: 1.6;">
+        See you in class.
+      </p>
     `;
 
-    const html = baseHtml({ 
-        subject, 
-        headerTitle: 'Class Reminder', 
-        bodyHtml, 
-        logoCid 
+    const html = baseHtml({
+        subject,
+        preheader,
+        eyebrow: 'CLASS REMINDER',
+        title: 'Your class starts in 5 minutes',
+        bodyHtml,
     });
 
-    const text = `⏰ CLASS STARTING SOON!
-
-Hello ${studentName || 'there'},
-
-Your class "${className}" with ${teacherName} is starting in just 5 minutes!
-
-Quick Details:
-- Class: ${className}
-- Time: ${formattedStartTime} - ${formattedEndTime}
-- Batch: ${batchName}
-- Location: ${locationMode === 'online' ? 'Online (Join from your dashboard)' : (location || 'Physical location')}
-
-Make sure you have your materials ready!
-
-See you in class! Bonne chance! 🇫🇷
-
-Learn French with Natives Team`;
+    const text = [
+        `Hi ${safeStudent},`,
+        '',
+        teacherName
+            ? `Your class with ${teacherName} begins in 5 minutes.`
+            : 'Your class begins in 5 minutes.',
+        '',
+        'CLASS DETAILS',
+        ...detailRows
+            .filter(r => r.value)
+            .map(r => `${r.label}: ${String(r.value).replace(/<[^>]+>/g, '')}`),
+        '',
+        `Open dashboard: ${dashboardUrl}`,
+    ].filter(Boolean).join('\n');
 
     return { subject, html, text };
 }

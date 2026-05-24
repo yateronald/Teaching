@@ -1,43 +1,13 @@
-#root {
-  width: 100%;
-  height: 100vh;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
+/* ════════════════════════════════════════════════════════════════════
+   App-level layout. We deliberately do NOT define a
+   `#root { width: 100%; height: 100vh; will-change: filter; }`-style
+   block here. Vite scaffolds those defaults along with `.logo` styles
+   that include `will-change: filter`, which creates a new containing
+   block for `position: fixed` descendants and breaks AntD popup
+   positioning when popups are mounted at document.body. None of those
+   defaults are used by this app (no <div className="logo" />), so we
+   omit them entirely.
+   ════════════════════════════════════════════════════════════════════ */
 
 /* Message Reactions Styles */
 .message-reactions {
