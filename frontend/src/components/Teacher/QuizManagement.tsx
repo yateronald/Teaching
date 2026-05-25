@@ -40,6 +40,11 @@ interface Quiz {
     total_students?: number;
     avg_score?: number;
     total_marks?: number;
+    // Server-authoritative scheduling fields. Computed against PG NOW() so
+    // the value doesn't depend on the viewer's browser clock — the source of
+    // a previous "teacher sees Active but student already auto-submitted" bug.
+    schedule_state?: 'inactive' | 'scheduled' | 'active' | 'ended';
+    seconds_until_end?: number | null;
 }
 
 interface Batch { id: number; name: string; }
@@ -51,17 +56,39 @@ function fmt(n: number | string | null | undefined): string {
     return Number.isInteger(v) ? v.toString() : v.toFixed(1).replace(/\.0$/, '');
 }
 
-function getStatusInfo(status: string, start?: string, end?: string) {
-    if (status !== 'published') return { color: '#94a3b8', bg: '#f1f5f9', text: 'Draft' };
+// Derive the visible status from the server-authoritative `schedule_state`.
+// Falls back to client-side dayjs comparison ONLY when the server didn't
+// provide the field (older API or dev mock).
+function getStatusInfo(quiz: Quiz) {
+    const ss = quiz.schedule_state;
+    if (ss === 'inactive' || quiz.status !== 'published') return { color: '#94a3b8', bg: '#f1f5f9', text: 'Draft' };
+    if (ss === 'scheduled') return { color: '#f59e0b', bg: '#fef3c7', text: 'Scheduled' };
+    if (ss === 'ended')    return { color: '#ef4444', bg: '#fee2e2', text: 'Ended' };
+    if (ss === 'active')   return { color: '#22c55e', bg: '#dcfce7', text: 'Active' };
+    // Fallback: client-side check (only if server didn't return schedule_state)
     const now = dayjs();
-    if (start && now.isBefore(dayjs(start))) return { color: '#f59e0b', bg: '#fef3c7', text: 'Scheduled' };
-    if (end && now.isAfter(dayjs(end))) return { color: '#ef4444', bg: '#fee2e2', text: 'Ended' };
+    if (quiz.start_date && now.isBefore(dayjs(quiz.start_date))) return { color: '#f59e0b', bg: '#fef3c7', text: 'Scheduled' };
+    if (quiz.end_date && now.isAfter(dayjs(quiz.end_date))) return { color: '#ef4444', bg: '#fee2e2', text: 'Ended' };
     return { color: '#22c55e', bg: '#dcfce7', text: 'Active' };
 }
 
-function fmtRemaining(end?: string): string {
-    if (!end) return '—';
-    const diff = dayjs(end).diff(dayjs());
+// Time-left countdown: prefer server's `seconds_until_end` (computed against
+// PG NOW()) over client clock math. Re-renders in real time as seconds pass.
+function fmtRemaining(quiz: Quiz): string {
+    if (quiz.seconds_until_end != null) {
+        const total = Math.max(0, quiz.seconds_until_end);
+        if (total <= 0) return 'Ended';
+        const days = Math.floor(total / 86400);
+        if (days > 30) return `${Math.floor(days / 30)}mo ${days % 30}d`;
+        if (days >= 1) return `${days}d ${Math.floor((total % 86400) / 3600)}h`;
+        const hours = Math.floor(total / 3600);
+        if (hours >= 1) return `${hours}h ${Math.floor((total % 3600) / 60)}m`;
+        const mins = Math.floor(total / 60);
+        return `${mins}m`;
+    }
+    // Fallback: client-side
+    if (!quiz.end_date) return '—';
+    const diff = dayjs(quiz.end_date).diff(dayjs());
     if (diff <= 0) return 'Ended';
     const d = dayjs.duration(diff);
     const days = d.days();
@@ -225,7 +252,7 @@ const QuizManagement: React.FC = () => {
             if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) return false;
         }
         if (statusFilter !== 'all') {
-            const s = getStatusInfo(q.status, q.start_date, q.end_date);
+            const s = getStatusInfo(q);
             if (statusFilter === 'draft' && q.status !== 'draft') return false;
             if (statusFilter === 'active' && s.text !== 'Active') return false;
             if (statusFilter === 'scheduled' && s.text !== 'Scheduled') return false;
@@ -288,7 +315,7 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Time Left', key: 'time', width: 100, align: 'center' as const,
             render: (_, r) => {
-                const t = fmtRemaining(r.end_date);
+                const t = fmtRemaining(r);
                 const color = t === 'Ended' ? '#ef4444' : t === '—' ? '#94a3b8' : (t.includes('m') && !t.includes('h')) ? '#f59e0b' : '#22c55e';
                 return (
                     <span style={{
@@ -304,7 +331,7 @@ const QuizManagement: React.FC = () => {
         {
             title: 'Status', key: 'status', width: 100, align: 'center' as const,
             render: (_, r) => {
-                const s = getStatusInfo(r.status, r.start_date, r.end_date);
+                const s = getStatusInfo(r);
                 return (
                     <span style={{
                         background: s.bg, color: s.color,

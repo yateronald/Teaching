@@ -41,6 +41,11 @@ interface Quiz {
     submission_status?: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted' | 'completed';
     submission?: { total_score?: number; max_score?: number; percentage?: number; status?: string; } | null;
     created_at?: string;
+    // Server-authoritative scheduling state — computed against PG NOW() so
+    // it doesn't depend on the student's browser clock.
+    can_start?: boolean;
+    has_ended?: boolean;
+    can_view_results?: boolean;
 }
 interface QuizAttempt {
     id: number; quiz_id: number; quiz_title: string;
@@ -252,12 +257,19 @@ const StudentQuizzes: React.FC = () => {
     }, [filteredQuizzes, filteredAttempts]);
 
     const getQuizStatus = (quiz: Quiz) => {
+        if (quiz.status !== 'published') return { status: 'inactive', color: 'default', text: 'Inactive' } as const;
+        // Prefer server-authoritative flags. Fallback to client-side dayjs
+        // only if those fields aren't present.
+        if (quiz.can_start != null || quiz.has_ended != null) {
+            if (quiz.has_ended) return { status: 'completed', color: 'gold', text: 'Ended' } as const;
+            if (quiz.can_start === false) return { status: 'upcoming', color: 'blue', text: 'Upcoming' } as const;
+            return { status: 'active', color: 'green', text: 'Active' } as const;
+        }
         const now = dayjs();
         const s = quiz.start_date ? dayjs(quiz.start_date) : null;
         const e = quiz.end_date ? dayjs(quiz.end_date) : null;
-        if (quiz.status !== 'published') return { status: 'inactive', color: 'default', text: 'Inactive' } as const;
         if (s && now.isBefore(s)) return { status: 'upcoming', color: 'blue', text: 'Upcoming' } as const;
-        if (e && now.isAfter(e)) return { status: 'expired', color: 'red', text: 'Expired' } as const;
+        if (e && now.isAfter(e)) return { status: 'completed', color: 'gold', text: 'Ended' } as const;
         return { status: 'active', color: 'green', text: 'Active' } as const;
     };
 
@@ -312,7 +324,13 @@ const StudentQuizzes: React.FC = () => {
         {
             title: 'PROGRESS', key: 'progress', width: 200,
             render: (_, r) => {
-                const isLocked = r.end_date ? dayjs(r.end_date).isAfter(dayjs()) : false;
+                // Lock results until the quiz officially ends, using server-
+                // authoritative `has_ended` (which flips to true when PG NOW()
+                // crosses the quiz end_date — independent of the student's
+                // browser clock).
+                const isLocked = r.has_ended != null
+                    ? !r.has_ended
+                    : (r.end_date ? dayjs(r.end_date).isAfter(dayjs()) : false);
                 if (isLocked) {
                     return (
                         <div>

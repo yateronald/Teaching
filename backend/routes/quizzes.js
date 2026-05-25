@@ -270,6 +270,18 @@ router.get('/', authenticateToken, async (req, res) => {
                 q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
                 q.duration_minutes, q.total_marks, q.created_at, q.updated_at,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                -- Server-authoritative scheduling state. Computed against PG NOW()
+                -- so the result doesn't depend on the viewer's browser clock.
+                CASE
+                    WHEN q.status != 'published' THEN 'inactive'
+                    WHEN q.start_date IS NOT NULL AND q.start_date > NOW() THEN 'scheduled'
+                    WHEN q.end_date   IS NOT NULL AND q.end_date   <= NOW() THEN 'ended'
+                    ELSE 'active'
+                END AS schedule_state,
+                CASE
+                    WHEN q.end_date IS NULL THEN NULL
+                    ELSE GREATEST(0, EXTRACT(EPOCH FROM (q.end_date - NOW())))::bigint
+                END AS seconds_until_end,
                 COUNT(DISTINCT qb.batch_id) as batch_count,
                 COUNT(DISTINCT CASE WHEN qs.status IN ('submitted','auto_submitted','graded') THEN qs.student_id END) as submitted_students,
                 COUNT(DISTINCT bs.student_id) as total_students,
@@ -304,6 +316,7 @@ router.get('/', authenticateToken, async (req, res) => {
             if (quiz.duration_minutes != null) quiz.duration_minutes = Number(quiz.duration_minutes);
             if (quiz.total_marks != null) quiz.total_marks = Number(quiz.total_marks);
             if (quiz.avg_score != null) quiz.avg_score = Number(quiz.avg_score);
+            if (quiz.seconds_until_end != null) quiz.seconds_until_end = Number(quiz.seconds_until_end);
         }
 
         res.json(quizzes);
