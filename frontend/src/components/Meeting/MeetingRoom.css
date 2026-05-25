@@ -127,7 +127,22 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
 
 /* Density tuning by participant count — applied via inline style on
    `.meeting-video-grid` from MeetingRoomUI when we know the count. */
-.meeting-video-grid.count-1 { grid-template-columns: 1fr; }
+.meeting-video-grid.count-1 {
+  grid-template-columns: 1fr;
+  /* When alone, the single tile should fill ALL available height —
+     not be capped by its 16/9 aspect ratio (which would leave huge
+     empty bands above/below on widescreen monitors). */
+  align-content: stretch;
+  grid-template-rows: 1fr;
+}
+.meeting-video-grid.count-1 .video-tile {
+  /* Drop the aspect-ratio so the tile follows the grid cell shape and
+     fills the full meeting area. The camera feed inside still uses
+     `object-fit: cover` so nothing is squished. */
+  aspect-ratio: auto;
+  width: 100%;
+  height: 100%;
+}
 .meeting-video-grid.count-2 { grid-template-columns: repeat(2, 1fr); }
 .meeting-video-grid.count-3,
 .meeting-video-grid.count-4 { grid-template-columns: repeat(2, 1fr); }
@@ -152,7 +167,22 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
   box-shadow: 0 0 16px rgba(34, 197, 94, 0.25);
 }
 .video-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.4); }
-.video-tile video { width: 100%; height: 100%; object-fit: cover; }
+/* Make the LiveKit VideoTrack wrapper AND the inner <video> both fill
+   the tile so the camera feed reaches every edge. Without this the
+   wrapper's intrinsic size leaves dark bands around the picture. */
+.video-tile > div,
+.video-tile [data-lk-orientation],
+.video-tile .lk-participant-media-video {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+.video-tile video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
 
 .video-placeholder {
   display: flex; align-items: center; justify-content: center;
@@ -244,6 +274,17 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
   justify-content: center;
   background: #000;
 }
+/* LiveKit wraps <video> in its own div — make it fill the tile so the
+   centered video has the full container to work with. */
+.screen-share-tile > div,
+.screen-share-tile [data-lk-orientation],
+.screen-share-tile .lk-participant-media-video {
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
 .screen-share-tile video {
   /* `contain` guarantees the entire shared screen is visible without
      cropping — important for slides, code editors, spreadsheets. */
@@ -299,7 +340,21 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.35);
 }
 .strip-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.5); }
-.strip-tile video { width: 100%; height: 100%; object-fit: cover; }
+/* LiveKit's VideoTrack wrapper + inner <video> must both fill the strip
+   tile so the camera reaches every edge — same fix as `.video-tile`. */
+.strip-tile > div,
+.strip-tile [data-lk-orientation],
+.strip-tile .lk-participant-media-video {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+.strip-tile video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
 
 .strip-name {
   position: absolute;
@@ -510,9 +565,21 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
     font-size: 16px !important;
   }
   .meeting-controls--mobile .control-btn--more {
-    background: rgba(99, 102, 241, 0.18) !important;
-    border-color: rgba(99, 102, 241, 0.4) !important;
-    color: #a5b4fc !important;
+    /* Bold purple gradient so the More button is unmistakably the
+       primary discoverability touch-target on mobile. */
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    border-color: transparent !important;
+    color: #fff !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
+  }
+  .meeting-controls--mobile .control-btn--more:hover,
+  .meeting-controls--mobile .control-btn--more:focus {
+    background: linear-gradient(135deg, #4f46e5, #7c3aed) !important;
+  }
+  .meeting-controls--mobile .control-btn--more .anticon,
+  .meeting-controls--mobile .control-btn--more svg {
+    color: #fff !important;
+    fill: #fff !important;
   }
 
   /* Stage on top, strip on bottom — exactly like Google Meet on mobile.
@@ -556,6 +623,72 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
   .meeting-video-grid.count-2 {
     grid-template-columns: 1fr !important;
     grid-template-rows: 1fr 1fr !important;
+  }
+
+  /* ── Mobile chat panel polish ──
+     The chat panel becomes a full-screen overlay on mobile. Pin the
+     input row to the bottom and make it tap-friendly. */
+  .meeting-side-panel.chat-panel {
+    width: 100%;
+    border-left: none;
+    z-index: 200;
+  }
+  .chat-messages {
+    padding: 14px 14px 8px !important;
+    gap: 10px !important;
+  }
+  .chat-message {
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+  }
+  .chat-sender { font-size: 11px !important; }
+  .chat-text { font-size: 14px !important; line-height: 1.45 !important; }
+  /* Sticky input row at the bottom — respects iOS safe area. */
+  .chat-input-row {
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) !important;
+    gap: 8px !important;
+    background: rgba(15, 23, 42, 0.96);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+    flex-shrink: 0;
+  }
+  .chat-input-row .ant-input {
+    border-radius: 999px !important;
+    height: 42px !important;
+    padding: 0 16px !important;
+    font-size: 14px !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+    color: #0f172a !important;
+  }
+  .chat-input-row .ant-input::placeholder {
+    color: #94a3b8 !important;
+  }
+  .chat-input-row .ant-input:focus {
+    background: #fff !important;
+    border-color: #6366f1 !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+  }
+  .chat-input-row .ant-btn-primary {
+    border-radius: 999px !important;
+    height: 42px !important;
+    padding: 0 18px !important;
+    font-weight: 700 !important;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    border: none !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.35);
+  }
+
+  /* Side-panel header on mobile — bigger close button, padded title */
+  .side-panel-header {
+    padding: 14px 16px !important;
+    font-size: 15px !important;
+  }
+  .side-panel-close {
+    font-size: 22px !important;
+    padding: 4px 8px !important;
+    color: #e2e8f0 !important;
   }
 }
 
@@ -858,6 +991,16 @@ body:has(.meeting-room) .ant-tour {
 body:has(.meeting-room) .ant-tooltip,
 body:has(.meeting-room) .ant-popover {
   z-index: 99999 !important;
+}
+/* AntD Drawer used for the mobile "More options" sheet — must sit above
+   the fullscreen meeting portal (z-index 9999). Without this the drawer
+   slides in but is hidden behind the meeting tiles. */
+body:has(.meeting-room) .ant-drawer-root,
+body:has(.meeting-room) .ant-drawer {
+  z-index: 99998 !important;
+}
+body:has(.meeting-room) .ant-drawer-mask {
+  z-index: 99997 !important;
 }
 
 

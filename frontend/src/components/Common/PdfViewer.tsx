@@ -6,21 +6,40 @@ import { ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
 // browser compatibility (Safari < 17, older Android Chrome) and configure
 // the worker via a Vite-friendly URL import.
 //
-// Why this exact pattern: the legacy build ships a regular .mjs worker
-// that browsers refuse to dynamic-import unless the host serves it with
-// the correct JavaScript MIME type. By using `?url` Vite emits the
-// worker as a plain asset and we feed pdfjs its final URL — pdfjs
-// internally creates a `new Worker(url)` which works on every mobile
-// browser as long as the asset is served with a JavaScript MIME type.
-//
-// We also keep a graceful fallback: if the worker fails to load
-// (typical on hosts that mis-serve .mjs as application/octet-stream),
-// we disable the worker and let pdfjs render on the main thread so the
-// PDF still appears — slower but functional.
+// IMPORTANT: many static-file hosts (incl. nginx defaults) serve .mjs
+// files with `Content-Type: application/octet-stream`, which causes
+// browsers to refuse to dynamic-`import()` them under "strict MIME
+// checking for module scripts". To survive that, we don't hand pdfjs
+// the raw URL — instead we fetch the worker source ourselves on first
+// use, wrap it in a Blob with the correct `text/javascript` MIME type,
+// and feed pdfjs a `blob:` URL it can always load.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
+// Set the original URL as a fallback. The Blob-URL replacement below
+// runs asynchronously the first time a PDF is opened, replacing this.
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+let workerBlobUrlPromise: Promise<string> | null = null;
+function getWorkerBlobUrl(): Promise<string> {
+    if (!workerBlobUrlPromise) {
+        workerBlobUrlPromise = fetch(pdfWorkerUrl)
+            .then(r => {
+                if (!r.ok) throw new Error(`worker fetch failed: ${r.status}`);
+                return r.text();
+            })
+            .then(code => {
+                const blob = new Blob([code], { type: 'text/javascript' });
+                return URL.createObjectURL(blob);
+            })
+            .catch(err => {
+                // Reset so we don't cache the failure forever
+                workerBlobUrlPromise = null;
+                throw err;
+            });
+    }
+    return workerBlobUrlPromise;
+}
 
 /**
  * Renders a PDF inline by drawing each page to a <canvas>. Works on every
@@ -77,12 +96,24 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ src, onError }) => {
 
         const load = async () => {
             try {
+                // Replace the workerSrc with a Blob-URL version BEFORE the
+                // first PDF load. This guarantees the worker is served as
+                // `text/javascript` regardless of the static host's MIME
+                // configuration. We do this once per session and cache the
+                // resulting URL so subsequent loads are instant.
+                try {
+                    const blobUrl = await getWorkerBlobUrl();
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = blobUrl;
+                } catch (workerSetupErr) {
+                    console.warn('PDF worker blob setup failed; pdfjs will fall back to main-thread mode:', workerSetupErr);
+                }
+
                 let doc;
                 try {
                     doc = await loadDoc(false);
                 } catch (workerErr: any) {
                     const msg = String(workerErr?.message || workerErr || '');
-                    if (/worker|fetch dynamically imported/i.test(msg)) {
+                    if (/worker|fetch dynamically imported|fake worker|MIME/i.test(msg)) {
                         console.warn('PDF worker failed; falling back to main-thread rendering:', msg);
                         doc = await loadDoc(true);
                     } else {
