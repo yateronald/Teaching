@@ -10,11 +10,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { io as socketIO } from 'socket.io-client';
 import dayjs from 'dayjs';
 import MeetingRecordings from './MeetingRecordings';
+import { getSocketUrl } from '../../utils/socketUrl';
 
 const { Text } = Typography;
 const { TextArea } = Input;
 
-const SOCKET_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace('/api', '');
+const SOCKET_URL = getSocketUrl();
 
 interface Meeting {
   id: number;

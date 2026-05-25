@@ -115,8 +115,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   });
 
   const totalSteps = 4;
-  // Use the same base URL logic as AuthContext for consistency
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://teaching-api.onrender.com/api';
+  // Use the same base URL logic as AuthContext for consistency.
+  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://api.learnfrenchwithnatives.com/api';
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData(prev => ({

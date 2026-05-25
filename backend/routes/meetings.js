@@ -997,15 +997,72 @@ router.post('/:id/recording/start', async (req, res) => {
       return res.status(400).json({ error: 'Meeting must be active to record' });
     }
 
-    // Already recording?
+    // Already recording? Check for stale rows: a row may be stuck in 'starting'
+    // or 'recording' if a previous attempt failed mid-flight and the LiveKit
+    // egress webhook never came back. Before refusing, ask LiveKit whether the
+    // egress is actually still running. If it's gone (or not configured),
+    // self-heal by marking the row as 'failed' and proceeding with a fresh
+    // recording.
     const existing = await req.db.get(
-      `SELECT id, egress_id FROM meeting_recordings
+      `SELECT id, egress_id, started_at FROM meeting_recordings
        WHERE meeting_id = $1 AND status IN ('starting', 'recording')
        ORDER BY id DESC LIMIT 1`,
       [req.params.id]
     );
     if (existing) {
-      return res.status(409).json({ error: 'A recording is already in progress', recording_id: existing.id });
+      let stale = false;
+      let staleReason = '';
+
+      if (!existing.egress_id) {
+        // Row was created but egress never started — definitely stale.
+        stale = true;
+        staleReason = 'No egress id recorded';
+      } else {
+        try {
+          const info = await recordingService.getEgress(existing.egress_id);
+          // LiveKit EgressStatus enum: 0 STARTING, 1 ACTIVE, 2 ENDING,
+          // 3 COMPLETE, 4 FAILED, 5 ABORTED.
+          // If LiveKit returns nothing (deleted) or a terminal status, treat
+          // as stale.
+          if (!info) {
+            stale = true;
+            staleReason = 'Egress not found on LiveKit';
+          } else if ([2, 3, 4, 5].includes(info.status) ||
+                     ['EGRESS_ENDING', 'EGRESS_COMPLETE', 'EGRESS_FAILED', 'EGRESS_ABORTED'].includes(info.status)) {
+            stale = true;
+            staleReason = `Egress status on LiveKit: ${info.status}`;
+          }
+        } catch (egressErr) {
+          // Egress service unreachable or not configured — the previous attempt
+          // could not have actually been recording, so the row is stale.
+          stale = true;
+          staleReason = `LiveKit unreachable: ${egressErr.message}`;
+        }
+      }
+
+      if (stale) {
+        console.warn(`[recording/start] cleaning stale recording id=${existing.id} for meeting ${meeting.id}: ${staleReason}`);
+        await req.db.run(
+          `UPDATE meeting_recordings
+           SET status = 'failed',
+               error_message = $1,
+               ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2`,
+          [`Stale: ${staleReason}`, existing.id]
+        );
+        await req.db.run(
+          `UPDATE meetings SET is_recording = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [meeting.id]
+        );
+        // fall through and start a fresh recording below
+      } else {
+        return res.status(409).json({
+          error: 'A recording is already in progress',
+          recording_id: existing.id,
+          hint: 'Stop the existing recording first, or wait for it to finalize.',
+        });
+      }
     }
 
     let egress;

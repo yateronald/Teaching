@@ -26,9 +26,10 @@ import { io as socketIO } from 'socket.io-client';
 import DeviceSettings from './DeviceSettings';
 import Whiteboard from './Whiteboard';
 import { playNotificationSound, playChatSound, playHandRaiseSound, playPollSound } from './meetingSounds';
+import { getSocketUrl } from '../../utils/socketUrl';
 import './MeetingRoom.css';
 
-const SOCKET_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace('/api', '');
+const SOCKET_URL = getSocketUrl();
 
 interface MeetingData {
   id: number;
