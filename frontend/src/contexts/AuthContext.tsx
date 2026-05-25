@@ -86,6 +86,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                         const userData = await response.json();
                         setUser(userData.user);
                         setToken(storedToken);
+                        // Auto-detect timezone if user hasn't explicitly set one yet.
+                        // The DB default is 'UTC' from the migration; if the user
+                        // is on a non-UTC machine we sync their profile to the
+                        // browser's actual zone so quiz/meeting times display
+                        // correctly out of the box.
+                        autoDetectTimezone(userData.user, storedToken);
                     } else {
                         localStorage.removeItem('token');
                         setToken(null);
@@ -101,6 +107,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         checkAuth();
     }, []);
+
+    // Best-effort: if the user's profile still has the migration-default
+    // 'UTC' (or no timezone) and their browser is in a different zone, PATCH
+    // the profile to the browser zone so all displayed times match what they
+    // see on their computer. Runs once per session.
+    const autoDetectTimezone = async (u: User | null, currentToken: string | null) => {
+        if (!u || !currentToken) return;
+        if (u.timezone && u.timezone !== 'UTC') return; // already set explicitly
+        let browserTz: string | undefined;
+        try { browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* ignore */ }
+        if (!browserTz || browserTz === 'UTC') return; // nothing to change
+        try {
+            const r = await fetch(`${API_BASE_URL}/auth/profile`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentToken}` },
+                body: JSON.stringify({ timezone: browserTz }),
+            });
+            if (r.ok) {
+                const d = await r.json();
+                if (d?.user) setUser(d.user);
+            }
+        } catch { /* silent */ }
+    };
 
     const login = async (email: string, password: string) => {
         try {
@@ -119,6 +148,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 setToken(data.token);
                 setUser(data.user);
                 message.success('Login successful!');
+                // Sync profile timezone to browser on fresh login too.
+                autoDetectTimezone(data.user, data.token);
                 return { success: true };
             } else {
                 // Don't show message here for security errors - let the component handle it

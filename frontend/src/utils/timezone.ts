@@ -14,15 +14,26 @@
  *   <span>{formatLocal(quiz.start_date, user?.timezone)}</span>
  */
 
-const FALLBACK_TZ = 'UTC';
+/** When the user hasn't picked a timezone in their profile, fall back to
+ *  the browser's detected zone — that's what the picker uses, so display
+ *  matches what the user typed. Final fallback if Intl can't resolve: UTC. */
+function browserTz(): string {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+    } catch {
+        return 'UTC';
+    }
+}
 
 function effectiveTz(tz?: string | null): string {
-    if (!tz) return FALLBACK_TZ;
+    // 'UTC' from a stale profile default still falls through to the browser
+    // zone — the platform's intent is "show me times in MY local zone".
+    if (!tz || tz === 'UTC') return browserTz();
     try {
         new Intl.DateTimeFormat('en-US', { timeZone: tz }).format();
         return tz;
     } catch {
-        return FALLBACK_TZ;
+        return browserTz();
     }
 }
 
@@ -85,9 +96,9 @@ export function formatTimeLocal(iso: string | Date, timezone?: string | null): s
 /** Detect the browser's timezone — useful as a default for new users. */
 export function detectBrowserTimezone(): string {
     try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || FALLBACK_TZ;
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     } catch {
-        return FALLBACK_TZ;
+        return 'UTC';
     }
 }
 

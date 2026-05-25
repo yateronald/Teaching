@@ -5,6 +5,12 @@ const http = require('http');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
+// Force the Node runtime to UTC so any date math that touches the host clock
+// zone (logging, server-local computations, third-party libraries) is
+// timezone-neutral. The DB column is `timestamptz` and PG NOW() returns UTC,
+// so we normalize the entire JS process to UTC for consistency.
+process.env.TZ = 'UTC';
+
 // Database initialization - PostgreSQL only
 const PostgreSQLDatabase = require('./database/init-postgres');
 const database = new PostgreSQLDatabase();
