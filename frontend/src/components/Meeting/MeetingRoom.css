@@ -467,8 +467,53 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
     gap: 3px; padding: 3px;
   }
   .meeting-side-panel { width: 100%; }
-  .meeting-controls { padding: 6px 10px; }
-  .control-btn { width: 34px; height: 34px; font-size: 13px; }
+
+  /* ── Compact mobile control bar ──
+     We hide secondary buttons (anything tagged [data-mobile-secondary])
+     and show a single "More" button that opens a drawer mirroring them.
+     This keeps the bar to ~5 essentials (mic, cam, chat, hand, more, leave)
+     and prevents the leave button from being clipped off-screen. */
+  .meeting-controls--mobile {
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom)) !important;
+    gap: 4px !important;
+    justify-content: space-between !important;
+  }
+  .meeting-controls--mobile [data-mobile-secondary] {
+    display: none !important;
+  }
+  .meeting-controls--mobile .controls-left,
+  .meeting-controls--mobile .controls-center,
+  .meeting-controls--mobile .controls-right {
+    gap: 6px !important;
+  }
+  .meeting-controls--mobile .control-btn {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 16px !important;
+    border-radius: 50% !important;
+    flex-shrink: 0;
+  }
+  .meeting-controls--mobile .lk-button {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 16px !important;
+    border-radius: 50% !important;
+    flex-shrink: 0;
+  }
+  /* Leave / End button — keep its red color but go icon-only and circular. */
+  .meeting-controls--mobile .leave-btn,
+  .meeting-controls--mobile .end-btn {
+    width: 56px !important;
+    height: 40px !important;
+    border-radius: 999px !important;
+    padding: 0 !important;
+    font-size: 16px !important;
+  }
+  .meeting-controls--mobile .control-btn--more {
+    background: rgba(99, 102, 241, 0.18) !important;
+    border-color: rgba(99, 102, 241, 0.4) !important;
+    color: #a5b4fc !important;
+  }
 
   /* Stage on top, strip on bottom — exactly like Google Meet on mobile.
      The strip becomes a horizontal scroll row capped at ~22dvh. */
@@ -491,6 +536,26 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
     aspect-ratio: 16 / 9;
     min-width: 130px;
     flex-shrink: 0;
+  }
+
+  /* When NO screenshare: make video tiles use the full available height
+     instead of leaving big empty space at the top. */
+  .meeting-video-grid {
+    align-content: stretch !important;
+    height: 100% !important;
+  }
+  .meeting-video-grid > * {
+    min-height: 0;
+  }
+  /* For 1-2 participant grids, take most of the vertical room (Google Meet
+     style — your own tile is small at the bottom-right when alone). */
+  .meeting-video-grid.count-1 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr !important;
+  }
+  .meeting-video-grid.count-2 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 1fr !important;
   }
 }
 

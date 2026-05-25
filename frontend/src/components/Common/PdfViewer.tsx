@@ -6,11 +6,19 @@ import { ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
 // browser compatibility (Safari < 17, older Android Chrome) and configure
 // the worker via a Vite-friendly URL import.
 //
-// NOTE: Vite handles the `?url` suffix to emit the worker file at build
-// time and return its final URL — this avoids CORS issues with worker
-// `importScripts()`.
+// Why this exact pattern: the legacy build ships a regular .mjs worker
+// that browsers refuse to dynamic-import unless the host serves it with
+// the correct JavaScript MIME type. By using `?url` Vite emits the
+// worker as a plain asset and we feed pdfjs its final URL — pdfjs
+// internally creates a `new Worker(url)` which works on every mobile
+// browser as long as the asset is served with a JavaScript MIME type.
+//
+// We also keep a graceful fallback: if the worker fails to load
+// (typical on hosts that mis-serve .mjs as application/octet-stream),
+// we disable the worker and let pdfjs render on the main thread so the
+// PDF still appears — slower but functional.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.mjs?url';
+import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -49,10 +57,38 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ src, onError }) => {
         setNumPages(0);
         docRef.current = null;
 
+        // Helper that loads the doc once. On the first failure caused by
+        // the worker not being fetchable (typical on hosts that serve
+        // .mjs with the wrong MIME type), we transparently retry with
+        // the worker disabled so the PDF still renders on the main
+        // thread — slower but always functional.
+        const loadDoc = async (disableWorker: boolean) => {
+            // `disableWorker` exists at runtime in pdfjs-dist v4 even though
+            // the public type signature doesn't yet expose it — cast through
+            // `any` to silence the strict-object-literal check.
+            const params: any = {
+                url: src,
+                isEvalSupported: false,
+                disableWorker,
+            };
+            const loadingTask = pdfjsLib.getDocument(params);
+            return loadingTask.promise;
+        };
+
         const load = async () => {
             try {
-                const loadingTask = pdfjsLib.getDocument({ url: src, isEvalSupported: false });
-                const doc = await loadingTask.promise;
+                let doc;
+                try {
+                    doc = await loadDoc(false);
+                } catch (workerErr: any) {
+                    const msg = String(workerErr?.message || workerErr || '');
+                    if (/worker|fetch dynamically imported/i.test(msg)) {
+                        console.warn('PDF worker failed; falling back to main-thread rendering:', msg);
+                        doc = await loadDoc(true);
+                    } else {
+                        throw workerErr;
+                    }
+                }
                 if (cancelled) {
                     doc.destroy();
                     return;

@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App } from 'antd';
+import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App, Drawer } from 'antd';
 import {
   AudioMutedOutlined, VideoCameraOutlined,
   PhoneOutlined, TeamOutlined, MessageOutlined,
   LockOutlined, UnlockOutlined, UserDeleteOutlined, SoundOutlined,
   LoadingOutlined, PlayCircleOutlined, FullscreenOutlined, FullscreenExitOutlined,
   HighlightOutlined, BarChartOutlined, PlusOutlined, CheckOutlined, ShareAltOutlined,
-  SettingOutlined, SmileOutlined,
+  SettingOutlined, SmileOutlined, EllipsisOutlined,
 } from '@ant-design/icons';
 import {
   LiveKitRoom,
@@ -28,9 +28,60 @@ import DeviceSettings from './DeviceSettings';
 import Whiteboard from './Whiteboard';
 import { playNotificationSound, playChatSound, playHandRaiseSound, playPollSound } from './meetingSounds';
 import { getSocketUrl } from '../../utils/socketUrl';
+import useResponsive from '../../hooks/useResponsive';
 import './MeetingRoom.css';
 
 const SOCKET_URL = getSocketUrl();
+
+/**
+ * Single tile inside the mobile "More options" drawer. A vertical icon
+ * + label with a soft hover state and an optional active accent (used
+ * for stateful actions like Recording / Lock / Whiteboard).
+ */
+const DrawerAction: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  accent?: string;
+  loading?: boolean;
+  badgeCount?: number;
+}> = ({ icon, label, onClick, active = false, accent, loading = false, badgeCount }) => (
+  <button
+    onClick={onClick}
+    disabled={loading}
+    style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      padding: '14px 6px',
+      background: active ? `${accent || '#6366f1'}26` : 'rgba(255,255,255,0.05)',
+      border: `1px solid ${active ? (accent || '#6366f1') : 'rgba(255,255,255,0.08)'}`,
+      borderRadius: 14,
+      cursor: loading ? 'wait' : 'pointer',
+      color: active ? (accent || '#a5b4fc') : '#e2e8f0',
+      transition: 'all 0.15s',
+      minHeight: 78,
+    }}
+  >
+    <Badge count={badgeCount} size="small" offset={[6, -2]}>
+      <span style={{ fontSize: 22, color: 'inherit' }}>
+        {loading ? <LoadingOutlined /> : icon}
+      </span>
+    </Badge>
+    <span style={{
+      fontSize: 11,
+      fontWeight: 600,
+      lineHeight: 1.2,
+      textAlign: 'center',
+      color: 'inherit',
+    }}>
+      {label}
+    </span>
+  </button>
+);
 
 interface MeetingData {
   id: number;
@@ -412,6 +463,10 @@ const MeetingRoomUI: React.FC<{
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
+  /** Mobile-only "More" drawer that holds secondary controls. */
+  const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
+  const responsive = useResponsive();
+  const isMobile = responsive.isMobile;
   const [raisedHands, setRaisedHands] = useState<{ userId: number; userName: string }[]>([]);
   const [floatingEmojis, setFloatingEmojis] = useState<{ id: number; emoji: string; sender: string }[]>([]);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
@@ -925,11 +980,11 @@ const MeetingRoomUI: React.FC<{
       </div>
 
       {/* Control Bar */}
-      <div className="meeting-controls">
+      <div className={`meeting-controls${isMobile ? ' meeting-controls--mobile' : ''}`}>
         <div className="controls-left">
           <TrackToggle source={Track.Source.Microphone} className="control-btn" />
           <TrackToggle source={Track.Source.Camera} className="control-btn" />
-          <TrackToggle source={Track.Source.ScreenShare} className="control-btn screen-share-btn" />
+          <TrackToggle source={Track.Source.ScreenShare} className="control-btn screen-share-btn" data-mobile-secondary />
         </div>
         <div className="controls-center">
           <Tooltip title="Chat">
@@ -945,20 +1000,21 @@ const MeetingRoomUI: React.FC<{
             </Badge>
           </Tooltip>
           <Tooltip title="Participants">
-            <button className="control-btn" onClick={() => setParticipantsOpen(!participantsOpen)}>
+            <button className="control-btn" data-mobile-secondary onClick={() => setParticipantsOpen(!participantsOpen)}>
               <TeamOutlined />
             </button>
           </Tooltip>
           {isHost && (
             <>
               <Tooltip title={isLocked ? 'Unlock Meeting' : 'Lock Meeting'}>
-                <button className="control-btn" onClick={handleToggleLock}>
+                <button className="control-btn" data-mobile-secondary onClick={handleToggleLock}>
                   {isLocked ? <LockOutlined style={{ color: '#ef4444' }} /> : <UnlockOutlined />}
                 </button>
               </Tooltip>
               <Tooltip title={isRecording ? `Stop recording (${fmtRecTime(recordingElapsed)})` : 'Start recording'}>
                 <button
                   className={`control-btn ${isRecording ? 'recording-btn-active' : 'recording-btn-idle'}`}
+                  data-mobile-secondary
                   onClick={toggleRecording}
                   disabled={recordingLoading}
                   style={{
@@ -985,12 +1041,12 @@ const MeetingRoomUI: React.FC<{
                 </button>
               </Tooltip>
               <Tooltip title="Announcement">
-                <button className={`control-btn ${showAnnouncementInput ? 'active-btn' : ''}`} onClick={() => setShowAnnouncementInput(!showAnnouncementInput)}>
+                <button className={`control-btn ${showAnnouncementInput ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setShowAnnouncementInput(!showAnnouncementInput)}>
                   <SoundOutlined />
                 </button>
               </Tooltip>
               <Tooltip title="Create Poll">
-                <button className="control-btn" onClick={async () => {
+                <button className="control-btn" data-mobile-secondary onClick={async () => {
                   const opening = !pollPanelOpen;
                   setPollPanelOpen(opening);
                   if (opening && isHost) {
@@ -1030,7 +1086,7 @@ const MeetingRoomUI: React.FC<{
           )}
           {activePoll && !isHost && (
             <Tooltip title="Active Poll">
-              <button className="control-btn" onClick={() => setPollPanelOpen(!pollPanelOpen)} style={{ color: '#f59e0b' }}>
+              <button className="control-btn" data-mobile-secondary onClick={() => setPollPanelOpen(!pollPanelOpen)} style={{ color: '#f59e0b' }}>
                 <BarChartOutlined />
               </button>
             </Tooltip>
@@ -1042,7 +1098,7 @@ const MeetingRoomUI: React.FC<{
             </button>
           </Tooltip>
           <Tooltip title="Emoji Reaction">
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative' }} data-mobile-secondary>
               <button className="control-btn" onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}>
                 <SmileOutlined />
               </button>
@@ -1056,28 +1112,150 @@ const MeetingRoomUI: React.FC<{
             </div>
           </Tooltip>
           <Tooltip title="Whiteboard">
-            <button className={`control-btn ${whiteboardOpen ? 'active-btn' : ''}`} onClick={() => setWhiteboardOpen(!whiteboardOpen)}>
+            <button className={`control-btn ${whiteboardOpen ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setWhiteboardOpen(!whiteboardOpen)}>
               <HighlightOutlined />
             </button>
           </Tooltip>
           <Tooltip title="Audio & Video Settings">
-            <button className={`control-btn ${settingsOpen ? 'active-btn' : ''}`} onClick={() => setSettingsOpen(!settingsOpen)}>
+            <button className={`control-btn ${settingsOpen ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setSettingsOpen(!settingsOpen)}>
               <SettingOutlined />
             </button>
           </Tooltip>
+
+          {/* Mobile-only "More" button — opens a drawer that mirrors the
+              secondary controls so the bottom bar stays clean. */}
+          {isMobile && (
+            <Tooltip title="More options">
+              <button
+                className="control-btn control-btn--more"
+                onClick={() => setMoreDrawerOpen(true)}
+                aria-label="More options"
+              >
+                <Badge dot={isRecording || pollPanelOpen || whiteboardOpen} color="red">
+                  <EllipsisOutlined style={{ fontSize: 18 }} />
+                </Badge>
+              </button>
+            </Tooltip>
+          )}
         </div>
         <div className="controls-right">
           {isHost ? (
             <button className="control-btn end-btn" onClick={() => setShowEndConfirm(true)}>
-              <PhoneOutlined /> End
+              <PhoneOutlined />{!isMobile && <> End</>}
             </button>
           ) : (
             <button className="control-btn leave-btn" onClick={() => setShowLeaveConfirm(true)}>
-              <PhoneOutlined /> Leave
+              <PhoneOutlined />{!isMobile && <> Leave</>}
             </button>
           )}
         </div>
       </div>
+
+      {/* Mobile More Drawer — collects all secondary actions into a tap-friendly grid. */}
+      {isMobile && (
+        <Drawer
+          title="More options"
+          placement="bottom"
+          height="auto"
+          open={moreDrawerOpen}
+          onClose={() => setMoreDrawerOpen(false)}
+          styles={{
+            body: { padding: 16, background: '#0f172a', color: '#fff' },
+            header: { background: '#0f172a', color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.08)' },
+            content: { background: '#0f172a' },
+          }}
+          closeIcon={<span style={{ color: '#fff' }}>✕</span>}
+        >
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 12,
+            paddingBottom: 'env(safe-area-inset-bottom)',
+          }}>
+            {/* Screen share */}
+            <DrawerAction
+              icon={<ShareAltOutlined />}
+              label="Share Screen"
+              onClick={() => {
+                setMoreDrawerOpen(false);
+                // Click the actual hidden TrackToggle so LiveKit handles the request
+                const btn = document.querySelector('.screen-share-btn') as HTMLButtonElement | null;
+                btn?.click();
+              }}
+            />
+            {/* Participants */}
+            <DrawerAction
+              icon={<TeamOutlined />}
+              label="Participants"
+              badgeCount={participants.length}
+              onClick={() => { setParticipantsOpen(true); setMoreDrawerOpen(false); }}
+            />
+            {/* Whiteboard */}
+            <DrawerAction
+              icon={<HighlightOutlined />}
+              label="Whiteboard"
+              active={whiteboardOpen}
+              onClick={() => { setWhiteboardOpen(!whiteboardOpen); setMoreDrawerOpen(false); }}
+            />
+            {/* Emoji */}
+            <DrawerAction
+              icon={<SmileOutlined />}
+              label="Reactions"
+              onClick={() => { setEmojiPickerOpen(true); setMoreDrawerOpen(false); }}
+            />
+            {/* Settings */}
+            <DrawerAction
+              icon={<SettingOutlined />}
+              label="Settings"
+              active={settingsOpen}
+              onClick={() => { setSettingsOpen(!settingsOpen); setMoreDrawerOpen(false); }}
+            />
+            {/* Host-only actions */}
+            {isHost && (
+              <>
+                <DrawerAction
+                  icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
+                  label={isLocked ? 'Unlock' : 'Lock'}
+                  active={isLocked}
+                  accent={isLocked ? '#ef4444' : undefined}
+                  onClick={() => { handleToggleLock(); setMoreDrawerOpen(false); }}
+                />
+                <DrawerAction
+                  icon={<span style={{
+                    display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
+                    background: '#ef4444',
+                    animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
+                  }} />}
+                  label={isRecording ? `Recording ${fmtRecTime(recordingElapsed)}` : 'Record'}
+                  active={isRecording}
+                  accent="#ef4444"
+                  loading={recordingLoading}
+                  onClick={() => { toggleRecording(); setMoreDrawerOpen(false); }}
+                />
+                <DrawerAction
+                  icon={<SoundOutlined />}
+                  label="Announce"
+                  active={showAnnouncementInput}
+                  onClick={() => { setShowAnnouncementInput(!showAnnouncementInput); setMoreDrawerOpen(false); }}
+                />
+                <DrawerAction
+                  icon={<BarChartOutlined />}
+                  label="Polls"
+                  onClick={() => { setPollPanelOpen(!pollPanelOpen); setMoreDrawerOpen(false); }}
+                />
+              </>
+            )}
+            {activePoll && !isHost && (
+              <DrawerAction
+                icon={<BarChartOutlined />}
+                label="Active Poll"
+                accent="#f59e0b"
+                onClick={() => { setPollPanelOpen(true); setMoreDrawerOpen(false); }}
+              />
+            )}
+          </div>
+        </Drawer>
+      )}
 
       {/* Chat Panel */}
       {chatOpen && (
