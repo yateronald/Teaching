@@ -10,7 +10,7 @@ import {
     CloseOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import dayjs from 'dayjs';
+import { formatLocal } from '../../utils/timezone';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -94,7 +94,18 @@ const TeacherAudioPlayer: React.FC<{ clipId: number }> = ({ clipId }) => {
 };
 
 const QuizDetails: React.FC<QuizDetailsProps> = ({ quizId, onClose }) => {
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    // Render scheduled quiz times in the user's saved profile timezone (with
+    // the offset stamped) so a quiz scheduled "04:17 GMT" by the teacher
+    // shows correctly to a Lagos student as "05:17 GMT+1", regardless of
+    // what timezone the browser or the VPS is on.
+    const tz = user?.timezone || 'UTC';
+    const fmtSchedule = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: 'numeric', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined,
+        }) : null;
     const [loading, setLoading] = useState(true);
     const [quiz, setQuiz] = useState<QuizDetailsData | null>(null);
 
@@ -278,7 +289,7 @@ const QuizDetails: React.FC<QuizDetailsProps> = ({ quizId, onClose }) => {
                                         <div>
                                             <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Available From</div>
                                             <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                                                {quiz.start_date ? dayjs(quiz.start_date).format('MMM D, YYYY • HH:mm') : 'Now'}
+                                                {fmtSchedule(quiz.start_date) || 'Now'}
                                             </div>
                                         </div>
                                     </div>
@@ -290,7 +301,7 @@ const QuizDetails: React.FC<QuizDetailsProps> = ({ quizId, onClose }) => {
                                         <div>
                                             <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Deadline</div>
                                             <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                                                {quiz.end_date ? dayjs(quiz.end_date).format('MMM D, YYYY • HH:mm') : 'No Limit'}
+                                                {fmtSchedule(quiz.end_date) || 'No Limit'}
                                             </div>
                                         </div>
                                     </div>

@@ -41,7 +41,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import AIQuizGenerator from './AIQuizGenerator';
 import AudioQuestionModal from './AudioQuestionModal';
 import dayjs from 'dayjs';
-import { localPickerRangeToUtc, utcRangeToLocalPicker } from '../../utils/timezoneInput';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -340,7 +339,9 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     instructions: normalized.instructions,
                     batch_ids: normalized.batch_ids,
                     duration_minutes: normalized.duration_minutes,
-                    quiz_dates: utcRangeToLocalPicker(normalized.start_date, normalized.end_date, user?.timezone),
+                    quiz_dates: normalized.start_date && normalized.end_date
+                        ? [dayjs(normalized.start_date), dayjs(normalized.end_date)]
+                        : undefined,
                     randomize_questions: normalized.randomize_questions,
                     randomize_options: normalized.randomize_options,
                     total_marks: normalized.total_marks
@@ -398,14 +399,17 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 instructions: values.instructions || '',
                 batch_ids: values.batch_ids,
                 duration_minutes: values.duration_minutes,
-                // Re-anchor the picker's wall-clock value in the teacher's
-                // saved profile timezone before serializing to UTC. Without
-                // this, dayjs reads the picker as the BROWSER's local zone
-                // and we'd ship the wrong absolute moment to the server.
-                ...(() => {
-                    const { startUtc, endUtc } = localPickerRangeToUtc(values.quiz_dates, user?.timezone);
-                    return { start_date: startUtc, end_date: endUtc };
-                })(),
+                // The DatePicker hands us a dayjs anchored in the BROWSER's
+                // local timezone — the same wall-clock the teacher sees and
+                // typed. .toISOString() produces the correct absolute UTC
+                // moment for that wall-clock-in-browser-zone.
+                //
+                // The teacher is shown a clear "Your timezone: <browser tz>"
+                // hint next to the picker so they know which zone they're
+                // scheduling in. Each student then sees the moment rendered
+                // in THEIR own profile timezone via formatLocal().
+                start_date: values.quiz_dates?.[0]?.toISOString() || null,
+                end_date: values.quiz_dates?.[1]?.toISOString() || null,
                 randomize_questions: values.randomize_questions || false,
                 randomize_options: values.randomize_options || false,
                 status: publishNow ? 'published' : 'draft',
@@ -1353,7 +1357,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                         label={
                                             <span>
                                                 Quiz Schedule{' '}
-                                                <Tooltip title="When students can access and complete the quiz. Times are interpreted in YOUR timezone (set in Profile Settings) and shown to each student in THEIR own timezone.">
+                                                <Tooltip title="Pick the start/end times you want. They'll be saved as the absolute moment you chose. Each student then sees them in their own profile timezone automatically.">
                                                     <InfoCircleOutlined />
                                                 </Tooltip>
                                                 <span style={{
@@ -1362,13 +1366,16 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                                     border: '1px solid #c7d2fe', borderRadius: 6,
                                                     padding: '1px 8px', letterSpacing: 0.3,
                                                 }}>
-                                                    Your timezone: {user?.timezone || 'UTC'}
+                                                    Times below are in: {(() => {
+                                                        try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+                                                        catch { return 'your local time'; }
+                                                    })()}
                                                 </span>
                                             </span>
                                         }
                                         extra={
                                             <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
-                                                Pick the start/end as if you were sitting in {user?.timezone || 'UTC'}. We'll convert each student's view to their own timezone automatically.
+                                                Pick the wall-clock time you want — the same time you see on your computer right now. We convert each student's view to their own timezone automatically.
                                             </span>
                                         }
                                     >
