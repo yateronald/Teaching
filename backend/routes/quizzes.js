@@ -702,9 +702,42 @@ router.post('/', [
         } = req.body;
         const teacher_id = req.user.role === 'admin' ? req.body.teacher_id : req.user.id;
 
+        // ── TIMEZONE DIAGNOSTIC LOG ──
+        // If a teacher reports "I picked 4 AM but it saved as 2 AM" check this
+        // log to see EXACTLY what arrived from the browser. The values here are
+        // the absolute UTC moments — if they don't match what the teacher
+        // intended, the issue is in the picker (browser timezone) NOT the
+        // server. The server stores them verbatim.
+        try {
+            console.log('[quiz/create] timezone trace:', {
+                user_id: req.user.id,
+                user_timezone: req.user.timezone || null,
+                start_date_received: start_date,
+                end_date_received: end_date,
+                server_now_utc: new Date().toISOString(),
+                server_tz_env: process.env.TZ || '(unset)',
+            });
+        } catch {}
+
         // Validate date logic
         if (start_date && end_date && new Date(start_date) >= new Date(end_date)) {
             return res.status(400).json({ error: 'End date must be after start date' });
+        }
+
+        // Reject quizzes whose end_date is already in the past — the most
+        // common cause of "I just created it but it shows Ended" is a wrong
+        // browser clock or a teacher who picked a past time by mistake.
+        // We give them an explicit error instead of silently storing it.
+        if (end_date) {
+            const endMs = new Date(end_date).getTime();
+            const nowMs = Date.now();
+            if (endMs < nowMs - 60_000) {  // 60s grace for clock drift
+                return res.status(400).json({
+                    error: 'End date is in the past. ' +
+                        'Pick a future end time. ' +
+                        `(Server time is ${new Date(nowMs).toISOString()}, end_date received was ${end_date}.)`,
+                });
+            }
         }
 
         // Validate questions and calculate total marks
@@ -783,6 +816,23 @@ router.post('/', [
         ]);
 
         const quizId = quizResult.rows[0].id;
+
+        // ── TIMEZONE DIAGNOSTIC LOG (post-insert) ──
+        try {
+            const stored = await req.db.get(
+                `SELECT id, start_date::text AS start_text, end_date::text AS end_text,
+                        EXTRACT(EPOCH FROM (end_date - NOW()))::bigint AS seconds_until_end,
+                        (end_date <= NOW()) AS expired_on_create
+                 FROM quizzes WHERE id = ?`,
+                [quizId]
+            );
+            console.log('[quiz/create] stored row:', stored);
+            if (stored?.expired_on_create) {
+                console.warn('[quiz/create] ⚠ Quiz was created already-expired according to PG NOW(). ' +
+                    'This means the browser sent an end_date that is in the past relative to UTC. ' +
+                    'Check that the user\'s browser clock and timezone match reality.');
+            }
+        } catch (logErr) { /* ignore */ }
 
         // Save audio clips (if any) and build a mapping from temp/index to real DB IDs
         const audioClipMap = {}; // maps tempId or index -> real DB id
@@ -925,6 +975,33 @@ router.put('/:id', [
                 return res.status(400).json({ error: 'Invalid start/end date' });
             }
         }
+
+        // Reject updates that push end_date into the past — same guard as
+        // create. Skip the check if the user is just unpublishing (status
+        // change to draft) or if the quiz is already 'graded'/closed.
+        if (end_date && status !== 'draft') {
+            const endMs = new Date(end_date).getTime();
+            const nowMs = Date.now();
+            if (endMs < nowMs - 60_000) {
+                return res.status(400).json({
+                    error: 'End date is in the past. Pick a future end time. ' +
+                        `(Server time is ${new Date(nowMs).toISOString()}, end_date received was ${end_date}.)`,
+                });
+            }
+        }
+
+        // ── TIMEZONE DIAGNOSTIC LOG ──
+        try {
+            console.log('[quiz/update] timezone trace:', {
+                quiz_id: id,
+                user_id: req.user.id,
+                user_timezone: req.user.timezone || null,
+                start_date_received: start_date,
+                end_date_received: end_date,
+                server_now_utc: new Date().toISOString(),
+                server_tz_env: process.env.TZ || '(unset)',
+            });
+        } catch {}
 
         // Validate batches belong to teacher (or admin)
         let batchCheckSql = 'SELECT id FROM batches WHERE id IN (' + batch_ids.map(() => '?').join(',') + ')';
