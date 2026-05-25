@@ -1,13 +1,15 @@
-# Database Seeding
+# Database
 
-This directory contains database initialization and seeding scripts for the French Teaching Platform.
+This directory contains the PostgreSQL schema, migrations, and seeding scripts for the French Teaching Platform. The live runtime uses a managed PostgreSQL instance (Aiven) — see `backend/.env` for connection variables.
 
 ## Files
 
-- `schema.sql` - Database schema definition
-- `init.js` - Database initialization script
-- `seed-users.js` - User seeding script for default accounts
-- `french_teaching.db` - SQLite database file
+- `init-postgres.js` — PostgreSQL connection class used by `server.js`
+- `schema.sql` — Reference schema (kept for documentation; live schema is managed via `migrations/`)
+- `migrations/` — Sequential SQL migrations (apply via the `run-*-migration.js` runners)
+- `backup-schema.js` — Connect to the live DB and dump table/column/index/constraint metadata to `backups/`
+- `backup-pg-dump.js` — Run `pg_dump` against the live DB and produce schema/data/full archives in `backups/`
+- `seed-users.js` — Seed default admin/teacher/student accounts
 
 ## Default Users
 

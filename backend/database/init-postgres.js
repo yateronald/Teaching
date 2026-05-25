@@ -8,7 +8,7 @@ class PostgreSQLDatabase {
         this.config = this.getConfig();
     }
 
-    // Convert SQLite-style '?' placeholders to PostgreSQL '$1, $2, ...'.
+    // Convert legacy '?' placeholders to PostgreSQL '$1, $2, ...'.
     // If the SQL already contains positional parameters like $1, leave it unchanged.
     _normalizeParams(sql, params = []) {
         if (!params || params.length === 0) return { sql, params };

@@ -1,5 +1,8 @@
--- Migration script to update quiz system for automated grading
--- Run this script to update existing database schema
+-- Migration script to update quiz system for automated grading.
+-- HISTORICAL — this migration was originally written for the SQLite-era
+-- schema and is preserved here for reference only. The live PostgreSQL
+-- database is built from migrations/004_tcf_exam_prep.sql and onward; do
+-- NOT re-apply this file against the production database.
 
 -- Add new columns to quizzes table
 ALTER TABLE quizzes ADD COLUMN start_date DATETIME;
@@ -17,8 +20,7 @@ ALTER TABLE questions ADD COLUMN correct_answer TEXT;
 ALTER TABLE questions ADD COLUMN explanation TEXT;
 
 -- Update question types to support single/multiple MCQ
--- Note: SQLite doesn't support modifying CHECK constraints directly
--- We'll handle this in the application logic
+-- (Type-check enforcement is handled in application logic.)
 
 -- Add is_correct column to question_options
 ALTER TABLE question_options ADD COLUMN is_correct BOOLEAN DEFAULT FALSE;
@@ -29,9 +31,8 @@ ALTER TABLE quiz_submissions ADD COLUMN time_taken_minutes INTEGER;
 ALTER TABLE quiz_submissions ADD COLUMN percentage DECIMAL(5,2) DEFAULT 0;
 ALTER TABLE quiz_submissions ADD COLUMN auto_saved_data TEXT;
 
--- Remove old columns from quiz_submissions
--- Note: SQLite doesn't support DROP COLUMN directly
--- We'll create a new table and migrate data
+-- Rebuild quiz_submissions to drop deprecated columns
+-- (legacy approach: create _new, copy, drop, rename)
 
 CREATE TABLE quiz_submissions_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,8 +77,7 @@ ALTER TABLE student_answers RENAME COLUMN score TO marks_awarded;
 ALTER TABLE student_answers ADD COLUMN is_correct BOOLEAN DEFAULT FALSE;
 
 -- Remove teacher_feedback column (not needed for automated grading)
--- Note: SQLite doesn't support DROP COLUMN directly
--- We'll create a new table and migrate data
+-- (legacy approach: create _new, copy, drop, rename)
 
 CREATE TABLE student_answers_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
