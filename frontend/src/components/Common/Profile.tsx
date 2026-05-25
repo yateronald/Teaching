@@ -24,9 +24,11 @@ import {
     CameraOutlined,
     LoadingOutlined,
     DeleteOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
+import TimezoneSelect from './TimezoneSelect';
 
 const { Text } = Typography;
 
@@ -38,6 +40,7 @@ interface UserProfile {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    timezone?: string;
     profile_photo_kdrive_file_id?: string | null;
 }
 
@@ -51,6 +54,20 @@ const formatDateSafe = (value?: string | null) => {
         }
     }
     return '-';
+};
+
+// Render a timezone with its current offset, e.g. "America/Toronto · GMT-4".
+const timezoneDisplay = (tz?: string | null): string => {
+    const safe = tz || 'UTC';
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', {
+            timeZone: safe, timeZoneName: 'shortOffset',
+        }).formatToParts(new Date());
+        const tzPart = parts.find(p => p.type === 'timeZoneName');
+        return tzPart ? `${safe} · ${tzPart.value}` : safe;
+    } catch {
+        return safe;
+    }
 };
 
 const ROLE_CONFIG: Record<string, { label: string; bg: string; color: string; dot: string; gradient: string }> = {
@@ -157,6 +174,7 @@ const Profile: React.FC = () => {
                 first_name: values.first_name,
                 last_name: values.last_name,
                 username: values.username,
+                timezone: values.timezone,
                 ...(isAdmin ? { email: values.email } : {}),
             };
             const result = await updateProfile(payload);
@@ -492,6 +510,23 @@ const Profile: React.FC = () => {
                                         </Form.Item>
                                     </Col>
                                 </Row>
+                                <Row gutter={16}>
+                                    <Col span={24}>
+                                        <Form.Item
+                                            label={
+                                                <span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>
+                                                    Timezone
+                                                    <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
+                                                        — All scheduled quizzes and classes will be shown in this timezone.
+                                                    </span>
+                                                </span>
+                                            }
+                                            name="timezone"
+                                        >
+                                            <TimezoneSelect size="large" />
+                                        </Form.Item>
+                                    </Col>
+                                </Row>
                             </Form>
                         ) : (
                             <div>
@@ -517,6 +552,15 @@ const Profile: React.FC = () => {
                                     </Col>
                                     <Col span={12}>
                                         <InfoRow icon={<CalendarOutlined />} label="Member Since" value={formatDateSafe(profile?.created_at)} />
+                                    </Col>
+                                </Row>
+                                <Row gutter={24}>
+                                    <Col span={24}>
+                                        <InfoRow
+                                            icon={<GlobalOutlined />}
+                                            label="Timezone"
+                                            value={timezoneDisplay(profile?.timezone)}
+                                        />
                                     </Col>
                                 </Row>
                             </div>

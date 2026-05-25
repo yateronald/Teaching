@@ -32,7 +32,7 @@ async function authenticateToken(req, res, next) {
         const decoded = jwt.verify(token, JWT_SECRET);
         // Fetch user from DB and attach to request (include security fields)
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, timezone, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id FROM users WHERE id = ?',
             [decoded.id]
         );
 

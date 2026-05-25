@@ -97,7 +97,7 @@ class ReminderService {
 
                 // Get all students in this batch
                 const students = await database.all(`
-                    SELECT u.id, u.email, u.first_name, u.last_name
+                    SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                     FROM users u
                     JOIN batch_students bs ON u.id = bs.student_id
                     WHERE bs.batch_id = ? AND u.role = 'student'
@@ -155,7 +155,8 @@ class ReminderService {
                 date: date,
                 location: classInfo.location,
                 locationMode: classInfo.location_mode || 'physical',
-                link: classInfo.link
+                link: classInfo.link,
+                recipientTimezone: student.timezone || 'UTC',
             });
 
             console.log(`Reminder sent to ${student.email} for class "${classInfo.title}"`);
@@ -196,7 +197,7 @@ class ReminderService {
 
             // Get students in the batch
             const students = await database.all(`
-                SELECT u.id, u.email, u.first_name, u.last_name
+                SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                 FROM users u
                 JOIN batch_students bs ON u.id = bs.student_id
                 WHERE bs.batch_id = ? AND u.role = 'student'

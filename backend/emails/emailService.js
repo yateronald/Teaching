@@ -96,15 +96,15 @@ async function sendBatchEnrollmentToStudent({ to, studentName, batchName, teache
 // ─────────────────────────────────────────────────────────────────────────
 // Quizzes
 // ─────────────────────────────────────────────────────────────────────────
-async function sendQuizNotification({ to, studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints }) {
+async function sendQuizNotification({ to, studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints, recipientTimezone }) {
     const { subject, html, text } = buildQuizNotificationTemplate({
-        studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints,
+        studentName, quizName, teacherName, batchName, duration, startDate, endDate, totalPoints, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
-async function sendQuizReminder({ to, studentName, quizTitle, dueDate, quizLink }) {
-    const { subject, html, text } = buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink });
+async function sendQuizReminder({ to, studentName, quizTitle, dueDate, quizLink, recipientTimezone }) {
+    const { subject, html, text } = buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink, recipientTimezone });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
@@ -113,22 +113,22 @@ async function sendQuizReminder({ to, studentName, quizTitle, dueDate, quizLink 
 // ─────────────────────────────────────────────────────────────────────────
 async function sendClassScheduleNotification({
     to, studentName, className, teacherName, batchName, frenchLevel,
-    startTime, endTime, date, location, locationMode, link, description,
+    startTime, endTime, date, location, locationMode, link, description, recipientTimezone,
 }) {
     const { subject, html, text } = buildClassScheduleNotificationTemplate({
         studentName, className, teacherName, batchName, frenchLevel,
-        startTime, endTime, date, location, locationMode, link, description,
+        startTime, endTime, date, location, locationMode, link, description, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
 async function sendClassReminder({
     to, studentName, className, teacherName, batchName,
-    startTime, endTime, date, location, locationMode, link,
+    startTime, endTime, date, location, locationMode, link, recipientTimezone,
 }) {
     const { subject, html, text } = buildClassReminderTemplate({
         studentName, className, teacherName, batchName,
-        startTime, endTime, date, location, locationMode, link,
+        startTime, endTime, date, location, locationMode, link, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
@@ -138,33 +138,33 @@ async function sendClassReminder({
 // ─────────────────────────────────────────────────────────────────────────
 async function sendMeetingScheduledNotification({
     to, studentName, meetingTitle, teacherName, batchName,
-    scheduledStart, scheduledEnd, description, joinUrl,
+    scheduledStart, scheduledEnd, description, joinUrl, recipientTimezone,
 }) {
     const { subject, html, text } = buildMeetingScheduledTemplate({
         studentName, meetingTitle, teacherName, batchName,
-        scheduledStart, scheduledEnd, description, joinUrl,
+        scheduledStart, scheduledEnd, description, joinUrl, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
 async function sendMeetingUpdate({
     to, studentName, meetingTitle, teacherName, batchName,
-    date, startTime, endTime, locationMode, location, link, description, changes,
+    date, startTime, endTime, locationMode, location, link, description, changes, recipientTimezone,
 }) {
     const { subject, html, text } = buildMeetingUpdateTemplate({
         studentName, meetingTitle, teacherName, batchName,
-        date, startTime, endTime, locationMode, location, link, description, changes,
+        date, startTime, endTime, locationMode, location, link, description, changes, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
 async function sendMeetingCancellation({
     to, studentName, meetingTitle, teacherName, batchName,
-    originalDate, originalStartTime, originalEndTime, locationMode, location, link, reason,
+    originalDate, originalStartTime, originalEndTime, locationMode, location, link, reason, recipientTimezone,
 }) {
     const { subject, html, text } = buildMeetingCancellationTemplate({
         studentName, meetingTitle, teacherName, batchName,
-        originalDate, originalStartTime, originalEndTime, locationMode, location, link, reason,
+        originalDate, originalStartTime, originalEndTime, locationMode, location, link, reason, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
@@ -173,22 +173,22 @@ async function sendMeetingCancellation({
 // Demo scheduling
 // ─────────────────────────────────────────────────────────────────────────
 async function sendDemoScheduleNotificationToStudent({
-    to, studentName, teacherName, teacherEmail, demoDate, meetingLink, notes,
+    to, studentName, teacherName, teacherEmail, demoDate, meetingLink, notes, recipientTimezone,
 }) {
     const { subject, html, text } = buildDemoScheduleStudentTemplate({
         studentName, teacherName, teacherEmail,
-        demoDate, demoTime: demoDate, meetingLink, notes,
+        demoDate, demoTime: demoDate, meetingLink, notes, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
 async function sendDemoScheduleNotificationToTeacher({
     to, teacherName, studentName, studentEmail, studentLevel, studentGoals, studentExpectations,
-    demoDate, meetingLink, notes,
+    demoDate, meetingLink, notes, recipientTimezone,
 }) {
     const { subject, html, text } = buildDemoScheduleTeacherTemplate({
         teacherName, studentName, studentEmail, studentLevel, studentGoals, studentExpectations,
-        demoDate, demoTime: demoDate, meetingLink, notes,
+        demoDate, demoTime: demoDate, meetingLink, notes, recipientTimezone,
     });
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }

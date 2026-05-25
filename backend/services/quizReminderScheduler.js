@@ -59,7 +59,7 @@ class QuizReminderScheduler {
             // Get all students enrolled in this quiz
             const students = await this.db.all(`
                 SELECT DISTINCT 
-                    s.id, s.email, s.first_name, s.last_name, 
+                    s.id, s.email, s.first_name, s.last_name, s.timezone,
                     b.name as batch_name
                 FROM quiz_batches qb
                 JOIN batch_students bs ON qb.batch_id = bs.batch_id
@@ -81,7 +81,8 @@ class QuizReminderScheduler {
                         batchName: student.batch_name,
                         duration: quiz.duration_minutes || 0,
                         startDate: quiz.start_date,
-                        totalPoints: quiz.total_marks || 0
+                        totalPoints: quiz.total_marks || 0,
+                        recipientTimezone: student.timezone || 'UTC',
                     });
                     
                     console.log(`⏰ Quiz reminder sent to ${student.email} for quiz: ${quiz.title}`);

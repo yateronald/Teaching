@@ -1,25 +1,4 @@
-const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
-
-function safeFormatDateTime(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
-}
-
-function safeFormatDate(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-function safeFormatTime(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
 /**
  * Email sent to students when a teacher creates a live meeting (virtual classroom).
@@ -33,6 +12,7 @@ function safeFormatTime(input) {
  *   scheduledEnd?: string|Date|null,
  *   description?: string,
  *   joinUrl?: string,
+ *   recipientTimezone?: string,
  * }} args
  */
 function buildMeetingScheduledTemplate({
@@ -44,26 +24,37 @@ function buildMeetingScheduledTemplate({
     scheduledEnd,
     description,
     joinUrl,
+    recipientTimezone,
 }) {
     const safeStudent = studentName || 'there';
     const safeMeeting = meetingTitle || 'Live class';
+    const tz = recipientTimezone || 'UTC';
     const subject = `Live class scheduled: ${safeMeeting}`;
 
     const preheader = teacherName
         ? `${teacherName} just scheduled a live class for ${batchName || 'your batch'}.`
         : 'A live class has been scheduled for you.';
 
-    const dateStr = safeFormatDate(scheduledStart);
-    const startStr = safeFormatTime(scheduledStart);
-    const endStr = safeFormatTime(scheduledEnd);
+    const dateOnlyOpts = {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: undefined, minute: undefined, hour12: undefined,
+    };
+    const timeOnlyOpts = {
+        weekday: undefined, year: undefined, month: undefined, day: undefined,
+        hour: 'numeric', minute: '2-digit', hour12: true,
+    };
+
+    const dateStr = formatRecipientTime(scheduledStart, tz, dateOnlyOpts);
+    const startStr = formatRecipientTime(scheduledStart, tz, timeOnlyOpts);
+    const endStr = formatRecipientTime(scheduledEnd, tz, timeOnlyOpts);
     const timeRange = startStr && endStr ? `${startStr} – ${endStr}` : (startStr || null);
 
     const detailRows = [
         { label: 'Class', value: escapeHtml(safeMeeting) },
         { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
         { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
-        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
-        { label: 'Time', value: timeRange ? escapeHtml(timeRange) : null },
+        { label: `Date (${tz})`, value: dateStr ? escapeHtml(dateStr) : null },
+        { label: `Time (${tz})`, value: timeRange ? escapeHtml(timeRange) : null },
         { label: 'Format', value: 'Online — Live virtual classroom' },
     ];
 

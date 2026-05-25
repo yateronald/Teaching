@@ -419,9 +419,13 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
 
         // Get the updated demo request with teacher information
         const updatedDemo = await req.db.get(`
-            SELECT dr.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name, u.email as teacher_email
+            SELECT dr.*,
+                   u.first_name as teacher_first_name, u.last_name as teacher_last_name, u.email as teacher_email,
+                   u.timezone AS teacher_timezone,
+                   s_user.timezone AS student_timezone
             FROM demo_requests dr
             LEFT JOIN users u ON dr.teacher_id = u.id
+            LEFT JOIN users s_user ON s_user.email = dr.email AND s_user.role = 'student'
             WHERE dr.id = ?
         `, [id]);
 
@@ -452,7 +456,8 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
                 teacherEmail: updatedDemo.teacher_email,
                 demoDate: updatedDemo.demo_scheduled_at,
                 meetingLink: updatedDemo.meeting_link,
-                notes: updatedDemo.notes
+                notes: updatedDemo.notes,
+                recipientTimezone: updatedDemo.student_timezone || 'UTC',
             });
 
             // Send notification to teacher
@@ -466,7 +471,8 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
                 studentExpectations: updatedDemo.expectations,
                 demoDate: updatedDemo.demo_scheduled_at,
                 meetingLink: updatedDemo.meeting_link,
-                notes: updatedDemo.notes
+                notes: updatedDemo.notes,
+                recipientTimezone: updatedDemo.teacher_timezone || 'UTC',
             });
 
             console.log('✅ Demo scheduling notifications sent successfully');

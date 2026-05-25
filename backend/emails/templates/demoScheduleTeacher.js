@@ -1,27 +1,4 @@
-const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
-
-function safeFormatDate(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-function safeFormatTime(input) {
-    if (!input) return null;
-    let t;
-    if (input instanceof Date) {
-        t = input;
-    } else if (typeof input === 'string' && input.includes('T')) {
-        t = new Date(input);
-    } else if (typeof input === 'string') {
-        t = new Date(`2000-01-01T${input}`);
-    } else {
-        return null;
-    }
-    if (isNaN(t.getTime())) return String(input);
-    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
 /**
  * Email sent to a teacher when a demo class has been assigned to them.
@@ -37,6 +14,7 @@ function safeFormatTime(input) {
  *   demoTime?: string|Date,
  *   meetingLink?: string,
  *   notes?: string,
+ *   recipientTimezone?: string,
  * }} args
  */
 function buildDemoScheduleTeacherTemplate({
@@ -50,15 +28,19 @@ function buildDemoScheduleTeacherTemplate({
     demoTime,
     meetingLink,
     notes,
+    recipientTimezone,
 }) {
     const safeTeacher = teacherName || 'there';
     const safeStudent = studentName || 'a new student';
+    const tz = recipientTimezone || 'UTC';
 
     const subject = `Demo class assigned: ${safeStudent}`;
     const preheader = `You'll run a demo class with ${safeStudent}.`;
 
-    const dateStr = safeFormatDate(demoDate);
-    const timeStr = safeFormatTime(demoTime) || safeFormatTime(demoDate);
+    // demoDate is expected to be a full ISO timestamp (with time). demoTime is
+    // accepted as a fallback for older callers.
+    const moment = demoDate || demoTime || null;
+    const whenStr = formatRecipientTime(moment, tz);
 
     const studentRows = [
         { label: 'Name', value: escapeHtml(safeStudent) },
@@ -67,8 +49,7 @@ function buildDemoScheduleTeacherTemplate({
     ];
 
     const scheduleRows = [
-        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
-        { label: 'Time', value: timeStr ? escapeHtml(timeStr) : null },
+        { label: `Date & time (${tz})`, value: whenStr ? escapeHtml(whenStr) : null },
     ];
 
     const goalsStrip = studentGoals

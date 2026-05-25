@@ -168,6 +168,7 @@ router.put('/profile', [
     body('last_name').optional().isLength({ min: 1 }).trim(),
     body('username').optional().isLength({ min: 3 }).trim(),
     body('email').optional().isEmail().normalizeEmail(),
+    body('timezone').optional().isString().isLength({ max: 64 }),
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -181,10 +182,19 @@ router.put('/profile', [
         const userId = req.user.id;
         const role = req.user.role;
 
-        // Determine allowed fields
-        const allowedForAll = ['first_name', 'last_name', 'username'];
+        // Determine allowed fields. Timezone can be updated by any role —
+        // it's a personal display preference.
+        const allowedForAll = ['first_name', 'last_name', 'username', 'timezone'];
         const allowedForAdmin = [...allowedForAll, 'email'];
         const allowed = role === 'admin' ? allowedForAdmin : allowedForAll;
+
+        // Validate timezone against the IANA catalog if provided
+        if (Object.prototype.hasOwnProperty.call(req.body, 'timezone')) {
+            const { isValidTimezone } = require('../services/timezoneService');
+            if (!isValidTimezone(req.body.timezone)) {
+                return res.status(400).json({ error: 'Invalid timezone identifier' });
+            }
+        }
 
         // Build update set dynamically from request body but only for allowed fields
         const updates = [];
@@ -228,7 +238,7 @@ router.put('/profile', [
 
         // Fetch updated user
         const updatedUser = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at, profile_photo_kdrive_file_id FROM users WHERE id = ?',
+            'SELECT id, username, email, role, first_name, last_name, timezone, created_at, profile_photo_kdrive_file_id FROM users WHERE id = ?',
             [userId]
         );
 
@@ -237,6 +247,13 @@ router.put('/profile', [
         console.error('Update profile error:', error);
         res.status(500).json({ error: 'Failed to update profile' });
     }
+});
+
+// Public list of supported timezones (for the profile dropdown).
+// Doesn't require authentication — it's a static catalog.
+router.get('/timezones', (_req, res) => {
+    const { listTimezones } = require('../services/timezoneService');
+    res.json({ groups: listTimezones() });
 });
 
 // Verify token endpoint

@@ -25,6 +25,7 @@ import { useSearchParams } from 'react-router-dom';
 import QuizTaking, { type QuizTakingHandle } from '../Quiz/QuizTaking';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import { formatLocal } from '../../utils/timezone';
 
 const { Text, Paragraph } = Typography;
 
@@ -113,7 +114,25 @@ const StudentQuizzes: React.FC = () => {
     const [quizTakingVisible, setQuizTakingVisible] = useState(false);
     const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState<TabKey>('Available');
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    // Display all quiz times in the student's saved profile timezone (with
+    // the offset stamped) so a quiz scheduled "15:00 UTC" reads as "16:00
+    // GMT+1" for a Lagos student. Falls back to UTC if the student hasn't
+    // set a timezone yet.
+    const tz = user?.timezone || 'UTC';
+    const fmtCompact = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined, year: undefined,
+        }) : '—';
+    const fmtFull = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined,
+        }) : '—';
+
     const [messageApi, contextHolder] = message.useMessage();
     const quizTakingRef = useRef<QuizTakingHandle | null>(null);
 
@@ -280,9 +299,9 @@ const StudentQuizzes: React.FC = () => {
             render: (_, r) => (
                 <div style={{ fontSize: 12, color: '#64748b', display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <span><CalendarOutlined style={{ marginRight: 4, color: '#6366f1' }} />
-                        {r.start_date ? dayjs(r.start_date).format('MMM DD, HH:mm') : '—'}
+                        {fmtCompact(r.start_date)}
                     </span>
-                    <span style={{ color: '#94a3b8' }}>→ {r.end_date ? dayjs(r.end_date).format('MMM DD, HH:mm') : '—'}</span>
+                    <span style={{ color: '#94a3b8' }}>→ {fmtCompact(r.end_date)}</span>
                 </div>
             ),
         },
@@ -301,7 +320,7 @@ const StudentQuizzes: React.FC = () => {
                                 <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
                                 <span style={{ fontSize: 11, fontWeight: 600, color: '#b45309' }}>Locked</span>
                             </div>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Unlocks {dayjs(r.end_date!).format('MMM DD, HH:mm')}</div>
+                            <div style={{ fontSize: 11, color: '#94a3b8' }}>Unlocks {fmtCompact(r.end_date)}</div>
                         </div>
                     );
                 }
@@ -357,7 +376,7 @@ const StudentQuizzes: React.FC = () => {
         },
         { title: 'RESULT', key: 'result', width: 100, render: (_, r) => <StatusPill color={r.passed ? 'green' : 'red'} text={r.passed ? 'PASSED' : 'FAILED'} /> },
         { title: 'TIME', dataIndex: 'time_taken', key: 'time_taken', width: 110, render: (m: number) => <span style={{ fontSize: 12, color: '#64748b' }}>{formatDuration(m)}</span> },
-        { title: 'COMPLETED', dataIndex: 'completed_at', key: 'completed_at', width: 160, render: (d: string) => <span style={{ fontSize: 12, color: '#64748b' }}>{dayjs(d).format('MMM DD, YYYY HH:mm')}</span> },
+        { title: 'COMPLETED', dataIndex: 'completed_at', key: 'completed_at', width: 200, render: (d: string) => <span style={{ fontSize: 12, color: '#64748b' }}>{fmtFull(d)}</span> },
     ];
 
     const activeQuizzes = filteredQuizzes.filter(q => getQuizStatus(q).status === 'active');
@@ -635,9 +654,9 @@ const StudentQuizzes: React.FC = () => {
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Available Period</div>
                             <div style={{ fontSize: 13, color: '#4b5563' }}>
                                 <CalendarOutlined style={{ marginRight: 6, color: '#6366f1' }} />
-                                {selectedQuiz.start_date ? dayjs(selectedQuiz.start_date).format('MMM DD, YYYY HH:mm') : '—'}
+                                {fmtFull(selectedQuiz.start_date)}
                                 {' → '}
-                                {selectedQuiz.end_date ? dayjs(selectedQuiz.end_date).format('MMM DD, YYYY HH:mm') : '—'}
+                                {fmtFull(selectedQuiz.end_date)}
                             </div>
                         </div>
 
@@ -645,7 +664,7 @@ const StudentQuizzes: React.FC = () => {
                         <div style={{ background: '#f8fafc', borderRadius: 12, padding: '12px 16px' }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Your Progress</div>
                             {selectedQuiz.end_date && dayjs(selectedQuiz.end_date).isAfter(dayjs()) ? (
-                                <><LockOutlined style={{ color: '#f59e0b', marginRight: 6 }} /><Text style={{ color: '#b45309', fontSize: 13 }}>Results locked until {dayjs(selectedQuiz.end_date).format('MMM DD, HH:mm')}</Text></>
+                                <><LockOutlined style={{ color: '#f59e0b', marginRight: 6 }} /><Text style={{ color: '#b45309', fontSize: 13 }}>Results locked until {fmtCompact(selectedQuiz.end_date)}</Text></>
                             ) : (
                                 <div>
                                     <Text style={{ fontSize: 13, textTransform: 'capitalize', color: '#4b5563' }}>

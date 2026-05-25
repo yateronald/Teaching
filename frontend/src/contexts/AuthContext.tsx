@@ -10,6 +10,9 @@ interface User {
     last_name: string;
     role: 'admin' | 'teacher' | 'student';
     created_at: string;
+    // IANA timezone identifier (e.g. 'America/Toronto'). Defaults to 'UTC'
+    // if the user hasn't set one. Used to localize all displayed times.
+    timezone?: string;
     // Optional profile photo (kDrive file id). When null/undefined the UI shows a default icon.
     profile_photo_kdrive_file_id?: string | null;
     // Password policy fields (may be undefined depending on endpoint)

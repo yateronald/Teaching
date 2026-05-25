@@ -29,8 +29,8 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
 // ─────────────────────────────────────────────────────────────────────────
-// CORS: allow both the apex domain and the www subdomain in production,
-// plus the usual local-dev origins. Extra origins can be added via the
+// CORS: allow the production domains (apex + www + any subdomain), plus
+// localhost on any port for dev. Extra origins can be added via the
 // ALLOWED_ORIGINS env var (comma-separated full origins).
 // ─────────────────────────────────────────────────────────────────────────
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -47,11 +47,14 @@ const ALLOWED_ORIGINS = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ORIGIN
 //   - allows requests with no Origin header (curl, server-to-server, mobile webview)
 //   - matches the explicit allowlist
 //   - matches any *.learnfrenchwithnatives.com subdomain (future-proof)
+//   - matches localhost / 127.0.0.1 on any port for local dev (Vite, etc.)
 const PROD_HOST_REGEX = /^https:\/\/([a-z0-9-]+\.)*learnfrenchwithnatives\.com$/i;
+const LOCAL_HOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 function isOriginAllowed(origin) {
     if (!origin) return true;
     if (ALLOWED_ORIGINS.includes(origin)) return true;
     if (PROD_HOST_REGEX.test(origin)) return true;
+    if (LOCAL_HOST_REGEX.test(origin)) return true;
     return false;
 }
 

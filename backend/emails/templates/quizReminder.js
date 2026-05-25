@@ -1,19 +1,4 @@
-const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
-
-function safeFormatDateTime(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-    });
-}
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
 /**
  * Reminder email sent shortly before a quiz becomes available.
@@ -23,12 +8,14 @@ function safeFormatDateTime(input) {
  *   quizTitle?: string,
  *   dueDate?: string|Date,
  *   quizLink?: string,
+ *   recipientTimezone?: string,
  * }} args
  */
-function buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink }) {
+function buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink, recipientTimezone }) {
     const safeStudent = studentName || 'there';
     const safeQuiz = quizTitle || 'Your quiz';
-    const dueStr = safeFormatDateTime(dueDate);
+    const tz = recipientTimezone || 'UTC';
+    const dueStr = formatRecipientTime(dueDate, tz);
     const fallbackUrl = `${(process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '')}/app/quizzes`;
     const targetUrl = quizLink || fallbackUrl;
 
@@ -37,7 +24,7 @@ function buildQuizReminderTemplate({ studentName, quizTitle, dueDate, quizLink }
 
     const detailRows = [
         { label: 'Quiz', value: escapeHtml(safeQuiz) },
-        { label: 'Due', value: dueStr ? escapeHtml(dueStr) : null },
+        { label: `Due (${tz})`, value: dueStr ? escapeHtml(dueStr) : null },
     ];
 
     const bodyHtml = `

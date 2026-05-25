@@ -147,7 +147,7 @@ router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
     if (batch_id) {
       try {
         const students = await req.db.all(
-          `SELECT u.email, u.first_name, u.last_name FROM users u
+          `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
            JOIN batch_students bs ON u.id = bs.student_id
            WHERE bs.batch_id = $1 AND u.is_active = true`,
           [batch_id]
@@ -167,6 +167,7 @@ router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
             scheduledEnd: scheduled_end || null,
             description: description || null,
             joinUrl: `${frontendBase}/app/meetings?focus=${result.id}`,
+            recipientTimezone: student.timezone || 'UTC',
           }).catch(err => console.error('Meeting email error:', err));
         }
       } catch (emailErr) {

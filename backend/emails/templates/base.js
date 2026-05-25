@@ -141,6 +141,39 @@ function escapeHtml(s) {
 }
 
 /**
+ * Format a UTC timestamp in the recipient's timezone, with a clear timezone
+ * label (e.g. "GMT-4") appended so the time is unambiguous in inboxes that
+ * don't render JavaScript. Falls back to UTC if no zone is provided.
+ *
+ * @param {string|Date|number} when  UTC moment (TIMESTAMPTZ ISO string is fine)
+ * @param {string} tz                IANA zone identifier
+ * @param {object} [opts]            Intl.DateTimeFormat options to override
+ */
+function formatRecipientTime(when, tz, opts = {}) {
+    if (when === null || when === undefined || when === '') return '';
+    const d = when instanceof Date ? when : new Date(when);
+    if (isNaN(d.getTime())) return String(when);
+    const safeTz = tz && (() => {
+        try { new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(); return true; } catch { return false; }
+    })() ? tz : 'UTC';
+    const formatOpts = {
+        weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true, timeZone: safeTz,
+        ...opts,
+    };
+    const datePart = new Intl.DateTimeFormat('en-US', formatOpts).format(d);
+    if (formatOpts.timeZoneName) return datePart;
+    // Get short offset (e.g. "GMT-4")
+    let abbr = safeTz;
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: safeTz, timeZoneName: 'shortOffset' }).formatToParts(d);
+        const tzPart = parts.find(p => p.type === 'timeZoneName');
+        if (tzPart) abbr = tzPart.value;
+    } catch {}
+    return `${datePart} · ${abbr}`;
+}
+
+/**
  * Master shell: renders header (logo + title), body, and footer.
  *
  * @param {{
@@ -239,6 +272,7 @@ module.exports = {
     ctaButton,
     infoStrip,
     escapeHtml,
+    formatRecipientTime,
     getLogoUrl,
     getSupportEmail,
     BRAND,

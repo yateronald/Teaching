@@ -1484,7 +1484,7 @@ router.patch('/:id/status', [
             `, [id]);
 
             const students = await req.db.all(`
-                SELECT DISTINCT bs.student_id, s.email, s.first_name, s.last_name, b.name as batch_name
+                SELECT DISTINCT bs.student_id, s.email, s.first_name, s.last_name, s.timezone, b.name as batch_name
                 FROM quiz_batches qb
                 JOIN batch_students bs ON qb.batch_id = bs.batch_id
                 JOIN users s ON bs.student_id = s.id
@@ -1524,7 +1524,8 @@ router.patch('/:id/status', [
                         duration: quizDetails.duration_minutes || 0,
                         startDate: quizDetails.start_date,
                         endDate: quizDetails.end_date,
-                        totalPoints: quizDetails.total_marks || 0
+                        totalPoints: quizDetails.total_marks || 0,
+                        recipientTimezone: student.timezone || 'UTC',
                     });
                     console.log(`✅ Quiz notification sent to ${student.email}`);
                 } catch (emailError) {

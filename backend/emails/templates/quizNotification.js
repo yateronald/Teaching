@@ -1,19 +1,4 @@
-const { baseHtml, detailCard, ctaButton, escapeHtml } = require('./base');
-
-function safeFormatDateTime(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-    });
-}
+const { baseHtml, detailCard, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
 function formatDuration(minutes) {
     if (minutes === null || minutes === undefined || minutes === '') return null;
@@ -38,6 +23,7 @@ function formatDuration(minutes) {
  *   startDate?: string|Date,
  *   endDate?: string|Date,
  *   totalPoints?: number,
+ *   recipientTimezone?: string,   // IANA, e.g. 'America/Toronto' — defaults to UTC
  * }} args
  */
 function buildQuizNotificationTemplate({
@@ -49,9 +35,11 @@ function buildQuizNotificationTemplate({
     startDate,
     endDate,
     totalPoints,
+    recipientTimezone,
 }) {
     const safeStudent = studentName || 'there';
     const safeQuiz = quizName || 'New quiz';
+    const tz = recipientTimezone || 'UTC';
 
     const subject = `Quiz published: ${safeQuiz}`;
     const preheader = teacherName
@@ -59,15 +47,15 @@ function buildQuizNotificationTemplate({
         : `A new quiz has been published.`;
 
     const durationLabel = formatDuration(duration);
-    const startStr = safeFormatDateTime(startDate);
-    const endStr = safeFormatDateTime(endDate);
+    const startStr = formatRecipientTime(startDate, tz);
+    const endStr = formatRecipientTime(endDate, tz);
 
     const detailRows = [
         { label: 'Quiz', value: escapeHtml(safeQuiz) },
         { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
         { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
-        { label: 'Available from', value: startStr ? escapeHtml(startStr) : null },
-        { label: 'Closes on', value: endStr ? escapeHtml(endStr) : null },
+        { label: `Available from (${tz})`, value: startStr ? escapeHtml(startStr) : null },
+        { label: `Closes on (${tz})`, value: endStr ? escapeHtml(endStr) : null },
         { label: 'Duration', value: durationLabel ? escapeHtml(durationLabel) : null },
         { label: 'Total points', value: (totalPoints || totalPoints === 0) ? escapeHtml(String(totalPoints)) : null },
     ];

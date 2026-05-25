@@ -215,7 +215,7 @@ router.post('/', [
             try {
                 // Get all students in this batch
                 const students = await req.db.all(`
-                    SELECT u.id, u.email, u.first_name, u.last_name
+                    SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                     FROM users u
                     JOIN batch_students bs ON u.id = bs.student_id
                     WHERE bs.batch_id = ? AND u.role = 'student'
@@ -243,7 +243,8 @@ router.post('/', [
                         location: finalLocation,
                         locationMode: location_mode,
                         link: finalLink,
-                        description: description
+                        description: description,
+                        recipientTimezone: student.timezone || 'UTC',
                     }).catch(error => {
                         console.error(`Failed to send notification to ${student.email}:`, error);
                         return null; // Don't fail the entire operation
@@ -446,7 +447,7 @@ router.put('/:id', [
                 if (statusChangedToCancelled) {
                     // Send cancellation to students of the original batch
                     const students = await req.db.all(`
-                        SELECT u.id, u.email, u.first_name, u.last_name
+                        SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                         FROM users u
                         JOIN batch_students bs ON u.id = bs.student_id
                         WHERE bs.batch_id = ? AND u.role = 'student'
@@ -481,7 +482,8 @@ router.put('/:id', [
                             locationMode: schedule.location_mode,
                             location: schedule.location,
                             link: schedule.link,
-                            reason: description // if provided, use as reason
+                            reason: description, // if provided, use as reason
+                            recipientTimezone: student.timezone || 'UTC',
                         }).catch(err => {
                             console.error(`❌ Failed to send cancellation to ${student.email}:`, err);
                             return null;
@@ -496,7 +498,7 @@ router.put('/:id', [
                     if (relevantChanged) {
                         const notifyBatchId = (batch_id !== undefined) ? batch_id : schedule.batch_id;
                         const students = await req.db.all(`
-                            SELECT u.id, u.email, u.first_name, u.last_name
+                            SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                             FROM users u
                             JOIN batch_students bs ON u.id = bs.student_id
                             WHERE bs.batch_id = ? AND u.role = 'student'
@@ -525,7 +527,8 @@ router.put('/:id', [
                                 location: updatedSchedule.location,
                                 link: updatedSchedule.link,
                                 description: updatedSchedule.description,
-                                changes
+                                changes,
+                                recipientTimezone: student.timezone || 'UTC',
                             }).catch(err => {
                                 console.error(`❌ Failed to send update to ${student.email}:`, err);
                                 return null;
@@ -595,7 +598,7 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                 `, [id]);
 
                 const students = await req.db.all(`
-                    SELECT u.id, u.email, u.first_name, u.last_name
+                    SELECT u.id, u.email, u.first_name, u.last_name, u.timezone
                     FROM users u
                     JOIN batch_students bs ON u.id = bs.student_id
                     WHERE bs.batch_id = ? AND u.role = 'student'
@@ -620,7 +623,8 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                         locationMode: detail.location_mode,
                         location: detail.location,
                         link: detail.link,
-                        reason: `The ${schedule.type} has been cancelled.`
+                        reason: `The ${schedule.type} has been cancelled.`,
+                        recipientTimezone: student.timezone || 'UTC',
                     }).catch(err => {
                         console.error(`❌ Failed to send deletion notification to ${student.email}:`, err);
                         return null;

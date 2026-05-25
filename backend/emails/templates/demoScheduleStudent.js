@@ -1,27 +1,4 @@
-const { baseHtml, detailCard, ctaButton, escapeHtml } = require('./base');
-
-function safeFormatDate(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-function safeFormatTime(input) {
-    if (!input) return null;
-    let t;
-    if (input instanceof Date) {
-        t = input;
-    } else if (typeof input === 'string' && input.includes('T')) {
-        t = new Date(input);
-    } else if (typeof input === 'string') {
-        t = new Date(`2000-01-01T${input}`);
-    } else {
-        return null;
-    }
-    if (isNaN(t.getTime())) return String(input);
-    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-}
+const { baseHtml, detailCard, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
 /**
  * Email sent to a student when their demo class has been scheduled.
@@ -34,6 +11,7 @@ function safeFormatTime(input) {
  *   demoTime?: string|Date,
  *   meetingLink?: string,
  *   notes?: string,
+ *   recipientTimezone?: string,
  * }} args
  */
 function buildDemoScheduleStudentTemplate({
@@ -44,23 +22,25 @@ function buildDemoScheduleStudentTemplate({
     demoTime,
     meetingLink,
     notes,
+    recipientTimezone,
 }) {
     const safeStudent = studentName || 'there';
+    const tz = recipientTimezone || 'UTC';
 
     const subject = 'Your demo class is scheduled';
     const preheader = teacherName
         ? `${teacherName} will run your demo class.`
         : 'Your demo class details are inside.';
 
-    const dateStr = safeFormatDate(demoDate);
-    // demoTime can be a separate value, but if missing, derive from demoDate.
-    const timeStr = safeFormatTime(demoTime) || safeFormatTime(demoDate);
+    // demoDate is expected to be a full ISO timestamp (with time). demoTime is
+    // accepted as a fallback for older callers.
+    const moment = demoDate || demoTime || null;
+    const whenStr = formatRecipientTime(moment, tz);
 
     const detailRows = [
         { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
         { label: 'Teacher email', value: teacherEmail ? escapeHtml(teacherEmail) : null },
-        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
-        { label: 'Time', value: timeStr ? escapeHtml(timeStr) : null },
+        { label: `Date & time (${tz})`, value: whenStr ? escapeHtml(whenStr) : null },
     ];
 
     const cta = meetingLink

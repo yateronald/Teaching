@@ -19,6 +19,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
+import { formatLocal } from '../../utils/timezone';
 import type { ColumnsType } from 'antd/es/table';
 
 
@@ -114,7 +115,31 @@ const StudentQuizResults: React.FC = () => {
     const [selectedResult, setSelectedResult] = useState<DetailedResult | null>(null);
     const [loadingQuizId, setLoadingQuizId] = useState<number | null>(null);
     const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    // Render quiz timestamps in the student's saved profile timezone.
+    const tz = user?.timezone || 'UTC';
+    const fmtDay = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: '2-digit', year: 'numeric',
+            weekday: undefined, hour: undefined, minute: undefined, hour12: undefined,
+        }) : '—';
+    const fmtTimeOnly = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined, year: undefined, month: undefined, day: undefined,
+        }) : '—';
+    const fmtFull = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined,
+        }) : '—';
+    const fmtCompact = (iso?: string | null) =>
+        iso ? formatLocal(iso, tz, {
+            month: 'short', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: undefined, year: undefined,
+        }) : '—';
 
     // Filter states
     const [batchFilter, setBatchFilter] = useState<string | null>(null);
@@ -262,7 +287,7 @@ const StudentQuizResults: React.FC = () => {
                     {r.results_locked && (
                         <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fffbeb', borderRadius: 20, padding: '2px 8px', marginLeft: 4 }}>
                             <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
-                            <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Locked until {r.end_date ? dayjs(r.end_date).format('MMM DD, HH:mm') : 'end'}</span>
+                            <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Locked until {fmtCompact(r.end_date)}</span>
                         </div>
                     )}
                 </div>
@@ -306,8 +331,8 @@ const StudentQuizResults: React.FC = () => {
             title: 'SUBMITTED', key: 'submitted_at', width: 150,
             render: (_, r) => (
                 <div>
-                    <div style={{ fontSize: 13, color: '#1a1d2e', fontWeight: 600 }}>{dayjs(r.submitted_at).format('MMM DD, YYYY')}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{dayjs(r.submitted_at).format('HH:mm')}</div>
+                    <div style={{ fontSize: 13, color: '#1a1d2e', fontWeight: 600 }}>{fmtDay(r.submitted_at)}</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtTimeOnly(r.submitted_at)}</div>
                 </div>
             ),
         },
@@ -489,7 +514,7 @@ const StudentQuizResults: React.FC = () => {
                                         <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>{selectedResult.quiz.title}</div>
                                         <div style={{ fontSize: 12, opacity: 0.8 }}>
                                             <CalendarOutlined style={{ marginRight: 6 }} />
-                                            Submitted {dayjs(selectedResult.submission.submitted_at).format('MMM DD, YYYY · HH:mm')}
+                                            Submitted {fmtFull(selectedResult.submission.submitted_at)}
                                             {selectedResult.quiz.description && <span style={{ marginLeft: 12, opacity: 0.7 }}>· {selectedResult.quiz.description.length > 60 ? selectedResult.quiz.description.slice(0, 60) + '…' : selectedResult.quiz.description}</span>}
                                         </div>
                                     </div>

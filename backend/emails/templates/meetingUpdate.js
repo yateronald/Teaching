@@ -1,30 +1,40 @@
-const { baseHtml, detailCard, infoStrip, escapeHtml } = require('./base');
+const { baseHtml, detailCard, infoStrip, escapeHtml, formatRecipientTime } = require('./base');
 
-function safeFormatDate(input) {
-    if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-}
-
-function safeFormatTime(input) {
-    if (!input) return null;
-    let t;
-    if (input instanceof Date) {
-        t = input;
-    } else if (typeof input === 'string' && input.includes('T')) {
-        t = new Date(input);
-    } else if (typeof input === 'string') {
-        t = new Date(`2000-01-01T${input}`);
+/**
+ * Combine a date input with a time input. See classScheduleNotification for
+ * the full contract — this is the same helper duplicated locally to keep the
+ * template self-contained.
+ */
+function combineDateAndTime(date, time) {
+    if (!date && !time) return null;
+    if (typeof time === 'string' && time.includes('T')) {
+        const d = new Date(time);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    if (time instanceof Date && !isNaN(time.getTime())) return time;
+    if (!date) return null;
+    let datePart;
+    if (date instanceof Date) {
+        if (isNaN(date.getTime())) return null;
+        datePart = date.toISOString().slice(0, 10);
+    } else if (typeof date === 'string') {
+        datePart = date.includes('T') ? date.slice(0, 10) : date;
     } else {
         return null;
     }
-    if (isNaN(t.getTime())) return String(input);
-    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    if (!time) {
+        const d = new Date(`${datePart}T00:00:00Z`);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    let timePart = typeof time === 'string' ? time : '';
+    if (!timePart) return null;
+    if (/^\d{1,2}:\d{2}$/.test(timePart)) timePart += ':00';
+    const d = new Date(`${datePart}T${timePart}Z`);
+    return isNaN(d.getTime()) ? null : d;
 }
 
 /**
- * Notification sent when a teacher updates the details of an upcoming class.hh
+ * Notification sent when a teacher updates the details of an upcoming class.
  *
  * @param {{
  *   studentName?: string,
@@ -39,6 +49,7 @@ function safeFormatTime(input) {
  *   link?: string,
  *   description?: string,
  *   changes?: string[],
+ *   recipientTimezone?: string,
  * }} args
  */
 function buildMeetingUpdateTemplate({
@@ -54,16 +65,32 @@ function buildMeetingUpdateTemplate({
     link,
     description,
     changes,
+    recipientTimezone,
 }) {
     const safeStudent = studentName || 'there';
     const safeMeeting = meetingTitle || 'Your class';
+    const tz = recipientTimezone || 'UTC';
 
     const subject = `Class updated: ${safeMeeting}`;
     const preheader = `${safeMeeting} has new details. Take a look.`;
 
-    const dateStr = safeFormatDate(date);
-    const start = safeFormatTime(startTime);
-    const end = safeFormatTime(endTime);
+    const dateOnlyOpts = {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: undefined, minute: undefined, hour12: undefined,
+    };
+    const timeOnlyOpts = {
+        weekday: undefined, year: undefined, month: undefined, day: undefined,
+        hour: 'numeric', minute: '2-digit', hour12: true,
+    };
+
+    const startMoment = combineDateAndTime(date, startTime);
+    const endMoment = combineDateAndTime(date, endTime);
+
+    const dateStr = startMoment
+        ? formatRecipientTime(startMoment, tz, dateOnlyOpts)
+        : formatRecipientTime(date, tz, dateOnlyOpts);
+    const start = startMoment ? formatRecipientTime(startMoment, tz, timeOnlyOpts) : '';
+    const end = endMoment ? formatRecipientTime(endMoment, tz, timeOnlyOpts) : '';
     const timeRange = start && end ? `${start} – ${end}` : (start || end || null);
 
     let locationValue = null;
@@ -83,8 +110,8 @@ function buildMeetingUpdateTemplate({
         { label: 'Class', value: escapeHtml(safeMeeting) },
         { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
         { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
-        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
-        { label: 'Time', value: timeRange ? escapeHtml(timeRange) : null },
+        { label: `Date (${tz})`, value: dateStr ? escapeHtml(dateStr) : null },
+        { label: `Time (${tz})`, value: timeRange ? escapeHtml(timeRange) : null },
         { label: 'Location', value: locationValue },
     ];
 
