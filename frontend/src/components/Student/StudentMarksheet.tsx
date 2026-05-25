@@ -298,34 +298,100 @@ const StudentMarksheet: React.FC = () => {
                 icon={<DashboardOutlined />}
                 accent="#10b981"
                 actions={
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <Select
-                            mode="multiple"
-                            value={selectedBatches}
-                            onChange={vals => {
-                                const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
-                                if (justSelectedAll || vals.length === 0) {
-                                    setSelectedBatches(['all']);
-                                } else {
-                                    setSelectedBatches(vals.filter(v => v !== 'all'));
-                                }
-                            }}
-                            options={batchOptions}
-                            style={{ minWidth: r.isCompact ? 140 : 180, flex: '1 1 180px' }}
-                            placeholder="Filter by batch"
-                            maxTagCount="responsive"
-                        />
-                        <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
-                            <Button
-                                icon={<BarChartOutlined />}
-                                disabled={!canAnalyze}
-                                onClick={() => setAnalyzerOpen(true)}
-                                style={{ borderRadius: 10, height: 36, fontWeight: 600, background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined, color: canAnalyze ? '#fff' : undefined, border: canAnalyze ? 'none' : undefined }}
-                            >
-                                Compare
-                            </Button>
-                        </Tooltip>
-                    </div>
+                    r.isMobile ? (
+                        // Mobile: stacked, structured layout —
+                        // Row 1: hint label
+                        // Row 2: Select takes full width
+                        // Row 3: Compare button takes full width
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+                            <div style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                color: '#6366f1',
+                                textTransform: 'uppercase',
+                                letterSpacing: 0.5,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                            }}>
+                                <BarChartOutlined style={{ fontSize: 11 }} />
+                                Filter & compare
+                            </div>
+                            <Select
+                                mode="multiple"
+                                value={selectedBatches}
+                                onChange={vals => {
+                                    const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
+                                    if (justSelectedAll || vals.length === 0) {
+                                        setSelectedBatches(['all']);
+                                    } else {
+                                        setSelectedBatches(vals.filter(v => v !== 'all'));
+                                    }
+                                }}
+                                options={batchOptions}
+                                style={{ width: '100%' }}
+                                placeholder="Select batches…"
+                                maxTagCount="responsive"
+                                size="middle"
+                            />
+                            <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
+                                <Button
+                                    icon={<BarChartOutlined />}
+                                    disabled={!canAnalyze}
+                                    onClick={() => setAnalyzerOpen(true)}
+                                    block
+                                    type="primary"
+                                    style={{
+                                        borderRadius: 10,
+                                        height: 40,
+                                        fontWeight: 700,
+                                        background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined,
+                                        color: canAnalyze ? '#fff' : undefined,
+                                        border: canAnalyze ? 'none' : undefined,
+                                    }}
+                                >
+                                    Compare {canAnalyze ? `${selectedBatches.filter(v => v !== 'all').length} batches` : 'batches'}
+                                </Button>
+                            </Tooltip>
+                            {!canAnalyze && (
+                                <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: -2 }}>
+                                    Select 2 or more batches to enable comparison.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: 'auto' }}>
+                            <Select
+                                mode="multiple"
+                                value={selectedBatches}
+                                onChange={vals => {
+                                    const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
+                                    if (justSelectedAll || vals.length === 0) {
+                                        setSelectedBatches(['all']);
+                                    } else {
+                                        setSelectedBatches(vals.filter(v => v !== 'all'));
+                                    }
+                                }}
+                                options={batchOptions}
+                                style={{
+                                    minWidth: r.isCompact ? 140 : 180,
+                                    flex: '1 1 180px',
+                                }}
+                                placeholder="Filter by batch"
+                                maxTagCount="responsive"
+                            />
+                            <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
+                                <Button
+                                    icon={<BarChartOutlined />}
+                                    disabled={!canAnalyze}
+                                    onClick={() => setAnalyzerOpen(true)}
+                                    style={{ borderRadius: 10, height: 36, fontWeight: 600, background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined, color: canAnalyze ? '#fff' : undefined, border: canAnalyze ? 'none' : undefined, flexShrink: 0 }}
+                                >
+                                    Compare
+                                </Button>
+                            </Tooltip>
+                        </div>
+                    )
                 }
             />
 

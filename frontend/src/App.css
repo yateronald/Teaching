@@ -228,22 +228,27 @@
 /* Phone: < 768 */
 @media (max-width: 767px) {
   .quiz-taking-container {
-    padding-bottom: 24px !important;
+    /* Leave room at the bottom for the sticky action bar (60px tall + 16px breathing room). */
+    padding-bottom: 92px !important;
   }
   /* Sticky header → stacked */
+  .quiz-taking-container [data-quiz-sticky-header] {
+    padding: 6px 0 !important;
+  }
   .quiz-taking-container [data-quiz-sticky-inner] {
     padding: 0 12px !important;
   }
   .quiz-taking-container [data-quiz-sticky-inner] .ant-row {
-    row-gap: 6px !important;
+    row-gap: 4px !important;
   }
   .quiz-taking-container [data-quiz-title] {
-    font-size: 14px !important;
+    font-size: 13.5px !important;
+    line-height: 1.25 !important;
   }
   .quiz-taking-container [data-quiz-meta] {
-    font-size: 11px !important;
+    font-size: 10.5px !important;
   }
-  /* Palette buttons stay scrollable horizontally */
+  /* Palette buttons stay scrollable horizontally — but smaller pills */
   .quiz-taking-container [data-quiz-palette] {
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
@@ -252,47 +257,94 @@
     padding-bottom: 4px !important;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
+    gap: 5px !important;
+  }
+  .quiz-taking-container [data-quiz-palette] > * {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    font-size: 11px !important;
   }
   .quiz-taking-container [data-quiz-palette]::-webkit-scrollbar {
     height: 3px;
   }
   /* Question card */
   .quiz-taking-container [data-quiz-question-card] {
-    padding: 16px 16px !important;
+    padding: 14px 14px !important;
     border-radius: 14px !important;
     margin: 0 !important;
   }
   .quiz-taking-container [data-quiz-question-wrap] {
     padding: 0 12px !important;
-    margin: 12px auto 0 !important;
+    margin: 10px auto 0 !important;
   }
-  .quiz-taking-container [data-quiz-options] .ant-radio-wrapper,
-  .quiz-taking-container [data-quiz-options] .ant-checkbox-wrapper {
-    width: 100% !important;
-    padding: 12px 14px !important;
-    border-radius: 12px !important;
-    margin-bottom: 8px !important;
+  /* Compact MCQ option cards — was ~70px tall, now ~46px */
+  .quiz-taking-container .quiz-option-card {
+    padding: 9px 12px !important;
+    border-radius: 10px !important;
+    margin-bottom: 0 !important;
+  }
+  .quiz-taking-container .quiz-option-card .ant-radio-wrapper,
+  .quiz-taking-container .quiz-option-card .ant-checkbox-wrapper {
+    align-items: center !important;
+  }
+  /* Letter chip (A, B, C…) smaller on phone */
+  .quiz-taking-container .quiz-option-card .ant-radio-wrapper > span:last-child > div > span:first-child,
+  .quiz-taking-container .quiz-option-card .ant-checkbox-wrapper > span:last-child > div > span:first-child {
+    width: 22px !important;
+    height: 22px !important;
+    font-size: 11px !important;
+    border-radius: 6px !important;
+  }
+  /* Option text — slightly smaller and tighter line-height */
+  .quiz-taking-container .quiz-option-card .ant-radio-wrapper > span:last-child > div > span:nth-child(2),
+  .quiz-taking-container .quiz-option-card .ant-checkbox-wrapper > span:last-child > div > span:nth-child(2) {
+    font-size: 13.5px !important;
+    line-height: 1.35 !important;
+  }
+  /* Inner Space between options — tighter */
+  .quiz-taking-container [data-quiz-options] .ant-space {
+    gap: 6px !important;
   }
   /* Audio player — taller buttons, larger tap targets */
   .quiz-taking-container [data-quiz-audio] {
-    padding: 12px 14px !important;
-    margin-bottom: 16px !important;
+    padding: 10px 12px !important;
+    margin-bottom: 12px !important;
   }
   .quiz-taking-container [data-quiz-audio] button {
-    min-height: 40px !important;
+    min-height: 38px !important;
   }
-  /* Action bar stacks on phone */
+  /* Action bar → STICKY at the bottom of the viewport so Next is always reachable. */
   .quiz-taking-container [data-quiz-actions] {
-    flex-direction: column-reverse !important;
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 1000 !important;
+    flex-direction: row !important;
     gap: 8px !important;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom)) !important;
+    background: rgba(255, 255, 255, 0.96) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    border-top: 1px solid #e2e8f0 !important;
+    box-shadow: 0 -4px 14px rgba(15, 23, 42, 0.06) !important;
+    margin: 0 !important;
   }
-  .quiz-taking-container [data-quiz-actions] > * {
-    width: 100% !important;
+  .quiz-taking-container [data-quiz-actions] > .ant-space {
+    flex: 1 !important;
+    display: flex !important;
+  }
+  .quiz-taking-container [data-quiz-actions] > .ant-space > * {
+    flex: 1 !important;
   }
   .quiz-taking-container [data-quiz-actions] .ant-btn {
-    width: 100% !important;
-    height: 44px !important;
+    flex: 1 !important;
+    width: auto !important;
+    height: 42px !important;
     font-size: 14px !important;
+    padding: 0 14px !important;
+    margin: 0 !important;
   }
   /* Quiz intro / start screen tightens */
   .quiz-taking-container [data-quiz-intro] {
@@ -909,18 +961,42 @@ body[style*="overflow"] .ant-layout-content {
     gap: 10px;
   }
   .quiz-intro-stats {
-    flex-direction: row;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 4px;
-    margin: 0 -2px;
+    /* 3-up grid that always fits the viewport — no horizontal scroll. */
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 8px !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
   .quiz-intro-stat {
-    flex: 1 0 auto;
-    min-width: 130px;
-    padding: 10px 12px;
+    flex: none !important;
+    min-width: 0 !important;
+    padding: 10px 10px !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 6px !important;
   }
-  .quiz-intro-stat-value { font-size: 18px; }
+  .quiz-intro-stat-icon {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 13px !important;
+    border-radius: 8px !important;
+  }
+  .quiz-intro-stat-meta {
+    width: 100% !important;
+  }
+  .quiz-intro-stat-label {
+    font-size: 9.5px !important;
+    letter-spacing: 0.4px !important;
+  }
+  .quiz-intro-stat-value {
+    font-size: 16px !important;
+    line-height: 1.1 !important;
+  }
+  .quiz-intro-stat-unit {
+    font-size: 10.5px !important;
+  }
   .quiz-intro-strip { padding: 12px 14px; }
   .quiz-intro-actions { padding: 10px 14px; }
   .quiz-intro-btn-secondary { padding: 0 14px; }

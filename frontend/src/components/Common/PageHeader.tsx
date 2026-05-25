@@ -36,11 +36,14 @@ const PageHeader: React.FC<PageHeaderProps> = ({
             display: 'flex',
             alignItems: 'flex-start',
             justifyContent: 'space-between',
-            gap: 16,
+            gap: r.isMobile ? 10 : 16,
             marginBottom: dense ? 12 : (r.isMobile ? 16 : 20),
             flexWrap: 'wrap',
+            // On mobile, force the actions to wrap to their own row so
+            // long titles don't get squeezed into 1-word-per-line columns.
+            flexDirection: r.isMobile ? 'column' : 'row',
         }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, minWidth: 0, flex: 1, width: '100%' }}>
                 {icon && (
                     <div style={{
                         width: iconTile, height: iconTile, borderRadius: 12,
@@ -81,7 +84,14 @@ const PageHeader: React.FC<PageHeaderProps> = ({
                 </div>
             </div>
             {actions && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    flexShrink: 0,
+                    width: r.isMobile ? '100%' : 'auto',
+                    flexWrap: 'wrap',
+                }}>
                     {actions}
                 </div>
             )}
