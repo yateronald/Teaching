@@ -10,6 +10,7 @@ import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import KpiCard from '../Common/KpiCard';
 import PageHeader from '../Common/PageHeader';
+import PdfViewer from '../Common/PdfViewer';
 import useResponsive from '../../hooks/useResponsive';
 
 
@@ -525,7 +526,7 @@ const StudentResources: React.FC = () => {
                             ) : (
                                 <div style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     {preview.category === 'pdf' && (
-                                        <iframe src={`${previewBlobUrl}#toolbar=0&navpanes=0&view=FitH`} style={{ width: '100%', height: '100%', border: 'none', background: '#525659' }} title="PDF" />
+                                        <PdfViewer src={previewBlobUrl} />
                                     )}
                                     {preview.category === 'video' && (
                                         <video controls style={{ maxWidth: '100%', maxHeight: '100%', background: '#000', outline: 'none' }} src={previewBlobUrl} />
