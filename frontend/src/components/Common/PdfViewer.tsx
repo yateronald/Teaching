@@ -230,7 +230,18 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ src, onError }) => {
     }
 
     return (
-        <div style={{ flex: 1, position: 'relative', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{
+            flex: 1,
+            width: '100%',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            // Critical for flex children inside an overflow:hidden parent —
+            // without min-height: 0 the child uses its content size and
+            // the inner scroll container never gets a chance to scroll.
+            minHeight: 0,
+        }}>
             {loading && (
                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <Spin size="large" tip="Loading PDF…" />
@@ -292,6 +303,8 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ src, onError }) => {
                             padding: '12px 8px',
                             background: '#475569',
                             WebkitOverflowScrolling: 'touch',
+                            // Allow shrinking inside flex parent so scroll works
+                            minHeight: 0,
                         }}
                     />
                 </>

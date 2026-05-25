@@ -168,9 +168,10 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
 }
 .video-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.4); }
 /* Make the LiveKit VideoTrack wrapper AND the inner <video> both fill
-   the tile so the camera feed reaches every edge. Without this the
-   wrapper's intrinsic size leaves dark bands around the picture. */
-.video-tile > div,
+   the tile so the camera feed reaches every edge. We exclude
+   `.video-overlay` so the bottom name pill stays anchored where its
+   own absolute positioning puts it. */
+.video-tile > div:not(.video-overlay):not(.video-placeholder),
 .video-tile [data-lk-orientation],
 .video-tile .lk-participant-media-video {
   width: 100% !important;
@@ -275,8 +276,10 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
   background: #000;
 }
 /* LiveKit wraps <video> in its own div — make it fill the tile so the
-   centered video has the full container to work with. */
-.screen-share-tile > div,
+   centered video has the full container to work with. We DON'T touch
+   `.video-overlay` (the name pill) which is absolutely positioned at
+   the bottom; otherwise it would get centered along with the video. */
+.screen-share-tile > div:not(.video-overlay):not(.strip-name),
 .screen-share-tile [data-lk-orientation],
 .screen-share-tile .lk-participant-media-video {
   width: 100% !important;
@@ -341,8 +344,10 @@ body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
 }
 .strip-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.5); }
 /* LiveKit's VideoTrack wrapper + inner <video> must both fill the strip
-   tile so the camera reaches every edge — same fix as `.video-tile`. */
-.strip-tile > div,
+   tile so the camera reaches every edge — but skip `.strip-name` and
+   `.video-placeholder` so the absolutely-positioned name pill / avatar
+   placeholder don't get stretched. */
+.strip-tile > div:not(.strip-name):not(.video-placeholder),
 .strip-tile [data-lk-orientation],
 .strip-tile .lk-participant-media-video {
   width: 100% !important;

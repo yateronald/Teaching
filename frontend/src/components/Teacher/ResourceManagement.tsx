@@ -636,7 +636,16 @@ const ResourceManagement: React.FC = () => {
                             ) : previewBlobUrl === 'error' ? (
                                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty description="Could not load preview" /></div>
                             ) : (
-                                <div style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{
+                                    flex: 1,
+                                    width: '100%',
+                                    height: '100%',
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: previewResource.category === 'pdf' ? 'stretch' : 'center',
+                                    justifyContent: previewResource.category === 'pdf' ? 'flex-start' : 'center',
+                                }}>
                                     {previewResource.category === 'pdf' && (
                                         <PdfViewer src={previewBlobUrl} />
                                     )}

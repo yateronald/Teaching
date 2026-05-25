@@ -524,7 +524,20 @@ const StudentResources: React.FC = () => {
                             ) : previewBlobUrl === 'error' ? (
                                 <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty description="Could not load preview" /></div>
                             ) : (
-                                <div style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{
+                                    flex: 1,
+                                    width: '100%',
+                                    height: '100%',
+                                    overflow: 'hidden',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    /* For PDFs the PdfViewer manages its own scroll
+                                       container, so don't center-align — let it
+                                       stretch to fill. Video/audio still get
+                                       centered via their own wrapper below. */
+                                    alignItems: preview.category === 'pdf' ? 'stretch' : 'center',
+                                    justifyContent: preview.category === 'pdf' ? 'flex-start' : 'center',
+                                }}>
                                     {preview.category === 'pdf' && (
                                         <PdfViewer src={previewBlobUrl} />
                                     )}
