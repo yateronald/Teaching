@@ -41,6 +41,10 @@ import {
     KeyOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatLocal, formatTimeLocal, detectBrowserTimezone } from '../../utils/timezone';
+import KpiCard from '../Common/KpiCard';
+import PageHeader from '../Common/PageHeader';
+import useResponsive from '../../hooks/useResponsive';
 
 import dayjs from 'dayjs';
 import FullCalendar from '@fullcalendar/react';
@@ -51,7 +55,7 @@ import interactionPlugin from '@fullcalendar/interaction';
 // import '@fullcalendar/daygrid/index.css';
 // import '@fullcalendar/timegrid/index.css';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface Schedule {
     id: number;
@@ -61,6 +65,10 @@ interface Schedule {
     batch_name: string;
     teacher_name: string;
     french_level?: string;
+    /** Original UTC ISO from backend — used for `formatLocal` display in user's tz. */
+    start_iso: string;
+    end_iso: string;
+    /** Browser-local HH:mm derived strings — kept for FullCalendar event objects only. */
     start_time: string;
     end_time: string;
     date: string;
@@ -69,6 +77,10 @@ interface Schedule {
     link?: string | null;
     type: 'class' | 'exam' | 'meeting' | 'other';
     status: 'scheduled' | 'completed' | 'cancelled';
+    /** Server-authoritative state from backend (preferred over time math). */
+    schedule_state?: 'cancelled' | 'completed' | 'ended' | 'active' | 'scheduled';
+    seconds_until_end?: number;
+    seconds_until_start?: number;
     created_at: string;
 }
 
@@ -79,17 +91,6 @@ interface ScheduleStats {
     this_week_classes: number;
     next_class?: Schedule;
 }
-
-/* ── KPI Card ── */
-const KpiCard = ({ label, value, icon, accent }: { label: string; value: string | number; icon: React.ReactNode; accent: string }) => (
-    <div style={{ borderRadius: 16, padding: '16px 20px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16, height: '100%' }}>
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>{value}</div>
-        </div>
-    </div>
-);
 
 const StudentSchedule: React.FC = () => {
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -103,7 +104,9 @@ const StudentSchedule: React.FC = () => {
 
     const [detailsVisible, setDetailsVisible] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    const userTz = user?.timezone || detectBrowserTimezone();
+    const r = useResponsive();
 
     // Attendance-related state
     const [joinClassModalVisible, setJoinClassModalVisible] = useState(false);
@@ -209,6 +212,10 @@ const StudentSchedule: React.FC = () => {
                         batch_id: s.batch_id,
                         batch_name: s.batch_name || '',
                         teacher_name: teacherName || '',
+                        // Original UTC ISO — preferred for display
+                        start_iso: s.start_time,
+                        end_iso: s.end_time,
+                        // Browser-local strings — only used for FullCalendar events
                         start_time: start.isValid() ? start.format('HH:mm') : '00:00',
                         end_time: end.isValid() ? end.format('HH:mm') : start.isValid() ? start.add(1, 'hour').format('HH:mm') : '01:00',
                         date: start.isValid() ? start.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
@@ -217,6 +224,9 @@ const StudentSchedule: React.FC = () => {
                         link: s.link || null,
                         type: mappedType as 'class' | 'exam' | 'meeting' | 'other',
                         status: (s.status as 'scheduled' | 'completed' | 'cancelled') || 'scheduled',
+                        schedule_state: s.schedule_state,
+                        seconds_until_end: s.seconds_until_end != null ? Number(s.seconds_until_end) : undefined,
+                        seconds_until_start: s.seconds_until_start != null ? Number(s.seconds_until_start) : undefined,
                         created_at: s.created_at || start.toISOString(),
                     };
                 });
@@ -260,14 +270,22 @@ const StudentSchedule: React.FC = () => {
     };
 
     // Helper function to check if schedule has ended
+    // Prefers server-authoritative `schedule_state` / `seconds_until_end` (computed
+    // via PG NOW()) over browser-clock math to avoid clock-skew false positives.
     const isScheduleEnded = (schedule: Schedule): boolean => {
-        const now = dayjs();
-        const scheduleEnd = dayjs(`${schedule.date} ${schedule.end_time}`);
-        return now.isAfter(scheduleEnd);
+        if (schedule.schedule_state === 'ended' || schedule.schedule_state === 'completed' || schedule.schedule_state === 'cancelled') {
+            return true;
+        }
+        if (typeof schedule.seconds_until_end === 'number') {
+            return schedule.seconds_until_end <= 0;
+        }
+        // Fallback when server fields are missing
+        return dayjs(schedule.end_iso).isBefore(dayjs());
     };
 
     // Helper function to get effective status (returns 'ended' for active schedules that have passed their end time)
     const getEffectiveStatus = (schedule: Schedule): string => {
+        if (schedule.schedule_state) return schedule.schedule_state;
         if (schedule.status === 'scheduled' && isScheduleEnded(schedule)) {
             return 'ended';
         }
@@ -365,9 +383,10 @@ const StudentSchedule: React.FC = () => {
         setDetailsVisible(true);
     };
 
-    const formatTime = (time: string) => {
-        return dayjs(time, 'HH:mm').format('h:mm A');
-    };
+    /** Display the start time in the user's timezone, with offset suffix.
+     *  Falls back to browser zone if profile is on the migration default 'UTC'. */
+    const renderStartLocal = (s: Schedule) => formatTimeLocal(s.start_iso, userTz);
+    const renderEndLocal   = (s: Schedule) => formatTimeLocal(s.end_iso, userTz);
 
     const isToday = (date: string) => {
         return dayjs(date).isSame(dayjs(), 'day');
@@ -399,11 +418,17 @@ const StudentSchedule: React.FC = () => {
 
     // Enhanced canJoinMeeting that uses schedule object
     const canJoinMeetingSchedule = (schedule: Schedule): boolean => {
-        const meetingDateTime = dayjs(`${schedule.date} ${schedule.start_time}`);
-        const meetingEndTime = dayjs(`${schedule.date} ${schedule.end_time}`);
+        // Prefer server-authoritative seconds from PG NOW(); avoids browser
+        // clock skew making the meeting look ended/unstarted incorrectly.
+        const sStart = schedule.seconds_until_start;
+        const sEnd = schedule.seconds_until_end;
+        if (typeof sStart === 'number' && typeof sEnd === 'number') {
+            return sStart <= 5 * 60 && sEnd > 0 && !isScheduleEnded(schedule);
+        }
+        const meetingDateTime = dayjs(schedule.start_iso);
+        const meetingEndTime = dayjs(schedule.end_iso);
         const now = dayjs();
         const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
-        
         return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime) && !isScheduleEnded(schedule);
     };
 
@@ -574,19 +599,23 @@ const StudentSchedule: React.FC = () => {
     );
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
+        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
             <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 1600, margin: '0 auto', width: '100%', flex: 1, minHeight: 0 }}>
-                <div style={{ marginBottom: 20, flexShrink: 0 }}>
-                    <Title level={3} style={{ color: '#1a1d2e', marginBottom: 4, fontWeight: 700, fontSize: 22 }}>
-                        My Class Schedule
-                    </Title>
-                    <Text style={{ fontSize: '14px', color: '#64748b' }}>
-                        View your upcoming classes, meetings, and academic events
-                    </Text>
-                </div>
+                <PageHeader
+                    title="My Class Schedule"
+                    subtitle="Upcoming classes, meetings, and academic events"
+                    icon={<CalendarOutlined />}
+                    accent="#10b981"
+                    contextStrip={
+                        <div style={{ fontSize: 12, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#eef2ff', border: '1px solid #e0e7ff' }}>
+                            <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 11 }} />
+                            Times in your timezone: <strong style={{ color: '#4338ca' }}>{userTz}</strong>
+                        </div>
+                    }
+                />
 
                 {/* Filters */}
-                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 20, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isCompact ? '12px 14px' : '14px 20px', marginBottom: r.isCompact ? 14 : 20, display: 'flex', gap: 10, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
                     <RangePicker
                         value={dateRange}
                         onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
@@ -616,7 +645,7 @@ const StudentSchedule: React.FC = () => {
                 </div>
 
                 {stats && (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20, flexShrink: 0 }}>
+                    <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: r.isCompact ? 'repeat(auto-fit, minmax(140px, 1fr))' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: r.isCompact ? 10 : 14, marginBottom: r.isCompact ? 14 : 20, flexShrink: 0 }}>
                         <KpiCard label="Total Classes" value={stats.total_classes ?? 0} icon={<BookOutlined />} accent="#1a56db" />
                         <KpiCard label="This Week" value={stats.this_week_classes ?? 0} icon={<CalendarOutlined />} accent="#059669" />
                         <KpiCard label="Upcoming" value={stats.upcoming_classes ?? 0} icon={<ClockCircleOutlined />} accent="#d97706" />
@@ -632,7 +661,7 @@ const StudentSchedule: React.FC = () => {
                             </div>
                             <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{nextClass.title}</div>
                                     <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: '15px', display: 'block', marginBottom: 4 }}>
-                                        📅 {dayjs(nextClass.date).format('dddd, MMMM DD')} at {formatTime(nextClass.start_time)}
+                                        📅 {formatLocal(nextClass.start_iso, userTz, { weekday: 'long', month: 'long', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
                                     </Text>
                             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>
                                         {nextClass.location_mode === 'online' ? (
@@ -713,7 +742,7 @@ const StudentSchedule: React.FC = () => {
                                                                 style={{ cursor: 'pointer' }}
                                                                 onClick={() => handleViewDetails(schedule)}
                                                             >
-                                                                <Text strong>{formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}</Text>
+                                                                <Text strong>{renderStartLocal(schedule)} - {renderEndLocal(schedule)}</Text>
                                                                 <br />
                                                                 <Text>{schedule.title}</Text>
                                                                 <br />
@@ -841,7 +870,7 @@ const StudentSchedule: React.FC = () => {
                                                             description={
                                                                 <div>
                                                                     <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                        {dayjs(schedule.date).format('MMM DD')} • {formatTime(schedule.start_time)}
+                                                                        {formatLocal(schedule.start_iso, userTz, { month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
                                                                     </Text>
                                                                     <br />
                                                                     <Space size="small">
@@ -881,8 +910,8 @@ const StudentSchedule: React.FC = () => {
                                                 size="small"
                                                 dataSource={thisWeekSchedules
                                                     .sort((a, b) => {
-                                                        const dateTimeA = dayjs(`${a.date} ${a.start_time}`);
-                                                        const dateTimeB = dayjs(`${b.date} ${b.start_time}`);
+                                                        const dateTimeA = dayjs(a.start_iso);
+                                                        const dateTimeB = dayjs(b.start_iso);
                                                         return dateTimeA.valueOf() - dateTimeB.valueOf();
                                                     })
                                                 }
@@ -909,7 +938,7 @@ const StudentSchedule: React.FC = () => {
                                                             description={
                                                                 <div>
                                                                     <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                        {dayjs(schedule.date).format('ddd, MMM DD')} • {formatTime(schedule.start_time)}
+                                                                        {formatLocal(schedule.start_iso, userTz, { weekday: 'short', month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
                                                                     </Text>
                                                                     <br />
                                                                     <Text type="secondary" style={{ fontSize: '11px' }}>
@@ -957,7 +986,7 @@ const StudentSchedule: React.FC = () => {
                                     <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#fff' }}>{selectedSchedule.title}</h2>
                                     <div style={{ display: 'flex', gap: 12, marginTop: 4, alignItems: 'center' }}>
                                         <Tag color={getTypeColor(selectedSchedule.type)} style={{ border: 'none' }}>{selectedSchedule.type.toUpperCase()}</Tag>
-                                        <span style={{ color: '#94a3b8', fontSize: 13 }}>{dayjs(selectedSchedule.date).format('MMMM D, YYYY')}</span>
+                                        <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatLocal(selectedSchedule.start_iso, userTz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}</span>
                                     </div>
                                 </div>
                             </div>
@@ -966,10 +995,10 @@ const StudentSchedule: React.FC = () => {
                             <div style={{ background: '#fff', borderRadius: 16, padding: 24, border: '1px solid #f0f0f8', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
                         <Descriptions bordered column={2} size="middle">
                             <Descriptions.Item label="Date" span={1}>
-                                {dayjs(selectedSchedule.date).format('dddd, MMMM D, YYYY')}
+                                {formatLocal(selectedSchedule.start_iso, userTz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}
                             </Descriptions.Item>
                             <Descriptions.Item label="Time" span={1}>
-                                {`${formatTime(selectedSchedule.start_time)} - ${formatTime(selectedSchedule.end_time)}`}
+                                {`${renderStartLocal(selectedSchedule)} - ${renderEndLocal(selectedSchedule)}`}
                             </Descriptions.Item>
                             <Descriptions.Item label="Type" span={1}>
                                 <Tag color={getTypeColor(selectedSchedule.type)}>{selectedSchedule.type.toUpperCase()}</Tag>
@@ -1065,8 +1094,8 @@ const StudentSchedule: React.FC = () => {
                                     <p><strong>Teacher:</strong> {selectedScheduleForJoin.teacher_name}</p>
                                 </Col>
                                 <Col span={12}>
-                                    <p><strong>Date:</strong> {dayjs(selectedScheduleForJoin.date).format('MMMM D, YYYY')}</p>
-                                    <p><strong>Time:</strong> {selectedScheduleForJoin.start_time} - {selectedScheduleForJoin.end_time}</p>
+                                    <p><strong>Date:</strong> {formatLocal(selectedScheduleForJoin.start_iso, userTz, { month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}</p>
+                                    <p><strong>Time:</strong> {renderStartLocal(selectedScheduleForJoin)} - {renderEndLocal(selectedScheduleForJoin)}</p>
                                 </Col>
                             </Row>
                         </div>

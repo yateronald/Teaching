@@ -27,6 +27,7 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
       centered
       closable={false}
       maskClosable={true}
+      className="exam-modal"
       styles={{
         body: { padding: 0 },
         content: {

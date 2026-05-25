@@ -36,6 +36,7 @@ import {
     CheckCircleOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatLocal, formatTimeLocal, detectBrowserTimezone } from '../../utils/timezone';
 import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -53,6 +54,10 @@ interface Schedule {
     description: string;
     batch_id: number;
     batch_name?: string;
+    /** Original UTC ISO from backend — preferred for displaying in user's tz. */
+    start_iso: string;
+    end_iso: string;
+    /** Browser-local strings used for FullCalendar event objects + form prefill. */
     start_time: string; // HH:mm for UI
     end_time: string;   // HH:mm for UI
     date: string;       // YYYY-MM-DD for UI
@@ -61,6 +66,10 @@ interface Schedule {
     link?: string | null;
     type: 'class' | 'exam' | 'meeting' | 'other' | 'assignment' | 'quiz';
     status: 'scheduled' | 'completed' | 'cancelled';
+    /** Server-authoritative status from PG NOW() comparison. */
+    schedule_state?: 'cancelled' | 'completed' | 'ended' | 'active' | 'scheduled';
+    seconds_until_end?: number;
+    seconds_until_start?: number;
     created_at: string;
 }
 
@@ -77,6 +86,9 @@ interface BackendSchedule {
     link?: string | null;
     type: string;
     status: string;
+    schedule_state?: string;
+    seconds_until_end?: number | string;
+    seconds_until_start?: number | string;
     created_at: string;
 }
 
@@ -98,7 +110,9 @@ const ScheduleManagement: React.FC = () => {
     const [filterBatchId, setFilterBatchId] = useState<number | null>(null);
     const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
     const [form] = Form.useForm();
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    const userTz = user?.timezone || detectBrowserTimezone();
+    const browserTz = detectBrowserTimezone();
 
     // New: view-only modal state for event details
     const [viewModalVisible, setViewModalVisible] = useState(false);
@@ -293,6 +307,8 @@ const ScheduleManagement: React.FC = () => {
                 description: item.description || '',
                 batch_id: item.batch_id,
                 batch_name: item.batch_name,
+                start_iso: item.start_time,
+                end_iso: item.end_time,
                 start_time: date.format('HH:mm'),
                 end_time: end.format('HH:mm'),
                 date: date.format('YYYY-MM-DD'),
@@ -302,6 +318,9 @@ const ScheduleManagement: React.FC = () => {
                 type: (item.type as any) || 'class',
                 // Normalize backend status casing to keep comparisons consistent
                 status: (item.status ? (item.status.toLowerCase() as any) : 'scheduled'),
+                schedule_state: (item.schedule_state as any) || undefined,
+                seconds_until_end: item.seconds_until_end != null ? Number(item.seconds_until_end) : undefined,
+                seconds_until_start: item.seconds_until_start != null ? Number(item.seconds_until_start) : undefined,
                 created_at: item.created_at,
             };
         });
@@ -426,12 +445,15 @@ const ScheduleManagement: React.FC = () => {
 
     // Check if teacher can start class (15 minutes before)
     const canStartClass = (schedule: Schedule): boolean => {
+        const sStart = schedule.seconds_until_start;
+        const sEnd = schedule.seconds_until_end;
+        if (typeof sStart === 'number' && typeof sEnd === 'number') {
+            return sStart <= 15 * 60 && sEnd > 0 && schedule.type === 'class';
+        }
         const now = dayjs();
-        const scheduleStart = dayjs(`${schedule.date} ${schedule.start_time}`);
+        const scheduleStart = dayjs(schedule.start_iso);
         const fifteenMinutesBefore = scheduleStart.subtract(15, 'minutes');
-        const scheduleEnd = dayjs(`${schedule.date} ${schedule.end_time}`);
-        
-        // Can start if current time is between 15 minutes before start and schedule end
+        const scheduleEnd = dayjs(schedule.end_iso);
         return now.isAfter(fifteenMinutesBefore) && now.isBefore(scheduleEnd) && schedule.type === 'class';
     };
 
@@ -662,14 +684,21 @@ const ScheduleManagement: React.FC = () => {
     };
 
     // Helper function to check if schedule has ended
+    // Prefers server-authoritative `schedule_state` / `seconds_until_end` (computed
+    // via PG NOW()) over browser-clock math to avoid clock-skew false positives.
     const isScheduleEnded = (schedule: Schedule) => {
-        const now = dayjs();
-        const scheduleEnd = dayjs(`${schedule.date}T${schedule.end_time}`);
-        return now.isAfter(scheduleEnd);
+        if (schedule.schedule_state === 'ended' || schedule.schedule_state === 'completed' || schedule.schedule_state === 'cancelled') {
+            return true;
+        }
+        if (typeof schedule.seconds_until_end === 'number') {
+            return schedule.seconds_until_end <= 0;
+        }
+        return dayjs(schedule.end_iso).isBefore(dayjs());
     };
 
     // Helper function to get effective status (including ended)
     const getEffectiveStatus = (schedule: Schedule) => {
+        if (schedule.schedule_state) return schedule.schedule_state;
         if (schedule.status === 'completed' || schedule.status === 'cancelled') {
             return schedule.status;
         }
@@ -836,16 +865,20 @@ const ScheduleManagement: React.FC = () => {
             },
         },
         {
-            title: 'Date & Time', key: 'datetime', width: 165,
+            title: 'Date & Time', key: 'datetime', width: 220,
             render: (_, record) => (
                 <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
                         <CalendarOutlined style={{ color: '#6366f1', fontSize: 11 }} />
-                        <Text style={{ fontSize: 12, fontWeight: 600, color: '#1a1d2e' }}>{dayjs(record.date).format('MMM DD, YYYY')}</Text>
+                        <Text style={{ fontSize: 12, fontWeight: 600, color: '#1a1d2e' }}>
+                            {formatLocal(record.start_iso, userTz, { month: 'short', day: '2-digit', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}
+                        </Text>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <ClockCircleOutlined style={{ color: '#94a3b8', fontSize: 11 }} />
-                        <Text type="secondary" style={{ fontSize: 11 }}>{record.start_time} – {record.end_time}</Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                            {formatTimeLocal(record.start_iso, userTz)} – {formatTimeLocal(record.end_iso, userTz)}
+                        </Text>
                     </div>
                 </div>
             ),
@@ -921,17 +954,17 @@ const ScheduleManagement: React.FC = () => {
 
     // Check if teacher can join meeting (only after generating access code)
     const canTeacherJoinMeeting = (schedule: Schedule): boolean => {
+        // Must have an active access code session AND be inside the schedule window.
+        if (!activeSessions.has(schedule.id)) return false;
+        const sStart = schedule.seconds_until_start;
+        const sEnd = schedule.seconds_until_end;
+        if (typeof sStart === 'number' && typeof sEnd === 'number') {
+            return sStart <= 5 * 60 && sEnd > 0;
+        }
         const now = dayjs();
-        const scheduleStart = dayjs(`${schedule.date} ${schedule.start_time}`);
-        const scheduleEnd = dayjs(`${schedule.date} ${schedule.end_time}`);
-        
-        // Teacher can only join if:
-        // 1. They have generated an access code for this schedule
-        // 2. Current time is within the schedule window
-        // 3. Schedule hasn't ended
-        return activeSessions.has(schedule.id) && 
-               now.isAfter(scheduleStart.subtract(5, 'minutes')) && 
-               now.isBefore(scheduleEnd);
+        const scheduleStart = dayjs(schedule.start_iso);
+        const scheduleEnd = dayjs(schedule.end_iso);
+        return now.isAfter(scheduleStart.subtract(5, 'minutes')) && now.isBefore(scheduleEnd);
     };
 
     // Render Join Meeting button
@@ -1056,6 +1089,10 @@ const ScheduleManagement: React.FC = () => {
                     <Text type="secondary" style={{ fontSize: 13 }}>
                         {filteredSchedules.length} schedule{filteredSchedules.length !== 1 ? 's' : ''} · {todaySchedules.length} today · {upcomingSchedules.length} upcoming
                     </Text>
+                    <div style={{ marginTop: 8, fontSize: 12, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#eef2ff', border: '1px solid #e0e7ff' }}>
+                        <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 11 }} />
+                        Times shown in your timezone: <strong style={{ color: '#4338ca' }}>{userTz}</strong>
+                    </div>
                 </div>
                 <Space size={8}>
                     <Button
@@ -1224,6 +1261,11 @@ const ScheduleManagement: React.FC = () => {
                         </Select>
                     </Form.Item>
 
+                    <div style={{ background: '#eef2ff', border: '1px solid #e0e7ff', borderRadius: 10, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: '#4338ca', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <ClockCircleOutlined />
+                        <span>Times below are in your <strong>browser's timezone</strong>: <strong>{browserTz}</strong>. They are stored in UTC and displayed to each student in their own timezone.</span>
+                    </div>
+
                     <Row gutter={16}>
                         <Col span={12}>
                             <Form.Item
@@ -1371,8 +1413,8 @@ const ScheduleManagement: React.FC = () => {
                                     {batches.find(b => b.id === viewSchedule.batch_id)?.name || viewSchedule.batch_name || '—'}
                                 </span>
                             </Descriptions.Item>
-                            <Descriptions.Item label="Date"><Text strong>{dayjs(viewSchedule.date).format('dddd, MMMM D, YYYY')}</Text></Descriptions.Item>
-                            <Descriptions.Item label="Time"><Text strong>{viewSchedule.start_time} – {viewSchedule.end_time}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Date"><Text strong>{formatLocal(viewSchedule.start_iso, userTz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}</Text></Descriptions.Item>
+                            <Descriptions.Item label="Time"><Text strong>{formatTimeLocal(viewSchedule.start_iso, userTz)} – {formatTimeLocal(viewSchedule.end_iso, userTz)}</Text></Descriptions.Item>
                             <Descriptions.Item label="Type">
                                 <span style={{ background: getTypeBg(viewSchedule.type), color: getTypeColor(viewSchedule.type), borderRadius: 20, padding: '3px 12px', fontSize: 12, fontWeight: 700 }}>{viewSchedule.type.toUpperCase()}</span>
                             </Descriptions.Item>

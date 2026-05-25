@@ -1916,15 +1916,15 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 width={720}
                 centered
                 style={{ top: 20 }}
-                bodyStyle={{
-                    maxHeight: 'calc(100vh - 200px)',
-                    overflowY: 'auto',
-                    padding: '28px'
-                }}
                 styles={{
                     mask: { backdropFilter: 'blur(4px)' },
                     content: { borderRadius: 14, overflow: 'hidden' },
-                    header: { padding: '20px 28px 12px', borderBottom: 'none' }
+                    header: { padding: '20px 28px 12px', borderBottom: 'none' },
+                    body: {
+                        maxHeight: 'calc(100vh - 200px)',
+                        overflowY: 'auto',
+                        padding: '28px',
+                    },
                 }}
             >
                 <Form

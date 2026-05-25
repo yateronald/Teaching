@@ -107,7 +107,9 @@ const COQuizTaking:React.FC<Props>=({seriesId,onBack})=>{
 
   // ═══ INTRO MODAL ═══
   if(phase==='intro')return(
-    <Modal open centered width={560} footer={null} onCancel={onBack} closeIcon={null} styles={{body:{padding:0},content:{padding:0,borderRadius:20,overflow:'hidden'}}}>
+    <Modal open centered width={560} footer={null} onCancel={onBack} closeIcon={null}
+      className="exam-modal exam-modal-co"
+      styles={{body:{padding:0},content:{padding:0,borderRadius:20,overflow:'hidden'}}}>
       <div style={{background:'linear-gradient(145deg,#0f172a,#1e293b)',padding:'32px 28px 24px',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',top:-30,right:-30,width:120,height:120,borderRadius:'50%',background:'rgba(139,92,246,0.15)'}}/>
         <div style={{position:'relative',zIndex:1}}>
@@ -165,6 +167,7 @@ const COQuizTaking:React.FC<Props>=({seriesId,onBack})=>{
     const tPct=series.duration_minutes>0?Math.round((timeLeft/(series.duration_minutes*60))*100):100;
     return(
       <Modal open centered width={1040} footer={null} closable={false} keyboard={false} maskClosable={false}
+        className="exam-modal exam-modal-co"
         styles={{body:{padding:0},content:{padding:0,borderRadius:20,overflow:'hidden',boxShadow:'0 25px 60px rgba(0,0,0,0.3)'}}}
       >
         <div style={{display:'flex',minHeight:560,maxHeight:'88vh',userSelect:'none',WebkitUserSelect:'none'}} onContextMenu={e=>e.preventDefault()} onCopy={e=>e.preventDefault()}>
@@ -243,7 +246,7 @@ const COQuizTaking:React.FC<Props>=({seriesId,onBack})=>{
                   :<div style={{fontSize:10,color:'#a78bfa',display:'flex',alignItems:'center',gap:5}}><LoadingOutlined spin/> Chargement...</div>}
                 </div>
               )}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              <div data-co-options style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
                 {opts.map(o=>{
                   const sel=answers[q.id]===o.k;
                   return <div key={o.k} onClick={()=>setAnswers(p=>({...p,[q.id]:o.k}))} style={{padding:'13px 14px',borderRadius:11,cursor:'pointer',transition:'all 0.25s cubic-bezier(0.4,0,0.2,1)',background:sel?`linear-gradient(135deg,${o.c},${o.c}dd)`:'#fff',color:sel?'#fff':'#334155',border:sel?`2px solid ${o.c}`:'2px solid #e2e8f0',boxShadow:sel?`0 4px 16px ${o.c}25`:'0 1px 3px rgba(0,0,0,0.03)',display:'flex',alignItems:'center',gap:9,transform:sel?'scale(1.015)':'scale(1)'}}
@@ -272,7 +275,9 @@ const COQuizTaking:React.FC<Props>=({seriesId,onBack})=>{
   if(phase==='results'&&result){
     const pct=result.score_percentage;
     return(
-      <Modal open centered width={660} footer={null} closable={false} styles={{body:{padding:0},content:{padding:0,borderRadius:16,overflow:'hidden'}}}>
+      <Modal open centered width={660} footer={null} closable={false}
+        className="exam-modal exam-modal-co"
+        styles={{body:{padding:0},content:{padding:0,borderRadius:16,overflow:'hidden'}}}>
         <div style={{background:'linear-gradient(145deg,#0f172a,#1e293b)',padding:'28px 24px',textAlign:'center',position:'relative',overflow:'hidden'}}>
           <div style={{position:'absolute',top:-40,right:-40,width:140,height:140,borderRadius:'50%',background:`radial-gradient(circle,${CC[result.cefr_level]||'#8b5cf6'}22,transparent)`}}/>
           <div style={{position:'relative',zIndex:1}}>

@@ -83,6 +83,7 @@ const COGlobalAnalytics: React.FC<Props> = ({ open, onClose }) => {
   return (
     <Modal open={open} onCancel={onClose} centered width={740} footer={null} title={null}
       closeIcon={null}
+      className="exam-modal exam-modal-analytics"
       styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', maxHeight: 'calc(90vh - 40px)', overflow: 'hidden' }, content: { padding: 0, borderRadius: 16, overflow: 'hidden' } }}
     >
       {/* Header */}

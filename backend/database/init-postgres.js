@@ -79,6 +79,19 @@ class PostgreSQLDatabase {
         try {
             this.client = new Client(this.config);
             await this.client.connect();
+
+            // Force this connection to interpret all naive timestamps as UTC
+            // and have NOW() return UTC. The VPS Postgres default may be the
+            // host OS zone (e.g. Europe/Berlin), which previously caused naive
+            // `timestamp` columns to silently shift by the host offset. Even
+            // though we use `timestamptz` everywhere, this is a defensive
+            // bottom rail.
+            try {
+                await this.client.query("SET TIME ZONE 'UTC'");
+            } catch (tzErr) {
+                console.warn('⚠️  Could not set session TIME ZONE to UTC:', tzErr.message);
+            }
+
             console.log('✅ Connected to PostgreSQL database');
             
             // Verify database connection

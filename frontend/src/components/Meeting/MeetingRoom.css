@@ -15,20 +15,45 @@
 .meeting-status-title { font-size: 24px; font-weight: 800; color: #1e293b; margin-bottom: 8px; }
 .meeting-status-subtitle { font-size: 14px; color: #94a3b8; max-width: 400px; margin-bottom: 20px; line-height: 1.6; }
 
-/* ── Room Layout ── */
+/* ── Room Layout ── 
+   The room is portaled to <body> so it bypasses the Layout's <Content>.
+   Uses 100dvh on mobile so the URL bar shrink/grow doesn't cut off the
+   bottom toolbar. position: fixed + inset: 0 anchors it to the viewport
+   regardless of scroll position behind it. */
 .meeting-room {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
   background: #0f172a;
   color: #e2e8f0;
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 9999;
   overflow: hidden;
+}
+@supports not (height: 100dvh) {
+  .meeting-room { height: 100vh; }
+}
+
+/* ── Layout chrome lockdown while a meeting is active ──
+   When `body.meeting-active` is set (by MeetingRoomUI), kill any scrolling
+   on the underlying page so the meeting feels like a true fullscreen
+   experience — no sidebar peeking through, no horizontal scrollbar. */
+body.meeting-active {
+  overflow: hidden !important;
+}
+body.meeting-active .ant-layout-content {
+  overflow: hidden !important;
+}
+/* The portaled meeting-room covers the screen, but if for any reason it
+   doesn't, hide the underlying floating sidebar + header so the user
+   doesn't see them shimmering through. */
+body.meeting-active aside,
+body.meeting-active .ant-layout-header,
+body.meeting-active [class*="StudentSidebar"],
+body.meeting-active [class*="Sidebar"]:not(.meeting-side-panel) {
+  visibility: hidden;
 }
 
 /* ── FULLSCREEN MODE (same as default now, kept for toggle logic) ── */
@@ -85,6 +110,8 @@
 
 /* ══════════════════════════════════════════
    GRID LAYOUT (no screen share)
+   Adaptive — large 16:9 tiles when few people; tightly packed
+   smaller tiles when many people, like Google Meet's auto-grid.
    ══════════════════════════════════════════ */
 .meeting-video-grid {
   width: 100%;
@@ -92,10 +119,24 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 6px;
-  padding: 6px;
+  padding: 8px;
   overflow: hidden;
   align-content: center;
+  justify-content: center;
 }
+
+/* Density tuning by participant count — applied via inline style on
+   `.meeting-video-grid` from MeetingRoomUI when we know the count. */
+.meeting-video-grid.count-1 { grid-template-columns: 1fr; }
+.meeting-video-grid.count-2 { grid-template-columns: repeat(2, 1fr); }
+.meeting-video-grid.count-3,
+.meeting-video-grid.count-4 { grid-template-columns: repeat(2, 1fr); }
+.meeting-video-grid.count-5,
+.meeting-video-grid.count-6 { grid-template-columns: repeat(3, 1fr); }
+.meeting-video-grid.count-7,
+.meeting-video-grid.count-8,
+.meeting-video-grid.count-9 { grid-template-columns: repeat(3, 1fr); }
+.meeting-video-grid.count-many { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 
 .video-tile {
   position: relative;
@@ -127,10 +168,23 @@
 .video-avatar.small { width: 36px; height: 36px; font-size: 16px; }
 
 .video-overlay {
-  position: absolute; bottom: 0; left: 0; right: 0;
+  position: absolute;
+  /* Lift the name pill up so it doesn't collide with the bottom controls
+     bar. 10px gives breathing room without cropping the participant. */
+  bottom: 10px;
+  left: 8px;
+  right: 8px;
   padding: 4px 8px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-  display: flex; align-items: center; justify-content: space-between;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: fit-content;
+  max-width: calc(100% - 16px);
 }
 .video-name {
   font-size: 11px; font-weight: 600; color: #fff;
@@ -149,69 +203,128 @@
 
 /* ══════════════════════════════════════════
    PRESENTER LAYOUT (screen share active)
+   Google-Meet-style: shared screen takes the spotlight, participants
+   collapse to a sidebar (desktop) or bottom strip (mobile/tablet).
+   The shared screen is the priority — it gets the largest possible
+   16:9 area, with `object-fit: contain` so nothing is cropped.
    ══════════════════════════════════════════ */
 .presenter-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 200px;
+  grid-template-rows: 1fr;
+  gap: 8px;
+  padding: 8px;
   height: 100%;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
 }
 
+/* The main stage — fills all available space, dark background like a
+   real cinema screen. */
 .presenter-main {
-  flex: 1;
-  min-height: 0;
   position: relative;
+  min-height: 0;
+  min-width: 0;
+  background: #000;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .screen-share-tile {
   width: 100%;
   height: 100%;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: #000;
 }
 .screen-share-tile video {
-  width: 100%;
-  height: 100%;
+  /* `contain` guarantees the entire shared screen is visible without
+     cropping — important for slides, code editors, spreadsheets. */
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
 }
 
+/* Presenter strip = vertical sidebar on desktop with all participant
+   thumbnails. On tablet/mobile it flips to a horizontal row at the
+   bottom (handled in the responsive block below). */
 .presenter-strip {
   display: flex;
-  gap: 4px;
-  padding: 4px 6px;
-  background: rgba(15, 23, 42, 0.95);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  overflow-x: auto;
-  flex-shrink: 0;
-  min-height: 80px;
-  max-height: 100px;
-  align-items: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px;
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  /* Custom scrollbar so it doesn't dominate the strip on hover */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+.presenter-strip::-webkit-scrollbar { width: 4px; }
+.presenter-strip::-webkit-scrollbar-track { background: transparent; }
+.presenter-strip::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
 }
 
 .strip-tile {
   position: relative;
-  width: 110px;
-  min-width: 110px;
-  height: 72px;
-  border-radius: 8px;
+  width: 100%;
+  /* Locked aspect ratio gives every tile the same comfortable shape
+     regardless of how many participants there are. */
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
   overflow: hidden;
   background: #1e293b;
   border: 2px solid transparent;
   flex-shrink: 0;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, transform 0.18s;
+}
+.strip-tile:hover {
+  transform: translateY(-1px);
 }
 .strip-tile.speaking {
   border-color: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.35);
 }
+.strip-tile.teacher-tile { border-color: rgba(99, 102, 241, 0.5); }
 .strip-tile video { width: 100%; height: 100%; object-fit: cover; }
 
 .strip-name {
-  position: absolute; bottom: 0; left: 0; right: 0;
-  padding: 2px 4px;
-  background: linear-gradient(transparent, rgba(0,0,0,0.7));
-  font-size: 9px; font-weight: 600; color: #fff;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  display: flex; align-items: center; gap: 2px;
+  position: absolute;
+  /* Same lift as the main video overlays — sits 6px above the bottom
+     edge so the name has air to breathe and doesn't touch the rounded
+     corner. */
+  bottom: 6px;
+  left: 6px;
+  right: 6px;
+  padding: 3px 7px;
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  max-width: calc(100% - 12px);
 }
 
 /* ── Control Bar ── */
@@ -337,6 +450,17 @@
 .admission-actions { display: flex; gap: 4px; }
 
 /* ── Responsive ── */
+
+/* Tablet & small laptop (≤ 1100px): make the thumbnail sidebar narrower */
+@media (max-width: 1100px) and (min-width: 769px) {
+  .presenter-layout {
+    grid-template-columns: 1fr 160px;
+    gap: 6px;
+    padding: 6px;
+  }
+}
+
+/* Mobile / portrait tablet: flip to horizontal strip at the bottom */
 @media (max-width: 768px) {
   .meeting-video-grid {
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -345,11 +469,33 @@
   .meeting-side-panel { width: 100%; }
   .meeting-controls { padding: 6px 10px; }
   .control-btn { width: 34px; height: 34px; font-size: 13px; }
-  .presenter-strip { min-height: 60px; max-height: 70px; }
-  .strip-tile { width: 80px; min-width: 80px; height: 52px; }
+
+  /* Stage on top, strip on bottom — exactly like Google Meet on mobile.
+     The strip becomes a horizontal scroll row capped at ~22dvh. */
+  .presenter-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    gap: 6px;
+    padding: 6px;
+  }
+  .presenter-strip {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 4px;
+    max-height: min(20dvh, 110px);
+  }
+  .strip-tile {
+    width: auto;
+    height: 100%;
+    aspect-ratio: 16 / 9;
+    min-width: 130px;
+    flex-shrink: 0;
+  }
 }
 
-/* When in presenter mode, adjust grid for fewer participants */
+/* When in presenter mode, adjust grid for fewer participants (legacy
+   fallback — current layout uses sidebar/strip, never grid). */
 .has-screenshare .meeting-video-grid {
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 }
@@ -417,41 +563,171 @@
 
 
 /* ══════════════════════════════════════════
-   PRE-JOIN DEVICE SETUP SCREEN
+   PRE-JOIN DEVICE SETUP SCREEN — modern, fits any viewport
    ══════════════════════════════════════════ */
 .meeting-prejoin {
+  /* Hug the parent container (we live inside <Content> which already has
+     padding + a sidebar offset). Using 100dvh would overflow horizontally
+     when the sidebar takes 240px. The parent already enforces vertical
+     space; we just need to fill what we're given. */
+  width: 100%;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 70vh;
-  padding: 20px;
+  padding: 0;
+  background: transparent;
+  box-sizing: border-box;
 }
-.prejoin-container {
+
+.prejoin-card {
   width: 100%;
-  max-width: 480px;
+  max-width: 880px;
+  /* Cap height so the card always fits inside the visible area of the
+     parent <Content>. The Layout adds ~104px of chrome (header + margins)
+     so we subtract that on desktop. */
+  max-height: calc(100dvh - 120px);
   background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 24px 60px -16px rgba(15, 23, 42, 0.18),
+    0 8px 16px -4px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+@supports not (max-height: calc(100dvh - 120px)) {
+  .prejoin-card { max-height: calc(100vh - 120px); }
+}
+
+/* ── Brand strip ── */
+.prejoin-strip {
+  flex-shrink: 0;
+  padding: 16px 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: linear-gradient(135deg, rgba(99,102,241,0.04), rgba(168,85,247,0.02));
+}
+.prejoin-strip-icon {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4338ca, #6366f1);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 6px 16px -4px rgba(67, 56, 202, 0.4);
+}
+.prejoin-eyebrow {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #6366f1;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.prejoin-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Body: 2-column grid on desktop, stacked on mobile ── */
+.prejoin-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 0;
   overflow: hidden;
 }
-.prejoin-header {
-  padding: 20px 24px 0;
-  text-align: center;
+.prejoin-preview {
+  position: relative;
+  background: #0f172a;
+  /* Small inset so preview doesn't hug the card edge */
+  margin: 16px 8px 16px 16px;
+  border-radius: 14px;
+  overflow: hidden;
+  /* Aspect ratio keeps the video well-proportioned without overflowing
+     the viewport. We cap min/max so it stays sensible at all sizes. */
+  aspect-ratio: 16 / 10;
+  align-self: center;
+  /* Constrain so card never grows taller than its parent. */
+  max-height: 100%;
+  min-height: 0;
 }
-.prejoin-content {
-  padding: 16px 24px;
+
+.prejoin-controls {
+  padding: 16px 18px 16px 8px;
+  overflow-y: auto;
+  /* Already constrained by parent .prejoin-card max-height. */
+  min-height: 0;
 }
+
+/* ── Sticky action bar ── */
 .prejoin-actions {
-  padding: 16px 24px 20px;
+  flex-shrink: 0;
+  padding: 14px 22px;
   display: flex;
   gap: 10px;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background: #fafbff;
+}
+
+/* ── Mobile / small laptop: stack vertically ── */
+@media (max-width: 860px) {
+  .meeting-prejoin {
+    padding: 0;
+    align-items: stretch;
+  }
+  .prejoin-card {
+    max-width: 100%;
+    /* On phones the parent <Content> wraps everything in a 14px padding,
+       and the floating header takes ~80px. The card hugs whatever space
+       remains — DON'T claim 100dvh here, the parent already constrains us
+       and forcing 100dvh causes horizontal overflow. */
+    max-height: none;
+    border-radius: 14px;
+  }
+  .prejoin-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, auto) minmax(0, 1fr);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .prejoin-preview {
+    margin: 12px 12px 6px;
+    aspect-ratio: 16 / 10;
+    max-height: 32dvh;
+  }
+  .prejoin-controls {
+    padding: 4px 14px 14px;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+/* ── Very short viewports (e.g. landscape phone, ultra-wide laptop) ── */
+@media (max-height: 680px) and (min-width: 861px) {
+  .prejoin-preview {
+    aspect-ratio: 4 / 3;
+  }
+  .prejoin-strip { padding: 12px 20px; }
+  .prejoin-actions { padding: 10px 20px; }
 }
 
 /* Dark theme overrides for device settings selects */
-.prejoin-content .ant-select-selector,
+.prejoin-controls .ant-select-selector,
 .settings-panel .ant-select-selector {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  border-radius: 10px !important;
 }
 .settings-panel .ant-select-selector {
   background: rgba(255, 255, 255, 0.06) !important;

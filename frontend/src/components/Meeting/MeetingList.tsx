@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Button, Modal, Form, Input, Select, DatePicker, message, Tag, Empty, Skeleton, Typography, Tooltip } from 'antd';
+import { Button, Modal, Form, Input, Select, DatePicker, message, Skeleton, Typography, Tooltip } from 'antd';
 import {
   PlusOutlined, VideoCameraOutlined, DeleteOutlined,
   ClockCircleOutlined, TeamOutlined, CalendarOutlined, PlayCircleOutlined,
@@ -8,9 +8,9 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { io as socketIO } from 'socket.io-client';
-import dayjs from 'dayjs';
 import MeetingRecordings from './MeetingRecordings';
 import { getSocketUrl } from '../../utils/socketUrl';
+import { formatLocal, formatTimeLocal, detectBrowserTimezone } from '../../utils/timezone';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -51,6 +51,8 @@ const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string }
 
 const MeetingList: React.FC = () => {
   const { apiCall, isTeacher, isAdmin, user } = useAuth();
+  const userTz = user?.timezone || detectBrowserTimezone();
+  const browserTz = detectBrowserTimezone();
   const navigate = useNavigate();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
@@ -199,6 +201,10 @@ const MeetingList: React.FC = () => {
           <Text style={{ fontSize: 13, color: '#94a3b8' }}>
             {canManage ? 'Create and manage live classes' : 'Join live classes and view recordings'}
           </Text>
+          <div style={{ marginTop: 6, fontSize: 11, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999, background: '#eef2ff', border: '1px solid #e0e7ff' }}>
+            <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 10 }} />
+            Times shown in your timezone: <strong style={{ color: '#4338ca' }}>{userTz}</strong>
+          </div>
         </div>
         {canManage && (
           <div style={{ display: 'flex', gap: 8 }}>
@@ -214,53 +220,86 @@ const MeetingList: React.FC = () => {
         )}
       </div>
 
-      {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12, marginBottom: 24 }}>
+      {/* Stats — compact, modern, with subtle accent borders */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>
         {[
-          { label: 'Upcoming', value: upcomingMeetings.filter(m => m.status === 'scheduled').length, color: '#6366f1', icon: <CalendarOutlined /> },
-          { label: 'Live Now', value: meetings.filter(m => m.status === 'active').length, color: '#22c55e', icon: <PlayCircleOutlined /> },
-          { label: 'Total', value: meetings.length, color: '#f59e0b', icon: <VideoCameraOutlined /> },
+          { label: 'Upcoming', value: upcomingMeetings.filter(m => m.status === 'scheduled').length, color: '#6366f1', icon: <CalendarOutlined />, bg: '#eef2ff' },
+          { label: 'Live Now', value: meetings.filter(m => m.status === 'active').length, color: '#22c55e', icon: <PlayCircleOutlined />, bg: '#dcfce7' },
+          { label: 'Total', value: meetings.length, color: '#f59e0b', icon: <VideoCameraOutlined />, bg: '#fef3c7' },
         ].map((s, i) => (
-          <div key={i} style={{ padding: '14px 16px', borderRadius: 12, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 1px 4px rgba(0,0,0,0.03)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ color: s.color, fontSize: 16 }}>{s.icon}</span>
-              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{s.label}</span>
+          <div key={i} style={{
+            padding: '14px 18px', borderRadius: 14, background: '#fff',
+            border: '1px solid #f0f0f8',
+            boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}>
+            <div style={{
+              width: 40, height: 40, borderRadius: 11,
+              background: s.bg, color: s.color,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18, flexShrink: 0,
+            }}>{s.icon}</div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase' }}>{s.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', lineHeight: 1.1 }}>
+                {s.value}
+                {s.label === 'Live Now' && (s.value as number) > 0 && (
+                  <span className="meeting-live-pulse" style={{
+                    display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
+                    background: '#22c55e', marginLeft: 8, verticalAlign: 'middle',
+                  }} />
+                )}
+              </div>
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b' }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Tabs: Meetings / Recordings */}
+      {/* Tabs: Meetings / Recordings — modern segmented control */}
       <div style={{
         display: 'inline-flex', gap: 4, padding: 4, marginBottom: 18,
         background: '#f1f5f9', borderRadius: 12,
+        boxShadow: 'inset 0 1px 2px rgba(15,23,42,0.04)',
       }}>
         {([
-          { key: 'meetings', label: 'Meetings', icon: <VideoCameraOutlined /> },
-          { key: 'recordings', label: 'Recordings', icon: <PlayCircleFilled /> },
-        ] as const).map(t => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            style={{
-              padding: '8px 18px',
-              borderRadius: 8,
-              border: 'none',
-              background: activeTab === t.key ? '#fff' : 'transparent',
-              color: activeTab === t.key ? '#4338ca' : '#64748b',
-              fontWeight: activeTab === t.key ? 700 : 600,
-              fontSize: 13,
-              cursor: 'pointer',
-              boxShadow: activeTab === t.key ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              transition: 'all 0.18s ease',
-              fontFamily: '"Manrope", "Inter", sans-serif',
-            }}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
+          { key: 'meetings', label: 'Meetings', icon: <VideoCameraOutlined />, count: meetings.length },
+          { key: 'recordings', label: 'Recordings', icon: <PlayCircleFilled />, count: null as number | null },
+        ] as const).map(t => {
+          const isActive = activeTab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 9,
+                border: 'none',
+                background: isActive ? '#fff' : 'transparent',
+                color: isActive ? '#4338ca' : '#64748b',
+                fontWeight: isActive ? 700 : 600,
+                fontSize: 13,
+                cursor: 'pointer',
+                boxShadow: isActive ? '0 1px 3px rgba(15,23,42,0.10), 0 0 0 1px rgba(67,56,202,0.06)' : 'none',
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                transition: 'all 0.18s ease',
+                fontFamily: '"Manrope", "Inter", sans-serif',
+              }}
+            >
+              {t.icon} {t.label}
+              {t.count !== null && t.count > 0 && (
+                <span style={{
+                  fontSize: 10.5, fontWeight: 800,
+                  padding: '1px 7px', borderRadius: 999,
+                  background: isActive ? '#eef2ff' : 'rgba(148,163,184,0.18)',
+                  color: isActive ? '#4338ca' : '#64748b',
+                  minWidth: 20, textAlign: 'center',
+                }}>
+                  {t.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === 'recordings' ? (
@@ -271,106 +310,295 @@ const MeetingList: React.FC = () => {
       {/* Meeting Cards */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {[1, 2, 3].map(i => <Skeleton.Button key={i} active style={{ height: 100, borderRadius: 12, width: '100%' }} block />)}
+          {[1, 2, 3].map(i => <Skeleton.Button key={i} active style={{ height: 100, borderRadius: 14, width: '100%' }} block />)}
         </div>
       ) : meetings.length === 0 ? (
-        <Empty description={canManage ? 'No meetings yet. Create your first one!' : 'No meetings scheduled for you.'} />
+        <div style={{
+          padding: '48px 24px', textAlign: 'center',
+          background: '#fafbff', borderRadius: 16, border: '1px dashed #e2e8f0',
+        }}>
+          <div style={{
+            width: 64, height: 64, borderRadius: 16, margin: '0 auto 14px',
+            background: 'linear-gradient(135deg, #eef2ff, #e0e7ff)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#6366f1', fontSize: 28,
+          }}><VideoCameraOutlined /></div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', marginBottom: 4 }}>
+            {canManage ? 'No meetings yet' : 'No meetings scheduled'}
+          </div>
+          <div style={{ fontSize: 13, color: '#64748b' }}>
+            {canManage ? 'Create your first live class to start meeting with students.' : "Your teacher hasn't scheduled any live classes yet."}
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Active/Upcoming first */}
+          {/* Active/Upcoming first — modern card with vertical accent bar */}
           {upcomingMeetings.map(m => {
             const sc = STATUS_CONFIG[m.status];
             const isHost = m.teacher_id === user?.id;
+            const isLive = m.status === 'active';
+            const accentColor = isLive ? '#22c55e' : m.status === 'waiting' ? '#f59e0b' : '#6366f1';
+
             return (
-              <div key={m.id} data-focus-id={m.id} style={{ padding: '16px 20px', borderRadius: 14, background: '#fff', border: m.status === 'active' ? '2px solid #22c55e' : '1px solid #f0f0f8', boxShadow: m.status === 'active' ? '0 0 20px rgba(34,197,94,0.1)' : '0 1px 4px rgba(0,0,0,0.03)', position: 'relative', overflow: 'hidden' }}>
-                {m.status === 'active' && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(90deg, #22c55e, #4ade80)' }} />}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <Tag style={{ borderRadius: 6, fontWeight: 700, fontSize: 11, background: sc.bg, color: sc.color, border: 'none', margin: 0 }}>{sc.label}</Tag>
-                      {m.batch_name && <Tag style={{ borderRadius: 6, fontSize: 10, margin: 0, background: '#f8f9ff', color: '#6366f1', border: '1px solid #e0e7ff' }}>{m.batch_name}</Tag>}
-                      {m.is_locked && <Tag color="red" style={{ borderRadius: 6, fontSize: 10, margin: 0 }}>🔒 Locked</Tag>}
+              <div
+                key={m.id}
+                data-focus-id={m.id}
+                className={isLive ? 'meeting-card meeting-card-live' : 'meeting-card'}
+                style={{
+                  padding: 0,
+                  borderRadius: 16,
+                  background: '#fff',
+                  border: isLive ? `1px solid ${accentColor}40` : '1px solid #f0f0f8',
+                  boxShadow: isLive
+                    ? '0 8px 24px -8px rgba(34,197,94,0.18), 0 0 0 1px rgba(34,197,94,0.08)'
+                    : '0 2px 6px -2px rgba(15,23,42,0.04)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+                }}
+              >
+                {/* Vertical accent bar (left edge) */}
+                <div style={{
+                  width: 4,
+                  flexShrink: 0,
+                  background: isLive
+                    ? 'linear-gradient(180deg, #22c55e 0%, #16a34a 100%)'
+                    : `linear-gradient(180deg, ${accentColor}, ${accentColor}aa)`,
+                }} />
+
+                <div style={{ flex: 1, padding: '16px 18px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      {/* Tags row */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                        {isLive ? (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            padding: '3px 10px', borderRadius: 999,
+                            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                            color: '#fff', fontSize: 10.5, fontWeight: 800,
+                            letterSpacing: 0.4, textTransform: 'uppercase',
+                            boxShadow: '0 2px 6px rgba(34,197,94,0.35)',
+                          }}>
+                            <span className="meeting-live-pulse" style={{
+                              width: 6, height: 6, borderRadius: '50%', background: '#fff',
+                            }} />
+                            Live
+                          </span>
+                        ) : (
+                          <span style={{
+                            padding: '3px 10px', borderRadius: 999,
+                            background: sc.bg, color: sc.color,
+                            fontSize: 10.5, fontWeight: 800, letterSpacing: 0.4, textTransform: 'uppercase',
+                          }}>
+                            {sc.label}
+                          </span>
+                        )}
+                        {m.batch_name && (
+                          <span style={{
+                            padding: '3px 9px', borderRadius: 999,
+                            background: '#eef2ff', color: '#4338ca',
+                            fontSize: 10.5, fontWeight: 700,
+                            border: '1px solid #e0e7ff',
+                          }}>
+                            {m.batch_name}
+                          </span>
+                        )}
+                        {m.is_locked && (
+                          <span style={{
+                            padding: '3px 9px', borderRadius: 999,
+                            background: '#fef2f2', color: '#dc2626',
+                            fontSize: 10.5, fontWeight: 700,
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                          }}>🔒 Locked</span>
+                        )}
+                      </div>
+
+                      {/* Title */}
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a', marginBottom: 4, letterSpacing: -0.2, lineHeight: 1.3 }}>
+                        {m.title}
+                      </div>
+                      {m.description && (
+                        <div style={{ fontSize: 12.5, color: '#64748b', marginBottom: 8, lineHeight: 1.5 }}>
+                          {m.description}
+                        </div>
+                      )}
+
+                      {/* Meta row */}
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <UserOutlined style={{ color: '#94a3b8' }} />
+                          {m.teacher_first_name} {m.teacher_last_name}
+                        </span>
+                        {m.scheduled_start && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                            <ClockCircleOutlined style={{ color: '#94a3b8' }} />
+                            {formatLocal(m.scheduled_start, userTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                          </span>
+                        )}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <TeamOutlined style={{ color: '#94a3b8' }} />
+                          {m.participant_count} joined
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{m.title}</div>
-                    {m.description && <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>{m.description}</div>}
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8' }}>
-                      <span><UserOutlined /> {m.teacher_first_name} {m.teacher_last_name}</span>
-                      {m.scheduled_start && <span><ClockCircleOutlined /> {dayjs(m.scheduled_start).format('MMM D, HH:mm')}</span>}
-                      <span><TeamOutlined /> {m.participant_count} joined</span>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    {m.status === 'active' && (
-                      <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleJoin(m)}
-                        style={{ borderRadius: 10, fontWeight: 600, background: '#22c55e', borderColor: '#22c55e', boxShadow: '0 2px 8px rgba(34,197,94,0.3)' }}>
-                        {isHost ? 'Rejoin' : 'Join Now'}
-                      </Button>
-                    )}
-                    {m.status === 'scheduled' && isHost && (
-                      <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handlePrepare(m)}
-                        style={{ borderRadius: 10, fontWeight: 600, background: 'linear-gradient(135deg, #4338ca, #6366f1)', border: 'none' }}>
-                        Start Class
-                      </Button>
-                    )}
-                    {m.status === 'waiting' && isHost && (
-                      <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleJoin(m)}
-                        style={{ borderRadius: 10, fontWeight: 600, background: '#f59e0b', borderColor: '#f59e0b' }}>
-                        Continue Setup
-                      </Button>
-                    )}
-                    {m.status === 'scheduled' && !isHost && (
-                      <Tooltip title="Meeting hasn't started yet">
-                        <Button disabled style={{ borderRadius: 10 }}>Not Started</Button>
-                      </Tooltip>
-                    )}
-                    {m.status === 'waiting' && !isHost && (
-                      <Button onClick={() => handleJoin(m)} style={{ borderRadius: 10, fontWeight: 600, color: '#f59e0b', borderColor: '#f59e0b' }}>
-                        Join Waiting Room
-                      </Button>
-                    )}
-                    {isHost && (
-                      <>
-                        <Tooltip title="Copy share link">
-                          <Button type="text" icon={<ShareAltOutlined />} onClick={() => {
-                            const shareUrl = `${window.location.origin}/app/meeting-join/${m.room_name}`;
-                            navigator.clipboard.writeText(shareUrl).then(() => message.success('Share link copied!')).catch(() => {
-                              // Fallback
-                              const input = document.createElement('input');
-                              input.value = shareUrl;
-                              document.body.appendChild(input);
-                              input.select();
-                              document.execCommand('copy');
-                              document.body.removeChild(input);
-                              message.success('Share link copied!');
-                            });
-                          }} style={{ borderRadius: 8, color: '#6366f1' }} />
+
+                    {/* Actions */}
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      {m.status === 'active' && (
+                        <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleJoin(m)}
+                          style={{
+                            borderRadius: 10, fontWeight: 700, height: 38,
+                            background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                            borderColor: 'transparent',
+                            boxShadow: '0 4px 12px rgba(34,197,94,0.35)',
+                            paddingInline: 18,
+                          }}>
+                          {isHost ? 'Rejoin' : 'Join Now'}
+                        </Button>
+                      )}
+                      {m.status === 'scheduled' && isHost && (
+                        <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handlePrepare(m)}
+                          style={{
+                            borderRadius: 10, fontWeight: 700, height: 38,
+                            background: 'linear-gradient(135deg, #4338ca, #6366f1)',
+                            border: 'none', paddingInline: 18,
+                            boxShadow: '0 4px 12px rgba(67,56,202,0.25)',
+                          }}>
+                          Start Class
+                        </Button>
+                      )}
+                      {m.status === 'waiting' && isHost && (
+                        <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleJoin(m)}
+                          style={{
+                            borderRadius: 10, fontWeight: 700, height: 38,
+                            background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                            borderColor: 'transparent', paddingInline: 18,
+                            boxShadow: '0 4px 12px rgba(245,158,11,0.3)',
+                          }}>
+                          Continue
+                        </Button>
+                      )}
+                      {m.status === 'scheduled' && !isHost && (
+                        <Tooltip title="Meeting hasn't started yet">
+                          <Button disabled style={{ borderRadius: 10, height: 38 }}>Not Started</Button>
                         </Tooltip>
-                        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(m.id)} style={{ borderRadius: 8 }} />
-                      </>
-                    )}
+                      )}
+                      {m.status === 'waiting' && !isHost && (
+                        <Button onClick={() => handleJoin(m)}
+                          style={{
+                            borderRadius: 10, fontWeight: 700, height: 38,
+                            background: '#fffbeb', color: '#b45309', borderColor: '#fde68a',
+                            paddingInline: 16,
+                          }}>
+                          Join Waiting Room
+                        </Button>
+                      )}
+
+                      {isHost && (
+                        <>
+                          <Tooltip title="Copy share link">
+                            <Button type="text" icon={<ShareAltOutlined />} onClick={() => {
+                              const shareUrl = `${window.location.origin}/app/meeting-join/${m.room_name}`;
+                              navigator.clipboard.writeText(shareUrl).then(() => message.success('Share link copied!')).catch(() => {
+                                const input = document.createElement('input');
+                                input.value = shareUrl;
+                                document.body.appendChild(input);
+                                input.select();
+                                document.execCommand('copy');
+                                document.body.removeChild(input);
+                                message.success('Share link copied!');
+                              });
+                            }} style={{ borderRadius: 10, color: '#6366f1', width: 38, height: 38 }} />
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDelete(m.id)} style={{ borderRadius: 10, width: 38, height: 38 }} />
+                          </Tooltip>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             );
           })}
 
-          {/* Past meetings */}
+          {/* ── Past meetings ── */}
           {pastMeetings.length > 0 && (
             <>
-              <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginTop: 16, marginBottom: 4 }}>Past Meetings</div>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                marginTop: 22, marginBottom: 8,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#475569', textTransform: 'uppercase', letterSpacing: 0.6 }}>
+                  Past Meetings
+                </div>
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: '#94a3b8',
+                  background: '#f1f5f9', borderRadius: 999, padding: '2px 9px',
+                }}>{pastMeetings.length}</span>
+                <div style={{ flex: 1, height: 1, background: 'linear-gradient(90deg, #e2e8f0, transparent)' }} />
+              </div>
+
               {pastMeetings.slice(0, 10).map(m => (
-                <div key={m.id} data-focus-id={m.id} style={{ padding: '12px 16px', borderRadius: 12, background: '#fafbff', border: '1px solid #f0f0f8', opacity: 0.8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#475569' }}>{m.title}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                        {m.started_at && dayjs(m.started_at).format('MMM D, HH:mm')}
-                        {m.ended_at && ` — ${dayjs(m.ended_at).format('HH:mm')}`}
-                        {' · '}{m.participant_count} participants
-                        {m.batch_name && ` · ${m.batch_name}`}
+                <div
+                  key={m.id}
+                  data-focus-id={m.id}
+                  className="meeting-row-past"
+                  style={{
+                    padding: '14px 16px',
+                    borderRadius: 12,
+                    background: '#fff',
+                    border: '1px solid #f0f0f8',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.02)',
+                    transition: 'background 0.18s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+                      {/* Past icon tile */}
+                      <div style={{
+                        width: 38, height: 38, borderRadius: 10,
+                        background: '#f1f5f9', color: '#64748b',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 16, flexShrink: 0,
+                      }}>
+                        <VideoCameraOutlined />
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#334155', marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {m.title}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                          {m.started_at && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <ClockCircleOutlined />
+                              {formatLocal(m.started_at, userTz, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}
+                              {m.ended_at && ` → ${formatTimeLocal(m.ended_at, userTz)}`}
+                            </span>
+                          )}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <TeamOutlined />
+                            {m.participant_count} participant{m.participant_count !== 1 ? 's' : ''}
+                          </span>
+                          {m.batch_name && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <UserOutlined />{m.batch_name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <Tag style={{ borderRadius: 6, background: '#f1f5f9', color: '#94a3b8', border: 'none' }}>Ended</Tag>
+                    <span style={{
+                      padding: '3px 10px', borderRadius: 999,
+                      background: '#f1f5f9', color: '#64748b',
+                      fontSize: 10.5, fontWeight: 700,
+                      letterSpacing: 0.4, textTransform: 'uppercase',
+                      flexShrink: 0,
+                    }}>
+                      Ended
+                    </span>
                   </div>
                 </div>
               ))}
@@ -442,6 +670,11 @@ const MeetingList: React.FC = () => {
                 placeholder={['Start date & time', 'End date & time']}
                 getPopupContainer={trigger => trigger.parentElement || document.body} />
             </Form.Item>
+
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: '#eef2ff', border: '1px solid #e0e7ff', marginBottom: 14, fontSize: 11, color: '#4338ca', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ClockCircleOutlined style={{ fontSize: 11 }} />
+              <span>Times above are in your <strong>browser's timezone</strong>: <strong>{browserTz}</strong>. Stored in UTC; each student sees them in their own timezone.</span>
+            </div>
 
             {/* Info note */}
             <div style={{ padding: '10px 14px', borderRadius: 10, background: '#f0fdf4', border: '1px solid #bbf7d0', marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 8 }}>

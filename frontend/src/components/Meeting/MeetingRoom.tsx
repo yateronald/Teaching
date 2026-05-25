@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, message, Spin, Modal, Input, Badge, Tooltip, Tag } from 'antd';
+import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App } from 'antd';
 import {
   AudioMutedOutlined, VideoCameraOutlined,
   PhoneOutlined, TeamOutlined, MessageOutlined,
@@ -55,6 +56,7 @@ const MeetingPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { apiCall, user } = useAuth();
+  const { message } = App.useApp();
   const [meeting, setMeeting] = useState<MeetingData | null>(null);
   const [phase, setPhase] = useState<'loading' | 'waiting' | 'lobby' | 'ended' | 'locked' | 'kicked' | 'not_ready' | 'pre-start' | 'room' | 'declined'>('loading');
   const [token, setToken] = useState<string | null>(null);
@@ -299,20 +301,46 @@ const MeetingPage: React.FC = () => {
   if (phase === 'pre-start') {
     return (
       <div className="meeting-prejoin">
-        <div className="prejoin-container">
-          <div className="prejoin-header">
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b' }}>{meeting.title}</div>
-            <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>Check your audio and video before starting</div>
+        <div className="prejoin-card">
+          {/* ── Brand strip ── */}
+          <div className="prejoin-strip">
+            <div className="prejoin-strip-icon">
+              <VideoCameraOutlined />
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div className="prejoin-eyebrow">Ready to start</div>
+              <div className="prejoin-title">{meeting.title}</div>
+            </div>
           </div>
-          <div className="prejoin-content">
-            <DeviceSettings />
+
+          {/* ── Body: 2-column on desktop, stacked on mobile ── */}
+          <div className="prejoin-body">
+            {/* Left: live preview (controls overlaid) */}
+            <div className="prejoin-preview">
+              <DeviceSettings variant="preview-only" />
+            </div>
+            {/* Right: device selectors */}
+            <div className="prejoin-controls">
+              <DeviceSettings variant="controls-only" />
+            </div>
           </div>
+
+          {/* ── Sticky action bar ── */}
           <div className="prejoin-actions">
+            <Button onClick={() => navigate('/app/meetings')} size="large"
+              style={{ borderRadius: 10, height: 44, fontWeight: 600, paddingInline: 18 }}>
+              Cancel
+            </Button>
             <Button type="primary" size="large" icon={<PlayCircleOutlined />} onClick={handleStartMeeting}
-              style={{ borderRadius: 12, height: 48, fontWeight: 700, fontSize: 16, background: 'linear-gradient(135deg, #22c55e, #16a34a)', border: 'none', boxShadow: '0 4px 16px rgba(34,197,94,0.3)', paddingInline: 32, flex: 1 }}>
+              style={{
+                borderRadius: 10, height: 44, fontWeight: 700, fontSize: 15,
+                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                border: 'none',
+                boxShadow: '0 4px 14px rgba(34,197,94,0.32)',
+                paddingInline: 24, flex: 1,
+              }}>
               Start Meeting
             </Button>
-            <Button onClick={() => navigate('/app/meetings')} size="large" style={{ borderRadius: 12, height: 48 }}>Cancel</Button>
           </div>
         </div>
       </div>
@@ -320,8 +348,12 @@ const MeetingPage: React.FC = () => {
   }
 
   // ── ROOM PHASE ──
+  // Render via React Portal so the meeting escapes the Layout's <Content>
+  // (sidebar offset, inner overflow:auto, etc.) and fills the entire
+  // viewport — like Microsoft Teams when you join a call. We also add a
+  // body class so the page can react (e.g. lock document scroll).
   if (phase === 'room' && token && livekitUrl) {
-    return (
+    return createPortal(
       <LiveKitRoom
         serverUrl={livekitUrl}
         token={token}
@@ -329,7 +361,7 @@ const MeetingPage: React.FC = () => {
         audio={true}
         video={true}
         onDisconnected={handleLeaveMeeting}
-        style={{ height: '100vh' }}
+        style={{ height: '100dvh', width: '100vw' }}
       >
         <RoomAudioRenderer />
         <MeetingRoomUI
@@ -340,7 +372,8 @@ const MeetingPage: React.FC = () => {
           socket={socketRef.current}
           isHost={meeting.teacher_id === user?.id}
         />
-      </LiveKitRoom>
+      </LiveKitRoom>,
+      document.body
     );
   }
 
@@ -358,6 +391,7 @@ const MeetingRoomUI: React.FC<{
   socket: ReturnType<typeof socketIO> | null;
   isHost: boolean;
 }> = ({ meeting, onLeave, onEnd, apiCall, socket, isHost }) => {
+  const { message } = App.useApp();
   const participants = useParticipants();
   const localParticipant = useLocalParticipant();
   useRoomContext(); // keep room context active
@@ -415,9 +449,17 @@ const MeetingRoomUI: React.FC<{
     });
   };
 
-  // Cleanup fullscreen on unmount
+  // Cleanup fullscreen + body lock on unmount.
+  // Adding `meeting-active` to <body> tells the Layout to hide its sidebar
+  // and lock the inner <Content> scroller while a call is in progress —
+  // mirrors the Microsoft Teams "in-call" full-window UX.
   useEffect(() => {
-    return () => { document.body.style.overflow = ''; };
+    document.body.classList.add('meeting-active');
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.classList.remove('meeting-active');
+      document.body.style.overflow = '';
+    };
   }, []);
 
   // Socket listeners
@@ -847,8 +889,10 @@ const MeetingRoomUI: React.FC<{
             </div>
           </div>
         ) : (
-          /* ── GRID LAYOUT: equal tiles ── */
-          <div className="meeting-video-grid">
+          /* ── GRID LAYOUT: equal tiles ──
+             Density class scales with participant count so 2 people get
+             huge tiles, 6 people share the screen evenly, 10+ pack tightly. */
+          <div className={`meeting-video-grid count-${cameraTracks.length <= 9 ? cameraTracks.length : 'many'}`}>
             {cameraTracks.map((trackRef) => {
               const p = trackRef.participant;
               const isLocal = p.sid === localParticipant.localParticipant.sid;
@@ -1322,7 +1366,7 @@ const MeetingRoomUI: React.FC<{
             <button onClick={() => setSettingsOpen(false)} className="side-panel-close">×</button>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
-            <DeviceSettings compact />
+            <DeviceSettings compact dark />
           </div>
         </div>
       )}

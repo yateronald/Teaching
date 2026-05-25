@@ -218,7 +218,9 @@ router.get('/', async (req, res) => {
     if (req.user.role === 'teacher') {
       query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
                b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count
+               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
+               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
+               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
                FROM meetings m
                LEFT JOIN users u ON m.teacher_id = u.id
                LEFT JOIN batches b ON m.batch_id = b.id
@@ -228,7 +230,9 @@ router.get('/', async (req, res) => {
       // Students see meetings for batches they're enrolled in
       query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
                b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count
+               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
+               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
+               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
                FROM meetings m
                LEFT JOIN users u ON m.teacher_id = u.id
                LEFT JOIN batches b ON m.batch_id = b.id
@@ -238,7 +242,9 @@ router.get('/', async (req, res) => {
       // Admin sees all
       query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
                b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count
+               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
+               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
+               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
                FROM meetings m
                LEFT JOIN users u ON m.teacher_id = u.id
                LEFT JOIN batches b ON m.batch_id = b.id
@@ -998,33 +1004,55 @@ router.post('/:id/recording/start', async (req, res) => {
       return res.status(400).json({ error: 'Meeting must be active to record' });
     }
 
-    // Already recording? Check for stale rows: a row may be stuck in 'starting'
-    // or 'recording' if a previous attempt failed mid-flight and the LiveKit
-    // egress webhook never came back. Before refusing, ask LiveKit whether the
-    // egress is actually still running. If it's gone (or not configured),
-    // self-heal by marking the row as 'failed' and proceeding with a fresh
-    // recording.
-    const existing = await req.db.get(
-      `SELECT id, egress_id, started_at FROM meeting_recordings
-       WHERE meeting_id = $1 AND status IN ('starting', 'recording')
-       ORDER BY id DESC LIMIT 1`,
+    // ── Robust pre-flight cleanup ──
+    //
+    // A recording row can be left in three "non-terminal" states between
+    // sessions:
+    //   - 'starting'   : created but the egress request never completed
+    //   - 'recording'  : actively recording on LiveKit
+    //   - 'finalizing' : stop was issued but the egress webhook never wrote
+    //                    the file size / duration (so the row never moved
+    //                    to 'ready' or 'failed')
+    //
+    // The only row that should *truly* block a new recording is one that
+    // LiveKit confirms is still actively recording. Everything else (no
+    // egress id, egress already gone, finalizing for too long) is treated
+    // as orphaned and self-healed so the host can immediately start again.
+    //
+    // Why this matters: with 'starting' and 'recording' as the only checked
+    // statuses, a row stuck at 'finalizing' (because the egress webhook
+    // never came back) would be ignored by the SELECT — but if the next
+    // attempt's row was also stuck (in 'starting' with no egress_id) it
+    // would silently keep blocking every future Start. Including all three
+    // states + LiveKit verify makes the flow self-healing.
+    const stuck = await req.db.all(
+      `SELECT id, egress_id, started_at, status FROM meeting_recordings
+       WHERE meeting_id = $1 AND status IN ('starting', 'recording', 'finalizing')
+       ORDER BY id DESC`,
       [req.params.id]
     );
-    if (existing) {
+
+    let blockingRow = null; // a row we cannot self-heal — only this triggers 409
+
+    for (const row of stuck) {
+      const ageSec = (Date.now() - new Date(row.started_at).getTime()) / 1000;
+
       let stale = false;
       let staleReason = '';
 
-      if (!existing.egress_id) {
-        // Row was created but egress never started — definitely stale.
+      if (!row.egress_id) {
         stale = true;
-        staleReason = 'No egress id recorded';
+        staleReason = 'No egress id (orphaned row)';
+      } else if (row.status === 'finalizing' && ageSec > 60) {
+        // Webhook never came back. After a minute the file is either ready
+        // on disk or the egress crashed — either way, unblock the user.
+        stale = true;
+        staleReason = `Finalizing > ${Math.round(ageSec)}s (webhook missing)`;
       } else {
         try {
-          const info = await recordingService.getEgress(existing.egress_id);
+          const info = await recordingService.getEgress(row.egress_id);
           // LiveKit EgressStatus enum: 0 STARTING, 1 ACTIVE, 2 ENDING,
           // 3 COMPLETE, 4 FAILED, 5 ABORTED.
-          // If LiveKit returns nothing (deleted) or a terminal status, treat
-          // as stale.
           if (!info) {
             stale = true;
             staleReason = 'Egress not found on LiveKit';
@@ -1034,15 +1062,13 @@ router.post('/:id/recording/start', async (req, res) => {
             staleReason = `Egress status on LiveKit: ${info.status}`;
           }
         } catch (egressErr) {
-          // Egress service unreachable or not configured — the previous attempt
-          // could not have actually been recording, so the row is stale.
           stale = true;
           staleReason = `LiveKit unreachable: ${egressErr.message}`;
         }
       }
 
       if (stale) {
-        console.warn(`[recording/start] cleaning stale recording id=${existing.id} for meeting ${meeting.id}: ${staleReason}`);
+        console.warn(`[recording/start] cleaning stale row id=${row.id} (status=${row.status}) for meeting ${meeting.id}: ${staleReason}`);
         await req.db.run(
           `UPDATE meeting_recordings
            SET status = 'failed',
@@ -1050,21 +1076,28 @@ router.post('/:id/recording/start', async (req, res) => {
                ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
                updated_at = CURRENT_TIMESTAMP
            WHERE id = $2`,
-          [`Stale: ${staleReason}`, existing.id]
+          [`Stale: ${staleReason}`, row.id]
         );
-        await req.db.run(
-          `UPDATE meetings SET is_recording = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-          [meeting.id]
-        );
-        // fall through and start a fresh recording below
       } else {
-        return res.status(409).json({
-          error: 'A recording is already in progress',
-          recording_id: existing.id,
-          hint: 'Stop the existing recording first, or wait for it to finalize.',
-        });
+        // Genuine active recording — only this blocks.
+        blockingRow = row;
+        break;
       }
     }
+
+    if (blockingRow) {
+      return res.status(409).json({
+        error: 'A recording is already in progress',
+        recording_id: blockingRow.id,
+        hint: 'Stop the existing recording first, or wait a few seconds for it to finalize.',
+      });
+    }
+
+    // Reset the meeting flag — we just cleaned up everything stale.
+    await req.db.run(
+      `UPDATE meetings SET is_recording = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [meeting.id]
+    );
 
     let egress;
     try {

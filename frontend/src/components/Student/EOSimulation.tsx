@@ -551,6 +551,7 @@ const EOSimulation: React.FC<Props> = ({ open, onClose, partieId, onCreditConsum
       closable={false}
       maskClosable={false}
       centered
+      className="exam-modal exam-modal-eo"
       styles={{
         mask: { backdropFilter: 'blur(8px)', background: 'rgba(2, 6, 23, 0.78)' },
         content: { padding: 0, borderRadius: 24, overflow: 'hidden', boxShadow: '0 30px 80px -20px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06)' },

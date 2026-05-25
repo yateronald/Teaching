@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout as AntLayout, Dropdown, Button, Typography, Tooltip } from 'antd';
+import { Layout as AntLayout, Dropdown, Button, Typography, Tooltip, Drawer } from 'antd';
 import {
     DashboardOutlined,
     UserOutlined,
@@ -17,12 +17,14 @@ import {
     VideoCameraOutlined,
     RightOutlined,
     ReadOutlined,
+    MenuOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import type { MenuProps } from 'antd';
 import { ASSET_PATHS } from '../../utils/assets';
 import NotificationBell from '../Notifications/NotificationBell';
+import useResponsive from '../../hooks/useResponsive';
 
 const { Header, Content } = AntLayout;
 const { Text } = Typography;
@@ -41,8 +43,10 @@ const ROLE_COLORS: Record<string, { bg: string; text: string; dot: string }> = {
     student: { bg: '#dcfce7', text: '#15803d', dot: '#22c55e' },
 };
 
-const SIDEBAR_W = 240;
-const SIDEBAR_W_COLLAPSED = 68;
+const SIDEBAR_W = 232;
+const SIDEBAR_W_COLLAPSED = 64;
+/** Outer offset around the floating student sidebar. Tightens on small laptops. */
+const STUDENT_SIDEBAR_GAP = 12;
 
 /* ── Default (admin) sidebar — indigo gradient ── */
 const SIDEBAR_STYLE: React.CSSProperties = {
@@ -79,13 +83,13 @@ const T_HEADER_GRAD = 'linear-gradient(135deg, #1a0a0d 0%, #3f1d1f 50%, #881337 
 const STUDENT_SIDEBAR_STYLE: React.CSSProperties = {
     background: '#ffffff',
     position: 'fixed',
-    left: 12, top: 12, bottom: 12,
+    left: STUDENT_SIDEBAR_GAP, top: STUDENT_SIDEBAR_GAP, bottom: STUDENT_SIDEBAR_GAP,
     zIndex: 100,
     display: 'flex',
     flexDirection: 'column',
-    borderRadius: 22,
-    boxShadow: '0 24px 48px -16px rgba(15,23,42,0.10), 0 6px 16px -4px rgba(15,23,42,0.05), inset 0 1px 0 rgba(255,255,255,0.9)',
-    border: '1px solid rgba(226,232,240,0.8)',
+    borderRadius: 18,
+    boxShadow: '0 18px 40px -16px rgba(15,23,42,0.10), 0 4px 12px -3px rgba(15,23,42,0.04), inset 0 1px 0 rgba(255,255,255,0.9)',
+    border: '1px solid rgba(226,232,240,0.85)',
     overflowX: 'hidden',
     transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1)',
 };
@@ -162,7 +166,18 @@ const RoleAvatar: React.FC<RoleAvatarProps> = ({
    Floating white card with emerald/teal/cyan accents.
    Distinct from admin/teacher: lighter, more energetic, focused
    on motivation and progress.
+
+   Density modes (driven by viewport width):
+   • compact   — laptop / tablet (< 1280): no welcome banner, no section
+                 label, tighter row padding, smaller icon tiles. Designed
+                 to fit a 14" 1080p screen without a vertical scrollbar.
+   • cozy      — small desktop (1280–1439): welcome banner hidden, but
+                 nav rows keep some breathing room.
+   • comfortable — desktop ≥ 1440: welcome banner shown, section label
+                 visible, original spacing.
    ────────────────────────────────────────────────────────────────── */
+type StudentDensity = 'compact' | 'cozy' | 'comfortable';
+
 interface StudentSidebarProps {
     collapsed: boolean;
     sideW: number;
@@ -173,18 +188,45 @@ interface StudentSidebarProps {
     location: { pathname: string };
     navigate: (path: string) => void;
     userMenuItems: MenuProps['items'];
+    density: StudentDensity;
+    /** When true the sidebar fills its parent — used inside a Drawer. */
+    embedded?: boolean;
+    onItemNavigate?: () => void;
 }
 
 const StudentSidebar: React.FC<StudentSidebarProps> = ({
-    collapsed, sideW, user, token, navItems, location, navigate, userMenuItems
+    collapsed, sideW, user, token, navItems, location, navigate, userMenuItems,
+    density, embedded = false, onItemNavigate
 }) => {
     const firstName = user?.first_name || 'Student';
+    const showWelcome = !collapsed && density === 'comfortable';
+    const showSectionLabel = !collapsed && density !== 'compact';
+
+    // Density-driven sizes
+    const ROW_PADY = density === 'compact' ? 7 : density === 'cozy' ? 8 : 10;
+    const ROW_PADX = density === 'compact' ? 10 : 12;
+    const ICON_TILE = density === 'compact' ? 30 : density === 'cozy' ? 32 : 34;
+    const ICON_FONT = density === 'compact' ? 14 : 15;
+    const LABEL_FONT = density === 'compact' ? 13 : 13.5;
+    const ROW_GAP = density === 'compact' ? 2 : 3;
+
+    const wrapperStyle: React.CSSProperties = embedded
+        ? {
+            background: '#ffffff',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            width: '100%',
+            overflowX: 'hidden',
+        }
+        : { ...STUDENT_SIDEBAR_STYLE, width: sideW };
 
     return (
-        <div style={{ ...STUDENT_SIDEBAR_STYLE, width: sideW }}>
+        <div style={wrapperStyle}>
             {/* ── Brand mark ── */}
             <div style={{
-                padding: collapsed ? '18px 0' : '20px 18px',
+                padding: collapsed ? '14px 0' : (density === 'compact' ? '14px 16px' : '18px 16px'),
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: collapsed ? 'center' : 'flex-start',
@@ -192,13 +234,15 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                 flexShrink: 0,
             }}>
                 <div style={{
-                    width: 42, height: 42, borderRadius: 12,
+                    width: density === 'compact' ? 38 : 42,
+                    height: density === 'compact' ? 38 : 42,
+                    borderRadius: 12,
                     background: S_GRAD,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                     boxShadow: '0 8px 18px -4px rgba(16,185,129,0.45), inset 0 1px 0 rgba(255,255,255,0.25)',
                 }}>
-                    <img src={ASSET_PATHS.LOGOS.MAIN} alt="logo" style={{ width: 24, height: 24, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
+                    <img src={ASSET_PATHS.LOGOS.MAIN} alt="logo" style={{ width: 22, height: 22, objectFit: 'contain', filter: 'brightness(0) invert(1)' }} />
                 </div>
                 {!collapsed && (
                     <div style={{ minWidth: 0 }}>
@@ -212,16 +256,17 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                 )}
             </div>
 
-            {/* ── Welcome banner (only when expanded) ── */}
-            {!collapsed && (
+            {/* ── Welcome banner (only on comfortable density) ── */}
+            {showWelcome && (
                 <div style={{
-                    margin: '4px 14px 16px',
-                    padding: '14px 16px',
-                    borderRadius: 16,
+                    margin: '2px 12px 12px',
+                    padding: '12px 14px',
+                    borderRadius: 14,
                     background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 50%, #ecfeff 100%)',
                     border: '1px solid rgba(16,185,129,0.18)',
                     position: 'relative',
                     overflow: 'hidden',
+                    flexShrink: 0,
                 }}>
                     <div style={{
                         position: 'absolute', top: -20, right: -20,
@@ -229,27 +274,28 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                         background: 'radial-gradient(circle, rgba(16,185,129,0.18), transparent 70%)',
                         pointerEvents: 'none',
                     }} />
-                    <div style={{ fontSize: 11, fontWeight: 700, color: S_ACCENT, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 4 }}>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: S_ACCENT, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 3 }}>
                         Bienvenue 👋
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', letterSpacing: -0.2, lineHeight: 1.3 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 800, color: '#0f172a', letterSpacing: -0.2, lineHeight: 1.3 }}>
                         Hi, {firstName}!
                     </div>
-                    <div style={{ fontSize: 11.5, color: '#64748b', fontWeight: 500, marginTop: 3 }}>
+                    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 500, marginTop: 2 }}>
                         Ready to learn today?
                     </div>
                 </div>
             )}
 
             {/* ── Section label ── */}
-            {!collapsed && (
+            {showSectionLabel && (
                 <div style={{
-                    padding: '0 18px 8px',
+                    padding: '0 18px 6px',
                     fontSize: 10,
                     fontWeight: 800,
                     color: '#94a3b8',
                     letterSpacing: 1.4,
                     textTransform: 'uppercase',
+                    flexShrink: 0,
                 }}>
                     Learning
                 </div>
@@ -261,21 +307,22 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 padding: collapsed ? '4px 8px' : '0 10px',
+                minHeight: 0,
             }}>
                 {navItems.map(item => {
                     const active = location.pathname === item.key || location.pathname.startsWith(item.key + '/');
                     const navBtn = (
                         <button
                             key={item.key}
-                            onClick={() => navigate(item.key)}
+                            onClick={() => { navigate(item.key); onItemNavigate?.(); }}
                             style={{
                                 width: '100%',
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 12,
-                                padding: collapsed ? '10px 0' : '10px 12px',
-                                marginBottom: 3,
-                                borderRadius: 12,
+                                gap: 11,
+                                padding: collapsed ? `${ROW_PADY}px 0` : `${ROW_PADY}px ${ROW_PADX}px`,
+                                marginBottom: ROW_GAP,
+                                borderRadius: 11,
                                 border: 'none',
                                 cursor: 'pointer',
                                 background: active ? S_ACCENT_SOFT : 'transparent',
@@ -302,25 +349,26 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                             )}
                             {/* Icon */}
                             <div style={{
-                                width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+                                width: ICON_TILE, height: ICON_TILE, borderRadius: 9, flexShrink: 0,
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                                 background: active ? S_GRAD : '#f1f5f9',
                                 color: active ? '#fff' : '#475569',
-                                fontSize: 15,
+                                fontSize: ICON_FONT,
                                 transition: 'all 0.18s ease',
-                                boxShadow: active ? '0 6px 14px -4px rgba(16,185,129,0.45)' : 'none',
+                                boxShadow: active ? '0 5px 12px -4px rgba(16,185,129,0.45)' : 'none',
                             }}>
                                 {item.icon}
                             </div>
                             {/* Label */}
                             {!collapsed && (
                                 <span style={{
-                                    fontSize: 13.5,
+                                    fontSize: LABEL_FONT,
                                     fontWeight: active ? 700 : 600,
                                     color: active ? '#0f172a' : '#475569',
                                     letterSpacing: -0.1,
                                     whiteSpace: 'nowrap',
                                     overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
                                     transition: 'color 0.18s ease',
                                 }}>
                                     {item.label}
@@ -344,12 +392,12 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
             </div>
 
             {/* ── User card at bottom ── */}
-            <div style={{ padding: collapsed ? '12px 8px' : '14px 12px', flexShrink: 0 }}>
+            <div style={{ padding: collapsed ? '10px 8px' : '10px 12px', flexShrink: 0 }}>
                 <Dropdown menu={{ items: userMenuItems }} placement="topRight" trigger={['click']}>
                     <div style={{
                         display: 'flex', alignItems: 'center', gap: 10,
-                        padding: collapsed ? '10px 0' : '10px 12px',
-                        borderRadius: 14,
+                        padding: collapsed ? '8px 0' : '8px 10px',
+                        borderRadius: 12,
                         background: '#f8fafc',
                         cursor: 'pointer',
                         border: '1px solid #e2e8f0',
@@ -368,8 +416,8 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                         <RoleAvatar
                             user={user}
                             token={token}
-                            size={34}
-                            iconFontSize={16}
+                            size={32}
+                            iconFontSize={15}
                             border="none"
                             boxShadow="0 4px 10px -2px rgba(16,185,129,0.4)"
                         />
@@ -382,7 +430,7 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
                                 }}>
                                     {user?.first_name} {user?.last_name}
                                 </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
                                     <div style={{
                                         width: 6, height: 6, borderRadius: '50%',
                                         background: S_ACCENT,
@@ -403,19 +451,41 @@ const StudentSidebar: React.FC<StudentSidebarProps> = ({
 };
 
 const Layout: React.FC = () => {
-    const [collapsed, setCollapsed] = useState(() => window.innerWidth <= 1024);
+    const responsive = useResponsive();
     const { user, logout, isAdmin, isTeacher, isStudent, token } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Auto-collapse sidebar on tablet/small screens
+    // Sidebar state derives from viewport. Below 1280 we collapse the rail
+    // by default; the user can still expand it manually via the toggle.
+    const [collapsed, setCollapsed] = useState(() => responsive.shouldCollapseSidebar);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+
+    // When the viewport crosses a breakpoint, sync the collapse state so the
+    // sidebar always lands in a sensible default for the new size. Manual
+    // toggling still works between resizes.
+    const prevWidthRef = React.useRef(responsive.width);
     useEffect(() => {
-        const handleResize = () => {
-            if (window.innerWidth <= 1024) setCollapsed(true);
-        };
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
+        const prev = prevWidthRef.current;
+        const next = responsive.width;
+        prevWidthRef.current = next;
+
+        // Only flip collapse state if a major breakpoint was actually crossed.
+        const crossedDown = prev >= 1280 && next < 1280;
+        const crossedUp = prev < 1280 && next >= 1280;
+        if (crossedDown && !collapsed) setCollapsed(true);
+        if (crossedUp && collapsed) setCollapsed(false);
+    }, [responsive.width, collapsed]);
+
+    // Close drawer automatically when navigating
+    useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
+
+    // Density derived from breakpoint — used by the student sidebar
+    const studentDensity: StudentDensity = responsive.isDesktop
+        ? 'comfortable'
+        : responsive.isSmallDesktop
+            ? 'cozy'
+            : 'compact';
 
     /* ── page title ── */
     const getPageTitle = (path: string): string => {
@@ -505,14 +575,55 @@ const Layout: React.FC = () => {
     const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '?';
     const navItems = getNavItems();
     const sideW = collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
+    const inDrawer = responsive.shouldUseDrawer;
+
+    /* ── Student page background scales with breakpoint ── */
+    const studentBg = '#f0fdfa';
+
+    /* ── Outer left offset for the main content. In drawer mode the
+         sidebar is hidden by default, so the content takes the full width. */
+    const contentLeftOffset = inDrawer
+        ? 0
+        : isStudent
+            ? sideW + STUDENT_SIDEBAR_GAP * 2
+            : sideW;
 
     return (
-        <AntLayout style={{ minHeight: '100vh', background: isStudent ? '#f0fdfa' : isTeacher ? '#fef2f2' : '#f4f6fb' }}>
+        <AntLayout style={{ minHeight: '100vh', background: isStudent ? studentBg : isTeacher ? '#fef2f2' : '#f4f6fb' }}>
 
             {/* ════════════════════════════════════
-                    SIDEBAR — branches on role
+                    SIDEBAR — branches on role + viewport
             ════════════════════════════════════ */}
-            {isStudent ? (
+            {inDrawer && isStudent ? (
+                /* ── Mobile (student): off-canvas drawer ── */
+                <Drawer
+                    placement="left"
+                    open={drawerOpen}
+                    onClose={() => setDrawerOpen(false)}
+                    closable={false}
+                    width={Math.min(280, window.innerWidth - 56)}
+                    styles={{
+                        body: { padding: 0, background: '#fff' },
+                        header: { display: 'none' },
+                    }}
+                    rootStyle={{ zIndex: 1200 }}
+                >
+                    <StudentSidebar
+                        collapsed={false}
+                        sideW={SIDEBAR_W}
+                        user={user}
+                        token={token}
+                        initials={initials}
+                        navItems={navItems}
+                        location={location}
+                        navigate={navigate}
+                        userMenuItems={userMenuItems}
+                        density="comfortable"
+                        embedded
+                        onItemNavigate={() => setDrawerOpen(false)}
+                    />
+                </Drawer>
+            ) : isStudent ? (
                 <StudentSidebar
                     collapsed={collapsed}
                     sideW={sideW}
@@ -523,6 +634,7 @@ const Layout: React.FC = () => {
                     location={location}
                     navigate={navigate}
                     userMenuItems={userMenuItems}
+                    density={studentDensity}
                 />
             ) : (
             <div style={{ ...(isTeacher ? TEACHER_SIDEBAR_STYLE : SIDEBAR_STYLE), width: sideW }}>
@@ -723,11 +835,14 @@ const Layout: React.FC = () => {
             {/* ════════════════════════════════════
                     MAIN AREA
             ════════════════════════════════════ */}
-            <AntLayout style={{ marginLeft: isStudent ? sideW + 24 : sideW, transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)' }}>
+            <AntLayout style={{
+                marginLeft: contentLeftOffset,
+                transition: 'margin-left 0.25s cubic-bezier(0.4,0,0.2,1)',
+            }}>
 
                 {/* Top header */}
                 <Header style={{
-                    padding: '0 24px',
+                    padding: inDrawer ? '0 14px' : '0 24px',
                     background: isStudent
                         ? '#ffffff'
                         : (isTeacher
@@ -742,22 +857,25 @@ const Layout: React.FC = () => {
                             ? '0 2px 16px rgba(107,29,42,0.3)'
                             : '0 2px 16px rgba(67,56,202,0.2)'),
                     position: 'fixed',
-                    top: isStudent ? 12 : 0,
-                    right: isStudent ? 12 : 0,
-                    left: isStudent ? sideW + 24 : sideW,
+                    top: isStudent && !inDrawer ? STUDENT_SIDEBAR_GAP : 0,
+                    right: isStudent && !inDrawer ? STUDENT_SIDEBAR_GAP : 0,
+                    left: isStudent && !inDrawer ? sideW + STUDENT_SIDEBAR_GAP * 2 : (inDrawer ? 0 : sideW),
                     zIndex: 99,
                     transition: 'left 0.25s cubic-bezier(0.4,0,0.2,1)',
-                    height: 64,
-                    borderRadius: isStudent ? 22 : 0,
-                    border: isStudent ? '1px solid rgba(226,232,240,0.8)' : 'none',
+                    height: responsive.isMobile ? 56 : 64,
+                    borderRadius: isStudent && !inDrawer ? 18 : 0,
+                    border: isStudent && !inDrawer ? '1px solid rgba(226,232,240,0.85)' : 'none',
                 }}>
-                    {/* Collapse toggle */}
+                    {/* Collapse toggle / Drawer toggle */}
                     <Button
                         type="text"
-                        icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-                        onClick={() => setCollapsed(!collapsed)}
+                        icon={inDrawer ? <MenuOutlined /> : (collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />)}
+                        onClick={() => {
+                            if (inDrawer) setDrawerOpen(true);
+                            else setCollapsed(!collapsed);
+                        }}
                         style={{
-                            fontSize: 16, width: 40, height: 40,
+                            fontSize: 16, width: 38, height: 38,
                             color: isStudent ? '#0f172a' : '#fff',
                             borderRadius: 10,
                             background: isStudent ? S_ACCENT_SOFT : 'rgba(255,255,255,0.12)',
@@ -767,14 +885,23 @@ const Layout: React.FC = () => {
                     />
 
                     {/* Page title */}
-                    <div style={{ flex: 1, paddingLeft: 16 }}>
-                        <Text style={{ fontSize: 17, fontWeight: 700, color: isStudent ? '#0f172a' : '#fff', letterSpacing: 0.2 }}>
+                    <div style={{ flex: 1, paddingLeft: responsive.isMobile ? 12 : 16, minWidth: 0 }}>
+                        <Text style={{
+                            fontSize: responsive.isMobile ? 15 : 17,
+                            fontWeight: 700,
+                            color: isStudent ? '#0f172a' : '#fff',
+                            letterSpacing: 0.2,
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: 'block',
+                        }}>
                             {getPageTitle(location.pathname)}
                         </Text>
                     </div>
 
                     {/* ── Header right cluster: bell • user avatar ── */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: responsive.isMobile ? 6 : 10 }}>
 
                         {/* Notifications */}
                         <NotificationBell variant={isStudent ? 'light' : 'dark'} />
@@ -793,8 +920,8 @@ const Layout: React.FC = () => {
                                 <RoleAvatar
                                     user={user}
                                     token={token}
-                                    size={38}
-                                    iconFontSize={18}
+                                    size={responsive.isMobile ? 34 : 38}
+                                    iconFontSize={16}
                                     border="2px solid #ffffff"
                                     boxShadow={isStudent
                                         ? '0 2px 8px rgba(15,23,42,0.10)'
@@ -809,13 +936,17 @@ const Layout: React.FC = () => {
 
                 {/* Page content */}
                 <Content style={{
-                    margin: isStudent
-                        ? `${64 + 24 + 12}px 12px 12px`
-                        : `${64 + 20}px 20px 20px`,
-                    padding: '24px',
+                    margin: isStudent && !inDrawer
+                        ? `${64 + STUDENT_SIDEBAR_GAP * 2}px ${STUDENT_SIDEBAR_GAP}px ${STUDENT_SIDEBAR_GAP}px`
+                        : inDrawer
+                            ? `${(responsive.isMobile ? 56 : 64) + 12}px 12px 12px`
+                            : `${64 + 20}px 20px 20px`,
+                    padding: responsive.isMobile ? '14px' : responsive.isLaptop ? '18px' : '24px',
                     background: '#fff',
                     borderRadius: 16,
-                    minHeight: 'calc(100vh - 104px)',
+                    /* On mobile we let the container hug its content to avoid
+                       a tall empty card when the page only has a few items. */
+                    minHeight: responsive.isMobile ? 'auto' : `calc(100vh - ${responsive.isMobile ? 84 : 104}px)`,
                     boxShadow: isStudent
                         ? '0 6px 24px -8px rgba(15,23,42,0.06)'
                         : '0 2px 16px rgba(99,102,241,0.06)',

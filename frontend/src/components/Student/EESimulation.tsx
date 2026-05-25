@@ -910,6 +910,7 @@ const EESimulation: React.FC<{ combinaisonId: number; open: boolean; onClose: ()
     <Modal open={open} onCancel={view === 'exam' ? undefined : onClose} centered footer={null} title={null} closeIcon={null} destroyOnClose
       width="90vw"
       zIndex={900}
+      className="exam-modal exam-modal-ee"
       styles={{ body: { padding: 0, height: '86vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }, content: { padding: 0, borderRadius: 14, overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.15)' } }}
       maskClosable={view !== 'exam'}
     >

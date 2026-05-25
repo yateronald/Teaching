@@ -15,6 +15,7 @@ import {
   RightOutlined, BarChartOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import useResponsive from '../../hooks/useResponsive';
 
 // ── Types ──
 interface ContentNode {
@@ -325,6 +326,7 @@ const ItemCard: React.FC<{
 // ── Main Component ──
 const StudentExamPreparation: React.FC = () => {
   const { apiCall } = useAuth();
+  const r = useResponsive();
   const [tree, setTree] = useState<ContentNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
@@ -490,11 +492,13 @@ const StudentExamPreparation: React.FC = () => {
   const [showGlobalAnalytics, setShowGlobalAnalytics] = useState(false);
 
   return (
-    <div>
+    <div className="student-portal">
       {/* ═══ Hero Banner ═══ */}
       <div style={{
         background: 'linear-gradient(135deg, #064e3b 0%, #059669 50%, #34d399 100%)',
-        borderRadius: 18, padding: '28px 32px', marginBottom: 24,
+        borderRadius: r.isCompact ? 14 : 18,
+        padding: r.isCompact ? '18px 20px' : r.isSmallDesktop ? '22px 26px' : '28px 32px',
+        marginBottom: r.isCompact ? 16 : 24,
         position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', top: -60, right: -60, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
@@ -503,10 +507,10 @@ const StudentExamPreparation: React.FC = () => {
 
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', letterSpacing: -0.3, marginBottom: 5 }}>
+            <div style={{ fontSize: r.isCompact ? 18 : r.isSmallDesktop ? 21 : 24, fontWeight: 800, color: '#fff', letterSpacing: -0.3, marginBottom: 5 }}>
               🇨🇦 TCF Canada — Exam Preparation
             </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
+            <div style={{ fontSize: r.isCompact ? 12 : 13, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
               Practice your assigned exam content. Locked items require admin assignment.
             </div>
           </div>

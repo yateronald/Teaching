@@ -21,6 +21,9 @@ import { useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { formatLocal } from '../../utils/timezone';
 import type { ColumnsType } from 'antd/es/table';
+import KpiCard from '../Common/KpiCard';
+import PageHeader from '../Common/PageHeader';
+import useResponsive from '../../hooks/useResponsive';
 
 
 /* ── Types ── */
@@ -76,22 +79,6 @@ const fmtTime = (secs: number) => {
     return s > 0 ? `${m}m ${s}s` : `${m}m`;
 };
 
-/* ── KPI Card ── */
-const KpiCard = ({ label, value, suffix = '', icon, accent, sub }: {
-    label: string; value: string | number; suffix?: string; icon: React.ReactNode; accent: string; sub?: string;
-}) => (
-    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
-        <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}<span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>{suffix}</span>
-            </div>
-            {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{sub}</div>}
-        </div>
-    </div>
-);
-
 /* ── Pill ── */
 const Pill = ({ color, text }: { color: string; text: string }) => {
     const map: Record<string, { bg: string; fg: string }> = {
@@ -109,6 +96,7 @@ const Pill = ({ color, text }: { color: string; text: string }) => {
    MAIN COMPONENT
 ══════════════════════════════════ */
 const StudentQuizResults: React.FC = () => {
+    const responsive = useResponsive();
     const [results, setResults] = useState<QuizResult[]>([]);
     const [loading, setLoading] = useState(true);
     const [detailModalVisible, setDetailModalVisible] = useState(false);
@@ -381,18 +369,18 @@ const StudentQuizResults: React.FC = () => {
 
     /* ── Render ── */
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
             {/* Header */}
-            <div style={{ marginBottom: 20, flexShrink: 0 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>My Results</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                    {filteredResults.length} quiz result{filteredResults.length !== 1 ? 's' : ''} · avg score {avgScore}%
-                </div>
-            </div>
+            <PageHeader
+                title="My Results"
+                subtitle={`${filteredResults.length} quiz result${filteredResults.length !== 1 ? 's' : ''} · avg score ${avgScore}%`}
+                icon={<TrophyOutlined />}
+                accent="#10b981"
+            />
 
             {/* Filters */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: responsive.isCompact ? '12px 16px' : '14px 20px', marginBottom: responsive.isCompact ? 16 : 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
                 <RangePicker
                     value={dateRange}
                     onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
@@ -430,17 +418,17 @@ const StudentQuizResults: React.FC = () => {
             </div>
 
             {/* KPI Cards */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
-                <Col xs={24} sm={12} md={6}>
+            <Row gutter={responsive.isCompact ? [12, 12] : [16, 16]} style={{ marginBottom: responsive.isCompact ? 14 : 20, flexShrink: 0 }}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Total Quizzes"   value={filteredResults.length}               icon={<FileTextOutlined />}   accent="#6366f1" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Average Score"   value={avgScore}  suffix="%"         icon={<BarChartOutlined />}   accent="#6366f1" />
+                <Col xs={12} sm={12} md={6}>
+                    <KpiCard label="Average Score"   value={avgScore}  suffix="%"         icon={<BarChartOutlined />}   accent="#10b981" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Best Score"      value={Math.round(bestScore)} suffix="%" icon={<TrophyOutlined />} accent="#f59e0b" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Avg Time Spent"  value={fmtTime(avgTimeSecs)}          icon={<ClockCircleOutlined />} accent="#0ea5e9" sub={`per quiz · ${fmtTime(totalTime)} total`} />
                 </Col>
             </Row>
@@ -474,7 +462,8 @@ const StudentQuizResults: React.FC = () => {
                             rowKey="id"
                             loading={loading}
                             pagination={false}
-                            scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                            scroll={{ y: 'calc(100vh - 370px)', x: 'max-content' }}
+                            size={responsive.isCompact ? 'small' : 'middle'}
                             rowClassName={() => 'result-row'}
                             onRow={(r) => ({
                                 'data-focus-id': r.id,
@@ -500,7 +489,7 @@ const StudentQuizResults: React.FC = () => {
                     >✕</div>
                 }
                 wrapClassName="result-detail-modal"
-                bodyStyle={{ padding: 0, height: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
+                styles={{ body: { padding: 0, height: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
                 style={{ top: 20 }}
             >
                 {selectedResult && (

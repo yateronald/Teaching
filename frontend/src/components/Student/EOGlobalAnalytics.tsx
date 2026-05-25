@@ -144,6 +144,7 @@ const EOGlobalAnalytics: React.FC<Props> = ({ open, onClose }) => {
       width={960}
       destroyOnClose
       title={null}
+      className="exam-modal exam-modal-analytics"
       styles={{ body: { padding: 0 }, content: { padding: 0, borderRadius: 16, overflow: 'hidden' } }}
     >
       {/* Header */}

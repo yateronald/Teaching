@@ -262,6 +262,7 @@ const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
 
     return (
         <div
+            data-quiz-audio
             onContextMenu={e => e.preventDefault()}
             style={{
                 background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
@@ -1138,109 +1139,103 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
     }
 
     if (!quizStarted) {
+        const totalPoints = Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0;
+        const isPreparing = !audioPreloaded && totalAudioClips > 0;
+
         return (
-            <div style={{ 
-                position: 'relative',
-                padding: '40px 48px', 
-                background: 'linear-gradient(145deg, #ffffff 0%, #f8fafc 100%)',
-                borderRadius: '24px',
-                minHeight: '400px',
-                overflow: 'hidden'
-            }}>
+            <div data-quiz-intro className="quiz-intro-shell">
                 {contextHolder}
-                {/* Decorative background blur */}
-                <div style={{ position: 'absolute', top: -100, right: -100, width: 300, height: 300, background: 'radial-gradient(circle, rgba(99,102,241,0.1) 0%, rgba(255,255,255,0) 70%)', borderRadius: '50%', pointerEvents: 'none' }} />
-                
-                <div style={{ textAlign: 'center', marginBottom: 36, position: 'relative', zIndex: 1 }}>
-                    <div style={{ 
-                        width: 80, height: 80, borderRadius: '24px', 
-                        background: 'linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%)', 
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                        margin: '0 auto 20px',
-                        boxShadow: '0 8px 24px rgba(99,102,241,0.15)',
-                        border: '1px solid rgba(255,255,255,0.8)'
-                    }}>
-                        <QuestionCircleOutlined style={{ fontSize: 40, color: '#6366f1' }} />
+                <div className="quiz-intro-card">
+                    {/* ── Compact brand strip (fixed height) ── */}
+                    <div className="quiz-intro-strip">
+                        <div className="quiz-intro-strip-icon">
+                            <QuestionCircleOutlined />
+                        </div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className="quiz-intro-eyebrow">Take Quiz</div>
+                            <div className="quiz-intro-title">{quiz.title}</div>
+                            {quiz.description && (
+                                <div className="quiz-intro-subtitle">{quiz.description}</div>
+                            )}
+                        </div>
                     </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 8 }}>Take Quiz</div>
-                    <Title level={2} style={{ marginBottom: 12, fontWeight: 800, color: '#1e293b', fontSize: 32 }}>{quiz.title}</Title>
-                    <Paragraph style={{ color: '#64748b', fontSize: 16, maxWidth: 600, margin: '0 auto', lineHeight: 1.6 }}>{quiz.description}</Paragraph>
-                </div>
-                    
-                <Row gutter={24} style={{ marginBottom: 32, position: 'relative', zIndex: 1 }}>
-                    <Col span={8}>
-                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#475569' }}><QuestionCircleOutlined /></div>
-                            <div>
-                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Questions</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}</div>
+
+                    {/* ── Body: stats + instructions in a 2-column grid ── */}
+                    <div className="quiz-intro-body">
+                        {/* Left: 3 stat tiles stacked */}
+                        <div className="quiz-intro-stats">
+                            <div className="quiz-intro-stat">
+                                <div className="quiz-intro-stat-icon" style={{ background: '#eef2ff', color: '#4f46e5' }}>
+                                    <QuestionCircleOutlined />
+                                </div>
+                                <div className="quiz-intro-stat-meta">
+                                    <div className="quiz-intro-stat-label">Questions</div>
+                                    <div className="quiz-intro-stat-value">
+                                        {quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="quiz-intro-stat">
+                                <div className="quiz-intro-stat-icon" style={{ background: '#fdf4ff', color: '#c026d3' }}>
+                                    <ClockCircleOutlined />
+                                </div>
+                                <div className="quiz-intro-stat-meta">
+                                    <div className="quiz-intro-stat-label">Time Limit</div>
+                                    <div className="quiz-intro-stat-value">
+                                        {quiz.duration_minutes ?? '—'}
+                                        <span className="quiz-intro-stat-unit">min</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="quiz-intro-stat">
+                                <div className="quiz-intro-stat-icon" style={{ background: '#f0fdf4', color: '#16a34a' }}>
+                                    <CheckCircleOutlined />
+                                </div>
+                                <div className="quiz-intro-stat-meta">
+                                    <div className="quiz-intro-stat-label">Total Points</div>
+                                    <div className="quiz-intro-stat-value">{totalPoints}</div>
+                                </div>
                             </div>
                         </div>
-                    </Col>
-                    <Col span={8}>
-                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#fdf4ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#c026d3' }}><ClockCircleOutlined /></div>
-                            <div>
-                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Time Limit</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{quiz.duration_minutes ?? '—'}<span style={{ fontSize: 14, fontWeight: 600, marginLeft: 4, color: '#94a3b8' }}>min</span></div>
+
+                        {/* Right: instructions */}
+                        <div className="quiz-intro-info">
+                            <div className="quiz-intro-info-header">
+                                <div className="quiz-intro-info-icon">i</div>
+                                <span>Important instructions</span>
                             </div>
+                            <ul className="quiz-intro-info-list">
+                                <li>Timer starts when you click <strong>Start Quiz</strong>.</li>
+                                <li>Use <strong>Next / Previous</strong> to navigate questions.</li>
+                                <li>Answers are saved automatically as you go.</li>
+                                <li>Auto-submits when time runs out.</li>
+                                <li>Use a stable internet connection.</li>
+                            </ul>
                         </div>
-                    </Col>
-                    <Col span={8}>
-                        <div style={{ background: '#fff', borderRadius: 20, padding: '20px', border: '1px solid rgba(226,232,240,0.8)', boxShadow: '0 4px 12px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: 16 }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 16, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, color: '#16a34a' }}><CheckCircleOutlined /></div>
-                            <div>
-                                <div style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Total Points</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a' }}>{Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0}</div>
-                            </div>
-                        </div>
-                    </Col>
-                </Row>
-                
-                <div style={{ background: '#eff6ff', borderRadius: 20, padding: '24px 32px', marginBottom: 32, border: '1px solid #bfdbfe', position: 'relative', zIndex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-                        <div style={{ width: 26, height: 26, borderRadius: '50%', background: '#3b82f6', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 'bold' }}>i</div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: '#1e3a8a' }}>Important Instructions</div>
                     </div>
-                    <ul style={{ marginBottom: 0, paddingLeft: 28, color: '#1e40af', fontSize: 15, lineHeight: 1.8 }}>
-                        <li>Once you start, the timer will begin immediately</li>
-                        <li>You can navigate between questions using Next/Previous buttons</li>
-                        <li>Your answers are saved automatically</li>
-                        <li>Make sure you have a stable internet connection</li>
-                        <li>The quiz will auto-submit when time runs out</li>
-                    </ul>
-                </div>
-                
-                <div style={{ textAlign: 'center', position: 'relative', zIndex: 1 }}>
-                    {!audioPreloaded && totalAudioClips > 0 && (
-                        <div style={{ marginBottom: 20, background: '#f8fafc', display: 'inline-block', padding: '8px 16px', borderRadius: 20, border: '1px solid #e2e8f0' }}>
-                            <Text style={{ color: '#64748b', fontWeight: 500 }}>
-                                <Spin size="small" style={{ marginRight: 10 }} />
-                                Preparing securely encrypted quiz components...
-                            </Text>
-                        </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
-                        <Button 
+
+                    {/* ── Sticky action bar ── */}
+                    <div className="quiz-intro-actions" data-quiz-actions>
+                        {isPreparing && (
+                            <div className="quiz-intro-prepping">
+                                <Spin size="small" />
+                                Preparing securely encrypted quiz components…
+                            </div>
+                        )}
+                        <Button
                             onClick={() => navigate('/student-dashboard')}
-                            style={{ height: 48, padding: '0 32px', borderRadius: 14, fontSize: 16, fontWeight: 600, color: '#475569', border: '1px solid #cbd5e1' }}
+                            className="quiz-intro-btn-secondary"
                         >
                             Cancel
                         </Button>
-                        <Button 
-                            type="primary" 
-                            size="large" 
+                        <Button
+                            type="primary"
                             onClick={startQuiz}
-                            disabled={!audioPreloaded && totalAudioClips > 0}
-                            loading={!audioPreloaded && totalAudioClips > 0}
-                            style={{ 
-                                height: 48, padding: '0 40px', borderRadius: 14, fontSize: 16, fontWeight: 700,
-                                background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
-                                boxShadow: '0 8px 20px rgba(99,102,241,0.3)',
-                                border: 'none'
-                            }}
+                            disabled={isPreparing}
+                            loading={isPreparing}
+                            className="quiz-intro-btn-primary"
                         >
-                            {(!audioPreloaded && totalAudioClips > 0) ? 'Preparing Quiz...' : 'Start Quiz'}
+                            {isPreparing ? 'Preparing…' : 'Start Quiz'}
                         </Button>
                     </div>
                 </div>
@@ -1284,7 +1279,9 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
         >
             {contextHolder}
             {/* Premium Sticky Header (Compacted) */}
-            <div style={{
+            <div
+                data-quiz-sticky-header
+                style={{
                 position: 'sticky',
                 top: 0,
                 zIndex: 100,
@@ -1295,13 +1292,13 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                 borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
                 padding: '10px 0'
             }}>
-                <div style={{ maxWidth: 1000, margin: '0 auto', padding: '0 56px 0 20px' }}>
+                <div data-quiz-sticky-inner style={{ maxWidth: 1000, margin: '0 auto', padding: '0 56px 0 20px' }}>
                     <Row justify="space-between" align="middle" gutter={[20, 10]}>
                         <Col xs={24} sm={10} md={10}>
-                            <Title level={5} style={{ margin: 0, color: '#0f172a', fontSize: '16px', fontWeight: 700 }}>
+                            <Title data-quiz-title level={5} style={{ margin: 0, color: '#0f172a', fontSize: '16px', fontWeight: 700 }}>
                                 {quiz.title}
                             </Title>
-                            <Text style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>
+                            <Text data-quiz-meta style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>
                                 Q{currentQuestion + 1} of {questionsLength} • <span style={{ color: '#3b82f6' }}>{answeredQuestions} answered</span>
                             </Text>
                         </Col>
@@ -1332,7 +1329,7 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         
                         <Col xs={12} sm={8} md={8}>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 260 }}>
+                                <div data-quiz-palette style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 260 }}>
                                     {quiz.questions.map((q, idx) => {
                                         const isCurrent = idx === currentQuestion;
                                         const isAnswered = answeredSet.has(q.id);
@@ -1396,9 +1393,10 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                 </div>
             </div>
 
-            <div style={{ maxWidth: 1000, margin: '16px auto 0', padding: '0 20px' }}>
+            <div data-quiz-question-wrap style={{ maxWidth: 1000, margin: '16px auto 0', padding: '0 20px' }}>
                 {/* Premium Question Card (Compacted) */}
                 <div
+                    data-quiz-question-card
                     style={{
                         backgroundColor: '#ffffff',
                         borderRadius: '20px',
@@ -1503,12 +1501,12 @@ const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingPr
                         </div>
                     </div>
 
-                    <div style={{ marginBottom: 24, paddingLeft: 48 }}>
+                    <div data-quiz-options style={{ marginBottom: 24, paddingLeft: 48 }}>
                         {renderQuestion(currentQ)}
                     </div>
 
                     {/* Navigation buttons */}
-                    <div style={{
+                    <div data-quiz-actions style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',

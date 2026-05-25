@@ -258,8 +258,10 @@ const NotificationBell: React.FC<BellProps> = ({ variant = 'dark' }) => {
             placement="bottomRight"
             arrow={false}
             content={dropdownContent}
-            overlayStyle={{ padding: 0 }}
-            overlayInnerStyle={{ padding: 0, background: 'transparent', boxShadow: 'none' }}
+            styles={{
+                root: { padding: 0 },
+                body: { padding: 0, background: 'transparent', boxShadow: 'none' },
+            }}
         >
             <Tooltip title="Notifications" placement="bottom">
                 <Badge count={unread} size="small" offset={[-4, 4]} overflowCount={9}>

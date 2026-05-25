@@ -17,7 +17,6 @@ import {
     FolderOutlined,
     PlayCircleOutlined,
     FileTextOutlined,
-    RightOutlined,
     FireOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -25,6 +24,9 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import { PieChart } from '@mui/x-charts';
+import KpiCard from '../Common/KpiCard';
+import PageHeader from '../Common/PageHeader';
+import useResponsive from '../../hooks/useResponsive';
 
 const { Text } = Typography;
 dayjs.extend(utc);
@@ -68,39 +70,6 @@ interface Schedule {
     teacher_first_name?: string; teacher_last_name?: string;
     location_mode?: 'online' | 'physical'; location?: string; link?: string; status?: string;
 }
-
-/* ══════════════════════════════════════════
-   Module-level KPI card
-══════════════════════════════════════════ */
-const KpiCard = ({ label, value, icon, accent, suffix = '', onClick }: {
-    label: string; value: number | string; icon: React.ReactNode;
-    accent: string; suffix?: string; onClick?: () => void;
-}) => (
-    <div
-        onClick={onClick}
-        style={{
-            borderRadius: 14, padding: '14px 16px',
-            background: '#fff', border: '1px solid #f0f0f8',
-            boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-            display: 'flex', alignItems: 'center', gap: 12,
-            cursor: onClick ? 'pointer' : 'default',
-            transition: 'box-shadow 0.18s',
-        }}
-        onMouseEnter={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 6px 24px rgba(99,102,241,0.16)'; }}
-        onMouseLeave={e => { if (onClick) (e.currentTarget as HTMLDivElement).style.boxShadow = '0 2px 12px rgba(99,102,241,0.07)'; }}
-    >
-        <div style={{ width: 40, height: 40, borderRadius: 11, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: accent, flexShrink: 0 }}>
-            {icon}
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}<span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{suffix}</span>
-            </div>
-        </div>
-        {onClick && <RightOutlined style={{ marginLeft: 'auto', color: '#c7d2fe', fontSize: 11 }} />}
-    </div>
-);
 
 /* ══════════════════════════════════════════
    Quick-nav shortcut pill
@@ -223,6 +192,14 @@ const ScoreOverTimeChart: React.FC<{ data: any[] }> = ({ data }) => {
    MAIN COMPONENT
 ══════════════════════════════════════════ */
 const StudentDashboard: React.FC = () => {
+    // ── All hooks must be at the top, called unconditionally on every render.
+    //    Calling useResponsive() further down (after `if (loading) return …`)
+    //    breaks the Rules of Hooks and triggers
+    //    "Rendered more hooks than during the previous render".
+    const r = useResponsive();
+    const cardPad = r.isLaptop ? 16 : r.isSmallDesktop ? 20 : 24;
+    const chartH = r.isLaptop ? 290 : r.isSmallDesktop ? 320 : 340;
+
     const [batches, setBatches] = useState<Batch[]>([]);
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -456,34 +433,33 @@ const StudentDashboard: React.FC = () => {
        MAIN RENDER
     ════════════════════════════════════ */
     return (
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
+        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column' }}>
 
             {/* ── Page header ── */}
-            <div style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>Student Dashboard</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                    {stats.totalBatches} batch{stats.totalBatches !== 1 ? 'es' : ''} · {stats.upcomingClasses} upcoming class{stats.upcomingClasses !== 1 ? 'es' : ''} · avg score {stats.averageScore}%
-                </div>
-            </div>
+            <PageHeader
+                title="Student Dashboard"
+                subtitle={`${stats.totalBatches} batch${stats.totalBatches !== 1 ? 'es' : ''} · ${stats.upcomingClasses} upcoming class${stats.upcomingClasses !== 1 ? 'es' : ''} · avg score ${stats.averageScore}%`}
+                accent="#10b981"
+            />
 
             {/* ── KPI Cards ── */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-                <Col xs={24} sm={12} md={6}>
+            <Row gutter={[r.isLaptop ? 12 : 16, r.isLaptop ? 12 : 16]} style={{ marginBottom: r.isLaptop ? 14 : 20 }}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="My Batches" value={stats.totalBatches} icon={<BookOutlined />} accent="#6366f1" onClick={() => setBatchModalOpen(true)} />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Avg Score" value={stats.averageScore} suffix="%" icon={<TrophyOutlined />} accent="#f59e0b" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Completed Quizzes" value={stats.completedQuizzes} icon={<CheckCircleOutlined />} accent="#22c55e" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Pending Quizzes" value={stats.pendingQuizzes} icon={<ClockCircleOutlined />} accent="#ef4444" />
                 </Col>
             </Row>
 
             {/* ── Quick navigation ── */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 24 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: r.isLaptop ? 16 : 24 }}>
                 <NavPill icon={<FileTextOutlined />} label="My Quizzes" to="/app/my-quizzes" accent="#6366f1" navigate={navigate} />
                 <NavPill icon={<TrophyOutlined />}  label="My Results" to="/app/my-results"  accent="#f59e0b" navigate={navigate} />
                 <NavPill icon={<FolderOutlined />}  label="Resources"  to="/app/my-resources" accent="#22c55e" navigate={navigate} />
@@ -491,38 +467,38 @@ const StudentDashboard: React.FC = () => {
             </div>
 
             {/* ── Main body ── */}
-            <Row gutter={[20, 20]}>
+            <Row gutter={[r.isLaptop ? 14 : 20, r.isLaptop ? 14 : 20]}>
 
                 {/* LEFT: Charts */}
                 <Col xs={24} xl={16}>
                     {/* Score over time + Score by Quiz */}
-                    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                    <Row gutter={[r.isLaptop ? 12 : 16, r.isLaptop ? 12 : 16]} style={{ marginBottom: r.isLaptop ? 12 : 16 }}>
                         <Col xs={24} md={12}>
-                            <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: 24, height: 340 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 16 }}>Score Over Time</div>
+                            <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: cardPad, height: chartH }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 12 }}>Score Over Time</div>
                                 {sortedResults.length === 0 ? (
-                                    <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 40 }} />
+                                    <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 30 }} />
                                 ) : (
                                     <ScoreOverTimeChart data={sortedResults} />
                                 )}
                             </div>
                         </Col>
                         <Col xs={24} md={12}>
-                            <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: 24, height: 340 }}>
-                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 12 }}>Top Scores (Best 8)</div>
+                            <div style={{ borderRadius: 16, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.06)', padding: cardPad, height: chartH }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 10 }}>Top Scores (Best 8)</div>
                                 {sortedResults.length === 0 ? (
-                                    <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 40 }} />
+                                    <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No results yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 30 }} />
                                 ) : (
-                                    <div style={{ overflowY: 'auto', maxHeight: 270 }}>
-                                        {[...sortedResults].sort((a, b) => Number(b.percentage ?? 0) - Number(a.percentage ?? 0)).slice(0, 8).map((r, i) => {
-                                            const pct = Number(Number(r.percentage ?? 0).toFixed(1));
+                                    <div style={{ overflowY: 'auto', maxHeight: chartH - 70 }}>
+                                        {[...sortedResults].sort((a, b) => Number(b.percentage ?? 0) - Number(a.percentage ?? 0)).slice(0, 8).map((rr, i) => {
+                                            const pct = Number(Number(rr.percentage ?? 0).toFixed(1));
                                             const clr = scoreColor(pct);
                                             return (
                                                 <div key={i} style={{ marginBottom: 10 }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                                        <Tooltip title={r.quiz_title}>
+                                                        <Tooltip title={rr.quiz_title}>
                                                             <span style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', maxWidth: '65%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
-                                                                {r.quiz_title}
+                                                                {rr.quiz_title}
                                                             </span>
                                                         </Tooltip>
                                                         <span style={{ fontSize: 12, fontWeight: 700, color: clr }}>{pct}%</span>

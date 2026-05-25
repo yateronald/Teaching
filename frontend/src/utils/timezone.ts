@@ -43,7 +43,12 @@ function getTimezoneAbbr(tz: string, date: Date): string {
             timeZone: tz, timeZoneName: 'shortOffset',
         }).formatToParts(date);
         const tzPart = parts.find(p => p.type === 'timeZoneName');
-        return tzPart ? tzPart.value : tz;
+        if (!tzPart) return tz;
+        // Some zero-offset zones (UTC, Africa/Abidjan, etc.) render as just
+        // "GMT" with no sign+digits — normalize so the offset is always
+        // unambiguous in tooltips, banners, and email previews.
+        if (tzPart.value === 'GMT') return 'GMT+0';
+        return tzPart.value;
     } catch {
         return tz;
     }

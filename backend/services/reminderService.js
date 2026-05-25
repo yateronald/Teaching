@@ -138,11 +138,13 @@ class ReminderService {
         try {
             const startTime = new Date(classInfo.start_time);
             const endTime = new Date(classInfo.end_time);
-            
-            // Format date and time for the template
-            const date = startTime.toISOString().split('T')[0]; // YYYY-MM-DD
-            const startTimeStr = startTime.toTimeString().slice(0, 5); // HH:MM
-            const endTimeStr = endTime.toTimeString().slice(0, 5); // HH:MM
+
+            // Send full ISO timestamps. The email template's
+            // `combineDateAndTime` detects ISO and `formatRecipientTime`
+            // renders in the student's own timezone — never use
+            // `toTimeString()` (server local zone, double-shifted).
+            const startIso = startTime.toISOString();
+            const endIso   = endTime.toISOString();
 
             await sendClassReminder({
                 to: student.email,
@@ -150,9 +152,9 @@ class ReminderService {
                 className: classInfo.title,
                 teacherName: `${classInfo.teacher_first_name || ''} ${classInfo.teacher_last_name || ''}`.trim() || 'Your Teacher',
                 batchName: classInfo.batch_name,
-                startTime: startTimeStr,
-                endTime: endTimeStr,
-                date: date,
+                startTime: startIso,
+                endTime: endIso,
+                date: startIso,
                 location: classInfo.location,
                 locationMode: classInfo.location_mode || 'physical',
                 link: classInfo.link,

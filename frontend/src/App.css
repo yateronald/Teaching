@@ -121,15 +121,29 @@
    RESPONSIVE — Tablet & Small Screens
 ══════════════════════════════════════════ */
 
-/* Tablet: 768px – 1024px */
-@media (max-width: 1024px) {
-  /* KPI cards — smaller padding, smaller text */
+/* Small desktop / large laptop: 1280px – 1439px (tighter cards + tables) */
+@media (max-width: 1439px) {
+  /* Slim down KPI cards across the app */
   .ant-statistic-title { font-size: 11px !important; }
+  .ant-statistic-content-value { font-size: 22px !important; }
+
+  /* Tables — slightly tighter cells */
+  .ant-table-cell { padding: 10px 14px !important; font-size: 12.5px !important; }
+  .ant-table-thead > tr > th { padding: 9px 14px !important; font-size: 11px !important; letter-spacing: 0.4px; }
+
+  /* Slightly more compact form inputs */
+  .ant-input, .ant-select-selector, .ant-picker { font-size: 13px !important; }
+}
+
+/* Tablet / small laptop: 768px – 1023px */
+@media (max-width: 1023px) {
+  /* KPI cards — smaller padding, smaller text */
+  .ant-statistic-title { font-size: 10.5px !important; }
   .ant-statistic-content-value { font-size: 20px !important; }
 
   /* Tables — tighter cells */
-  .ant-table-cell { padding: 10px 12px !important; font-size: 12px !important; }
-  .ant-table-thead > tr > th { padding: 8px 12px !important; font-size: 10px !important; }
+  .ant-table-cell { padding: 9px 11px !important; font-size: 12px !important; }
+  .ant-table-thead > tr > th { padding: 8px 11px !important; font-size: 10.5px !important; }
 
   /* Modals — don't exceed viewport */
   .ant-modal { max-width: 95vw !important; }
@@ -141,14 +155,14 @@
 }
 
 /* Small tablet / large phone: < 768px */
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   /* KPI cards — stack 2 per row */
   .ant-row > .ant-col-xs-24.ant-col-sm-12 { flex: 0 0 50% !important; max-width: 50% !important; }
   .ant-row > .ant-col-xs-24.ant-col-sm-8 { flex: 0 0 50% !important; max-width: 50% !important; }
 
   /* Tables — horizontal scroll, smaller text */
   .ant-table-cell { padding: 8px 10px !important; font-size: 11px !important; }
-  .ant-table-thead > tr > th { font-size: 9px !important; padding: 6px 10px !important; }
+  .ant-table-thead > tr > th { font-size: 10px !important; padding: 6px 10px !important; }
 
   /* Filters — full width inputs */
   .ant-input { width: 100% !important; }
@@ -157,4 +171,769 @@
 
   /* Modals — near full screen */
   .ant-modal { max-width: 98vw !important; margin: 8px !important; }
+
+  /* Hide column titles on very narrow tables — pages opt-in via .compact-on-mobile */
+  .compact-on-mobile .ant-table-thead { display: none !important; }
+}
+
+/* ══════════════════════════════════════════
+   STUDENT-PORTAL UTILITIES
+   Use the .student-portal wrapper class on top-level
+   page divs to opt into tighter spacing without
+   touching every component's inline styles.
+══════════════════════════════════════════ */
+.student-portal {
+  /* Tighten KPI strip gaps a touch on small laptops */
+}
+@media (max-width: 1279px) {
+  .student-portal .ant-row { row-gap: 12px !important; }
+  .student-portal .kpi-grid { gap: 12px !important; }
+  /* Pull headings tighter on small laptops */
+  .student-portal h2 { font-size: 18px !important; }
+  .student-portal h3 { font-size: 16px !important; }
+  .student-portal .ant-typography h3 { font-size: 16px !important; }
+}
+@media (max-width: 767px) {
+  .student-portal .ant-tabs-tab { padding: 8px 12px !important; }
+  .student-portal .ant-typography h2 { font-size: 17px !important; }
+  .student-portal .ant-typography h3 { font-size: 15px !important; }
+}
+
+
+/* ══════════════════════════════════════════
+   QUIZ-TAKING — RESPONSIVE
+   The quiz player needs to work end-to-end on
+   phones, tablets, small laptops, and desktops.
+   We override the inline styles via CSS rules
+   scoped to `.quiz-taking-container`.
+══════════════════════════════════════════ */
+
+/* Tablet / small laptop: < 1024 */
+@media (max-width: 1023px) {
+  .quiz-taking-container [data-quiz-question-card] {
+    padding: 18px 22px !important;
+  }
+  .quiz-taking-container [data-quiz-sticky-header] {
+    padding: 8px 0 !important;
+  }
+  .quiz-taking-container [data-quiz-sticky-inner] {
+    padding: 0 14px !important;
+  }
+  .quiz-taking-container [data-quiz-palette] {
+    max-width: 100% !important;
+    justify-content: flex-start !important;
+  }
+}
+
+/* Phone: < 768 */
+@media (max-width: 767px) {
+  .quiz-taking-container {
+    padding-bottom: 24px !important;
+  }
+  /* Sticky header → stacked */
+  .quiz-taking-container [data-quiz-sticky-inner] {
+    padding: 0 12px !important;
+  }
+  .quiz-taking-container [data-quiz-sticky-inner] .ant-row {
+    row-gap: 6px !important;
+  }
+  .quiz-taking-container [data-quiz-title] {
+    font-size: 14px !important;
+  }
+  .quiz-taking-container [data-quiz-meta] {
+    font-size: 11px !important;
+  }
+  /* Palette buttons stay scrollable horizontally */
+  .quiz-taking-container [data-quiz-palette] {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    max-width: 100% !important;
+    padding-bottom: 4px !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .quiz-taking-container [data-quiz-palette]::-webkit-scrollbar {
+    height: 3px;
+  }
+  /* Question card */
+  .quiz-taking-container [data-quiz-question-card] {
+    padding: 16px 16px !important;
+    border-radius: 14px !important;
+    margin: 0 !important;
+  }
+  .quiz-taking-container [data-quiz-question-wrap] {
+    padding: 0 12px !important;
+    margin: 12px auto 0 !important;
+  }
+  .quiz-taking-container [data-quiz-options] .ant-radio-wrapper,
+  .quiz-taking-container [data-quiz-options] .ant-checkbox-wrapper {
+    width: 100% !important;
+    padding: 12px 14px !important;
+    border-radius: 12px !important;
+    margin-bottom: 8px !important;
+  }
+  /* Audio player — taller buttons, larger tap targets */
+  .quiz-taking-container [data-quiz-audio] {
+    padding: 12px 14px !important;
+    margin-bottom: 16px !important;
+  }
+  .quiz-taking-container [data-quiz-audio] button {
+    min-height: 40px !important;
+  }
+  /* Action bar stacks on phone */
+  .quiz-taking-container [data-quiz-actions] {
+    flex-direction: column-reverse !important;
+    gap: 8px !important;
+  }
+  .quiz-taking-container [data-quiz-actions] > * {
+    width: 100% !important;
+  }
+  .quiz-taking-container [data-quiz-actions] .ant-btn {
+    width: 100% !important;
+    height: 44px !important;
+    font-size: 14px !important;
+  }
+  /* Quiz intro / start screen tightens */
+  .quiz-taking-container [data-quiz-intro] {
+    padding: 24px 20px !important;
+  }
+  .quiz-taking-container [data-quiz-intro] h1,
+  .quiz-taking-container [data-quiz-intro] .ant-typography h1 {
+    font-size: 20px !important;
+  }
+}
+
+/* Mobile-modal container — make antd modal fill the screen for the quiz */
+.ant-modal.quiz-taking-modal {
+  top: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  max-width: 100vw !important;
+  width: 100vw !important;
+}
+.ant-modal.quiz-taking-modal .ant-modal-content {
+  border-radius: 0 !important;
+  min-height: 100vh;
+}
+.ant-modal.quiz-taking-modal .ant-modal-body {
+  padding: 0 !important;
+}
+@media (min-width: 768px) {
+  .ant-modal.quiz-taking-modal {
+    top: 24px !important;
+    padding: 0 !important;
+    max-width: 95vw !important;
+  }
+  .ant-modal.quiz-taking-modal .ant-modal-content {
+    border-radius: 16px !important;
+    min-height: 0;
+  }
+}
+
+
+/* Quiz question content (text + options) — drop the extra left padding on phone */
+@media (max-width: 767px) {
+  .quiz-taking-container [data-quiz-question-card] > div[style*="padding-left: 48px"],
+  .quiz-taking-container [data-quiz-question-card] [data-quiz-options] {
+    padding-left: 0 !important;
+  }
+}
+
+
+/* ══════════════════════════════════════════
+   EXAM-PREPARATION MODALS — RESPONSIVE
+   Covers: EOSimulation, EOAnalytics, EOGlobalAnalytics,
+   EESimulation, COQuizTaking, COAnalytics, COGlobalAnalytics,
+   OutOfCreditsModal.
+
+   Strategy: each modal carries a `.exam-modal` (or specific
+   variant) class. On mobile we pull modals fullscreen, drop
+   borderRadius to 0, and let inner content stretch edge-to-edge.
+   On tablet we keep a small inset; on desktop the original
+   widths apply unchanged.
+══════════════════════════════════════════ */
+
+/* Generic exam-prep modal sizing */
+@media (max-width: 767px) {
+  .ant-modal.exam-modal {
+    top: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100vw !important;
+    width: 100vw !important;
+    height: 100vh !important;
+  }
+  .ant-modal.exam-modal .ant-modal-content {
+    border-radius: 0 !important;
+    min-height: 100vh !important;
+    padding: 0 !important;
+  }
+  .ant-modal.exam-modal .ant-modal-body {
+    padding: 0 !important;
+    max-height: none !important;
+    height: 100vh !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Tighten inner grids that use inline styles */
+  .exam-modal [data-exam-stats-grid],
+  .exam-modal [data-exam-grid-3],
+  .exam-modal [data-exam-grid-4] {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  .exam-modal [data-exam-grid-2] {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+  /* Hero / banner sections shrink */
+  .exam-modal [data-exam-hero] {
+    padding: 18px 16px !important;
+    border-radius: 0 !important;
+  }
+  .exam-modal [data-exam-hero] h1,
+  .exam-modal [data-exam-hero] h2 {
+    font-size: 18px !important;
+    line-height: 1.25 !important;
+  }
+  /* Section paddings shrink */
+  .exam-modal [data-exam-section] {
+    padding: 14px 16px !important;
+  }
+  /* Bottom action bar = full width sticky */
+  .exam-modal [data-exam-actions] {
+    padding: 12px 16px !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+  .exam-modal [data-exam-actions] .ant-btn,
+  .exam-modal [data-exam-actions] button {
+    width: 100% !important;
+    height: 44px !important;
+  }
+}
+
+/* Tablet: keep some inset but go wider */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .ant-modal.exam-modal {
+    top: 16px !important;
+    max-width: 95vw !important;
+    width: 95vw !important;
+    margin: 0 auto !important;
+  }
+  .ant-modal.exam-modal .ant-modal-body {
+    max-height: calc(100vh - 32px) !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   EOSimulation — Active screen layout
+   The exam runs in a 3-area composition: header,
+   AI-speaking visualizer, mic button. On mobile
+   we stack them vertically and shrink the
+   visualizer.
+────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .exam-modal-eo [data-eo-active] {
+    padding: 12px 14px !important;
+    gap: 16px !important;
+  }
+  .exam-modal-eo [data-eo-visualizer] {
+    width: 220px !important;
+    height: 220px !important;
+  }
+  .exam-modal-eo [data-eo-prep-sujet] {
+    font-size: 13.5px !important;
+    padding: 14px !important;
+  }
+  .exam-modal-eo [data-eo-mic-btn] {
+    width: 64px !important;
+    height: 64px !important;
+  }
+  .exam-modal-eo [data-eo-tache-intro] {
+    padding: 14px 16px !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   EESimulation — 3-column to 1-column
+────────────────────────────────────────── */
+@media (max-width: 1023px) {
+  .exam-modal-ee [data-ee-layout] {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: auto auto auto !important;
+  }
+}
+@media (max-width: 767px) {
+  .exam-modal-ee [data-ee-keyboard] {
+    display: none !important;
+  }
+  .exam-modal-ee [data-ee-subject] {
+    max-height: 240px !important;
+    overflow-y: auto !important;
+  }
+  .exam-modal-ee [data-ee-editor] textarea {
+    font-size: 14px !important;
+    min-height: 280px !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   COQuizTaking — Quiz player on mobile
+────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .exam-modal-co [data-co-question] {
+    padding: 16px !important;
+  }
+  .exam-modal-co [data-co-options] {
+    grid-template-columns: 1fr !important;
+  }
+  .exam-modal-co [data-co-options] label {
+    width: 100% !important;
+    padding: 10px 12px !important;
+  }
+}
+
+/* ──────────────────────────────────────────
+   Analytics modals — distributions, charts
+────────────────────────────────────────── */
+@media (max-width: 767px) {
+  .exam-modal-analytics svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+  .exam-modal-analytics [data-analytics-row] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+
+/* ══════════════════════════════════════════
+   RESOURCE PREVIEW MODAL
+   - Mobile: edge-to-edge fullscreen using dvh so it never overflows
+     past the visible viewport (URL-bar-on-scroll bug)
+   - Desktop: centered, capped at 88vh
+   - `preview-modal-fullscreen`: explicit fullscreen mode
+══════════════════════════════════════════ */
+
+/* AntD's default wrap centers the modal which combined with `top: 100px` and
+   `padding-bottom: 24px` can push the modal off-screen on short mobile
+   viewports. Pin the wrap to fill the screen so flex centering works. */
+.preview-modal .ant-modal-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+}
+
+/* Mobile (< 768): edge-to-edge fullscreen. Critical: use dvh to avoid the
+   mobile URL-bar bug where 100vh > the actual visible viewport. */
+@media (max-width: 767px) {
+  .preview-modal .ant-modal-wrap {
+    align-items: flex-start;
+  }
+  .preview-modal .ant-modal {
+    top: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100vw !important;
+    width: 100vw !important;
+    /* `dvh` is the dynamic viewport — it shrinks when the URL bar is
+       visible and grows when it retracts, so the modal always fits. */
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+  }
+  .preview-modal .ant-modal-content {
+    border-radius: 0 !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    display: flex;
+    flex-direction: column;
+  }
+  .preview-modal .ant-modal-body {
+    flex: 1 !important;
+    min-height: 0 !important;
+    height: 100% !important;
+  }
+}
+
+/* Explicit fullscreen mode (desktop user clicked the expand button) */
+.preview-modal-fullscreen .ant-modal-wrap {
+  align-items: flex-start !important;
+}
+.preview-modal-fullscreen .ant-modal {
+  top: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100vw !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+}
+.preview-modal-fullscreen .ant-modal-content {
+  border-radius: 0 !important;
+  height: 100dvh !important;
+  display: flex;
+  flex-direction: column;
+}
+.preview-modal-fullscreen .ant-modal-body {
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+
+/* ══════════════════════════════════════════
+   MEETING LIST — modern card states
+══════════════════════════════════════════ */
+
+/* Pulse animation for the "Live" indicator dot */
+@keyframes meeting-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(1.4); }
+}
+.meeting-live-pulse {
+  animation: meeting-live-pulse 1.4s ease-in-out infinite;
+}
+
+/* Hover lift on upcoming meeting cards (desktop only) */
+@media (hover: hover) and (pointer: fine) {
+  .meeting-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px -8px rgba(15,23,42,0.12) !important;
+  }
+  .meeting-card-live:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px -8px rgba(34,197,94,0.28), 0 0 0 1px rgba(34,197,94,0.12) !important;
+  }
+  .meeting-row-past:hover {
+    background: #fafbff !important;
+    border-color: #e0e7ff !important;
+  }
+}
+
+/* Live card glow pulse — soft outer ring */
+.meeting-card-live::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(34,197,94,0.4);
+  animation: meeting-card-live-pulse 2.4s ease-in-out infinite;
+}
+@keyframes meeting-card-live-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.18); }
+  50%      { box-shadow: 0 0 0 8px rgba(34,197,94,0); }
+}
+
+/* Mobile: actions wrap below the title for breathing room */
+@media (max-width: 600px) {
+  .meeting-card > div:last-child > div > div:last-child {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+
+/* ══════════════════════════════════════════
+   GLOBAL: when ANY modal is open, lock the
+   inner Content scroller so the page behind
+   doesn't free-scroll. AntD already locks
+   <body> but our Layout uses an inner
+   <Content overflow:auto> which it doesn't
+   know about.
+══════════════════════════════════════════ */
+
+body.ant-scrolling-effect .ant-layout-content,
+body[style*="overflow"] .ant-layout-content {
+  overflow: hidden !important;
+}
+
+/* Defensive: ensure mobile preview modal is FULLY visible on first paint
+   regardless of the page's scroll position. The AntD modal `position: fixed`
+   wrap already does this — we just make sure no transform/overflow ancestor
+   creates a containing block trap. */
+.preview-modal .ant-modal-mask,
+.preview-modal .ant-modal-wrap {
+  position: fixed !important;
+  inset: 0 !important;
+}
+
+
+/* ══════════════════════════════════════════
+   QUIZ INTRO SCREEN — modern, fits viewport without scroll
+   Mirrors the prejoin screen design language for consistency.
+══════════════════════════════════════════ */
+
+.quiz-intro-shell {
+  /* The QuizTaking component is normally hosted inside an antd Modal that
+     already caps its height. Just hug the parent — claiming 100dvh makes
+     the shell taller than the modal and causes horizontal overflow on the
+     surrounding page. */
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(99, 102, 241, 0.07), transparent 55%),
+    radial-gradient(circle at 85% 100%, rgba(168, 85, 247, 0.05), transparent 55%),
+    #f8fafc;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.quiz-intro-card {
+  width: 100%;
+  max-width: 880px;
+  /* Hug the parent (Modal body or Layout content). No need to subtract
+     viewport units here — antd's Modal manages the available height. */
+  max-height: 100%;
+  height: 100%;
+  background: #fff;
+  border-radius: 0;
+  border: none;
+  box-shadow: none;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Brand strip ── */
+.quiz-intro-strip {
+  flex-shrink: 0;
+  padding: 16px 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.04), rgba(168, 85, 247, 0.02));
+}
+.quiz-intro-strip-icon {
+  width: 40px; height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #4338ca, #6366f1);
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  box-shadow: 0 6px 16px -4px rgba(67, 56, 202, 0.4);
+}
+.quiz-intro-eyebrow {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #6366f1;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.quiz-intro-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quiz-intro-subtitle {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-top: 3px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Body: 2-column on desktop, stacked on mobile ── */
+.quiz-intro-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 14px;
+  padding: 16px 18px;
+  overflow-y: auto;
+}
+
+/* Stat tiles column */
+.quiz-intro-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quiz-intro-stat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #f0f0f8;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+.quiz-intro-stat-icon {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.quiz-intro-stat-meta { flex: 1; min-width: 0; }
+.quiz-intro-stat-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 1px;
+}
+.quiz-intro-stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.1;
+}
+.quiz-intro-stat-unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  margin-left: 4px;
+}
+
+/* Instructions panel */
+.quiz-intro-info {
+  background: linear-gradient(135deg, #eff6ff, #f0f9ff);
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quiz-intro-info-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+.quiz-intro-info-icon {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #3b82f6;
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.quiz-intro-info-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #1e40af;
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+.quiz-intro-info-list li { margin-bottom: 3px; }
+.quiz-intro-info-list li:last-child { margin-bottom: 0; }
+
+/* ── Sticky action bar ── */
+.quiz-intro-actions {
+  flex-shrink: 0;
+  padding: 12px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid rgba(15, 23, 42, 0.06);
+  background: #fafbff;
+}
+.quiz-intro-prepping {
+  flex-basis: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.quiz-intro-btn-secondary {
+  height: 42px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 0 20px;
+}
+.quiz-intro-btn-primary {
+  flex: 1;
+  min-width: 160px;
+  height: 42px !important;
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  font-size: 14.5px !important;
+  background: linear-gradient(135deg, #4f46e5, #6366f1) !important;
+  border: none !important;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.32) !important;
+}
+
+/* ── Mobile / small viewport: stack the body ── */
+@media (max-width: 720px) {
+  .quiz-intro-shell {
+    padding: 0;
+    align-items: stretch;
+    background: #fff;
+  }
+  .quiz-intro-card {
+    max-width: 100%;
+    max-height: 100%;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+  }
+  .quiz-intro-body {
+    grid-template-columns: 1fr;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+  .quiz-intro-stats {
+    flex-direction: row;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    margin: 0 -2px;
+  }
+  .quiz-intro-stat {
+    flex: 1 0 auto;
+    min-width: 130px;
+    padding: 10px 12px;
+  }
+  .quiz-intro-stat-value { font-size: 18px; }
+  .quiz-intro-strip { padding: 12px 14px; }
+  .quiz-intro-actions { padding: 10px 14px; }
+  .quiz-intro-btn-secondary { padding: 0 14px; }
+}
+
+/* Very short viewports: tighten paddings */
+@media (max-height: 640px) {
+  .quiz-intro-strip { padding: 10px 18px; }
+  .quiz-intro-body { padding: 10px 14px; gap: 10px; }
+  .quiz-intro-stat { padding: 8px 12px; }
+  .quiz-intro-stat-icon { width: 32px; height: 32px; font-size: 14px; }
+  .quiz-intro-stat-value { font-size: 18px; }
+  .quiz-intro-actions { padding: 10px 18px; }
+  .quiz-intro-info { padding: 10px 14px; }
+  .quiz-intro-info-list { line-height: 1.5; font-size: 12px; }
 }

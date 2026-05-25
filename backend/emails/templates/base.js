@@ -163,12 +163,15 @@ function formatRecipientTime(when, tz, opts = {}) {
     };
     const datePart = new Intl.DateTimeFormat('en-US', formatOpts).format(d);
     if (formatOpts.timeZoneName) return datePart;
-    // Get short offset (e.g. "GMT-4")
+    // Get short offset (e.g. "GMT-4"). Some zero-offset zones render just
+    // "GMT" — normalize those to "GMT+0" so every email reliably shows
+    // an offset (no ambiguity for recipients comparing time zones).
     let abbr = safeTz;
     try {
         const parts = new Intl.DateTimeFormat('en-US', { timeZone: safeTz, timeZoneName: 'shortOffset' }).formatToParts(d);
         const tzPart = parts.find(p => p.type === 'timeZoneName');
         if (tzPart) abbr = tzPart.value;
+        if (abbr === 'GMT') abbr = 'GMT+0';
     } catch {}
     return `${datePart} · ${abbr}`;
 }

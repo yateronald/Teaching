@@ -213,7 +213,7 @@ class AttendanceService {
         try {
             // Get all students in the batch
             const students = await this.db.all(`
-                SELECT u.id, u.first_name, u.last_name, u.email
+                SELECT u.id, u.first_name, u.last_name, u.email, u.timezone
                 FROM users u
                 JOIN batch_students bs ON u.id = bs.student_id
                 WHERE bs.batch_id = ? AND u.role = 'student' AND u.is_active = true
@@ -242,19 +242,12 @@ class AttendanceService {
                 throw new Error('Schedule start_time or end_time is missing');
             }
 
-            // Send email to each student
-            // Extract HH:mm from ISO datetime strings for the email template
-            const extractTime = (isoStr) => {
-                try {
-                    const d = new Date(isoStr);
-                    if (isNaN(d.getTime())) return isoStr;
-                    return d.toTimeString().slice(0, 5); // HH:mm
-                } catch {
-                    return isoStr;
-                }
-            };
-            const formattedStartTime = extractTime(schedule.start_time);
-            const formattedEndTime = extractTime(schedule.end_time);
+            // Send email to each student.
+            // Pass ISO strings (UTC). Inside the access-code template,
+            // `formatRecipientTime` will localize them with the recipient's
+            // timezone. Don't use toTimeString() (server-local zone).
+            const startIso = new Date(schedule.start_time).toISOString();
+            const endIso = new Date(schedule.end_time).toISOString();
 
             const emailPromises = students.map(async (student) => {
                 try {
@@ -267,11 +260,12 @@ class AttendanceService {
                         batchName: schedule.batch_name,
                         accessCode,
                         sessionDate,
-                        startTime: formattedStartTime,
-                        endTime: formattedEndTime,
+                        startTime: startIso,
+                        endTime: endIso,
                         expiresAt,
                         joinLink: null,
-                        logoCid: null
+                        logoCid: null,
+                        recipientTimezone: student.timezone || 'UTC',
                     });
 
                     await emailService.sendAccessCodeEmail({

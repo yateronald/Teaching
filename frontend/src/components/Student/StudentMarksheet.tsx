@@ -4,6 +4,9 @@ import { BarChartOutlined, CheckCircleOutlined, RiseOutlined, CalendarOutlined, 
 import dayjs from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import { BarChart } from '@mui/x-charts';
+import KpiCard from '../Common/KpiCard';
+import PageHeader from '../Common/PageHeader';
+import useResponsive from '../../hooks/useResponsive';
 
 
 
@@ -33,22 +36,6 @@ const gradeAccent = (g: string) => {
     return { fg: '#ef4444', bg: '#fff1f2' };
 };
 
-/* ── KPI Card ── */
-const KpiCard = ({ label, value, suffix = '', icon, accent, sub }: {
-    label: string; value: string | number; suffix?: string; icon: React.ReactNode; accent: string; sub?: string;
-}) => (
-    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16, height: '100%' }}>
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 26, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}<span style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>{suffix}</span>
-            </div>
-            {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{sub}</div>}
-        </div>
-    </div>
-);
-
 /* ── Grade Badge ── */
 const GradeBadge = ({ grade, size = 'md' }: { grade: string; size?: 'sm' | 'md' | 'lg' }) => {
     const a = gradeAccent(grade);
@@ -66,6 +53,7 @@ type TabKey = typeof TABS[number];
 ══════════════════════════════ */
 const StudentMarksheet: React.FC = () => {
     const { apiCall } = useAuth();
+    const r = useResponsive();
     const [loading, setLoading] = useState(true);
     const [results, setResults] = useState<QuizResult[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -301,50 +289,50 @@ const StudentMarksheet: React.FC = () => {
        MAIN RENDER
     ═══════════════════════════════════ */
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
             {/* ── Header ── */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 20, flexShrink: 0, flexWrap: 'wrap', gap: 12 }}>
-                <div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>Academic Marksheet</div>
-                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                        {overall.total} completed quiz{overall.total !== 1 ? 'zes' : ''} · avg {overall.average}% · grade {overall.grade}
+            <PageHeader
+                title="Academic Marksheet"
+                subtitle={`${overall.total} completed quiz${overall.total !== 1 ? 'zes' : ''} · avg ${overall.average}% · grade ${overall.grade}`}
+                icon={<DashboardOutlined />}
+                accent="#10b981"
+                actions={
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <Select
+                            mode="multiple"
+                            value={selectedBatches}
+                            onChange={vals => {
+                                const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
+                                if (justSelectedAll || vals.length === 0) {
+                                    setSelectedBatches(['all']);
+                                } else {
+                                    setSelectedBatches(vals.filter(v => v !== 'all'));
+                                }
+                            }}
+                            options={batchOptions}
+                            style={{ minWidth: r.isCompact ? 140 : 180, flex: '1 1 180px' }}
+                            placeholder="Filter by batch"
+                            maxTagCount="responsive"
+                        />
+                        <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
+                            <Button
+                                icon={<BarChartOutlined />}
+                                disabled={!canAnalyze}
+                                onClick={() => setAnalyzerOpen(true)}
+                                style={{ borderRadius: 10, height: 36, fontWeight: 600, background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined, color: canAnalyze ? '#fff' : undefined, border: canAnalyze ? 'none' : undefined }}
+                            >
+                                Compare
+                            </Button>
+                        </Tooltip>
                     </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <Select
-                        mode="multiple"
-                        value={selectedBatches}
-                        onChange={vals => {
-                            const justSelectedAll = !selectedBatches.includes('all') && vals.includes('all');
-                            if (justSelectedAll || vals.length === 0) {
-                                setSelectedBatches(['all']);
-                            } else {
-                                setSelectedBatches(vals.filter(v => v !== 'all'));
-                            }
-                        }}
-                        options={batchOptions}
-                        style={{ minWidth: 180, flex: '1 1 180px' }}
-                        placeholder="Filter by batch"
-                        maxTagCount="responsive"
-                    />
-                    <Tooltip title={!canAnalyze ? 'Select ≥ 2 batches to compare' : 'Compare batch performance'}>
-                        <Button
-                            icon={<BarChartOutlined />}
-                            disabled={!canAnalyze}
-                            onClick={() => setAnalyzerOpen(true)}
-                            style={{ borderRadius: 10, height: 36, fontWeight: 600, background: canAnalyze ? 'linear-gradient(135deg,#4f46e5,#6366f1)' : undefined, color: canAnalyze ? '#fff' : undefined, border: canAnalyze ? 'none' : undefined }}
-                        >
-                            Compare
-                        </Button>
-                    </Tooltip>
-                </div>
-            </div>
+                }
+            />
 
             {error && <Alert type="error" message={error} showIcon style={{ marginBottom: 16, borderRadius: 12 }} />}
 
             {/* ── KPI Cards (5 across) ── */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginBottom: 20, flexShrink: 0 }}>
+            <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: r.isCompact ? 'repeat(auto-fit, minmax(140px, 1fr))' : 'repeat(auto-fit, minmax(170px, 1fr))', gap: r.isCompact ? 10 : 14, marginBottom: r.isCompact ? 14 : 20, flexShrink: 0 }}>
                 <KpiCard label="Completed" value={overall.total} icon={<CheckCircleOutlined />} accent="#22c55e" />
                 <KpiCard label="Average Score" value={overall.average} suffix="%" icon={<DashboardOutlined />} accent="#6366f1" />
                 <KpiCard label="Best Score" value={overall.best} suffix="%" icon={<RiseOutlined />} accent="#f59e0b" />
@@ -356,37 +344,39 @@ const StudentMarksheet: React.FC = () => {
             <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
                 {/* Custom tab bar */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', gap: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: r.isMobile ? '0 14px' : '0 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0, gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 4, overflowX: 'auto', maxWidth: '100%' }}>
                         {TABS.map(tab => {
                             const isActive = activeTab === tab;
                             const count = tab === 'By Batch' ? batchAggs.length : breakdownResults.length;
                             return (
                                 <button key={tab} onClick={() => setActiveTab(tab)}
                                     style={{
-                                        display: 'flex', alignItems: 'center', gap: 6, padding: '14px 16px',
+                                        display: 'flex', alignItems: 'center', gap: 6, padding: r.isMobile ? '12px 12px' : '14px 16px',
                                         border: 'none', background: 'none', cursor: 'pointer',
-                                        fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                        fontSize: r.isMobile ? 12 : 13, fontWeight: isActive ? 700 : 500,
                                         color: isActive ? '#6366f1' : '#94a3b8',
                                         borderBottom: isActive ? '2px solid #6366f1' : '2px solid transparent',
                                         marginBottom: -1, whiteSpace: 'nowrap', transition: 'all 0.15s', outline: 'none',
                                     }}
                                 >
                                     {tab}
-                                    <span style={{ fontSize: 11, fontWeight: 700, background: isActive ? '#eef2ff' : '#f1f5f9', color: isActive ? '#6366f1' : '#94a3b8', borderRadius: 20, padding: '1px 8px' }}>{count}</span>
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, background: isActive ? '#eef2ff' : '#f1f5f9', color: isActive ? '#6366f1' : '#94a3b8', borderRadius: 20, padding: '1px 7px' }}>{count}</span>
                                 </button>
                             );
                         })}
                     </div>
-                    <Tooltip title="Quiz results are released per your teacher's schedule">
-                        <span style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <CalendarOutlined style={{ fontSize: 12 }} /> Release schedule applies
-                        </span>
-                    </Tooltip>
+                    {!r.isMobile && (
+                        <Tooltip title="Quiz results are released per your teacher's schedule">
+                            <span style={{ fontSize: 11, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                                <CalendarOutlined style={{ fontSize: 12 }} /> Release schedule applies
+                            </span>
+                        </Tooltip>
+                    )}
                 </div>
 
                 {/* Table body — only rows scroll */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ flex: 1, overflow: 'hidden', padding: r.isMobile ? 12 : 0 }}>
                     {activeTab === 'By Batch' ? (
                         !showBatchTable ? (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
@@ -396,13 +386,43 @@ const StudentMarksheet: React.FC = () => {
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
                                 <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results available yet</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                             </div>
+                        ) : r.isMobile ? (
+                            /* ── Mobile: batch summary cards ── */
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {batchAggs.map((agg) => {
+                                    const grade = gradeFromPercent(agg.average_percentage);
+                                    const accent = scoreColor(agg.average_percentage);
+                                    return (
+                                        <div key={String(agg.batch_id ?? 'unassigned')} style={{ background: '#fff', border: '1px solid #f0f0f8', borderRadius: 14, padding: 14 }}>
+                                            <div style={{ height: 3, borderRadius: 3, background: accent, marginBottom: 10 }} />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e' }}>{agg.batch_name}</div>
+                                                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{agg.completed_count}/{agg.quizzes_count} quizzes · {agg.pass_rate}% pass</div>
+                                                </div>
+                                                <GradeBadge grade={grade} size="md" />
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 11, color: '#64748b' }}>
+                                                <span>Average</span>
+                                                <span style={{ fontWeight: 700, color: accent }}>{agg.average_percentage}%</span>
+                                            </div>
+                                            <Progress percent={agg.average_percentage} size="small" strokeColor={accent} showInfo={false} strokeLinecap="round" />
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: '#64748b' }}>
+                                                <span>Best <strong style={{ color: '#22c55e' }}>{agg.best_percentage}%</strong></span>
+                                                <span>Lowest <strong style={{ color: '#ef4444' }}>{agg.lowest_percentage}%</strong></span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         ) : (
                             <Table
                                 columns={batchCols as any}
                                 dataSource={batchAggs}
-                                rowKey={r => String(r.batch_id ?? 'unassigned')}
+                                rowKey={rec => String(rec.batch_id ?? 'unassigned')}
                                 pagination={false}
-                                scroll={{ y: 'calc(100vh - 400px)', x: 850 }}
+                                scroll={{ y: 'calc(100vh - 400px)', x: 'max-content' }}
+                                size={r.isCompact ? 'small' : 'middle'}
                                 rowClassName={() => 'mark-row'}
                             />
                         )
@@ -411,13 +431,47 @@ const StudentMarksheet: React.FC = () => {
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
                                 <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No completed quizzes to display</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                             </div>
+                        ) : r.isMobile ? (
+                            /* ── Mobile: detail cards ── */
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                {breakdownResults.map((row) => {
+                                    const pct = Number(row.percentage ?? 0);
+                                    const isLocked = !!row.results_locked;
+                                    return (
+                                        <div key={String(row.id)} style={{ background: '#fff', border: '1px solid #f0f0f8', borderRadius: 14, padding: 14 }}>
+                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 4 }}>{row.quiz_title}</div>
+                                            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 10 }}>
+                                                {row.batch_name || 'Unassigned'}
+                                                {row.submitted_at && <span> · {dayjs(row.submitted_at).format('MMM D, YYYY')}</span>}
+                                            </div>
+                                            {isLocked ? (
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', borderRadius: 20, padding: '3px 10px', fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+                                                    <LockOutlined style={{ fontSize: 10 }} /> Locked until release
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                                        <span style={{ fontSize: 12, color: '#64748b' }}>{row.score}/{row.max_score} pts</span>
+                                                        <span style={{ fontSize: 13, fontWeight: 800, color: scoreColor(pct) }}>{toFixed(pct, 1)}%</span>
+                                                    </div>
+                                                    <Progress percent={pct} size="small" strokeColor={scoreColor(pct)} showInfo={false} strokeLinecap="round" />
+                                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                                                        <GradeBadge grade={gradeFromPercent(pct)} size="sm" />
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         ) : (
                             <Table
                                 columns={detailCols as any}
                                 dataSource={breakdownResults}
-                                rowKey={r => String(r.id)}
+                                rowKey={rec => String(rec.id)}
                                 pagination={false}
-                                scroll={{ y: 'calc(100vh - 400px)', x: 800 }}
+                                scroll={{ y: 'calc(100vh - 400px)', x: 'max-content' }}
+                                size={r.isCompact ? 'small' : 'middle'}
                                 rowClassName={() => 'mark-row'}
                             />
                         )
@@ -437,9 +491,10 @@ const StudentMarksheet: React.FC = () => {
                     </div>
                 }
                 open={analyzerOpen}
-                width={900}
+                width={r.isCompact ? '95vw' : 900}
                 onCancel={() => setAnalyzerOpen(false)}
                 footer={<Button onClick={() => setAnalyzerOpen(false)} style={{ borderRadius: 10, height: 38 }}>Close</Button>}
+                styles={{ body: { maxHeight: '75vh', overflowY: 'auto' } }}
             >
                 {!canAnalyze ? (
                     <Alert type="info" showIcon message="Select at least two batches to analyze" style={{ borderRadius: 12 }} />

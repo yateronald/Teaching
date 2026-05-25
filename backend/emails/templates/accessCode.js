@@ -1,26 +1,42 @@
-const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml } = require('./base');
+const { baseHtml, detailCard, infoStrip, ctaButton, escapeHtml, formatRecipientTime } = require('./base');
 
-function safeFormatDate(input) {
+/**
+ * Render a date in the recipient's timezone (e.g. "Sunday, May 25, 2026").
+ * Returns null when input is falsy / unparseable.
+ */
+function safeFormatDate(input, tz) {
     if (!input) return null;
-    const d = new Date(input);
-    if (isNaN(d.getTime())) return String(input);
-    return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    return formatRecipientTime(input, tz, {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        hour: undefined, minute: undefined, hour12: undefined,
+    }) || null;
 }
 
-function safeFormatTime(input) {
+/**
+ * Render a time in the recipient's timezone with a `· GMT±N` suffix
+ * (e.g. "5:00 PM · GMT-4"). Accepts:
+ *   - a Date,
+ *   - an ISO string (preferred — UTC),
+ *   - or a bare "HH:mm" string (treated as UTC for safety so we never
+ *     accidentally shift by the server's local zone).
+ */
+function safeFormatTime(input, tz) {
     if (!input) return null;
-    let t;
+    let when;
     if (input instanceof Date) {
-        t = input;
+        when = input;
     } else if (typeof input === 'string' && input.includes('T')) {
-        t = new Date(input);
+        when = new Date(input);
     } else if (typeof input === 'string') {
-        t = new Date(`2000-01-01T${input}`);
+        when = new Date(`2000-01-01T${input.length === 5 ? input + ':00' : input}Z`);
     } else {
         return null;
     }
-    if (isNaN(t.getTime())) return String(input);
-    return t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    if (isNaN(when.getTime())) return String(input);
+    return formatRecipientTime(when, tz, {
+        weekday: undefined, year: undefined, month: undefined, day: undefined,
+        hour: 'numeric', minute: '2-digit', hour12: true,
+    });
 }
 
 /**
@@ -37,6 +53,7 @@ function safeFormatTime(input) {
  *   endTime?: string|Date,
  *   expiresAt?: string|Date,
  *   joinLink?: string,
+ *   recipientTimezone?: string,
  * }} args
  */
 function buildAccessCodeTemplate({
@@ -50,21 +67,23 @@ function buildAccessCodeTemplate({
     endTime,
     expiresAt,
     joinLink,
+    recipientTimezone,
 }) {
     const safeStudent = studentName || 'there';
     const safeClass = classTitle || 'your class';
     const safeCode = String(accessCode || '');
+    const tz = recipientTimezone || 'UTC';
 
     const subject = `Your access code for ${safeClass}`;
     const preheader = safeCode
         ? `Use code ${safeCode} to mark your attendance.`
         : 'Use the access code inside to mark your attendance.';
 
-    const dateStr = safeFormatDate(sessionDate);
-    const start = safeFormatTime(startTime);
-    const end = safeFormatTime(endTime);
+    const dateStr = safeFormatDate(sessionDate || startTime, tz);
+    const start = safeFormatTime(startTime, tz);
+    const end = safeFormatTime(endTime, tz);
     const timeRange = start && end ? `${start} – ${end}` : (start || end || null);
-    const expiryStr = safeFormatTime(expiresAt);
+    const expiryStr = safeFormatTime(expiresAt, tz);
 
     const codeBox = safeCode
         ? `
@@ -83,8 +102,8 @@ function buildAccessCodeTemplate({
         { label: 'Class', value: escapeHtml(safeClass) },
         { label: 'Batch', value: batchName ? escapeHtml(batchName) : null },
         { label: 'Teacher', value: teacherName ? escapeHtml(teacherName) : null },
-        { label: 'Date', value: dateStr ? escapeHtml(dateStr) : null },
-        { label: 'Time', value: timeRange ? escapeHtml(timeRange) : null },
+        { label: `Date (${tz})`, value: dateStr ? escapeHtml(dateStr) : null },
+        { label: `Time (${tz})`, value: timeRange ? escapeHtml(timeRange) : null },
     ];
 
     const expiryStrip = expiryStr

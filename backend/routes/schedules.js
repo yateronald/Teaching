@@ -11,12 +11,24 @@ router.get('/', authenticateToken, async (req, res) => {
     try {
         const { batch_id, start_date, end_date } = req.query;
         
+        // Server-authoritative status: computed from PG NOW() so the frontend
+        // doesn't need a synced clock. schedule_state = 'cancelled' | 'completed'
+        // | 'ended' (now > end_time) | 'active' (start <= now < end) | 'scheduled'.
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
                 s.batch_id, s.location_mode, s.location, s.link, s.status,
                 b.name as batch_name, b.french_level,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name
+                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                CASE
+                    WHEN s.status = 'cancelled' THEN 'cancelled'
+                    WHEN s.status = 'completed' THEN 'completed'
+                    WHEN NOW() > s.end_time   THEN 'ended'
+                    WHEN NOW() >= s.start_time AND NOW() <= s.end_time THEN 'active'
+                    ELSE 'scheduled'
+                END AS schedule_state,
+                EXTRACT(EPOCH FROM (s.end_time   - NOW()))::bigint AS seconds_until_end,
+                EXTRACT(EPOCH FROM (s.start_time - NOW()))::bigint AS seconds_until_start
             FROM schedules s
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
@@ -221,12 +233,12 @@ router.post('/', [
                     WHERE bs.batch_id = ? AND u.role = 'student'
                 `, [batch_id]);
 
-                // Format date and time for email template
-                const startTime = new Date(start_time);
-                const endTime = new Date(end_time);
-                const date = startTime.toISOString().split('T')[0]; // YYYY-MM-DD
-                const startTimeStr = startTime.toTimeString().slice(0, 5); // HH:MM
-                const endTimeStr = endTime.toTimeString().slice(0, 5); // HH:MM
+                // Format date and time for email template.
+                // Send ISO timestamps (UTC) so the email template can render
+                // them in the recipient's timezone — `combineDateAndTime`
+                // detects full ISO and uses them as-is.
+                const startTimeIso = new Date(start_time).toISOString();
+                const endTimeIso   = new Date(end_time).toISOString();
 
                 // Send notifications to all students
                 const emailPromises = students.map(student => 
@@ -237,9 +249,9 @@ router.post('/', [
                         teacherName: `${newSchedule.teacher_first_name || ''} ${newSchedule.teacher_last_name || ''}`.trim() || 'Your Teacher',
                         batchName: newSchedule.batch_name,
                         frenchLevel: newSchedule.french_level,
-                        startTime: startTimeStr,
-                        endTime: endTimeStr,
-                        date: date,
+                        startTime: startTimeIso,
+                        endTime: endTimeIso,
+                        date: startTimeIso,
                         location: finalLocation,
                         locationMode: location_mode,
                         link: finalLink,
@@ -255,7 +267,7 @@ router.post('/', [
                 console.log(`Class schedule notifications sent to ${students.length} students for "${title}"`);
 
                 // Schedule 5-minute reminder
-                const reminderTime = new Date(startTime.getTime() - 5 * 60 * 1000); // 5 minutes before
+                const reminderTime = new Date(new Date(start_time).getTime() - 5 * 60 * 1000); // 5 minutes before
                 if (reminderTime > new Date()) {
                     reminderService.scheduleReminder(result.rows[0].id, reminderTime);
                 }
@@ -409,8 +421,13 @@ router.put('/:id', [
             if (updatedSchedule && updatedSchedule.type) {
                 console.log(`🔔 Processing notifications for ${updatedSchedule.type}: "${updatedSchedule.title}"`);
                 
+                // Helpers that emit ISO strings (UTC) — the email templates'
+                // `formatRecipientTime` will render them in each recipient's zone
+                // and append the GMT offset. Don't use toTimeString() here: it
+                // emits the SERVER local zone (Europe/Berlin on the VPS) which
+                // double-shifts the time when the template re-parses it.
+                const toIso = (dt) => new Date(dt).toISOString();
                 const toDateStr = (dt) => new Date(dt).toISOString().split('T')[0];
-                const toHM = (dt) => new Date(dt).toTimeString().slice(0, 5);
 
                 const statusChangedToCancelled = (status !== undefined ? status : schedule.status) === 'cancelled' && schedule.status !== 'cancelled';
 
@@ -428,10 +445,10 @@ router.put('/:id', [
                     if (oldDate !== newDate) {
                         changes.push({ label: 'Date', old: oldDate, new: newDate });
                     }
-                    changes.push({ label: 'Start Time', old: toHM(schedule.start_time), new: toHM(newStartTime) });
+                    changes.push({ label: 'Start Time', old: toIso(schedule.start_time), new: toIso(newStartTime) });
                 }
                 if (end_time !== undefined && end_time !== schedule.end_time) {
-                    changes.push({ label: 'End Time', old: toHM(schedule.end_time), new: toHM(newEndTime) });
+                    changes.push({ label: 'End Time', old: toIso(schedule.end_time), new: toIso(newEndTime) });
                 }
                 if (location_mode !== undefined && location_mode !== schedule.location_mode) {
                     const fmt = (m) => m ? (m.charAt(0).toUpperCase() + m.slice(1)) : '—';
@@ -464,8 +481,8 @@ router.put('/:id', [
                     `, [schedule.batch_id]);
 
                     const originalDate = toDateStr(schedule.start_time);
-                    const originalStartTime = toHM(schedule.start_time);
-                    const originalEndTime = toHM(schedule.end_time);
+                    const originalStartTime = toIso(schedule.start_time);
+                    const originalEndTime = toIso(schedule.end_time);
                     const teacherName = `${oldBatchTeacher?.teacher_first_name || ''} ${oldBatchTeacher?.teacher_last_name || ''}`.trim() || 'Your Teacher';
 
                     const cancelPromises = students.map(student => {
@@ -507,13 +524,35 @@ router.put('/:id', [
                         console.log(`📧 Found ${students.length} students to notify about update`);
                         console.log(`📧 Changes detected: ${changes.map(c => c.label).join(', ')}`);
 
-                        const date = toDateStr(updatedSchedule.start_time);
-                        const startTimeStr = toHM(updatedSchedule.start_time);
-                        const endTimeStr = toHM(updatedSchedule.end_time);
+                        const date = toIso(updatedSchedule.start_time);
+                        const startTimeStr = toIso(updatedSchedule.start_time);
+                        const endTimeStr = toIso(updatedSchedule.end_time);
                         const teacherName = `${updatedSchedule.teacher_first_name || ''} ${updatedSchedule.teacher_last_name || ''}`.trim() || 'Your Teacher';
+
+                        // Format the time-typed change values in the recipient's
+                        // own timezone — bare ISOs would not be human-readable
+                        // and "HH:mm" from server local would be wrong.
+                        const buildChangeLines = (recipientTz) => changes.map(c => {
+                            const isTime = c.label === 'Start Time' || c.label === 'End Time';
+                            const fmt = (v) => {
+                                if (!v) return '—';
+                                if (!isTime) return String(v);
+                                try {
+                                    return new Intl.DateTimeFormat('en-US', {
+                                        weekday: 'short', month: 'short', day: 'numeric',
+                                        hour: 'numeric', minute: '2-digit', hour12: true,
+                                        timeZone: recipientTz, timeZoneName: 'shortOffset',
+                                    }).format(new Date(v));
+                                } catch {
+                                    return String(v);
+                                }
+                            };
+                            return `${c.label}: ${fmt(c.old)} → ${fmt(c.new)}`;
+                        });
 
                         const updatePromises = students.map(student => {
                             console.log(`📧 Sending update to: ${student.email}`);
+                            const recipientTz = student.timezone || 'UTC';
                             return sendMeetingUpdate({
                                 to: student.email,
                                 studentName: student.first_name || student.last_name || 'Student',
@@ -527,8 +566,8 @@ router.put('/:id', [
                                 location: updatedSchedule.location,
                                 link: updatedSchedule.link,
                                 description: updatedSchedule.description,
-                                changes,
-                                recipientTimezone: student.timezone || 'UTC',
+                                changes: buildChangeLines(recipientTz),
+                                recipientTimezone: recipientTz,
                             }).catch(err => {
                                 console.error(`❌ Failed to send update to ${student.email}:`, err);
                                 return null;
@@ -606,8 +645,10 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
 
                 console.log(`📧 Found ${students.length} students to notify about deletion`);
 
-                const toDateStr = (dt) => new Date(dt).toISOString().split('T')[0];
-                const toHM = (dt) => new Date(dt).toTimeString().slice(0, 5);
+                // Pass ISO strings (UTC) — `formatRecipientTime` in the
+                // template will convert to the recipient's timezone with
+                // a `· GMT±N` suffix. Don't use toTimeString() (server local).
+                const toIso = (dt) => new Date(dt).toISOString();
 
                 const cancelPromises = students.map(student => {
                     console.log(`📧 Sending deletion notification to: ${student.email}`);
@@ -617,9 +658,9 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                         meetingTitle: detail.title,
                         teacherName: `${detail.teacher_first_name || ''} ${detail.teacher_last_name || ''}`.trim() || 'Your Teacher',
                         batchName: detail.batch_name,
-                        originalDate: toDateStr(detail.start_time),
-                        originalStartTime: toHM(detail.start_time),
-                        originalEndTime: toHM(detail.end_time),
+                        originalDate: toIso(detail.start_time),
+                        originalStartTime: toIso(detail.start_time),
+                        originalEndTime: toIso(detail.end_time),
                         locationMode: detail.location_mode,
                         location: detail.location,
                         link: detail.link,

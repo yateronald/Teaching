@@ -26,6 +26,9 @@ import QuizTaking, { type QuizTakingHandle } from '../Quiz/QuizTaking';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { formatLocal } from '../../utils/timezone';
+import KpiCard from '../Common/KpiCard';
+import PageHeader from '../Common/PageHeader';
+import useResponsive from '../../hooks/useResponsive';
 
 const { Text, Paragraph } = Typography;
 
@@ -69,19 +72,6 @@ const scoreColor = (pct: number) => {
 };
 const formatDuration = (m: number) => m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
 
-/* ── KPI Card ── */
-const KpiCard = ({ label, value, suffix = '', icon, accent }: { label: string; value: number; suffix?: string; icon: React.ReactNode; accent: string }) => (
-    <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', display: 'flex', alignItems: 'center', gap: 16 }}>
-        <div style={{ width: 46, height: 46, borderRadius: 13, background: accent + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: accent, flexShrink: 0 }}>{icon}</div>
-        <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}<span style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginLeft: 2 }}>{suffix}</span>
-            </div>
-        </div>
-    </div>
-);
-
 /* ── Status pill ── */
 const StatusPill = ({ color, text }: { color: string; text: string }) => {
     const cfg: Record<string, { bg: string; fg: string }> = {
@@ -109,6 +99,7 @@ type TabKey = typeof TABS[number];
    MAIN COMPONENT
 ══════════════════════════════════ */
 const StudentQuizzes: React.FC = () => {
+    const r = useResponsive();
     const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
     const [stats, setStats] = useState<QuizStats | null>(null);
@@ -481,21 +472,19 @@ const StudentQuizzes: React.FC = () => {
     const active = TAB_DATA[activeTab];
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
             {contextHolder}
 
             {/* ── Header ── */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 20, flexShrink: 0 }}>
-                <div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>My Quizzes</div>
-                    <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>
-                        {filteredQuizzes.length} quiz{filteredQuizzes.length !== 1 ? 'zes' : ''} · {activeQuizzes.length} active · {filteredAttempts.length} completed
-                    </div>
-                </div>
-            </div>
+            <PageHeader
+                title="My Quizzes"
+                subtitle={`${filteredQuizzes.length} quiz${filteredQuizzes.length !== 1 ? 'zes' : ''} · ${activeQuizzes.length} active · ${filteredAttempts.length} completed`}
+                icon={<FileTextOutlined />}
+                accent="#10b981"
+            />
 
             {/* ── Filters ── */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: '14px 20px', marginBottom: 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isCompact ? '12px 16px' : '14px 20px', marginBottom: r.isCompact ? 16 : 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
                 <RangePicker
                     value={dateRange}
                     onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
@@ -525,17 +514,17 @@ const StudentQuizzes: React.FC = () => {
             </div>
 
             {/* ── KPI Cards ── */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
-                <Col xs={24} sm={12} md={6}>
+            <Row gutter={r.isCompact ? [12, 12] : [16, 16]} style={{ marginBottom: r.isCompact ? 14 : 20, flexShrink: 0 }}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Total Quizzes"     value={stats?.total_quizzes ?? 0}    icon={<BookOutlined />}         accent="#6366f1" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Completed"          value={stats?.completed_quizzes ?? 0} icon={<CheckCircleOutlined />}  accent="#22c55e" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Average Score"      value={stats?.average_score ?? 0}     icon={<BarChartOutlined />}     accent="#6366f1" suffix="%" />
+                <Col xs={12} sm={12} md={6}>
+                    <KpiCard label="Average Score"      value={stats?.average_score ?? 0}     icon={<BarChartOutlined />}     accent="#10b981" suffix="%" />
                 </Col>
-                <Col xs={24} sm={12} md={6}>
+                <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Best Score"         value={stats?.best_score ?? 0}        icon={<TrophyOutlined />}       accent="#f59e0b" suffix="%" />
                 </Col>
             </Row>
@@ -578,10 +567,92 @@ const StudentQuizzes: React.FC = () => {
                 </div>
 
                 {/* Table body */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
+                <div style={{ flex: 1, overflow: 'hidden', padding: r.isMobile ? 12 : 0 }}>
                     {active.data.length === 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
                             <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>{active.empty}</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        </div>
+                    ) : r.isMobile ? (
+                        /* ── Mobile: card stack ── */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
+                            {activeTab === 'Results'
+                                ? (active.data as QuizAttempt[]).map((row) => (
+                                    <div key={row.id} style={{ background: '#fff', border: '1px solid #f0f0f8', borderRadius: 14, padding: 14 }}>
+                                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 8 }}>{row.quiz_title}</div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                                            <span style={{ fontSize: 12, color: '#64748b' }}>{row.correct_answers}/{row.total_questions} correct</span>
+                                            <StatusPill color={row.passed ? 'green' : 'red'} text={row.passed ? 'PASSED' : 'FAILED'} />
+                                        </div>
+                                        <Progress percent={row.score} size="small" strokeColor={scoreColor(row.score)} showInfo={false} strokeLinecap="round" />
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
+                                            <span>{formatDuration(row.time_taken)}</span>
+                                            <span>{fmtFull(row.completed_at)}</span>
+                                        </div>
+                                    </div>
+                                ))
+                                : (active.data as Quiz[]).map((row) => {
+                                    const status = getQuizStatus(row);
+                                    const isLocked = row.has_ended != null
+                                        ? !row.has_ended
+                                        : (row.end_date ? dayjs(row.end_date).isAfter(dayjs()) : false);
+                                    const sub = row.submission_status;
+                                    const pct = row.submission?.percentage ?? (row.submission?.total_score && row.submission?.max_score ? (row.submission.total_score / row.submission.max_score) * 100 : null);
+                                    return (
+                                        <div
+                                            key={row.id}
+                                            data-focus-id={row.id}
+                                            style={{ background: '#fff', border: '1px solid #f0f0f8', borderRadius: 14, padding: 14, boxShadow: '0 1px 3px rgba(15,23,42,0.04)' }}
+                                        >
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 4, lineHeight: 1.3 }}>{row.title}</div>
+                                                    {row.batch_names && (
+                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#eef2ff', borderRadius: 20, padding: '1.5px 7px', marginBottom: 4 }}>
+                                                            <BookOutlined style={{ fontSize: 9, color: '#6366f1' }} />
+                                                            <span style={{ fontSize: 10.5, color: '#6366f1', fontWeight: 600 }}>{row.batch_names}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <StatusPill color={status.color} text={status.text} />
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 11, color: '#64748b', marginBottom: 10 }}>
+                                                <span><BookOutlined style={{ marginRight: 4, color: '#6366f1' }} />{row.total_questions} Q</span>
+                                                <span><ClockCircleOutlined style={{ marginRight: 4, color: '#f59e0b' }} />{formatDuration(row.duration_minutes)}</span>
+                                                <span><TrophyOutlined style={{ marginRight: 4, color: '#22c55e' }} />{row.total_marks ?? '—'} pts</span>
+                                                <span style={{ width: '100%', color: '#94a3b8' }}>
+                                                    <CalendarOutlined style={{ marginRight: 4 }} />
+                                                    {fmtCompact(row.start_date)} → {fmtCompact(row.end_date)}
+                                                </span>
+                                            </div>
+                                            {isLocked ? (
+                                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: '#fffbeb', borderRadius: 20, padding: '3px 10px', fontSize: 11, color: '#b45309', fontWeight: 600 }}>
+                                                    <LockOutlined style={{ fontSize: 10 }} />
+                                                    Results unlock {fmtCompact(row.end_date)}
+                                                </div>
+                                            ) : pct != null && (
+                                                <div style={{ marginBottom: 10 }}>
+                                                    <Progress percent={Number(pct.toFixed(1))} size="small" strokeColor={scoreColor(Number(pct))} showInfo={false} strokeLinecap="round" />
+                                                    <div style={{ fontSize: 11, fontWeight: 700, color: scoreColor(Number(pct)), marginTop: 2 }}>
+                                                        {Number(pct).toFixed(1)}% · <span style={{ textTransform: 'capitalize', color: '#94a3b8', fontWeight: 500 }}>{sub ? sub.replace(/_/g, ' ') : 'not started'}</span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div style={{ display: 'flex', gap: 8 }}>
+                                                <Button size="middle" icon={<EyeOutlined />} onClick={() => { setSelectedQuiz(row); setDetailsVisible(true); }}
+                                                    style={{ borderRadius: 10, borderColor: '#e0e7ff', color: '#6366f1', background: '#f4f3ff', fontWeight: 600, flex: 1 }}>
+                                                    Details
+                                                </Button>
+                                                {canTakeQuiz(row) && (
+                                                    <Button size="middle" type="primary" icon={<PlayCircleOutlined />} onClick={() => { setSelectedQuizId(row.id); setQuizTakingVisible(true); }}
+                                                        style={{ borderRadius: 10, background: 'linear-gradient(135deg,#4f46e5,#6366f1)', border: 'none', fontWeight: 700, flex: 1 }}>
+                                                        {row.submission_status === 'in_progress' ? 'Resume' : 'Start'}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            }
                         </div>
                     ) : (
                         <Table
@@ -589,7 +660,8 @@ const StudentQuizzes: React.FC = () => {
                             dataSource={active.data as any}
                             rowKey="id"
                             loading={active.loading}
-                            scroll={{ y: 'calc(100vh - 370px)', x: 900 }}
+                            scroll={{ y: 'calc(100vh - 370px)', x: 'max-content' }}
+                            size={r.isCompact ? 'small' : 'middle'}
                             pagination={false}
                             rowClassName={() => 'quiz-table-row'}
                             onRow={(row: any) => ({
@@ -641,7 +713,8 @@ const StudentQuizzes: React.FC = () => {
                         )}
                     </div>
                 }
-                width={560}
+                width={r.isCompact ? '95vw' : 560}
+                styles={{ body: { maxHeight: '75vh', overflowY: 'auto' } }}
             >
                 {selectedQuiz && (
                     <div>
@@ -735,7 +808,8 @@ const StudentQuizzes: React.FC = () => {
                         <CloseOutlined />
                     </div>
                 }
-                footer={null} width={900} centered bodyStyle={{ padding: 0 }} destroyOnHidden
+                footer={null} width={r.isMobile ? '100vw' : (r.isCompact ? '95vw' : 900)} centered={!r.isMobile} styles={{ body: { padding: 0 } }} destroyOnHidden
+                className="quiz-taking-modal"
             >
                 {selectedQuizId && <QuizTaking ref={quizTakingRef} quizId={selectedQuizId.toString()} onComplete={handleQuizComplete} />}
             </Modal>
