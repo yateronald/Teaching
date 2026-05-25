@@ -41,6 +41,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import AIQuizGenerator from './AIQuizGenerator';
 import AudioQuestionModal from './AudioQuestionModal';
 import dayjs from 'dayjs';
+import { localPickerRangeToUtc, utcRangeToLocalPicker } from '../../utils/timezoneInput';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -339,7 +340,7 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                     instructions: normalized.instructions,
                     batch_ids: normalized.batch_ids,
                     duration_minutes: normalized.duration_minutes,
-                    quiz_dates: normalized.start_date && normalized.end_date ? [dayjs(normalized.start_date), dayjs(normalized.end_date)] : undefined,
+                    quiz_dates: utcRangeToLocalPicker(normalized.start_date, normalized.end_date, user?.timezone),
                     randomize_questions: normalized.randomize_questions,
                     randomize_options: normalized.randomize_options,
                     total_marks: normalized.total_marks
@@ -397,8 +398,14 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                 instructions: values.instructions || '',
                 batch_ids: values.batch_ids,
                 duration_minutes: values.duration_minutes,
-                start_date: values.quiz_dates?.[0]?.toISOString(),
-                end_date: values.quiz_dates?.[1]?.toISOString(),
+                // Re-anchor the picker's wall-clock value in the teacher's
+                // saved profile timezone before serializing to UTC. Without
+                // this, dayjs reads the picker as the BROWSER's local zone
+                // and we'd ship the wrong absolute moment to the server.
+                ...(() => {
+                    const { startUtc, endUtc } = localPickerRangeToUtc(values.quiz_dates, user?.timezone);
+                    return { start_date: startUtc, end_date: endUtc };
+                })(),
                 randomize_questions: values.randomize_questions || false,
                 randomize_options: values.randomize_options || false,
                 status: publishNow ? 'published' : 'draft',
@@ -1343,7 +1350,27 @@ const QuizBuilder: React.FC<QuizBuilderProps> = ({ quizId: propQuizId, onComplet
                                 <Col span={24}>
                                     <Form.Item
                                         name="quiz_dates"
-                                        label={<span>Quiz Schedule <Tooltip title="When students can access and complete the quiz"><InfoCircleOutlined /></Tooltip></span>}
+                                        label={
+                                            <span>
+                                                Quiz Schedule{' '}
+                                                <Tooltip title="When students can access and complete the quiz. Times are interpreted in YOUR timezone (set in Profile Settings) and shown to each student in THEIR own timezone.">
+                                                    <InfoCircleOutlined />
+                                                </Tooltip>
+                                                <span style={{
+                                                    marginLeft: 10, fontSize: 11, fontWeight: 700,
+                                                    color: '#4338ca', background: '#eef2ff',
+                                                    border: '1px solid #c7d2fe', borderRadius: 6,
+                                                    padding: '1px 8px', letterSpacing: 0.3,
+                                                }}>
+                                                    Your timezone: {user?.timezone || 'UTC'}
+                                                </span>
+                                            </span>
+                                        }
+                                        extra={
+                                            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                                                Pick the start/end as if you were sitting in {user?.timezone || 'UTC'}. We'll convert each student's view to their own timezone automatically.
+                                            </span>
+                                        }
                                     >
                                         <RangePicker
                                             showTime
