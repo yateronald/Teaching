@@ -28,36 +28,62 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
+// ─────────────────────────────────────────────────────────────────────────
+// CORS: allow both the apex domain and the www subdomain in production,
+// plus the usual local-dev origins. Extra origins can be added via the
+// ALLOWED_ORIGINS env var (comma-separated full origins).
+// ─────────────────────────────────────────────────────────────────────────
+const DEFAULT_ALLOWED_ORIGINS = [
+    'https://learnfrenchwithnatives.com',
+    'https://www.learnfrenchwithnatives.com',
+];
+const EXTRA_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+const ALLOWED_ORIGINS = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ORIGINS])];
+
+// Origin check that:
+//   - allows requests with no Origin header (curl, server-to-server, mobile webview)
+//   - matches the explicit allowlist
+//   - matches any *.learnfrenchwithnatives.com subdomain (future-proof)
+const PROD_HOST_REGEX = /^https:\/\/([a-z0-9-]+\.)*learnfrenchwithnatives\.com$/i;
+function isOriginAllowed(origin) {
+    if (!origin) return true;
+    if (ALLOWED_ORIGINS.includes(origin)) return true;
+    if (PROD_HOST_REGEX.test(origin)) return true;
+    return false;
+}
+
+const corsOriginFn = (origin, callback) => {
+    if (isOriginAllowed(origin)) return callback(null, true);
+    console.warn(`[CORS] blocked origin: ${origin}`);
+    return callback(new Error(`CORS blocked: ${origin}`));
+};
+
 // Setup Socket.IO with CORS
 const io = new Server(server, {
     cors: {
-        origin: [
-            'https://learnfrenchwithnatives.com',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:5175',
-            'http://localhost:5177',
-            'http://localhost:3000'
-        ],
+        origin: corsOriginFn,
         credentials: true,
-        methods: ['GET', 'POST', 'PUT', 'DELETE']
-    }
+        methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    },
 });
 
 // Middleware
 const corsOptions = {
-    origin: [
-        'https://learnfrenchwithnatives.com',
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://localhost:5175',
-        'http://localhost:5177',
-        'http://localhost:3000'
-    ],
+    origin: corsOriginFn,
     credentials: true,
-    optionsSuccessStatus: 200
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Range'],
+    exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
+    optionsSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
+// Explicitly handle OPTIONS preflight for every route — some hosts/proxies
+// drop the response unless the app answers it directly. Express 5 requires
+// a named splat pattern instead of the bare '*' used by Express 4.
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 

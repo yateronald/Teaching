@@ -77,7 +77,7 @@ class AttendanceService {
                 schedule.end_time
             ]);
 
-            // Try to get inserted session id for both SQLite and PostgreSQL
+            // Try to get inserted session id (Postgres returns it via RETURNING)
             let sessionId = result?.lastID || result?.insertId;
             if (!sessionId) {
                 const insertedRow = await this.db.get(`
