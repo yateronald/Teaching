@@ -11,7 +11,7 @@ const router = express.Router();
 // Multer config for CO audio/image uploads (temp storage, then uploaded to kDrive)
 const coUpload = multer({
   dest: os.tmpdir(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB max
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB per file
   fileFilter: (_req, file, cb) => {
     const audioExts = /mp3|wav|ogg|m4a|webm/;
     const imageExts = /jpg|jpeg|png|gif|webp/;

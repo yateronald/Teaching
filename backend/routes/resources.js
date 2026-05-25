@@ -12,7 +12,7 @@ const router = express.Router();
 // Use OS temp dir for multer (files are uploaded to kDrive then deleted)
 const upload = multer({
     dest: os.tmpdir(),
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
     fileFilter: (req, file, cb) => {
         const allowed = /jpeg|jpg|png|gif|mp4|avi|mov|webm|mp3|wav|ogg|m4a|pdf|doc|docx|ppt|pptx|xls|xlsx|txt|zip/;
         const ext = path.extname(file.originalname).toLowerCase().replace('.', '');

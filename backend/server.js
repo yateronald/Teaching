@@ -93,8 +93,8 @@ app.use(cors(corsOptions));
 // drop the response unless the app answers it directly. Express 5 requires
 // a named splat pattern instead of the bare '*' used by Express 4.
 app.options(/.*/, cors(corsOptions));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Static files for uploaded resources
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

@@ -11,7 +11,7 @@ const os = require('os');
 // Multer config for audio uploads (temp storage)
 const audioUpload = multer({
     dest: os.tmpdir(),
-    limits: { fileSize: 25 * 1024 * 1024 }, // 25MB max
+    limits: { fileSize: 200 * 1024 * 1024 }, // 200MB max
     fileFilter: (req, file, cb) => {
         const allowed = ['.mp3', '.wav', '.ogg', '.m4a', '.webm'];
         const ext = path.extname(file.originalname).toLowerCase();
