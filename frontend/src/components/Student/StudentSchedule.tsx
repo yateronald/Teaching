@@ -615,11 +615,11 @@ const StudentSchedule: React.FC = () => {
                 />
 
                 {/* Filters */}
-                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isCompact ? '12px 14px' : '14px 20px', marginBottom: r.isCompact ? 14 : 20, display: 'flex', gap: 10, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isMobile ? '10px 12px' : (r.isCompact ? '12px 14px' : '14px 20px'), marginBottom: r.isMobile ? 12 : (r.isCompact ? 14 : 20), display: 'flex', gap: r.isMobile ? 8 : 10, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
                     <RangePicker
                         value={dateRange}
                         onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                        style={{ borderRadius: 8 }}
+                        style={{ borderRadius: 8, flex: r.isMobile ? '1 1 100%' : undefined }}
                         allowClear
                     />
                     <Select
@@ -627,7 +627,7 @@ const StudentSchedule: React.FC = () => {
                         onChange={setBatchFilter}
                         allowClear
                         placeholder="All Batches"
-                        style={{ flex: '1 1 160px', minWidth: 140 }}
+                        style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
                         options={availableBatches}
                         showSearch
                         optionFilterProp="label"
@@ -637,7 +637,7 @@ const StudentSchedule: React.FC = () => {
                         onChange={setTeacherFilter}
                         allowClear
                         placeholder="All Teachers"
-                        style={{ flex: '1 1 160px', minWidth: 140 }}
+                        style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
                         options={availableTeachers}
                         showSearch
                         optionFilterProp="label"
@@ -654,16 +654,30 @@ const StudentSchedule: React.FC = () => {
                 )}
 
                 {nextClass && (
-                    <div style={{ marginBottom: 20, background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)', borderRadius: 16, padding: '20px 24px', color: '#fff', boxShadow: '0 4px 14px rgba(99,102,241,0.25)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                        <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.8)' }}>
+                    <div style={{
+                        marginBottom: r.isMobile ? 14 : 20,
+                        background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
+                        borderRadius: 16,
+                        padding: r.isMobile ? '14px 16px' : '20px 24px',
+                        color: '#fff',
+                        boxShadow: '0 4px 14px rgba(99,102,241,0.25)',
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: r.isMobile ? 'stretch' : 'center',
+                        justifyContent: 'space-between',
+                        gap: r.isMobile ? 12 : 16,
+                        flexWrap: 'wrap',
+                        flexDirection: r.isMobile ? 'column' : 'row',
+                    }}>
+                        <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: r.isMobile ? 6 : 10, fontSize: r.isMobile ? 10.5 : 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.8)' }}>
                                 <ClockCircleOutlined /> Next Class
                             </div>
-                            <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{nextClass.title}</div>
-                                    <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: '15px', display: 'block', marginBottom: 4 }}>
-                                        📅 {formatLocal(nextClass.start_iso, userTz, { weekday: 'long', month: 'long', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
+                            <div style={{ fontSize: r.isMobile ? 16 : 20, fontWeight: 700, marginBottom: r.isMobile ? 4 : 6, lineHeight: 1.25 }}>{nextClass.title}</div>
+                                    <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: r.isMobile ? '12.5px' : '15px', display: 'block', marginBottom: 4 }}>
+                                        📅 {formatLocal(nextClass.start_iso, userTz, { weekday: r.isMobile ? 'short' : 'long', month: r.isMobile ? 'short' : 'long', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
                                     </Text>
-                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>
+                            <div style={{ fontSize: r.isMobile ? 11.5 : 13, color: 'rgba(255,255,255,0.9)' }}>
                                         {nextClass.location_mode === 'online' ? (
                                             <><VideoCameraOutlined /> Online Meeting &nbsp;•&nbsp; <TeamOutlined /> {nextClass.teacher_name}</>
                                         ) : (
@@ -671,17 +685,17 @@ const StudentSchedule: React.FC = () => {
                                         )}
                             </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 10 }}>
+                        <div style={{ display: 'flex', gap: r.isMobile ? 8 : 10, flexWrap: 'wrap' }}>
                             {nextClass.type === 'class' && (
                                 <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
                                     <Button type="primary" icon={<LoginOutlined />} onClick={() => handleJoinClass(nextClass)}
                                         disabled={hasJoined(nextClass.id) || isScheduleEnded(nextClass)}
-                                        style={{ backgroundColor: hasJoined(nextClass.id) ? '#10b981' : '#fff', color: hasJoined(nextClass.id) ? '#fff' : '#6366f1', borderColor: 'transparent', fontWeight: 600, height: 38, borderRadius: 10 }}>
+                                        style={{ flex: r.isMobile ? 1 : undefined, backgroundColor: hasJoined(nextClass.id) ? '#10b981' : '#fff', color: hasJoined(nextClass.id) ? '#fff' : '#6366f1', borderColor: 'transparent', fontWeight: 600, height: r.isMobile ? 36 : 38, borderRadius: 10 }}>
                                         {hasJoined(nextClass.id) ? 'Attended' : 'Join Class'}
                                     </Button>
                                 </Tooltip>
                             )}
-                            <Button onClick={() => handleViewDetails(nextClass)} style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'transparent', color: '#fff', fontWeight: 600, height: 38, borderRadius: 10 }}>
+                            <Button onClick={() => handleViewDetails(nextClass)} style={{ flex: r.isMobile ? 1 : undefined, backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'transparent', color: '#fff', fontWeight: 600, height: r.isMobile ? 36 : 38, borderRadius: 10 }}>
                                 View Details
                             </Button>
                         </div>
@@ -689,30 +703,39 @@ const StudentSchedule: React.FC = () => {
                 )}
 
                 {/* Main Content Flex Area */}
-                <div style={{ display: 'flex', gap: 20, flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: r.isMobile ? 12 : 20, flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
                     {/* Calendar Section */}
-                    <div className="schedule-calendar-wrap" style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: '16px 20px', minWidth: 0 }}>
+                    <div className={`schedule-calendar-wrap${r.isMobile ? ' schedule-calendar-wrap--mobile' : ''}`} style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: r.isMobile ? '10px 8px 12px' : '16px 20px', minWidth: 0 }}>
                                 <FullCalendar
                                     plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
                                     initialView="dayGridMonth"
-                                    headerToolbar={{
+                                    headerToolbar={r.isMobile ? {
+                                        left: 'prev,next',
+                                        center: 'title',
+                                        right: 'today',
+                                    } : {
                                         left: 'prev,next today',
                                         center: 'title',
                                         right: 'dayGridMonth,timeGridWeek,timeGridDay'
                                     }}
+                                    titleFormat={r.isMobile ? { month: 'short', year: 'numeric' } : { month: 'long', year: 'numeric' }}
+                                    dayHeaderFormat={r.isMobile ? { weekday: 'narrow' } : { weekday: 'short' }}
                                     height="auto"
+                                    aspectRatio={r.isMobile ? 0.85 : 1.35}
                                     events={events}
                                     editable={false}
                                     selectable={false}
                                     selectMirror={false}
-                                    dayMaxEvents={true}
+                                    dayMaxEvents={r.isMobile ? 1 : true}
+                                    fixedWeekCount={false}
                                     eventClick={handleEventClick}
                                     eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true }}
+                                    eventDisplay={r.isMobile ? 'list-item' : 'auto'}
                                 />
                         </div>
                     
                     {/* Side Panel */}
-                    <div style={{ flex: '0 0 340px', maxWidth: '100%', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flexShrink: 0, minHeight: 0 }}>
+                    <div style={{ flex: r.isMobile ? '1 1 100%' : '0 0 340px', maxWidth: '100%', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flexShrink: 0, minHeight: 0 }}>
                         <Tabs 
                             defaultActiveKey="today" 
                             size="small"
@@ -1317,6 +1340,77 @@ const StudentSchedule: React.FC = () => {
                     border-radius: 8px;
                     font-weight: 600;
                     text-transform: capitalize;
+                }
+
+                /* ── Mobile (≤768px) — compact, tap-friendly calendar ── */
+                .schedule-calendar-wrap--mobile .fc .fc-toolbar.fc-header-toolbar {
+                    flex-wrap: wrap;
+                    gap: 6px;
+                    margin-bottom: 10px;
+                    align-items: center;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-toolbar-chunk {
+                    display: flex;
+                    align-items: center;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-toolbar-title {
+                    font-size: 15px;
+                    font-weight: 700;
+                    margin: 0;
+                    white-space: nowrap;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-button {
+                    padding: 4px 10px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    border-radius: 8px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-button-group .fc-button {
+                    padding: 4px 8px;
+                    min-width: 30px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-icon {
+                    font-size: 13px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-col-header-cell {
+                    padding: 6px 0;
+                    font-size: 10px;
+                    letter-spacing: 0.4px;
+                    color: #6366f1;
+                    background: #f8f7ff;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day-number {
+                    font-size: 12px;
+                    padding: 4px 6px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-day-today .fc-daygrid-day-number {
+                    width: 22px;
+                    height: 22px;
+                    font-size: 11px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day-frame {
+                    min-height: 44px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-event {
+                    font-size: 9.5px;
+                    padding: 1px 4px;
+                    margin-top: 1px;
+                    border-radius: 4px;
+                }
+                /* Make event dots more visible at small size */
+                .schedule-calendar-wrap--mobile .fc .fc-daygrid-event-dot {
+                    border-width: 4px;
+                    margin-right: 3px;
+                }
+                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day.fc-day-other .fc-daygrid-day-number {
+                    opacity: 0.35;
+                }
+                /* Hide "+N more" link's verbosity, just show count */
+                .schedule-calendar-wrap--mobile .fc .fc-daygrid-more-link {
+                    font-size: 9.5px;
+                    padding: 0 4px;
+                    color: #6366f1;
+                    font-weight: 700;
                 }
             `}</style>
         </div>

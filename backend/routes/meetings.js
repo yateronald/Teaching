@@ -383,6 +383,22 @@ router.put('/:id', async (req, res) => {
     }
 
     const { title, description, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants } = req.body;
+
+    // Build a list of human-readable changes for the email
+    const changes = [];
+    if (title !== undefined && title !== meeting.title) {
+      changes.push(`Title: ${meeting.title} → ${title}`);
+    }
+    if (description !== undefined && description !== meeting.description) {
+      changes.push('Description updated');
+    }
+    if (scheduled_start !== undefined && scheduled_start !== meeting.scheduled_start) {
+      changes.push('Start time updated');
+    }
+    if (scheduled_end !== undefined && scheduled_end !== meeting.scheduled_end) {
+      changes.push('End time updated');
+    }
+
     await req.db.run(
       `UPDATE meetings SET title = COALESCE($1, title), description = COALESCE($2, description),
        scheduled_start = COALESCE($3, scheduled_start), scheduled_end = COALESCE($4, scheduled_end),
@@ -391,6 +407,43 @@ router.put('/:id', async (req, res) => {
        WHERE id = $8`,
       [title, description, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants, req.params.id]
     );
+
+    // Send update email to batch students if anything substantive changed
+    if (meeting.batch_id && changes.length > 0) {
+      try {
+        const updated = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+        const students = await req.db.all(
+          `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
+           JOIN batch_students bs ON u.id = bs.student_id
+           WHERE bs.batch_id = $1 AND u.is_active = true`,
+          [meeting.batch_id]
+        );
+        const { sendMeetingUpdate } = require('../emails/emailService');
+        const batch = await req.db.get('SELECT name FROM batches WHERE id = $1', [meeting.batch_id]);
+        const frontendBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
+        const teacherFullName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Your teacher';
+        for (const student of students) {
+          sendMeetingUpdate({
+            to: student.email,
+            studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student',
+            meetingTitle: updated.title,
+            teacherName: teacherFullName,
+            batchName: batch?.name || null,
+            // Use ISO timestamps so the template can format in recipient's tz
+            date: updated.scheduled_start || null,
+            startTime: updated.scheduled_start || null,
+            endTime: updated.scheduled_end || null,
+            locationMode: 'online',
+            link: `${frontendBase}/app/meetings?focus=${updated.id}`,
+            description: updated.description || null,
+            changes,
+            recipientTimezone: student.timezone || 'UTC',
+          }).catch(err => console.error('Meeting update email error:', err));
+        }
+      } catch (emailErr) {
+        console.error('Meeting update email batch error:', emailErr);
+      }
+    }
 
     res.json({ message: 'Meeting updated' });
   } catch (error) {
@@ -407,7 +460,52 @@ router.delete('/:id', async (req, res) => {
     if (meeting.teacher_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Not authorized' });
     }
+
+    // Capture batch students before delete so we can email them
+    let students = [];
+    let batch = null;
+    if (meeting.batch_id) {
+      try {
+        students = await req.db.all(
+          `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
+           JOIN batch_students bs ON u.id = bs.student_id
+           WHERE bs.batch_id = $1 AND u.is_active = true`,
+          [meeting.batch_id]
+        );
+        batch = await req.db.get('SELECT name FROM batches WHERE id = $1', [meeting.batch_id]);
+      } catch (e) {
+        console.error('Failed to fetch batch students for cancellation:', e.message);
+      }
+    }
+
     await req.db.run('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+
+    // Send cancellation email to batch students (only for scheduled or upcoming meetings)
+    if (students.length > 0 && (meeting.status === 'scheduled' || meeting.status === 'waiting')) {
+      try {
+        const { sendMeetingCancellation } = require('../emails/emailService');
+        const teacherFullName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Your teacher';
+        for (const student of students) {
+          sendMeetingCancellation({
+            to: student.email,
+            studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student',
+            meetingTitle: meeting.title,
+            teacherName: teacherFullName,
+            batchName: batch?.name || null,
+            originalDate: meeting.scheduled_start || null,
+            originalStartTime: meeting.scheduled_start || null,
+            originalEndTime: meeting.scheduled_end || null,
+            locationMode: 'online',
+            link: null,
+            reason: 'The class has been cancelled by your teacher.',
+            recipientTimezone: student.timezone || 'UTC',
+          }).catch(err => console.error('Meeting cancel email error:', err));
+        }
+      } catch (emailErr) {
+        console.error('Meeting cancellation email batch error:', emailErr);
+      }
+    }
+
     res.json({ message: 'Meeting deleted' });
   } catch (error) {
     console.error('DELETE /meetings/:id error:', error);

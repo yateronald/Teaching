@@ -147,16 +147,55 @@ app.get('/api/health', (req, res) => {
 });
 
 // Error handling middleware
+//
+// Critical: when a downstream middleware (multer, express.json size limit,
+// route handler throw, etc.) errors out, this handler fires. We must
+// explicitly re-apply the Access-Control-Allow-* headers here, because
+// the browser will reject the error response otherwise — masking the real
+// problem behind a misleading "blocked by CORS" message.
 app.use((err, req, res, next) => {
-    console.error(err.stack);
-    res.status(500).json({ 
-        error: 'Something went wrong!', 
+    console.error(err.stack || err.message || err);
+
+    // Re-apply CORS headers on error responses so the browser surfaces
+    // the actual status/message instead of a generic CORS failure.
+    const origin = req.headers.origin;
+    if (origin && isOriginAllowed(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Vary', 'Origin');
+    }
+
+    // Multer file-filter / size errors → 400 with a clear message
+    if (err && (err.name === 'MulterError' || /File type not allowed/i.test(err.message || ''))) {
+        return res.status(400).json({
+            error: 'Upload rejected',
+            message: err.message,
+            code: err.code || 'UPLOAD_ERROR',
+        });
+    }
+    // Body-parser payload too large → 413
+    if (err && err.type === 'entity.too.large') {
+        return res.status(413).json({
+            error: 'Payload too large',
+            message: 'The request body exceeds the size limit. Try a smaller file.',
+        });
+    }
+
+    res.status(err.status || 500).json({
+        error: 'Something went wrong!',
         message: process.env.NODE_ENV === 'development' ? err.message : 'Internal server error'
     });
 });
 
-// 404 handler
+// 404 handler — also must re-apply CORS so the frontend can read the 404
+// instead of getting a confusing CORS error.
 app.use((req, res) => {
+    const origin = req.headers.origin;
+    if (origin && isOriginAllowed(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Vary', 'Origin');
+    }
     res.status(404).json({ error: 'Route not found' });
 });
 

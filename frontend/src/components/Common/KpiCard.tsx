@@ -36,19 +36,22 @@ const KpiCard: React.FC<KpiCardProps> = ({
 }) => {
     const r = useResponsive();
     const density = densityProp ?? (r.isDesktop ? 'comfortable' : r.isSmallDesktop ? 'cozy' : 'compact');
+    const isMobile = r.isMobile;
 
-    const tile = density === 'comfortable' ? 46 : density === 'cozy' ? 42 : 38;
-    const radius = density === 'comfortable' ? 13 : 11;
-    const valueSize = density === 'comfortable' ? 26 : density === 'cozy' ? 23 : 21;
-    const labelSize = density === 'comfortable' ? 11 : 10.5;
-    const padding = density === 'comfortable' ? '18px 22px' : density === 'cozy' ? '15px 18px' : '12px 14px';
-    const gap = density === 'comfortable' ? 16 : 12;
+    const tile = isMobile ? 32 : density === 'comfortable' ? 46 : density === 'cozy' ? 42 : 38;
+    const radius = isMobile ? 9 : density === 'comfortable' ? 13 : 11;
+    const valueSize = isMobile ? 18 : density === 'comfortable' ? 26 : density === 'cozy' ? 23 : 21;
+    const labelSize = isMobile ? 10 : density === 'comfortable' ? 11 : 10.5;
+    const padding = isMobile ? '10px 12px' : density === 'comfortable' ? '18px 22px' : density === 'cozy' ? '15px 18px' : '12px 14px';
+    const gap = isMobile ? 10 : density === 'comfortable' ? 16 : 12;
+    const iconFontSize = isMobile ? 15 : density === 'comfortable' ? 20 : 18;
+    const cardRadius = isMobile ? 12 : 14;
 
     return (
         <div
             onClick={onClick}
             style={{
-                borderRadius: 14,
+                borderRadius: cardRadius,
                 padding,
                 background: '#fff',
                 border: '1px solid #f0f0f8',
@@ -78,7 +81,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
                 width: tile, height: tile, borderRadius: radius,
                 background: accent + '18',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: density === 'comfortable' ? 20 : 18,
+                fontSize: iconFontSize,
                 color: accent,
                 flexShrink: 0,
             }}>{icon}</div>
@@ -86,7 +89,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
                 <div style={{
                     fontSize: labelSize, fontWeight: 700, color: '#94a3b8',
                     textTransform: 'uppercase', letterSpacing: 0.6,
-                    marginBottom: 3,
+                    marginBottom: isMobile ? 2 : 3,
                     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>{label}</div>
                 <div style={{
@@ -95,13 +98,13 @@ const KpiCard: React.FC<KpiCardProps> = ({
                 }}>
                     {value}
                     {suffix && (
-                        <span style={{ fontSize: density === 'comfortable' ? 13 : 12, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>
+                        <span style={{ fontSize: isMobile ? 11 : density === 'comfortable' ? 13 : 12, fontWeight: 600, color: '#94a3b8', marginLeft: 3 }}>
                             {suffix}
                         </span>
                     )}
                 </div>
                 {sub && (
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>{sub}</div>
+                    <div style={{ fontSize: isMobile ? 10 : 11, color: '#94a3b8', marginTop: isMobile ? 2 : 3 }}>{sub}</div>
                 )}
             </div>
             {onClick && <RightOutlined style={{ marginLeft: 'auto', color: '#c7d2fe', fontSize: 11, flexShrink: 0 }} />}

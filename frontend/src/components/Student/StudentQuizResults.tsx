@@ -369,7 +369,14 @@ const StudentQuizResults: React.FC = () => {
 
     /* ── Render ── */
     return (
-        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="student-portal" style={{
+            display: 'flex',
+            flexDirection: 'column',
+            /* On mobile, let the page flow with content height instead of
+               forcing 100% — the inner table card was clipping rows. */
+            height: responsive.isMobile ? 'auto' : '100%',
+            minHeight: responsive.isMobile ? 'auto' : '100%',
+        }}>
 
             {/* Header */}
             <PageHeader
@@ -380,11 +387,21 @@ const StudentQuizResults: React.FC = () => {
             />
 
             {/* Filters */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: responsive.isCompact ? '12px 16px' : '14px 20px', marginBottom: responsive.isCompact ? 16 : 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+            <div style={{
+                background: '#fff',
+                borderRadius: 16,
+                border: '1px solid #f0f0f8',
+                padding: responsive.isMobile ? '12px 14px' : responsive.isCompact ? '12px 16px' : '14px 20px',
+                marginBottom: responsive.isCompact ? 14 : 20,
+                display: 'flex',
+                gap: responsive.isMobile ? 8 : 12,
+                flexWrap: 'wrap',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
+            }}>
                 <RangePicker
                     value={dateRange}
                     onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                    style={{ borderRadius: 8 }}
+                    style={{ borderRadius: 8, flex: responsive.isMobile ? '1 1 100%' : undefined }}
                     allowClear
                 />
                 <Select
@@ -392,7 +409,7 @@ const StudentQuizResults: React.FC = () => {
                     onChange={setBatchFilter}
                     allowClear
                     placeholder="All Batches"
-                    style={{ width: 220 }}
+                    style={{ width: responsive.isMobile ? '100%' : 220 }}
                     options={availableBatches}
                     showSearch
                     optionFilterProp="label"
@@ -402,7 +419,7 @@ const StudentQuizResults: React.FC = () => {
                     onChange={setTeacherFilter}
                     allowClear
                     placeholder="All Teachers"
-                    style={{ width: 220 }}
+                    style={{ width: responsive.isMobile ? 'calc(50% - 4px)' : 220 }}
                     options={availableTeachers}
                     showSearch
                     optionFilterProp="label"
@@ -412,7 +429,7 @@ const StudentQuizResults: React.FC = () => {
                     onChange={setGradeFilter}
                     allowClear
                     placeholder="All Grades"
-                    style={{ width: 140 }}
+                    style={{ width: responsive.isMobile ? 'calc(50% - 4px)' : 140 }}
                     options={availableGrades}
                 />
             </div>
@@ -434,10 +451,20 @@ const StudentQuizResults: React.FC = () => {
             </Row>
 
             {/* Table card */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{
+                background: '#fff',
+                borderRadius: 16,
+                border: '1px solid #f0f0f8',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
+                flex: responsive.isMobile ? 'none' : 1,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+            }}>
 
                 {/* Table header bar */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: responsive.isMobile ? '12px 14px' : '14px 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 32, height: 32, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 15 }}>
                             <BarChartOutlined />
@@ -449,11 +476,122 @@ const StudentQuizResults: React.FC = () => {
                     </span>
                 </div>
 
-                {/* Table body — only rows scroll */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
+                {/* Table body — desktop table, mobile card stack */}
+                <div style={{
+                    flex: responsive.isMobile ? 'none' : 1,
+                    overflow: responsive.isMobile ? 'visible' : 'hidden',
+                    padding: responsive.isMobile ? 12 : 0,
+                }}>
                     {filteredResults.length === 0 ? (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220, padding: '40px 20px' }}>
                             <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet. Complete some quizzes first!</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        </div>
+                    ) : responsive.isMobile ? (
+                        /* ── Mobile: card stack ── */
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {filteredResults.map((r) => {
+                                const pct = Number(r.percentage || 0);
+                                const isLocked = !!r.results_locked;
+                                return (
+                                    <div
+                                        key={r.id}
+                                        data-focus-id={r.id}
+                                        style={{
+                                            background: '#fff',
+                                            border: '1px solid #f0f0f8',
+                                            borderRadius: 14,
+                                            padding: 14,
+                                            boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
+                                        }}
+                                    >
+                                        {/* Title + batch */}
+                                        <div style={{ marginBottom: 10 }}>
+                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 4, lineHeight: 1.3 }}>
+                                                {r.quiz_title}
+                                            </div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                <span style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                    padding: '2px 9px', borderRadius: 999,
+                                                    background: '#eef2ff', color: '#6366f1',
+                                                    fontSize: 10.5, fontWeight: 700,
+                                                }}>
+                                                    <FileTextOutlined style={{ fontSize: 9 }} />
+                                                    {r.batch_name}
+                                                </span>
+                                                {isLocked && (
+                                                    <span style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                        padding: '2px 9px', borderRadius: 999,
+                                                        background: '#fffbeb', color: '#b45309',
+                                                        fontSize: 10.5, fontWeight: 700,
+                                                    }}>
+                                                        <LockOutlined style={{ fontSize: 9 }} />
+                                                        Locked until {fmtCompact(r.end_date)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {isLocked ? (
+                                            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginBottom: 10 }}>
+                                                Score will appear after the quiz closes.
+                                            </div>
+                                        ) : (
+                                            <>
+                                                {/* Score row */}
+                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                                                    <div>
+                                                        <span style={{ fontSize: 22, fontWeight: 800, color: scoreColor(pct), lineHeight: 1 }}>
+                                                            {pct.toFixed(1)}%
+                                                        </span>
+                                                        <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
+                                                            {Number(r.score || 0).toFixed(1)}/{Number(r.max_score || 0).toFixed(1)} pts
+                                                        </span>
+                                                    </div>
+                                                    <Pill color={pct >= 50 ? 'green' : 'red'} text={gradeText(pct)} />
+                                                </div>
+                                                <Progress percent={pct} size="small" strokeColor={scoreColor(pct)} showInfo={false} strokeLinecap="round" />
+                                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, marginBottom: 10 }}>
+                                                    {Number(r.correct_answers || 0)}/{Number(r.total_questions || 0)} correct
+                                                </div>
+                                            </>
+                                        )}
+
+                                        {/* Meta + action */}
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 11, color: '#64748b', flex: 1 }}>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                    <ClockCircleOutlined style={{ color: '#6366f1' }} />
+                                                    {fmtTime(r.time_taken)}
+                                                </span>
+                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                                    <CalendarOutlined style={{ color: '#94a3b8' }} />
+                                                    {fmtDay(r.submitted_at)} · {fmtTimeOnly(r.submitted_at)}
+                                                </span>
+                                            </div>
+                                            <Button
+                                                size="middle"
+                                                icon={<EyeOutlined />}
+                                                loading={loadingQuizId === r.quiz_id}
+                                                disabled={isLocked}
+                                                onClick={() => !isLocked && fetchDetailedResult(r.quiz_id)}
+                                                style={{
+                                                    borderRadius: 10,
+                                                    borderColor: '#e0e7ff',
+                                                    color: '#6366f1',
+                                                    background: '#f4f3ff',
+                                                    fontWeight: 700,
+                                                    height: 36,
+                                                    paddingInline: 14,
+                                                }}
+                                            >
+                                                Details
+                                            </Button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     ) : (
                         <Table
@@ -479,9 +617,10 @@ const StudentQuizResults: React.FC = () => {
                 open={detailModalVisible}
                 onCancel={() => { setDetailModalVisible(false); setSelectedResult(null); Object.values(audioUrls).forEach(u => URL.revokeObjectURL(u)); setAudioUrls({}); }}
                 footer={null}
-                width={960}
-                centered
+                width={responsive.isMobile ? '100vw' : (responsive.isCompact ? '95vw' : 960)}
+                centered={!responsive.isMobile}
                 closable={true}
+                destroyOnHidden
                 closeIcon={
                     <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', transition: 'all 0.2s', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
                         onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.1)'; }}
@@ -489,56 +628,115 @@ const StudentQuizResults: React.FC = () => {
                     >✕</div>
                 }
                 wrapClassName="result-detail-modal"
-                styles={{ body: { padding: 0, height: '82vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-                style={{ top: 20 }}
+                styles={{
+                    mask: { backdropFilter: 'blur(6px)', background: 'rgba(2, 6, 23, 0.6)' },
+                    content: {
+                        padding: 0,
+                        borderRadius: responsive.isMobile ? 0 : 16,
+                        overflow: 'hidden',
+                    },
+                    body: {
+                        padding: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        overflow: 'hidden',
+                        height: responsive.isMobile ? '100dvh' : 'min(86vh, 760px)',
+                    },
+                }}
             >
                 {selectedResult && (
                     <>
                         {/* ═══ FIXED HEADER SECTION ═══ */}
                         <div style={{ flexShrink: 0 }}>
                             {/* Gradient banner */}
-                            <div style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)', padding: '22px 52px 22px 28px', color: '#fff' }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 18 }}>
-                                    <div>
-                                        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 4 }}>{selectedResult.quiz.title}</div>
-                                        <div style={{ fontSize: 12, opacity: 0.8 }}>
-                                            <CalendarOutlined style={{ marginRight: 6 }} />
-                                            Submitted {fmtFull(selectedResult.submission.submitted_at)}
-                                            {selectedResult.quiz.description && <span style={{ marginLeft: 12, opacity: 0.7 }}>· {selectedResult.quiz.description.length > 60 ? selectedResult.quiz.description.slice(0, 60) + '…' : selectedResult.quiz.description}</span>}
+                            <div style={{
+                                background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
+                                padding: responsive.isMobile ? '12px 44px 12px 16px' : '22px 52px 22px 28px',
+                                color: '#fff',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: responsive.isMobile ? 10 : 18, gap: 10 }}>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: responsive.isMobile ? 15 : 20, fontWeight: 800, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word' }}>{selectedResult.quiz.title}</div>
+                                        <div style={{ fontSize: responsive.isMobile ? 10.5 : 11, opacity: 0.85 }}>
+                                            <CalendarOutlined style={{ marginRight: 5 }} />
+                                            {fmtFull(selectedResult.submission.submitted_at)}
+                                            {!responsive.isMobile && selectedResult.quiz.description && <span style={{ marginLeft: 12, opacity: 0.7 }}>· {selectedResult.quiz.description.length > 60 ? selectedResult.quiz.description.slice(0, 60) + '…' : selectedResult.quiz.description}</span>}
                                         </div>
                                     </div>
-                                    {/* Large grade badge */}
-                                    <div style={{ textAlign: 'center', minWidth: 70 }}>
-                                        <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 900, margin: '0 auto' }}>
+                                    {/* Grade badge — smaller on mobile */}
+                                    <div style={{ textAlign: 'center', flexShrink: 0 }}>
+                                        <div style={{
+                                            width: responsive.isMobile ? 38 : 56,
+                                            height: responsive.isMobile ? 38 : 56,
+                                            borderRadius: responsive.isMobile ? 10 : 16,
+                                            background: 'rgba(255,255,255,0.2)',
+                                            backdropFilter: 'blur(8px)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: responsive.isMobile ? 16 : 24,
+                                            fontWeight: 900,
+                                            margin: '0 auto',
+                                        }}>
                                             {gradeText(selectedResult.submission.percentage)}
                                         </div>
-                                        <div style={{ fontSize: 10, fontWeight: 600, marginTop: 4, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 0.6 }}>Grade</div>
+                                        {!responsive.isMobile && (
+                                            <div style={{ fontSize: 9, fontWeight: 600, marginTop: 4, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 0.6 }}>Grade</div>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Score KPIs row */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                                    {[
-                                        { icon: <TrophyOutlined />, label: 'Score', value: `${selectedResult.submission.percentage.toFixed(1)}%` },
-                                        { icon: <CheckCircleOutlined />, label: 'Points', value: `${Number(selectedResult.submission.score).toFixed(2)} / ${Number(selectedResult.submission.max_score).toFixed(2)}` },
-                                        { icon: <ClockCircleOutlined />, label: 'Time Taken', value: fmtTime(selectedResult.submission.time_taken) },
-                                        { icon: <FileTextOutlined />, label: 'Questions', value: `${selectedResult.questions.length}` },
-                                    ].map(item => (
-                                        <div key={item.label} style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(6px)', borderRadius: 12, padding: '10px 14px', textAlign: 'center' }}>
-                                            <div style={{ fontSize: 16, opacity: 0.8, marginBottom: 3 }}>{item.icon}</div>
-                                            <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{item.label}</div>
-                                            <div style={{ fontSize: 16, fontWeight: 800 }}>{item.value}</div>
-                                        </div>
-                                    ))}
-                                </div>
+                                {/* Score KPIs — mobile: compact inline row, desktop: 4-card grid */}
+                                {responsive.isMobile ? (
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 6,
+                                        background: 'rgba(255,255,255,0.12)',
+                                        backdropFilter: 'blur(6px)',
+                                        borderRadius: 10,
+                                        padding: '8px 10px',
+                                    }}>
+                                        {[
+                                            { label: 'Score',     value: `${selectedResult.submission.percentage.toFixed(1)}%` },
+                                            { label: 'Points',    value: `${Number(selectedResult.submission.score).toFixed(1)}/${Number(selectedResult.submission.max_score).toFixed(1)}` },
+                                            { label: 'Time',      value: fmtTime(selectedResult.submission.time_taken) },
+                                            { label: 'Questions', value: `${selectedResult.questions.length}` },
+                                        ].map((item, i, arr) => (
+                                            <React.Fragment key={item.label}>
+                                                <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+                                                    <div style={{ fontSize: 8.5, fontWeight: 700, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 1 }}>{item.label}</div>
+                                                    <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
+                                                </div>
+                                                {i < arr.length - 1 && <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />}
+                                            </React.Fragment>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+                                        {[
+                                            { icon: <TrophyOutlined />, label: 'Score', value: `${selectedResult.submission.percentage.toFixed(1)}%` },
+                                            { icon: <CheckCircleOutlined />, label: 'Points', value: `${Number(selectedResult.submission.score).toFixed(2)} / ${Number(selectedResult.submission.max_score).toFixed(2)}` },
+                                            { icon: <ClockCircleOutlined />, label: 'Time Taken', value: fmtTime(selectedResult.submission.time_taken) },
+                                            { icon: <FileTextOutlined />, label: 'Questions', value: `${selectedResult.questions.length}` },
+                                        ].map(item => (
+                                            <div key={item.label} style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(6px)', borderRadius: 12, padding: '10px 14px', textAlign: 'center' }}>
+                                                <div style={{ fontSize: 16, opacity: 0.8, marginBottom: 3 }}>{item.icon}</div>
+                                                <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{item.label}</div>
+                                                <div style={{ fontSize: 16, fontWeight: 800 }}>{item.value}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             {/* Overall performance bar */}
-                            <div style={{ padding: '14px 28px', background: '#f8f7ff', borderBottom: '1px solid #f0f0f8' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overall Performance</span>
+                            <div style={{ padding: responsive.isMobile ? '8px 16px 10px' : '14px 28px', background: '#f8f7ff', borderBottom: '1px solid #f0f0f8' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: responsive.isMobile ? 4 : 6 }}>
+                                    <span style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overall Performance</span>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: 14, fontWeight: 800, color: scoreColor(selectedResult.submission.percentage) }}>{selectedResult.submission.percentage.toFixed(1)}%</span>
+                                        <span style={{ fontSize: responsive.isMobile ? 13 : 14, fontWeight: 800, color: scoreColor(selectedResult.submission.percentage) }}>{selectedResult.submission.percentage.toFixed(1)}%</span>
                                         {(() => {
                                             const correct = selectedResult.questions.filter(q => {
                                                 const s = Number(q.score || 0), p = Number(q.points || 0);
@@ -548,15 +746,15 @@ const StudentQuizResults: React.FC = () => {
                                         })()}
                                     </div>
                                 </div>
-                                <Progress percent={selectedResult.submission.percentage} strokeColor={scoreColor(selectedResult.submission.percentage)} showInfo={false} strokeLinecap="round" trailColor="#e0e7ff" size={{ height: 10 }} />
+                                <Progress percent={selectedResult.submission.percentage} strokeColor={scoreColor(selectedResult.submission.percentage)} showInfo={false} strokeLinecap="round" trailColor="#e0e7ff" size={{ height: responsive.isMobile ? 7 : 10 }} />
                             </div>
 
                             {/* Teacher feedback (still fixed) */}
                             {selectedResult.submission.teacher_feedback && (
-                                <div style={{ padding: '0 28px', paddingTop: 12 }}>
+                                <div style={{ padding: responsive.isMobile ? '10px 16px 0' : '0 28px', paddingTop: responsive.isMobile ? 10 : 12 }}>
                                     <Alert
-                                        message={<span style={{ fontWeight: 700, color: '#1a1d2e' }}>Teacher Feedback</span>}
-                                        description={selectedResult.submission.teacher_feedback}
+                                        message={<span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: responsive.isMobile ? 12 : 14 }}>Teacher Feedback</span>}
+                                        description={<span style={{ fontSize: responsive.isMobile ? 12 : 14 }}>{selectedResult.submission.teacher_feedback}</span>}
                                         type="info"
                                         showIcon
                                         style={{ borderRadius: 12, border: '1px solid #c7d2fe' }}
@@ -565,12 +763,12 @@ const StudentQuizResults: React.FC = () => {
                             )}
 
                             {/* Question section header (fixed) */}
-                            <div style={{ padding: '14px 28px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ padding: responsive.isMobile ? '10px 16px 0' : '14px 28px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: 30, height: 30, borderRadius: 9, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 14 }}>
+                                    <div style={{ width: responsive.isMobile ? 26 : 30, height: responsive.isMobile ? 26 : 30, borderRadius: 9, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: responsive.isMobile ? 12 : 14 }}>
                                         <FileTextOutlined />
                                     </div>
-                                    <span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 14 }}>Question-wise Review</span>
+                                    <span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: responsive.isMobile ? 13 : 14 }}>Question-wise Review</span>
                                 </div>
                                 <span style={{ fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#6366f1', borderRadius: 20, padding: '3px 12px' }}>
                                     {selectedResult.questions.length} questions
@@ -579,7 +777,7 @@ const StudentQuizResults: React.FC = () => {
                         </div>
 
                         {/* ═══ SCROLLABLE QUESTION SECTION ═══ */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 28px 24px', minHeight: 0 }} onContextMenu={e => e.preventDefault()} onCopy={e => e.preventDefault()}>
+                        <div style={{ flex: 1, overflowY: 'auto', padding: responsive.isMobile ? '8px 14px 16px' : '12px 28px 24px', minHeight: 0 }} onContextMenu={e => e.preventDefault()} onCopy={e => e.preventDefault()}>
                             {(() => {
                                 const questions = selectedResult.questions;
                                 const audioClips: AudioClipInfo[] = selectedResult.audio_clips || [];
@@ -608,22 +806,41 @@ const StudentQuizResults: React.FC = () => {
                                             key={`q-${q.id}`}
                                             header={
                                                 <div style={{ width: '100%' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                                        <div style={{ flex: 1, fontSize: 13, color: '#1a1d2e', lineHeight: 1.5 }}>
-                                                            <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 6, fontSize: 14 }}>Q{idx}.</span>
-                                                            {q.question_text}
+                                                    {responsive.isMobile ? (
+                                                        // Mobile: pills on a row above question text — keeps the question
+                                                        // line full-width and the pills stay tap-friendly.
+                                                        <>
+                                                            <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
+                                                                <span style={{ fontSize: 10, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 999, padding: '2px 8px' }}>
+                                                                    {st.correct ? '✓ ' : '✗ '}{st.text}
+                                                                </span>
+                                                                <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 999, padding: '2px 8px' }}>
+                                                                    {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ fontSize: 12.5, color: '#1a1d2e', lineHeight: 1.45 }}>
+                                                                <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 5, fontSize: 13 }}>Q{idx}.</span>
+                                                                {q.question_text}
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                            <div style={{ flex: 1, fontSize: 13, color: '#1a1d2e', lineHeight: 1.5 }}>
+                                                                <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 6, fontSize: 14 }}>Q{idx}.</span>
+                                                                {q.question_text}
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+                                                                <span style={{ fontSize: 11, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 20, padding: '3px 10px' }}>
+                                                                    {st.correct ? '✓ ' : '✗ '}{st.text}
+                                                                </span>
+                                                                <span style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 20, padding: '3px 10px' }}>
+                                                                    {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
+                                                                </span>
+                                                            </div>
                                                         </div>
-                                                        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-                                                            <span style={{ fontSize: 11, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 20, padding: '3px 10px' }}>
-                                                                {st.correct ? '✓ ' : '✗ '}{st.text}
-                                                            </span>
-                                                            <span style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 20, padding: '3px 10px' }}>
-                                                                {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                                    )}
                                                     {/* Mini progress for each question */}
-                                                    <div style={{ marginTop: 6 }}>
+                                                    <div style={{ marginTop: responsive.isMobile ? 5 : 6 }}>
                                                         <Progress percent={scorePct} size={{ height: 4 }} strokeColor={st.correct ? '#22c55e' : scorePct > 0 ? '#f59e0b' : '#ef4444'} showInfo={false} strokeLinecap="round" trailColor="#f1f5f9" />
                                                     </div>
                                                 </div>
@@ -636,12 +853,12 @@ const StudentQuizResults: React.FC = () => {
                                                     const selOpts = q.options.filter(o => selIds.includes(o.id));
                                                     return (
                                                         <div>
-                                                            <div style={{ marginBottom: 10 }}>
-                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Your Answer</div>
+                                                            <div style={{ marginBottom: responsive.isMobile ? 8 : 10 }}>
+                                                                <div style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: responsive.isMobile ? 4 : 6 }}>Your Answer</div>
                                                                 {selOpts.length > 0 ? (
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: responsive.isMobile ? 4 : 6 }}>
                                                                         {selOpts.map(o => (
-                                                                            <span key={o.id} style={{ fontSize: 12, fontWeight: 600, color: o.is_correct ? '#15803d' : '#ef4444', background: o.is_correct ? '#dcfce7' : '#fff1f2', borderRadius: 8, padding: '5px 12px', border: `1px solid ${o.is_correct ? '#bbf7d0' : '#fecdd3'}` }}>
+                                                                            <span key={o.id} style={{ fontSize: responsive.isMobile ? 11.5 : 12, fontWeight: 600, color: o.is_correct ? '#15803d' : '#ef4444', background: o.is_correct ? '#dcfce7' : '#fff1f2', borderRadius: 8, padding: responsive.isMobile ? '4px 10px' : '5px 12px', border: `1px solid ${o.is_correct ? '#bbf7d0' : '#fecdd3'}` }}>
                                                                                 {o.is_correct ? '✓ ' : '✗ '}{o.option_text}
                                                                             </span>
                                                                         ))}
@@ -650,10 +867,10 @@ const StudentQuizResults: React.FC = () => {
                                                             </div>
                                                             {q.options.some(o => o.is_correct) && (
                                                                 <div>
-                                                                    <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Correct Answer</div>
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                                                    <div style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: responsive.isMobile ? 4 : 6 }}>Correct Answer</div>
+                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: responsive.isMobile ? 4 : 6 }}>
                                                                         {q.options.filter(o => o.is_correct).map(o => (
-                                                                            <span key={`c-${o.id}`} style={{ fontSize: 12, fontWeight: 600, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: '5px 12px', border: '1px solid #bbf7d0' }}>
+                                                                            <span key={`c-${o.id}`} style={{ fontSize: responsive.isMobile ? 11.5 : 12, fontWeight: 600, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: responsive.isMobile ? '4px 10px' : '5px 12px', border: '1px solid #bbf7d0' }}>
                                                                                 ✓ {o.option_text}
                                                                             </span>
                                                                         ))}
@@ -694,36 +911,36 @@ const StudentQuizResults: React.FC = () => {
                                         {groups.map((group, gi) => {
                                             if (group.type === 'independent') {
                                                 gIdx++;
-                                                return <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: 8, borderRadius: 12, border: '1px solid #f0f0f8' }} key={`ind-${group.question.id}`}>{renderQ(group.question, gIdx)}</Collapse>;
+                                                return <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: responsive.isMobile ? 6 : 8, borderRadius: 12, border: '1px solid #f0f0f8' }} key={`ind-${group.question.id}`}>{renderQ(group.question, gIdx)}</Collapse>;
                                             }
                                             const qs = group.questions;
                                             const pts = qs.reduce((s, q) => s + Number(q.score || 0), 0);
                                             const max = qs.reduce((s, q) => s + Number(q.points || 0), 0);
                                             const pct = max > 0 ? Math.round((pts / max) * 100) : 0;
                                             return (
-                                                <div key={`audio-${group.clipId}`} style={{ marginBottom: 14, borderRadius: 14, overflow: 'hidden', border: '1.5px solid #06b6d4', boxShadow: '0 2px 12px rgba(6,182,212,0.1)' }}>
-                                                    <div style={{ background: 'linear-gradient(135deg,#0891b2,#22d3ee)', padding: '14px 18px', color: '#fff' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                                                            <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>🎧</div>
-                                                            <div>
-                                                                <div style={{ fontWeight: 700, fontSize: 14 }}>Listening — Audio {group.clip.audio_order || gi + 1}</div>
-                                                                <div style={{ fontSize: 11, opacity: 0.8 }}>{qs.length} question{qs.length > 1 ? 's' : ''}</div>
+                                                <div key={`audio-${group.clipId}`} style={{ marginBottom: responsive.isMobile ? 10 : 14, borderRadius: responsive.isMobile ? 12 : 14, overflow: 'hidden', border: '1.5px solid #06b6d4', boxShadow: '0 2px 12px rgba(6,182,212,0.1)' }}>
+                                                    <div style={{ background: 'linear-gradient(135deg,#0891b2,#22d3ee)', padding: responsive.isMobile ? '10px 12px' : '14px 18px', color: '#fff' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: responsive.isMobile ? 8 : 10, marginBottom: responsive.isMobile ? 6 : 8 }}>
+                                                            <div style={{ width: responsive.isMobile ? 28 : 34, height: responsive.isMobile ? 28 : 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: responsive.isMobile ? 13 : 16 }}>🎧</div>
+                                                            <div style={{ minWidth: 0, flex: responsive.isMobile ? 1 : undefined }}>
+                                                                <div style={{ fontWeight: 700, fontSize: responsive.isMobile ? 12.5 : 14 }}>Audio {group.clip.audio_order || gi + 1}</div>
+                                                                <div style={{ fontSize: responsive.isMobile ? 10 : 11, opacity: 0.8 }}>{qs.length} question{qs.length > 1 ? 's' : ''}</div>
                                                             </div>
-                                                            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                                                            <div style={{ marginLeft: responsive.isMobile ? 0 : 'auto', display: 'flex', gap: responsive.isMobile ? 5 : 8 }}>
                                                                 {[{ label: 'Points', val: `${pts.toFixed(pts % 1 ? 2 : 0)}/${max.toFixed(max % 1 ? 2 : 0)}` }, { label: 'Score', val: `${pct}%` }].map(it => (
-                                                                    <div key={it.label} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 8, padding: '4px 12px', textAlign: 'center' }}>
-                                                                        <div style={{ fontSize: 10, opacity: 0.7 }}>{it.label}</div>
-                                                                        <div style={{ fontWeight: 700, fontSize: 13 }}>{it.val}</div>
+                                                                    <div key={it.label} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: responsive.isMobile ? 6 : 8, padding: responsive.isMobile ? '3px 8px' : '4px 12px', textAlign: 'center' }}>
+                                                                        <div style={{ fontSize: responsive.isMobile ? 9 : 10, opacity: 0.7 }}>{it.label}</div>
+                                                                        <div style={{ fontWeight: 700, fontSize: responsive.isMobile ? 11.5 : 13 }}>{it.val}</div>
                                                                     </div>
                                                                 ))}
                                                             </div>
                                                         </div>
                                                         {audioUrls[group.clipId] && (
                                                             <audio controls controlsList="nodownload noplaybackrate" onContextMenu={e => e.preventDefault()} src={audioUrls[group.clipId]}
-                                                                style={{ width: '100%', height: 32, borderRadius: 8, filter: 'invert(1) hue-rotate(180deg)', opacity: 0.9 }} />
+                                                                style={{ width: '100%', height: responsive.isMobile ? 28 : 32, borderRadius: 8, filter: 'invert(1) hue-rotate(180deg)', opacity: 0.9 }} />
                                                         )}
                                                     </div>
-                                                    <div style={{ background: '#f0fdfa', padding: '10px 14px' }}>
+                                                    <div style={{ background: '#f0fdfa', padding: responsive.isMobile ? '6px 8px' : '10px 14px' }}>
                                                         <Collapse accordion bordered={false} style={{ background: 'transparent' }}>
                                                             {qs.map(q => { gIdx++; return renderQ(q, gIdx); })}
                                                         </Collapse>
@@ -758,7 +975,24 @@ const StudentQuizResults: React.FC = () => {
                 .result-detail-modal .ant-modal-close { top: 8px !important; right: 8px !important; width: auto !important; height: auto !important; z-index: 10 !important; }
                 .result-detail-modal .ant-modal-close-x { width: auto !important; height: auto !important; line-height: 1 !important; }
                 .result-detail-modal .ant-modal-header { display: none !important; }
-                .result-detail-modal .ant-modal-content { border-radius: 16px !important; overflow: hidden !important; padding: 0 !important; }
+                .result-detail-modal .ant-modal-content { border-radius: 16px; overflow: hidden !important; padding: 0 !important; }
+
+                /* Mobile fullscreen — edge-to-edge, no rounded corners */
+                @media (max-width: 768px) {
+                    .result-detail-modal { padding-bottom: 0 !important; max-width: 100vw !important; top: 0 !important; }
+                    .result-detail-modal .ant-modal { max-width: 100vw !important; margin: 0 !important; padding-bottom: 0 !important; top: 0 !important; }
+                    .result-detail-modal .ant-modal-content { border-radius: 0 !important; height: 100dvh; max-height: 100dvh; }
+                    .result-detail-modal .ant-modal-body { height: 100dvh !important; max-height: 100dvh !important; }
+
+                    /* Tighter Collapse panels on mobile so the question list reads
+                       compact and the modal scroll body has more room. */
+                    .result-detail-modal .ant-collapse > .ant-collapse-item > .ant-collapse-header {
+                        padding: 10px 12px !important;
+                    }
+                    .result-detail-modal .ant-collapse-content > .ant-collapse-content-box {
+                        padding: 8px 12px 12px !important;
+                    }
+                }
             `}</style>
         </div>
     );

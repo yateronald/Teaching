@@ -2329,6 +2329,7 @@
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .lp-finale-visual img { animation: none !important; }
+  .lp-hero-cta { animation: none !important; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -2613,24 +2614,130 @@
 @media (max-width: 768px) {
   .lp-container { padding: 0 16px; }
   .lp-nav { display: none; }
-  .lp-nav-login span { display: none; }
-  .lp-nav-login { padding: 9px 11px; }
-  .lp-nav-cta { padding: 9px 9px 9px 14px; font-size: 12.5px; }
-  .lp-nav-cta-arrow { width: 22px; height: 22px; font-size: 11px; }
+
+  /* ── Mobile header layout ──
+     Show: [Logo]  [Lang]  [Login]
+     Hide: header demo CTA  → users find a prominent "Book a Free Demo"
+     button in the hero section right below, so the header stays clean
+     and login is finally visible with text. */
+  .lp-nav-cta { display: none; }
+
+  /* Login becomes a clear, professional pill with text + icon */
+  .lp-nav-login {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
+    color: #fff;
+    border: none;
+    box-shadow: 0 4px 12px -2px rgba(67, 56, 202, 0.4);
+    flex-shrink: 0;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .lp-nav-login span { display: inline; }
+  .lp-nav-login .anticon {
+    font-size: 14px;
+    color: #fff;
+  }
+  .lp-nav-login:hover {
+    background: linear-gradient(135deg, #3730a3 0%, #4f46e5 100%);
+    box-shadow: 0 6px 16px -2px rgba(67, 56, 202, 0.55);
+  }
+  .lp-nav-login:hover .anticon { color: #fff; }
+
   .lp-header { top: 10px; }
   .lp-header > .lp-container {
     padding: 0 8px 0 14px;
     margin: 0 12px;
   }
-  .lp-header-inner { height: 56px; gap: 12px; }
-  .lp-logo-mark { width: 36px; height: 36px; }
+  .lp-header-inner { height: 56px; gap: 8px; }
+  .lp-logo-mark { width: 36px; height: 36px; flex-shrink: 0; }
   .lp-logo-mark img { height: 22px; }
+  .lp-logo-text {
+    font-size: 14px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .lp-nav-actions {
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  /* Compact language toggle on mobile — keep flag, drop label + chevron */
+  .lp-lang-toggle {
+    padding: 8px 8px;
+    gap: 0;
+  }
+  .lp-lang-toggle-label,
+  .lp-lang-toggle-chevron {
+    display: none;
+  }
+  .lp-lang-toggle-flag { font-size: 18px; }
   .lp-hero { padding: 100px 0 80px; min-height: auto; }
   .lp-hero-inner { padding-top: 40px; }
   .lp-hero-title { font-size: 36px; }
   .lp-hero-sub { font-size: 14px; }
   .lp-hero-cards { position: static; padding: 32px 0 0; }
   .lp-hero-cards-grid { grid-template-columns: 1fr; gap: 12px; }
+
+  /* Stack hero CTAs on mobile so "Book a Free Demo" reads as the primary
+     action — exactly compensates for moving the demo CTA out of the
+     header on small screens. */
+  .lp-hero-actions {
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .lp-hero-cta {
+    /* Centered pill — width hugs content + arrow, no empty space on the
+       right. Subtle "breathing" animation draws the eye without being
+       distracting. Indigo→violet gradient matches the brand. */
+    width: auto;
+    max-width: 100%;
+    justify-content: center;
+    gap: 10px;
+    padding: 13px 16px 13px 22px;
+    background: linear-gradient(135deg, #4338ca 0%, #7c3aed 50%, #a855f7 100%);
+    box-shadow:
+      0 10px 28px -8px rgba(124,58,237,0.55),
+      0 0 0 0 rgba(124,58,237,0.45);
+    animation: lp-cta-breathe 2.6s ease-in-out infinite;
+  }
+  .lp-hero-cta:hover {
+    transform: translateY(-2px) scale(1.02);
+    animation-play-state: paused;
+  }
+  .lp-hero-cta-arrow {
+    width: 26px;
+    height: 26px;
+    background: rgba(255,255,255,0.95);
+    color: #4338ca;
+  }
+  .lp-hero-cta-secondary {
+    align-self: center;
+    padding: 8px 4px;
+  }
+
+  @keyframes lp-cta-breathe {
+    0%, 100% {
+      box-shadow:
+        0 10px 28px -8px rgba(124,58,237,0.55),
+        0 0 0 0 rgba(124,58,237,0.45);
+    }
+    50% {
+      box-shadow:
+        0 14px 32px -8px rgba(124,58,237,0.65),
+        0 0 0 8px rgba(124,58,237,0.0);
+    }
+  }
+
   .lp-stats { padding-top: 32px; }
   .lp-heading { font-size: 30px; }
   .lp-section { padding: 72px 0; }
@@ -2754,10 +2861,21 @@
 @media (max-width: 480px) {
   .lp-container { padding: 0 14px; }
   .lp-header > .lp-container { margin: 0 8px; padding: 0 6px 0 12px; }
-  .lp-header-inner { height: 52px; gap: 8px; }
+  .lp-header-inner { height: 52px; gap: 6px; }
   .lp-logo-mark { width: 32px; height: 32px; }
   .lp-logo-mark img { height: 20px; }
   .lp-logo-text strong { font-size: 13px; }
+  .lp-logo-text em { display: none; }
+
+  /* Tighten header buttons so all 3 actions fit on a 360-400px phone */
+  .lp-nav-actions { gap: 5px; }
+  .lp-lang-toggle { padding: 7px 7px; }
+  .lp-lang-toggle-flag { font-size: 16px; }
+  .lp-nav-login {
+    padding: 8px 14px;
+    font-size: 12.5px;
+  }
+  .lp-nav-login .anticon { font-size: 13px; }
 
   /* Hero */
   .lp-hero-badge { font-size: 11px; padding: 5px 12px; }

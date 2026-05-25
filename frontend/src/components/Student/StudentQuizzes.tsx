@@ -472,7 +472,12 @@ const StudentQuizzes: React.FC = () => {
     const active = TAB_DATA[activeTab];
 
     return (
-        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div className="student-portal" style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: r.isMobile ? 'auto' : '100%',
+            minHeight: r.isMobile ? 'auto' : '100%',
+        }}>
             {contextHolder}
 
             {/* ── Header ── */}
@@ -484,11 +489,11 @@ const StudentQuizzes: React.FC = () => {
             />
 
             {/* ── Filters ── */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isCompact ? '12px 16px' : '14px 20px', marginBottom: r.isCompact ? 16 : 24, display: 'flex', gap: 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isMobile ? '10px 12px' : (r.isCompact ? '12px 16px' : '14px 20px'), marginBottom: r.isMobile ? 12 : (r.isCompact ? 16 : 24), display: 'flex', gap: r.isMobile ? 8 : 12, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
                 <RangePicker
                     value={dateRange}
                     onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                    style={{ borderRadius: 8, flex: '1 1 200px', minWidth: 180 }}
+                    style={{ borderRadius: 8, flex: r.isMobile ? '1 1 100%' : '1 1 200px', minWidth: r.isMobile ? 0 : 180 }}
                     allowClear
                 />
                 <Select
@@ -496,7 +501,7 @@ const StudentQuizzes: React.FC = () => {
                     onChange={setBatchFilter}
                     allowClear
                     placeholder="All Batches"
-                    style={{ flex: '1 1 160px', minWidth: 140 }}
+                    style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
                     options={availableBatches}
                     showSearch
                     optionFilterProp="label"
@@ -506,7 +511,7 @@ const StudentQuizzes: React.FC = () => {
                     onChange={setTeacherFilter}
                     allowClear
                     placeholder="All Teachers"
-                    style={{ flex: '1 1 160px', minWidth: 140 }}
+                    style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
                     options={availableTeachers}
                     showSearch
                     optionFilterProp="label"
@@ -514,7 +519,7 @@ const StudentQuizzes: React.FC = () => {
             </div>
 
             {/* ── KPI Cards ── */}
-            <Row gutter={r.isCompact ? [12, 12] : [16, 16]} style={{ marginBottom: r.isCompact ? 14 : 20, flexShrink: 0 }}>
+            <Row gutter={r.isMobile ? [8, 8] : (r.isCompact ? [12, 12] : [16, 16])} style={{ marginBottom: r.isMobile ? 12 : (r.isCompact ? 14 : 20), flexShrink: 0 }}>
                 <Col xs={12} sm={12} md={6}>
                     <KpiCard label="Total Quizzes"     value={stats?.total_quizzes ?? 0}    icon={<BookOutlined />}         accent="#6366f1" />
                 </Col>
@@ -530,10 +535,28 @@ const StudentQuizzes: React.FC = () => {
             </Row>
 
             {/* ── Table card (flex-grow, only rows scroll) ── */}
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{
+                background: '#fff',
+                borderRadius: 16,
+                border: '1px solid #f0f0f8',
+                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
+                flex: r.isMobile ? 'none' : 1,
+                overflow: r.isMobile ? 'visible' : 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: r.isMobile ? 240 : 0,
+            }}>
 
                 {/* Custom tab bar */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '0 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0, overflowX: 'auto' }}>
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: r.isMobile ? 0 : 4,
+                    padding: r.isMobile ? '0 6px' : '0 20px',
+                    borderBottom: '1px solid #f0f0f8',
+                    flexShrink: 0,
+                    overflowX: r.isMobile ? 'visible' : 'auto',
+                }}>
                     {TABS.map(tab => {
                         const isActive = activeTab === tab;
                         const count = TAB_COUNTS[tab];
@@ -542,22 +565,35 @@ const StudentQuizzes: React.FC = () => {
                                 key={tab}
                                 onClick={() => setActiveTab(tab)}
                                 style={{
-                                    display: 'flex', alignItems: 'center', gap: 6,
-                                    padding: '14px 16px', border: 'none', background: 'none', cursor: 'pointer',
-                                    fontSize: 13, fontWeight: isActive ? 700 : 500,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: r.isMobile ? 4 : 6,
+                                    padding: r.isMobile ? '11px 6px' : '14px 16px',
+                                    border: 'none',
+                                    background: 'none',
+                                    cursor: 'pointer',
+                                    fontSize: r.isMobile ? 11.5 : 13,
+                                    fontWeight: isActive ? 700 : 500,
                                     color: isActive ? '#6366f1' : '#94a3b8',
                                     borderBottom: isActive ? '2px solid #6366f1' : '2px solid transparent',
-                                    marginBottom: -1, whiteSpace: 'nowrap',
+                                    marginBottom: -1,
+                                    whiteSpace: 'nowrap',
                                     transition: 'all 0.15s',
                                     outline: 'none',
+                                    flex: r.isMobile ? '1 1 0' : undefined,
+                                    minWidth: 0,
                                 }}
                             >
-                                {tab}
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{tab}</span>
                                 <span style={{
-                                    fontSize: 11, fontWeight: 700,
+                                    fontSize: r.isMobile ? 10 : 11,
+                                    fontWeight: 700,
                                     background: isActive ? '#eef2ff' : '#f1f5f9',
                                     color: isActive ? '#6366f1' : '#94a3b8',
-                                    borderRadius: 20, padding: '1px 8px',
+                                    borderRadius: 20,
+                                    padding: r.isMobile ? '0 6px' : '1px 8px',
+                                    flexShrink: 0,
                                 }}>
                                     {count}
                                 </span>
@@ -567,7 +603,11 @@ const StudentQuizzes: React.FC = () => {
                 </div>
 
                 {/* Table body */}
-                <div style={{ flex: 1, overflow: 'hidden', padding: r.isMobile ? 12 : 0 }}>
+                <div style={{
+                    flex: r.isMobile ? 'none' : 1,
+                    overflow: r.isMobile ? 'visible' : 'hidden',
+                    padding: r.isMobile ? 12 : 0,
+                }}>
                     {active.data.length === 0 ? (
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200 }}>
                             <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>{active.empty}</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
