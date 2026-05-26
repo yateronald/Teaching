@@ -23,7 +23,9 @@ const {
     EgressClient,
     EncodedFileType,
     EncodedFileOutput,
-    EncodingOptionsPreset,
+    EncodingOptions,
+    AudioCodec,
+    VideoCodec,
 } = require('livekit-server-sdk');
 
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
@@ -116,6 +118,83 @@ function getRecordingsDir() {
     return RECORDINGS_DIR;
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Recording quality / CPU profile
+//
+// LiveKit Egress runs a headless Chrome compositor that paints the
+// room layout into a video and re-encodes it via ffmpeg. The default
+// preset (H264_720P_30 ≈ 3 Mbps, high profile) uses more CPU than a
+// typical 4-core VPS can spare while running the SignalServer + the
+// app — symptoms are CPU spikes (>500%) and audio drops:
+//
+//   "Can't record audio fast enough — Dropped 8820-11466 samples"
+//
+// We pick CPU-friendly defaults and let the operator dial them down
+// further via env vars without a rebuild.
+//
+// Env (all optional):
+//   RECORDING_QUALITY        'low' | 'medium' | 'high'   (default: medium)
+//   RECORDING_WIDTH          custom width (overrides quality preset)
+//   RECORDING_HEIGHT         custom height
+//   RECORDING_FRAMERATE      custom fps
+//   RECORDING_VIDEO_BITRATE  custom video bitrate in bps
+//   RECORDING_AUDIO_BITRATE  custom audio bitrate in bps
+//
+// CPU profiles (rough numbers for 1 active speaker, 1080×1920 desktop):
+//   low    → 854×480  @ 24fps,  900 kbps video,  96 kbps audio (~25% CPU)
+//   medium → 1280×720 @ 24fps, 2000 kbps video, 128 kbps audio (~50% CPU)
+//   high   → 1280×720 @ 30fps, 3000 kbps video, 128 kbps audio (~80% CPU)
+//
+// Use H264 baseline profile (videoCodec H264_BASELINE) — it sacrifices
+// a tiny amount of compression efficiency for significantly faster
+// encoding, which is the main bottleneck in the egress pipeline.
+// ─────────────────────────────────────────────────────────────────────
+const QUALITY_PROFILES = {
+    low:    { width: 854,  height: 480, framerate: 24, videoBitrate:  900_000, audioBitrate:  96_000 },
+    medium: { width: 1280, height: 720, framerate: 24, videoBitrate: 2_000_000, audioBitrate: 128_000 },
+    high:   { width: 1280, height: 720, framerate: 30, videoBitrate: 3_000_000, audioBitrate: 128_000 },
+};
+
+function buildEncodingOptions() {
+    const qualityKey = String(process.env.RECORDING_QUALITY || 'medium').toLowerCase();
+    const profile = QUALITY_PROFILES[qualityKey] || QUALITY_PROFILES.medium;
+
+    // Per-knob overrides — useful for tuning a struggling VPS without
+    // jumping a whole tier. Bad values just fall back to the profile.
+    const numEnv = (key, fallback) => {
+        const n = Number(process.env[key]);
+        return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+
+    const opts = new EncodingOptions({
+        width:        numEnv('RECORDING_WIDTH',        profile.width),
+        height:       numEnv('RECORDING_HEIGHT',       profile.height),
+        framerate:    numEnv('RECORDING_FRAMERATE',    profile.framerate),
+        videoBitrate: numEnv('RECORDING_VIDEO_BITRATE', profile.videoBitrate),
+        audioBitrate: numEnv('RECORDING_AUDIO_BITRATE', profile.audioBitrate),
+        // H264 baseline encodes ~30-40% faster than high profile and
+        // plays everywhere (incl. older mobile browsers). The output
+        // file is slightly larger for the same bitrate, but our bitrate
+        // budget is the bigger lever.
+        videoCodec:   VideoCodec.H264_BASELINE,
+        audioCodec:   AudioCodec.OPUS,
+        // Sample audio at 48 kHz (Opus default). Bumping to 16 kHz
+        // saves CPU but voice becomes muddy — leave at default.
+    });
+
+    if (process.env.NODE_ENV !== 'production') {
+        // Surface the chosen settings in dev so misconfiguration is
+        // obvious in the logs.
+        console.log('[recordingService] encoding profile:', {
+            quality: qualityKey,
+            width: opts.width, height: opts.height, fps: opts.framerate,
+            videoKbps: Math.round(opts.videoBitrate / 1000),
+            audioKbps: Math.round(opts.audioBitrate / 1000),
+        });
+    }
+    return opts;
+}
+
 /**
  * Start recording a LiveKit room as a composite MP4.
  *
@@ -155,7 +234,7 @@ async function startRoomRecording({ roomName, meetingId }) {
             { file: fileOutput },
             {
                 layout: 'speaker',                              // 'grid' | 'speaker' | 'single-speaker'
-                encodingOptions: EncodingOptionsPreset.H264_720P_30,
+                encodingOptions: buildEncodingOptions(),
                 audioOnly: false,
                 videoOnly: false,
             }
