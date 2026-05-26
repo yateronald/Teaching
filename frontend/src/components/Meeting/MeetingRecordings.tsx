@@ -5,6 +5,7 @@ import {
   DownloadOutlined, PlayCircleFilled, ExclamationCircleOutlined, LoadingOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import useResponsive from '../../hooks/useResponsive';
 import dayjs from 'dayjs';
 
 interface Recording {
@@ -56,6 +57,7 @@ function daysUntil(iso: string): number {
 
 const MeetingRecordings: React.FC = () => {
   const { apiCall, user, isAdmin } = useAuth();
+  const r = useResponsive();
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
   const [playerOpen, setPlayerOpen] = useState(false);
@@ -88,42 +90,31 @@ const MeetingRecordings: React.FC = () => {
     return () => clearInterval(t);
   }, [recordings, fetchRecordings]);
 
-  const openPlayer = useCallback(async (rec: Recording) => {
+  const openPlayer = useCallback((rec: Recording) => {
     if (rec.status !== 'ready' && rec.status !== 'finalizing') {
       message.info(`This recording is in status: ${rec.status}`);
       return;
     }
     setActiveRecording(rec);
-    // Use the auth-protected stream endpoint with a Blob URL so we can pass the
-    // bearer token via apiCall and avoid leaking it in src URLs.
-    setStreamUrl(null);
+    // Build a token-bearing stream URL directly. The backend's
+    // `authenticateToken` middleware accepts `?token=...`, so the
+    // <video> element can stream it natively via HTTP Range — same
+    // way YouTube and any HTML5 player does. Avoids the previous
+    // approach of fetch().blob() which downloaded the entire MP4
+    // before the user could press play (slow + memory-heavy for
+    // long recordings).
+    const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    const token = localStorage.getItem('token') || '';
+    const url = `${apiBase}/meetings/recordings/${rec.id}/stream?token=${encodeURIComponent(token)}`;
+    setStreamUrl(url);
     setPlayerOpen(true);
-    try {
-      const resp = await apiCall(`/meetings/recordings/${rec.id}/stream`);
-      if (resp.ok) {
-        const blob = await resp.blob();
-        const url = URL.createObjectURL(blob);
-        setStreamUrl(url);
-      } else if (resp.status === 409) {
-        const d = await resp.json().catch(() => ({}));
-        message.warning(d.error || 'Recording is not yet streamable');
-        setPlayerOpen(false);
-      } else {
-        message.error('Failed to load recording');
-        setPlayerOpen(false);
-      }
-    } catch {
-      message.error('Network error');
-      setPlayerOpen(false);
-    }
-  }, [apiCall]);
+  }, []);
 
   const closePlayer = useCallback(() => {
     setPlayerOpen(false);
-    if (streamUrl) URL.revokeObjectURL(streamUrl);
     setStreamUrl(null);
     setActiveRecording(null);
-  }, [streamUrl]);
+  }, []);
 
   const handleDownload = useCallback(async (rec: Recording) => {
     try {
@@ -260,19 +251,61 @@ const MeetingRecordings: React.FC = () => {
         open={playerOpen}
         onCancel={closePlayer}
         footer={null}
-        width={920}
-        centered
+        width={r.isMobile ? '100vw' : (r.isCompact ? '94vw' : 960)}
+        centered={!r.isMobile}
         destroyOnClose
-        title={activeRecording?.meeting_title || 'Recording'}
-        styles={{ body: { padding: 0 } }}
+        closable
+        title={null}
+        wrapClassName="recording-player-modal"
+        styles={{
+          mask: { background: 'rgba(2, 6, 23, 0.75)', backdropFilter: 'blur(6px)' },
+          content: {
+            padding: 0,
+            borderRadius: r.isMobile ? 0 : 14,
+            overflow: 'hidden',
+            background: '#000',
+            boxShadow: '0 30px 80px -10px rgba(0,0,0,0.5)',
+          },
+          body: { padding: 0, background: '#000' },
+        }}
+        closeIcon={
+          <div style={{
+            width: 34, height: 34, borderRadius: '50%',
+            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, transition: 'background 0.15s',
+          }}>✕</div>
+        }
       >
-        <div style={{ background: '#000', minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{
+          background: '#000',
+          width: '100%',
+          /* Aspect ratio 16:9 — same shape regardless of viewport size,
+             matches YouTube's player. On mobile fullscreen we use 100dvh
+             so the video reaches every edge. */
+          aspectRatio: r.isMobile ? undefined : '16 / 9',
+          height: r.isMobile ? '100dvh' : undefined,
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
           {streamUrl ? (
             <video
               src={streamUrl}
               controls
               autoPlay
-              style={{ width: '100%', maxHeight: '70vh', display: 'block' }}
+              playsInline
+              preload="metadata"
+              controlsList="nodownload"
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                background: '#000',
+                objectFit: 'contain',
+              }}
+              onError={() => message.error('Could not play this recording. The file may be corrupted or unavailable.')}
             />
           ) : (
             <div style={{ color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 60 }}>
@@ -280,8 +313,78 @@ const MeetingRecordings: React.FC = () => {
               <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>Loading recording…</span>
             </div>
           )}
+
+          {/* Top overlay with the meeting title — fades on hover so it
+              doesn't get in the way during playback. */}
+          {activeRecording && (
+            <div style={{
+              position: 'absolute',
+              top: 0, left: 0, right: 0,
+              padding: r.isMobile ? '14px 56px 32px 16px' : '14px 56px 32px 18px',
+              background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)',
+              color: '#fff',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}>
+              <div style={{
+                fontSize: r.isMobile ? 13.5 : 15,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              }}>
+                {activeRecording.meeting_title}
+              </div>
+              {activeRecording.host_first_name && (
+                <div style={{
+                  fontSize: 11.5,
+                  opacity: 0.85,
+                  marginTop: 2,
+                  textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+                }}>
+                  {activeRecording.host_first_name} {activeRecording.host_last_name || ''} · {dayjs(activeRecording.started_at).format('MMM DD, YYYY · HH:mm')}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
+
+      <style>{`
+        .recording-player-modal .ant-modal-close {
+          top: 10px !important;
+          right: 10px !important;
+          z-index: 10 !important;
+        }
+        .recording-player-modal .ant-modal-close:hover .anticon,
+        .recording-player-modal .ant-modal-close:hover > div {
+          background: #ef4444 !important;
+        }
+        @media (max-width: 768px) {
+          .recording-player-modal {
+            padding-bottom: 0 !important;
+            top: 0 !important;
+            max-width: 100vw !important;
+          }
+          .recording-player-modal .ant-modal {
+            max-width: 100vw !important;
+            margin: 0 !important;
+            top: 0 !important;
+            padding-bottom: 0 !important;
+          }
+          .recording-player-modal .ant-modal-content {
+            border-radius: 0 !important;
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+          }
+          .recording-player-modal .ant-modal-body {
+            height: 100dvh !important;
+            max-height: 100dvh !important;
+            padding: 0 !important;
+          }
+        }
+      `}</style>
     </>
   );
 };
