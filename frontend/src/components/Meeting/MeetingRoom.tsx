@@ -38,6 +38,9 @@ const SOCKET_URL = getSocketUrl();
  * Single tile inside the mobile "More options" drawer. A vertical icon
  * + label with a soft hover state and an optional active accent (used
  * for stateful actions like Recording / Lock / Whiteboard).
+ *
+ * Styling: dark glass tiles with a bright icon disc so the entire grid
+ * stays readable on the dark drawer background.
  */
 const DrawerAction: React.FC<{
   icon: React.ReactNode;
@@ -47,42 +50,71 @@ const DrawerAction: React.FC<{
   accent?: string;
   loading?: boolean;
   badgeCount?: number;
-}> = ({ icon, label, onClick, active = false, accent, loading = false, badgeCount }) => (
-  <button
-    onClick={onClick}
-    disabled={loading}
-    style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 6,
-      padding: '14px 6px',
-      background: active ? `${accent || '#6366f1'}26` : 'rgba(255,255,255,0.05)',
-      border: `1px solid ${active ? (accent || '#6366f1') : 'rgba(255,255,255,0.08)'}`,
-      borderRadius: 14,
-      cursor: loading ? 'wait' : 'pointer',
-      color: active ? (accent || '#a5b4fc') : '#e2e8f0',
-      transition: 'all 0.15s',
-      minHeight: 78,
-    }}
-  >
-    <Badge count={badgeCount} size="small" offset={[6, -2]}>
-      <span style={{ fontSize: 22, color: 'inherit' }}>
-        {loading ? <LoadingOutlined /> : icon}
+}> = ({ icon, label, onClick, active = false, accent, loading = false, badgeCount }) => {
+  const iconAccent = active ? (accent || '#a5b4fc') : '#e2e8f0';
+  const tileBg = active
+    ? `linear-gradient(135deg, ${(accent || '#6366f1')}26, ${(accent || '#6366f1')}40)`
+    : 'rgba(255,255,255,0.08)';
+  const tileBorder = active ? (accent || '#6366f1') : 'rgba(255,255,255,0.12)';
+  return (
+    <button
+      onClick={onClick}
+      disabled={loading}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
+        gap: 8,
+        padding: '14px 6px 12px',
+        background: tileBg,
+        border: `1px solid ${tileBorder}`,
+        borderRadius: 14,
+        cursor: loading ? 'wait' : 'pointer',
+        color: '#fff',
+        transition: 'all 0.15s',
+        minHeight: 92,
+        textAlign: 'center',
+      }}
+      onTouchStart={e => {
+        (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.95)';
+      }}
+      onTouchEnd={e => {
+        (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)';
+      }}
+    >
+      {/* Icon disc — bright background so the icon is always legible */}
+      <Badge count={badgeCount} size="small" offset={[6, -2]}>
+        <span style={{
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: active ? (accent || '#6366f1') : 'rgba(255,255,255,0.14)',
+          color: active ? '#fff' : iconAccent,
+          fontSize: 20,
+          boxShadow: active ? `0 4px 14px ${(accent || '#6366f1')}55` : 'none',
+        }}>
+          {loading ? <LoadingOutlined /> : icon}
+        </span>
+      </Badge>
+      <span style={{
+        fontSize: 11.5,
+        fontWeight: 600,
+        lineHeight: 1.2,
+        color: '#f1f5f9',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        maxWidth: '100%',
+      }}>
+        {label}
       </span>
-    </Badge>
-    <span style={{
-      fontSize: 11,
-      fontWeight: 600,
-      lineHeight: 1.2,
-      textAlign: 'center',
-      color: 'inherit',
-    }}>
-      {label}
-    </span>
-  </button>
-);
+    </button>
+  );
+};
 
 interface MeetingData {
   id: number;
@@ -1219,19 +1251,20 @@ const MeetingRoomUI: React.FC<{
           </Tooltip>
 
           {/* Mobile-only "More" button — opens a drawer that mirrors the
-              secondary controls so the bottom bar stays clean. */}
+              secondary controls so the bottom bar stays clean. No Tooltip
+              wrapper here: on touch devices the tap triggers BOTH the
+              tooltip AND the click, which leaves a stale "More options"
+              bubble floating on top of the drawer. */}
           {isMobile && (
-            <Tooltip title="More options">
-              <button
-                className="control-btn control-btn--more"
-                onClick={() => setMoreDrawerOpen(true)}
-                aria-label="More options"
-              >
-                <Badge dot={isRecording || pollPanelOpen || whiteboardOpen} color="red">
-                  <EllipsisOutlined style={{ fontSize: 18 }} />
-                </Badge>
-              </button>
-            </Tooltip>
+            <button
+              className="control-btn control-btn--more"
+              onClick={() => setMoreDrawerOpen(true)}
+              aria-label="More options"
+            >
+              <Badge dot={isRecording || pollPanelOpen || whiteboardOpen} color="red">
+                <EllipsisOutlined style={{ fontSize: 18 }} />
+              </Badge>
+            </button>
           )}
         </div>
         <div className="controls-right">
@@ -1250,33 +1283,92 @@ const MeetingRoomUI: React.FC<{
       {/* Mobile More Drawer — collects all secondary actions into a tap-friendly grid. */}
       {isMobile && (
         <Drawer
-          title="More options"
+          title={null}
           placement="bottom"
           height="auto"
           open={moreDrawerOpen}
           onClose={() => setMoreDrawerOpen(false)}
+          closable={false}
           styles={{
-            body: { padding: 16, background: '#0f172a', color: '#fff' },
-            header: { background: '#0f172a', color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.08)' },
-            content: { background: '#0f172a' },
+            mask: { background: 'rgba(2, 6, 23, 0.65)', backdropFilter: 'blur(4px)' },
+            body: {
+              padding: 0,
+              background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
+              color: '#fff',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              overflow: 'hidden',
+            },
+            header: { display: 'none' },
+            content: {
+              background: 'transparent',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              boxShadow: '0 -10px 40px rgba(0, 0, 0, 0.45)',
+            },
+            wrapper: {
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              boxShadow: 'none',
+            },
           }}
-          closeIcon={<span style={{ color: '#fff' }}>✕</span>}
         >
+          {/* Custom header with grabber bar */}
+          <div style={{ padding: '12px 18px 0', position: 'relative' }}>
+            <div style={{
+              width: 40, height: 4, borderRadius: 999,
+              background: 'rgba(255,255,255,0.25)',
+              margin: '0 auto 12px',
+            }} />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <div style={{
+                fontSize: 15, fontWeight: 700, color: '#fff',
+                letterSpacing: -0.2,
+              }}>
+                More options
+              </div>
+              <button
+                onClick={() => setMoreDrawerOpen(false)}
+                aria-label="Close"
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  border: 'none', background: 'rgba(255,255,255,0.08)',
+                  color: '#e2e8f0', fontSize: 18, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 12,
-            paddingBottom: 'env(safe-area-inset-bottom)',
+            gap: 10,
+            padding: '0 16px 24px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
           }}>
-            {/* Screen share */}
+            {/* Screen share — directly call LiveKit's localParticipant API.
+                The previous DOM-click hack on `.screen-share-btn` didn't
+                work because that button is hidden on mobile via
+                `data-mobile-secondary`. */}
             <DrawerAction
               icon={<ShareAltOutlined />}
-              label="Share Screen"
-              onClick={() => {
+              label={hasScreenShare ? 'Stop Sharing' : 'Share Screen'}
+              active={hasScreenShare}
+              accent={hasScreenShare ? '#ef4444' : '#22c55e'}
+              onClick={async () => {
                 setMoreDrawerOpen(false);
-                // Click the actual hidden TrackToggle so LiveKit handles the request
-                const btn = document.querySelector('.screen-share-btn') as HTMLButtonElement | null;
-                btn?.click();
+                try {
+                  const lp = localParticipant?.localParticipant;
+                  if (!lp) return;
+                  const next = !lp.isScreenShareEnabled;
+                  await lp.setScreenShareEnabled(next);
+                } catch (err: any) {
+                  console.error('Screen share toggle failed:', err);
+                  message.error(err?.message || 'Could not toggle screen share');
+                }
               }}
             />
             {/* Participants */}
@@ -1284,6 +1376,7 @@ const MeetingRoomUI: React.FC<{
               icon={<TeamOutlined />}
               label="Participants"
               badgeCount={participants.length}
+              active={participantsOpen}
               onClick={() => { setParticipantsOpen(true); setMoreDrawerOpen(false); }}
             />
             {/* Whiteboard */}
@@ -1297,6 +1390,7 @@ const MeetingRoomUI: React.FC<{
             <DrawerAction
               icon={<SmileOutlined />}
               label="Reactions"
+              active={emojiPickerOpen}
               onClick={() => { setEmojiPickerOpen(true); setMoreDrawerOpen(false); }}
             />
             {/* Settings */}
@@ -1318,7 +1412,7 @@ const MeetingRoomUI: React.FC<{
                 />
                 <DrawerAction
                   icon={<span style={{
-                    display: 'inline-block', width: 12, height: 12, borderRadius: '50%',
+                    display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
                     background: '#ef4444',
                     animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
                   }} />}
@@ -1337,6 +1431,7 @@ const MeetingRoomUI: React.FC<{
                 <DrawerAction
                   icon={<BarChartOutlined />}
                   label="Polls"
+                  active={pollPanelOpen}
                   onClick={() => { setPollPanelOpen(!pollPanelOpen); setMoreDrawerOpen(false); }}
                 />
               </>

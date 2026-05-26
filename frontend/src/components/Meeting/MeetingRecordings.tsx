@@ -79,11 +79,12 @@ const MeetingRecordings: React.FC = () => {
 
   useEffect(() => { fetchRecordings(); }, [fetchRecordings]);
 
-  // Auto-refresh every 30s while there's a recording in 'finalizing' status
+  // Auto-refresh every 10s while there's a recording in 'finalizing' status
+  // so the UI catches up quickly once the backend reconciles the row.
   useEffect(() => {
     const hasFinalizing = recordings.some(r => r.status === 'recording' || r.status === 'finalizing');
     if (!hasFinalizing) return;
-    const t = setInterval(fetchRecordings, 30 * 1000);
+    const t = setInterval(fetchRecordings, 10 * 1000);
     return () => clearInterval(t);
   }, [recordings, fetchRecordings]);
 

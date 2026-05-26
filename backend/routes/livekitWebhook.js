@@ -83,7 +83,6 @@ router.post('/livekit', express.raw({ type: '*/*', limit: '5mb' }), async (req, 
             const fileResults = egressInfo.fileResults || egressInfo.file?.fileResults || [];
             const first = Array.isArray(fileResults) && fileResults.length ? fileResults[0] : null;
 
-            let actualFilePath = recording.file_path;
             let fileSize = first?.size ? Number(first.size) : null;
             let durationSec = null;
 
@@ -94,14 +93,43 @@ router.post('/livekit', express.raw({ type: '*/*', limit: '5mb' }), async (req, 
                     durationSec = Number((endedNs - startedNs) / 1_000_000_000n);
                 }
             }
-            if (first?.filename) {
-                actualFilePath = first.filename;  // egress can override the path
-            }
 
-            // If file size missing, try stat
-            if (!fileSize && actualFilePath && fs.existsSync(actualFilePath)) {
-                try { fileSize = fs.statSync(actualFilePath).size; } catch {}
+            // LiveKit's `filename` is the path the egress USED (the container
+            // path). Translate it to the host-side path so the backend can
+            // read the file via fs.statSync. If the env vars aren't set we
+            // fall back to whatever LiveKit returned.
+            let actualFilePath = first?.filename || recording.file_path;
+            try {
+                const recordingService = require('../services/recordingService');
+                const egressDir = recordingService.getEgressRecordingsDir
+                    ? recordingService.getEgressRecordingsDir()
+                    : null;
+                const hostDir = recordingService.getHostEgressDir
+                    ? recordingService.getHostEgressDir()
+                    : null;
+                if (egressDir && hostDir && actualFilePath && actualFilePath.startsWith(egressDir)) {
+                    actualFilePath = hostDir + actualFilePath.slice(egressDir.length);
+                }
+            } catch { /* ignore */ }
+
+            // If file size missing, try stat — give the egress up to 5
+            // seconds to flush the file (post-encode FFmpeg finalize step).
+            const candidates = [actualFilePath, recording.file_path].filter(Boolean);
+            let resolvedPath = null;
+            for (let attempt = 0; attempt < 5; attempt++) {
+                for (const p of candidates) {
+                    try {
+                        if (p && fs.existsSync(p)) {
+                            resolvedPath = p;
+                            if (!fileSize) fileSize = fs.statSync(p).size;
+                            break;
+                        }
+                    } catch { /* ignore */ }
+                }
+                if (resolvedPath) break;
+                await new Promise(r => setTimeout(r, 1000));
             }
+            if (resolvedPath) actualFilePath = resolvedPath;
 
             // Determine final status from egressInfo.status
             // EgressStatus: 0 STARTING, 1 ACTIVE, 2 ENDING, 3 COMPLETE, 4 FAILED, 5 ABORTED

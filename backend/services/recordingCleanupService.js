@@ -18,7 +18,7 @@
 const fs = require('fs');
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
-const FIVE_MIN_MS = 5 * 60 * 1000;
+const ONE_MIN_MS = 60 * 1000;
 let intervalRef = null;
 let reconcileIntervalRef = null;
 
@@ -93,19 +93,19 @@ function start(database) {
     intervalRef = setInterval(() => runCleanup(database), ONE_HOUR_MS);
 
     // ── Reconciliation loop ──
-    // Every 5 minutes, ask LiveKit directly about any 'finalizing' rows
-    // that have been stuck for >2 minutes. If LiveKit says the egress is
-    // done and the file is on disk, we move the row to 'ready' so the
-    // user can play it back. This is our fallback for when the
+    // Every minute, ask LiveKit directly about any 'finalizing' rows
+    // that have been stuck for >30 seconds. If LiveKit says the egress
+    // is done and the file is on disk, we move the row to 'ready' so
+    // the user can play it back. This is our fallback for when the
     // egress_ended webhook never reaches us (most common cause of stuck
     // recordings).
-    setTimeout(() => reconcileStuckRecordings(database), 60 * 1000);
+    setTimeout(() => reconcileStuckRecordings(database), 15 * 1000);
     reconcileIntervalRef = setInterval(
         () => reconcileStuckRecordings(database),
-        FIVE_MIN_MS
+        ONE_MIN_MS
     );
 
-    console.log('🧹 Recording cleanup scheduler started (hourly purge, 5-min reconcile)');
+    console.log('🧹 Recording cleanup scheduler started (hourly purge, 1-min reconcile)');
 }
 
 function stop() {
@@ -134,7 +134,7 @@ async function reconcileStuckRecordings(database) {
              FROM meeting_recordings
              WHERE status = 'finalizing'
                AND egress_id IS NOT NULL
-               AND updated_at < (CURRENT_TIMESTAMP - INTERVAL '2 minutes')
+               AND updated_at < (CURRENT_TIMESTAMP - INTERVAL '30 seconds')
              ORDER BY id DESC
              LIMIT 50`
         );
@@ -186,12 +186,52 @@ async function reconcileStuckRecordings(database) {
                     continue;
                 }
 
-                if (!completed) continue; // still in progress, leave it
+                if (!completed) {
+                    // Egress reports still in progress, but if the row has
+                    // been finalizing for more than 90 seconds AND the file
+                    // exists on disk with a non-trivial size, promote it
+                    // anyway. Real-world LiveKit deployments occasionally
+                    // leave `info.status` stuck at ENDING (2) because the
+                    // post-encode flush is finished but the SDK hasn't
+                    // updated the in-memory state. Trust the file on disk.
+                    const ageSinceUpdate = await database.get(
+                        `SELECT EXTRACT(EPOCH FROM (NOW() - updated_at))::int AS s
+                         FROM meeting_recordings WHERE id = $1`,
+                        [r.id]
+                    );
+                    const ageSec = ageSinceUpdate?.s || 0;
+                    if (ageSec < 90) continue;
+
+                    let fallbackPath = r.file_path;
+                    let fallbackSize = 0;
+                    try {
+                        if (fallbackPath && fs.existsSync(fallbackPath)) {
+                            fallbackSize = fs.statSync(fallbackPath).size;
+                        }
+                    } catch { /* ignore */ }
+                    if (fallbackSize > 1024) {
+                        console.log(`[recordingReconcile] Promoting #${r.id} based on file presence (egress status was ${info.status}, file=${fallbackSize} bytes)`);
+                        await database.run(
+                            `UPDATE meeting_recordings
+                             SET status = 'ready',
+                                 file_size_bytes = $1,
+                                 ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
+                                 updated_at = CURRENT_TIMESTAMP
+                             WHERE id = $2 AND status = 'finalizing'`,
+                            [fallbackSize, r.id]
+                        );
+                        await database.run(
+                            `UPDATE meetings SET recording_url = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                            [`/api/meetings/recordings/${r.id}/stream`, r.meeting_id]
+                        );
+                        promoted += 1;
+                    }
+                    continue;
+                }
 
                 // Egress completed — pull final stats and promote.
                 const fileResults = info.fileResults || info.file?.fileResults || [];
                 const first = Array.isArray(fileResults) && fileResults.length ? fileResults[0] : null;
-                let actualFilePath = first?.filename || r.file_path;
                 let fileSize = first?.size ? Number(first.size) : null;
                 let durationSec = null;
                 if (info.startedAt && info.endedAt) {
@@ -202,14 +242,39 @@ async function reconcileStuckRecordings(database) {
                     }
                 }
 
+                // LiveKit reports the filename as the path the EGRESS used —
+                // i.e. the container-side path. The backend can't read that
+                // directly, so translate it to the host-side path using the
+                // EGRESS_RECORDINGS_DIR → HOST_EGRESS_RECORDINGS_DIR mapping.
+                const egressDir = recordingService.getEgressRecordingsDir
+                    ? recordingService.getEgressRecordingsDir()
+                    : null;
+                const hostDir = recordingService.getHostEgressDir
+                    ? recordingService.getHostEgressDir()
+                    : null;
+                let actualFilePath = first?.filename || r.file_path;
+                if (egressDir && hostDir && actualFilePath && actualFilePath.startsWith(egressDir)) {
+                    actualFilePath = hostDir + actualFilePath.slice(egressDir.length);
+                }
+
                 // Verify the file actually exists on disk before marking ready.
+                // The egress writes asynchronously so retry a few times if the
+                // file isn't there yet (common during the post-processing
+                // step where ffmpeg is still flushing the MP4 to disk).
                 let fileExists = false;
-                try {
-                    if (actualFilePath && fs.existsSync(actualFilePath)) {
-                        fileExists = true;
-                        if (!fileSize) fileSize = fs.statSync(actualFilePath).size;
-                    }
-                } catch { /* ignore */ }
+                let triedCandidates = [];
+                const tryPaths = [actualFilePath, r.file_path].filter(Boolean);
+                for (const p of tryPaths) {
+                    try {
+                        if (p && fs.existsSync(p)) {
+                            fileExists = true;
+                            actualFilePath = p;
+                            if (!fileSize) fileSize = fs.statSync(p).size;
+                            break;
+                        }
+                    } catch { /* ignore */ }
+                    triedCandidates.push(p);
+                }
 
                 if (!fileExists) {
                     // LiveKit says complete but the file isn't where we expect.
@@ -222,7 +287,7 @@ async function reconcileStuckRecordings(database) {
                              ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
                              updated_at = CURRENT_TIMESTAMP
                          WHERE id = $2 AND status = 'finalizing'`,
-                        [`File not found at ${actualFilePath} (check egress volume mount)`, r.id]
+                        [`File not found at any of: ${triedCandidates.join(', ')} (check egress volume mount)`, r.id]
                     );
                     failed += 1;
                     continue;
