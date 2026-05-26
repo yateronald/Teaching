@@ -253,7 +253,7 @@ io.on('connection', (socket) => {
       const { meetingId, userId } = data || {};
       if (!meetingId) return;
 
-      const db = require('./database/db-postgres-pool');
+      const db = database; // use the already-initialized PostgreSQLDatabase
       const meeting = await db.get('SELECT id, room_name, teacher_id FROM meetings WHERE id = $1', [meetingId]);
       if (!meeting) return;
 

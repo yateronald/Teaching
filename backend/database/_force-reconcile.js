@@ -17,8 +17,9 @@ require('dotenv').config();
 const fs = require('fs');
 
 (async () => {
-    const database = require('../database/db-postgres-pool');
-    await database.connect();
+    const PostgreSQLDatabase = require('./init-postgres');
+    const database = new PostgreSQLDatabase();
+    await database.initialize();
     const recordingService = require('../services/recordingService');
 
     const meetingFilter = process.argv[2] && !process.argv[2].startsWith('--')

@@ -252,28 +252,47 @@ async function reconcileStuckRecordings(database) {
                 const hostDir = recordingService.getHostEgressDir
                     ? recordingService.getHostEgressDir()
                     : null;
-                let actualFilePath = first?.filename || r.file_path;
-                if (egressDir && hostDir && actualFilePath && actualFilePath.startsWith(egressDir)) {
-                    actualFilePath = hostDir + actualFilePath.slice(egressDir.length);
+
+                // Build a list of candidate paths the backend should check.
+                // We try (in order):
+                //   1. The path we originally stored when we started the
+                //      recording (`r.file_path`) — already the host path.
+                //   2. The path LiveKit reports, translated to host-side.
+                //   3. The hostDir + the base filename (covers cases where
+                //      LiveKit reports an unexpected absolute path but the
+                //      file still landed in our shared dir).
+                const path = require('path');
+                const candidates = [];
+                if (r.file_path) candidates.push(r.file_path);
+                let translated = first?.filename;
+                if (translated && egressDir && hostDir && translated.startsWith(egressDir)) {
+                    translated = hostDir + translated.slice(egressDir.length);
+                }
+                if (translated) candidates.push(translated);
+                if (hostDir && r.file_path) {
+                    candidates.push(path.join(hostDir, path.basename(r.file_path)));
+                }
+                if (hostDir && first?.filename) {
+                    candidates.push(path.join(hostDir, path.basename(first.filename)));
                 }
 
-                // Verify the file actually exists on disk before marking ready.
-                // The egress writes asynchronously so retry a few times if the
-                // file isn't there yet (common during the post-processing
-                // step where ffmpeg is still flushing the MP4 to disk).
+                let actualFilePath = candidates[0];
                 let fileExists = false;
-                let triedCandidates = [];
-                const tryPaths = [actualFilePath, r.file_path].filter(Boolean);
-                for (const p of tryPaths) {
+                const tried = [];
+                for (const p of candidates) {
+                    if (!p || tried.includes(p)) continue;
+                    tried.push(p);
                     try {
-                        if (p && fs.existsSync(p)) {
-                            fileExists = true;
-                            actualFilePath = p;
-                            if (!fileSize) fileSize = fs.statSync(p).size;
-                            break;
+                        if (fs.existsSync(p)) {
+                            const st = fs.statSync(p);
+                            if (st.size > 1024) {
+                                actualFilePath = p;
+                                if (!fileSize) fileSize = st.size;
+                                fileExists = true;
+                                break;
+                            }
                         }
                     } catch { /* ignore */ }
-                    triedCandidates.push(p);
                 }
 
                 if (!fileExists) {
@@ -287,7 +306,7 @@ async function reconcileStuckRecordings(database) {
                              ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP),
                              updated_at = CURRENT_TIMESTAMP
                          WHERE id = $2 AND status = 'finalizing'`,
-                        [`File not found at any of: ${triedCandidates.join(', ')} (check egress volume mount)`, r.id]
+                        [`File not found at any of: ${tried.join(', ')} (check egress volume mount)`, r.id]
                     );
                     failed += 1;
                     continue;
