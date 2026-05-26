@@ -34,6 +34,14 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 
+// Behind nginx in production: trust the X-Forwarded-* headers so
+// req.protocol returns 'https' (not 'http') and req.get('host') gets
+// the public hostname. This is critical for building absolute URLs
+// like the recording download URL — without it, signed download
+// links resolve against http://localhost:5000 instead of
+// https://api.learnfrenchwithnatives.com.
+app.set('trust proxy', 1);
+
 // ─────────────────────────────────────────────────────────────────────────
 // CORS: allow the production domains (apex + www + any subdomain), plus
 // localhost on any port for dev. Extra origins can be added via the

@@ -1412,10 +1412,23 @@ const MeetingRoomUI: React.FC<{
                         message.info('Another participant is sharing. Wait for them to stop first.');
                         return;
                       }
+                      // Mobile browsers don't support getDisplayMedia()
+                      // for tab/screen capture — Chrome on Android, Safari
+                      // on iOS, Firefox mobile all return undefined.
+                      // Without this check, lp.setScreenShareEnabled()
+                      // throws a generic error that gets swallowed and
+                      // the user sees nothing happen.
+                      if (!iAmSharing && (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function')) {
+                        message.warning('Screen sharing is not supported on this device. Please use a desktop browser.');
+                        return;
+                      }
                       try {
                         await lp.setScreenShareEnabled(!iAmSharing);
                       } catch (err: any) {
                         console.error('Screen share toggle failed:', err);
+                        // NotAllowedError: user dismissed the picker —
+                        // not an actual error, no need to scare them.
+                        if (err?.name === 'NotAllowedError') return;
                         message.error(err?.message || 'Could not toggle screen share');
                       }
                     }}
@@ -1524,6 +1537,95 @@ const MeetingRoomUI: React.FC<{
               to   { transform: translateY(0); }
             }
           `}</style>
+        </div>,
+        document.body
+      )}
+
+      {/* ── Mobile-only Reactions picker ──
+          On desktop the emoji picker lives as a popup anchored to the
+          smile button in the control bar. That button has
+          [data-mobile-secondary] which CSS hides on mobile, so the
+          popup never paints on phones. We render a separate centered
+          bottom-sheet picker via portal so users on mobile can still
+          react. */}
+      {isMobile && emojiPickerOpen && createPortal(
+        <div
+          onClick={() => setEmojiPickerOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 100001,
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            animation: 'meeting-sheet-fade 180ms ease-out',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%',
+              maxWidth: 520,
+              background: '#1f2937',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: '20px 16px calc(28px + env(safe-area-inset-bottom))',
+              boxShadow: '0 -10px 40px rgba(0,0,0,0.4)',
+              animation: 'meeting-sheet-slide 220ms cubic-bezier(0.32,0.72,0.34,1)',
+              pointerEvents: 'auto',
+            }}
+          >
+            <div style={{ width: 40, height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.18)', margin: '0 auto 16px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px 14px' }}>
+              <span style={{ color: '#fff', fontFamily: 'Manrope, Inter, sans-serif', fontWeight: 700, fontSize: 16 }}>
+                Send a reaction
+              </span>
+              <button
+                type="button"
+                onClick={() => setEmojiPickerOpen(false)}
+                aria-label="Close"
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  border: 'none', background: 'rgba(255,255,255,0.12)',
+                  color: '#fff', fontSize: 16, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, 1fr)',
+              gap: 10,
+              padding: '0 8px',
+            }}>
+              {EMOJI_OPTIONS.map(e => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => sendEmoji(e)}
+                  style={{
+                    height: 56,
+                    borderRadius: 14,
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.06)',
+                    color: '#fff',
+                    fontSize: 28,
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'transform 120ms ease, background 120ms ease',
+                  }}
+                  onTouchStart={ev => { (ev.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
+                  onTouchEnd={ev => { (ev.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+                >
+                  {e}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>,
         document.body
       )}

@@ -1597,7 +1597,20 @@ router.post('/recordings/:id/download-token', async (req, res) => {
       { expiresIn: '60s' }
     );
 
-    const apiBase = process.env.API_PUBLIC_URL || '';
+    // Build an absolute URL. Prefer API_PUBLIC_URL when explicitly set,
+    // otherwise derive it from this request — using a relative URL
+    // would resolve against the frontend origin (e.g.
+    // https://www.learnfrenchwithnatives.com) instead of the API
+    // origin, and the browser would download the SPA's index.html
+    // saved as a tiny .mp4 file. Trust the X-Forwarded-* headers
+    // because Express is configured with `trust proxy` in production.
+    let apiBase = process.env.API_PUBLIC_URL;
+    if (!apiBase) {
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+      const host = req.headers['x-forwarded-host'] || req.get('host');
+      apiBase = `${proto}://${host}`;
+    }
+    apiBase = apiBase.replace(/\/$/, ''); // drop trailing slash if any
     // The frontend will GET this URL — it includes the dt query param
     // which our download endpoint validates separately from the normal
     // auth flow.
