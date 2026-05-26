@@ -1289,8 +1289,12 @@ const MeetingRoomUI: React.FC<{
           open={moreDrawerOpen}
           onClose={() => setMoreDrawerOpen(false)}
           closable={false}
+          maskClosable={true}
           styles={{
-            mask: { background: 'rgba(2, 6, 23, 0.65)', backdropFilter: 'blur(4px)' },
+            // Light mask, NO blur — keeps the meeting view sharp and
+            // visible behind the drawer. Tapping anywhere on the mask
+            // closes the drawer (maskClosable=true).
+            mask: { background: 'rgba(2, 6, 23, 0.45)' },
             body: {
               padding: 0,
               background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
@@ -1329,12 +1333,15 @@ const MeetingRoomUI: React.FC<{
               </div>
               <button
                 onClick={() => setMoreDrawerOpen(false)}
-                aria-label="Close"
+                aria-label="Close — back to meeting"
                 style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  border: 'none', background: 'rgba(255,255,255,0.08)',
-                  color: '#e2e8f0', fontSize: 18, cursor: 'pointer',
+                  width: 36, height: 36, borderRadius: '50%',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'rgba(255,255,255,0.1)',
+                  color: '#fff', fontSize: 18, fontWeight: 700,
+                  cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s',
                 }}
               >
                 ✕
