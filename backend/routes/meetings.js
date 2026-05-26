@@ -1067,10 +1067,12 @@ const recordingService = require('../services/recordingService');
 const fs = require('fs');
 const fsPromises = require('fs').promises;
 
-// Helper: can a user access a recording?
-//   - host (teacher who started the meeting)  → yes
-//   - admin                                    → yes
-//   - student in the meeting's batch           → yes
+// Helper: can a user access a recording for streaming/download?
+//
+// Mirrors the listing logic in GET /recordings/list:
+//   • admin → always
+//   • teacher → owns the meeting OR personally started the recording
+//   • student → enrolled in the meeting's batch (regardless of attendance)
 async function canAccessRecording(db, recording, user) {
   if (!recording) return false;
   if (user.role === 'admin') return true;
@@ -1078,7 +1080,11 @@ async function canAccessRecording(db, recording, user) {
   const meeting = await db.get('SELECT teacher_id, batch_id FROM meetings WHERE id = $1', [recording.meeting_id]);
   if (!meeting) return false;
 
-  if (meeting.teacher_id === user.id) return true;
+  if (user.role === 'teacher') {
+    if (meeting.teacher_id === user.id) return true;
+    if (recording.started_by === user.id) return true;
+    return false;
+  }
 
   if (user.role === 'student' && meeting.batch_id) {
     const link = await db.get(
@@ -1295,13 +1301,23 @@ router.post('/:id/recording/stop', async (req, res) => {
 });
 
 // GET /meetings/recordings — list recordings the user can access
+//
+// Access rules (per product spec):
+//   • Admin   → sees everything
+//   • Teacher → sees recordings of meetings THEY created (m.teacher_id = me)
+//               OR recordings they personally started (r.started_by = me),
+//               so a co-teacher who recorded an admin-created meeting still
+//               sees their own recording.
+//   • Student → sees recordings of meetings linked to a batch they belong to
+//               (regardless of whether they personally attended — supports
+//               catching up on missed classes).
 router.get('/recordings/list', async (req, res) => {
   try {
     let rows;
     if (req.user.role === 'admin') {
       rows = await req.db.all(
         `SELECT r.id, r.meeting_id, r.file_name, r.file_size_bytes, r.duration_seconds,
-                r.status, r.started_at, r.ended_at, r.expires_at, r.started_by,
+                r.status, r.started_at, r.ended_at, r.expires_at, r.started_by, r.error_message,
                 m.title AS meeting_title, m.batch_id, m.teacher_id, m.room_name,
                 u.first_name AS host_first_name, u.last_name AS host_last_name,
                 b.name AS batch_name
@@ -1309,13 +1325,16 @@ router.get('/recordings/list', async (req, res) => {
          JOIN meetings m ON m.id = r.meeting_id
          LEFT JOIN users u ON u.id = m.teacher_id
          LEFT JOIN batches b ON b.id = m.batch_id
-         WHERE r.status IN ('recording', 'finalizing', 'ready')
+         WHERE r.status IN ('recording', 'finalizing', 'ready', 'failed')
          ORDER BY r.started_at DESC`
       );
     } else if (req.user.role === 'teacher') {
+      // Teacher sees a recording when they own the meeting OR they started
+      // the recording themselves (covers admin-created meetings + helper
+      // teachers).
       rows = await req.db.all(
         `SELECT r.id, r.meeting_id, r.file_name, r.file_size_bytes, r.duration_seconds,
-                r.status, r.started_at, r.ended_at, r.expires_at, r.started_by,
+                r.status, r.started_at, r.ended_at, r.expires_at, r.started_by, r.error_message,
                 m.title AS meeting_title, m.batch_id, m.teacher_id, m.room_name,
                 u.first_name AS host_first_name, u.last_name AS host_last_name,
                 b.name AS batch_name
@@ -1323,13 +1342,16 @@ router.get('/recordings/list', async (req, res) => {
          JOIN meetings m ON m.id = r.meeting_id
          LEFT JOIN users u ON u.id = m.teacher_id
          LEFT JOIN batches b ON b.id = m.batch_id
-         WHERE r.status IN ('recording', 'finalizing', 'ready')
-           AND m.teacher_id = $1
+         WHERE r.status IN ('recording', 'finalizing', 'ready', 'failed')
+           AND (m.teacher_id = $1 OR r.started_by = $1)
          ORDER BY r.started_at DESC`,
         [req.user.id]
       );
     } else {
-      // student — only recordings for their batches
+      // Student sees recordings of meetings linked to one of their batches
+      // — even if they didn't attend (so they can catch up on missed
+      // classes). Ad-hoc meetings without a batch are NOT shared with
+      // students; only batch-scheduled meetings are.
       rows = await req.db.all(
         `SELECT r.id, r.meeting_id, r.file_name, r.file_size_bytes, r.duration_seconds,
                 r.status, r.started_at, r.ended_at, r.expires_at, r.started_by,

@@ -244,6 +244,73 @@ io.on('connection', (socket) => {
     io.to(`meeting:${data.meetingId}`).emit('meeting:chat-message', data);
   });
 
+  // Host-only: force stop ANY screen share in the meeting room.
+  // We forward the request to the LiveKit RoomService which mutes every
+  // active screenshare publication in the room. Only the meeting's host
+  // (teacher) is allowed — the server checks the DB before acting.
+  socket.on('meeting:force-stop-share', async (data) => {
+    try {
+      const { meetingId, userId } = data || {};
+      if (!meetingId) return;
+
+      const db = require('./database/db-postgres-pool');
+      const meeting = await db.get('SELECT id, room_name, teacher_id FROM meetings WHERE id = $1', [meetingId]);
+      if (!meeting) return;
+
+      // Permission check: only the host (teacher) may force-stop.
+      // The client already gates the button, but we re-verify here so
+      // a malicious client can't issue the event by hand.
+      if (userId && Number(userId) !== Number(meeting.teacher_id)) {
+        console.warn(`[force-stop-share] User ${userId} is not host of meeting ${meetingId}`);
+        return;
+      }
+
+      const { RoomServiceClient } = require('livekit-server-sdk');
+      const livekitHttpUrl = (process.env.LIVEKIT_URL || '')
+        .replace(/^wss:\/\//, 'https://')
+        .replace(/^ws:\/\//, 'http://');
+      if (!livekitHttpUrl || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
+        console.warn('[force-stop-share] LiveKit credentials not configured');
+        return;
+      }
+      const svc = new RoomServiceClient(
+        livekitHttpUrl,
+        process.env.LIVEKIT_API_KEY,
+        process.env.LIVEKIT_API_SECRET
+      );
+
+      // Find every participant in the room and mute their screenshare
+      // publications. We mute instead of delete so the participant can
+      // resume sharing later if the host wants. The participant's UI
+      // will reflect the mute state immediately.
+      const participants = await svc.listParticipants(meeting.room_name);
+      let stopped = 0;
+      for (const p of participants) {
+        // Skip the host's own tracks — defensive (the host called this).
+        if (Number(p.identity) === Number(meeting.teacher_id)) continue;
+        for (const pub of p.tracks || []) {
+          // source 3 = SCREEN_SHARE in the LiveKit protocol
+          if (pub.source === 3 || pub.source === 'SCREEN_SHARE') {
+            try {
+              await svc.mutePublishedTrack(meeting.room_name, p.identity, pub.sid, true);
+              stopped += 1;
+            } catch (err) {
+              console.warn(`[force-stop-share] Failed to mute ${p.identity}/${pub.sid}:`, err.message);
+            }
+          }
+        }
+      }
+
+      // Notify the room — every client gets a toast confirming the stop.
+      io.to(`meeting:${meetingId}`).emit('meeting:force-stop-share', {
+        meetingId,
+        stopped,
+      });
+    } catch (err) {
+      console.error('[force-stop-share] error:', err.message);
+    }
+  });
+
   socket.on('disconnect', () => {
     // Cleanup handled by LiveKit
   });

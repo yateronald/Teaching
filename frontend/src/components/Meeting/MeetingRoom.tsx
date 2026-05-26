@@ -719,6 +719,13 @@ const MeetingRoomUI: React.FC<{
       setMyVote(null);
     });
 
+    // Host stopped a screen share — show toast on whoever was sharing.
+    socket.on('meeting:force-stop-share', (data: { stopped: number }) => {
+      if (data?.stopped > 0) {
+        message.info('A host stopped your screen share.');
+      }
+    });
+
     return () => {
       socket.off('meeting:admission-request');
       socket.off('meeting:chat-message');
@@ -730,6 +737,7 @@ const MeetingRoomUI: React.FC<{
       socket.off('poll:created');
       socket.off('poll:updated');
       socket.off('poll:closed');
+      socket.off('meeting:force-stop-share');
     };
   }, [socket, isHost]);
 
@@ -1359,26 +1367,75 @@ const MeetingRoomUI: React.FC<{
             {/* Screen share — directly call LiveKit's localParticipant API.
                 The previous DOM-click hack on `.screen-share-btn` didn't
                 work because that button is hidden on mobile via
-                `data-mobile-secondary`. */}
-            <DrawerAction
-              icon={<ShareAltOutlined />}
-              label={hasScreenShare ? 'Stop Sharing' : 'Share Screen'}
-              active={hasScreenShare}
-              accent={hasScreenShare ? '#ef4444' : '#22c55e'}
-              onClick={async () => {
-                setMoreDrawerOpen(false);
-                try {
-                  const lp = localParticipant?.localParticipant;
-                  if (!lp) return;
-                  const next = !lp.isScreenShareEnabled;
-                  await lp.setScreenShareEnabled(next);
-                } catch (err: any) {
-                  console.error('Screen share toggle failed:', err);
-                  message.error(err?.message || 'Could not toggle screen share');
-                }
-              }}
-            />
-            {/* Participants */}
+                `data-mobile-secondary`.
+
+                Permission rules:
+                  - Anyone can START sharing their own screen
+                  - Only the OWNER of a share can STOP their own share
+                    (LiveKit enforces this — calling stop with someone
+                    else's track id is a no-op)
+                  - Hosts can stop ANY share via the dedicated "Stop
+                    other's share" action below. */}
+            {(() => {
+              const lp = localParticipant?.localParticipant;
+              const iAmSharing = !!lp?.isScreenShareEnabled;
+              const someoneElseSharing = hasScreenShare && !iAmSharing;
+              return (
+                <DrawerAction
+                  icon={<ShareAltOutlined />}
+                  label={iAmSharing ? 'Stop My Share' : 'Share Screen'}
+                  active={iAmSharing}
+                  accent={iAmSharing ? '#ef4444' : '#22c55e'}
+                  // If someone ELSE is sharing and I'm not the host, the
+                  // platform-level "screen share" doesn't make sense to
+                  // start a new one (LiveKit only allows one active
+                  // screenshare per participant). Disable visually.
+                  loading={false}
+                  onClick={async () => {
+                    setMoreDrawerOpen(false);
+                    if (!lp) return;
+                    if (someoneElseSharing && !isHost) {
+                      message.info('Another participant is sharing. Wait for them to stop first.');
+                      return;
+                    }
+                    try {
+                      const next = !iAmSharing;
+                      await lp.setScreenShareEnabled(next);
+                    } catch (err: any) {
+                      console.error('Screen share toggle failed:', err);
+                      message.error(err?.message || 'Could not toggle screen share');
+                    }
+                  }}
+                />
+              );
+            })()}
+            {/* Host-only: force-stop another participant's screen share.
+                Only shown when (a) I am the host AND (b) someone other
+                than me is currently sharing their screen. */}
+            {isHost && hasScreenShare && !localParticipant?.localParticipant?.isScreenShareEnabled && (
+              <DrawerAction
+                icon={<ShareAltOutlined />}
+                label="Stop Their Share"
+                active={true}
+                accent="#ef4444"
+                onClick={() => {
+                  setMoreDrawerOpen(false);
+                  // Use the host-only socket event handled on the server.
+                  // The server then calls LiveKit's mutePublishedTrack
+                  // for every screenshare track that doesn't belong to
+                  // the host — effectively stopping the offending share.
+                  if (!socket) {
+                    message.error('Connection unavailable');
+                    return;
+                  }
+                  socket.emit('meeting:force-stop-share', {
+                    meetingId: meeting.id,
+                    userId: parseInt(localParticipant.localParticipant.identity),
+                  });
+                  message.success('Requested stop on screen share');
+                }}
+              />
+            )}
             <DrawerAction
               icon={<TeamOutlined />}
               label="Participants"
