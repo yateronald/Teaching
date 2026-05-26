@@ -21,7 +21,8 @@ import {
   RoomAudioRenderer,
 } from '@livekit/components-react';
 import '@livekit/components-styles';
-import { Track } from 'livekit-client';
+import { Track, RoomEvent, VideoQuality } from 'livekit-client';
+import type { LocalTrackPublication, RemoteTrackPublication } from 'livekit-client';
 import { useAuth } from '../../contexts/AuthContext';
 import { io as socketIO } from 'socket.io-client';
 import DeviceSettings from './DeviceSettings';
@@ -412,6 +413,26 @@ const MeetingPage: React.FC = () => {
         audio={true}
         video={true}
         onDisconnected={handleLeaveMeeting}
+        // Screen-share publish defaults — pushes the encoder toward
+        // sharper text and more frequent keyframes when slides change.
+        // The track-level `contentHint` is set inside MeetingRoomUI
+        // once LiveKit publishes the local screenshare publication.
+        options={{
+          publishDefaults: {
+            // Enable simulcast so subscribers can pick a layer that
+            // matches their bandwidth — crucial after reconnects.
+            simulcast: true,
+            // Higher bitrate + 1080p target makes slide text legible.
+            screenShareEncoding: {
+              maxBitrate: 3_000_000, // 3 Mbps — clear text/slides
+              maxFramerate: 15,      // slides don't need 30/60fps
+              priority: 'high',
+            },
+          },
+          // Auto-upgrade subscription quality when bandwidth allows.
+          adaptiveStream: { pixelDensity: 'screen' },
+          dynacast: true,
+        }}
         style={{ height: '100dvh', width: '100vw' }}
       >
         <RoomAudioRenderer />
@@ -445,7 +466,7 @@ const MeetingRoomUI: React.FC<{
   const { message } = App.useApp();
   const participants = useParticipants();
   const localParticipant = useLocalParticipant();
-  useRoomContext(); // keep room context active
+  const room = useRoomContext();
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ sender: string; text: string; time: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -516,6 +537,81 @@ const MeetingRoomUI: React.FC<{
       document.body.style.overflow = '';
     };
   }, []);
+
+  // ── Screen-share encoding optimizations ──
+  //
+  // Two classic WebRTC issues we tackle here:
+  //   (1) Slide-change delay: by default a screenshare track sends mostly
+  //       delta frames, so a sudden full-page change looks like it's
+  //       "patching" in for a second or two. Setting `contentHint = 'detail'`
+  //       on the track tells the browser encoder to prioritize spatial
+  //       fidelity and emit a fresh keyframe when content changes
+  //       drastically — which is exactly what slides do.
+  //   (2) Reconnect catch-up: after a network blip subscribers need a
+  //       keyframe to render the *current* screen state. We bump
+  //       subscription quality back to HIGH on `Reconnected` so the SFU
+  //       sends a fresh keyframe immediately.
+  useEffect(() => {
+    if (!room) return;
+
+    const applyContentHint = (pub: LocalTrackPublication | RemoteTrackPublication) => {
+      if (pub.source !== Track.Source.ScreenShare) return;
+      const mediaTrack = pub.track?.mediaStreamTrack;
+      if (mediaTrack && mediaTrack.kind === 'video') {
+        try {
+          // `contentHint` is a writable property on MediaStreamTrack —
+          // 'detail' tells the encoder this is text-heavy / static-ish
+          // content, which yields sharper frames and faster keyframe
+          // delivery on content changes.
+          (mediaTrack as any).contentHint = 'detail';
+        } catch { /* not all browsers support it */ }
+      }
+    };
+
+    // When the local user starts sharing, set the hint right away.
+    const onLocalPublished = (pub: LocalTrackPublication) => applyContentHint(pub);
+    // When a remote user's screenshare arrives, mark our subscription
+    // quality as HIGH so the SFU sends us the top simulcast layer
+    // immediately (otherwise it can stay on LOW until we ask for more).
+    const onRemoteSubscribed = (_track: any, pub: RemoteTrackPublication) => {
+      if (pub.source !== Track.Source.ScreenShare) return;
+      try { pub.setSubscribed(true); } catch { /* ignore */ }
+      try { (pub as any).setVideoQuality?.(VideoQuality.HIGH); } catch { /* ignore */ }
+    };
+
+    // After a reconnect, walk every remote screenshare and re-request
+    // HIGH quality. The SFU treats this as a PLI request and sends a
+    // fresh keyframe, so the screen "catches up" instead of starting
+    // from a stale P-frame.
+    const onReconnected = () => {
+      room.remoteParticipants.forEach(p => {
+        p.videoTrackPublications.forEach(pub => {
+          if (pub.source === Track.Source.ScreenShare) {
+            try { (pub as any).setVideoQuality?.(VideoQuality.HIGH); } catch { /* ignore */ }
+          }
+        });
+      });
+      // Also re-apply the local content hint in case the encoder reset.
+      room.localParticipant.trackPublications.forEach(pub => {
+        if (pub.kind === Track.Kind.Video) applyContentHint(pub);
+      });
+    };
+
+    room.on(RoomEvent.LocalTrackPublished, onLocalPublished);
+    room.on(RoomEvent.TrackSubscribed, onRemoteSubscribed);
+    room.on(RoomEvent.Reconnected, onReconnected);
+
+    // Apply hint to any tracks already published when we mount.
+    room.localParticipant.trackPublications.forEach(pub => {
+      if (pub.kind === Track.Kind.Video) applyContentHint(pub);
+    });
+
+    return () => {
+      room.off(RoomEvent.LocalTrackPublished, onLocalPublished);
+      room.off(RoomEvent.TrackSubscribed, onRemoteSubscribed);
+      room.off(RoomEvent.Reconnected, onReconnected);
+    };
+  }, [room]);
 
   // Socket listeners
   useEffect(() => {

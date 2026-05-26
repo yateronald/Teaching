@@ -30,10 +30,60 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL;
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 
+// ─────────────────────────────────────────────────────────────────────
+// Recordings storage paths
+//
+// The egress process and the backend often run on different filesystems
+// (egress in Docker, backend on the host) so we keep TWO knobs:
+//
+//   EGRESS_RECORDINGS_DIR   Where the egress WRITES the file. This is
+//                           the path INSIDE the egress container that
+//                           the docker volume mount sees.
+//                           Default: /opt/livekit/recordings (matches
+//                           the standard LiveKit docker-compose layout).
+//
+//   UPLOAD_PATH             Where the backend READS the file. After the
+//                           docker volume mount this is the host-side
+//                           path of the same physical directory.
+//                           Default: ./uploads (relative to backend cwd)
+//                           Recordings go into <UPLOAD_PATH>/recordings.
+//
+// In a single-host docker setup the two paths point at the same physical
+// directory via a `volumes:` bind mount:
+//   /opt/livekit/recordings:/opt/livekit/recordings        (preferred)
+//   <host_path>:/opt/livekit/recordings                    (also works)
+//
+// The backend stores BOTH paths on the meeting_recordings row:
+//   - egress_filepath  → what we asked egress to write
+//   - file_path        → where the backend reads from on its filesystem
+//
+// During reconciliation / streaming we always read from `file_path`, so
+// callers don't need to care about the distinction.
+// ─────────────────────────────────────────────────────────────────────
+
+// Where the EGRESS process writes (path it sees inside the container).
+const EGRESS_RECORDINGS_DIR = (
+    process.env.EGRESS_RECORDINGS_DIR ||
+    '/home/egress/recordings'
+).replace(/\/+$/, '');
+
+// Where the BACKEND reads from (path on the backend's filesystem).
 const UPLOAD_BASE = process.env.UPLOAD_PATH || './uploads';
 const RECORDINGS_DIR = path.resolve(path.join(UPLOAD_BASE, 'recordings'));
 
-// Ensure directory exists at module load
+// If the host-side recordings dir for the egress is also accessible to
+// the backend (single-host setup), prefer that as the read path so we
+// don't need to maintain a separate copy of the file. The standard
+// LiveKit docker-compose layout bind-mounts:
+//   /opt/livekit/recordings (host)  →  /home/egress/recordings (container)
+// so the backend reads from the host side and the egress writes to the
+// container side, both pointing at the same physical file.
+const HOST_EGRESS_DIR = (
+    process.env.HOST_EGRESS_RECORDINGS_DIR ||
+    '/opt/livekit/recordings'
+).replace(/\/+$/, '');
+
+// Ensure directory exists at module load (for the backend's read path).
 try {
     if (!fs.existsSync(RECORDINGS_DIR)) {
         fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -72,21 +122,29 @@ function getRecordingsDir() {
  * @param {object} args
  * @param {string} args.roomName       LiveKit room to record
  * @param {number} args.meetingId      our meeting id (used in filename)
- * @returns {Promise<{ egressId: string, fileName: string, filePath: string }>}
+ * @returns {Promise<{ egressId: string, fileName: string, egressFilePath: string, hostFilePath: string }>}
  */
 async function startRoomRecording({ roomName, meetingId }) {
     const client = getClient();
 
     const fileName = `meeting-${meetingId}-${Date.now()}.mp4`;
-    // The filepath here is RELATIVE to the egress server's filesystem. We use
-    // an absolute path that, in production, must point at a directory shared
-    // with the egress process (or, if running egress in-process on the same
-    // host, the same physical path).
-    const absolutePath = path.join(RECORDINGS_DIR, fileName);
+
+    // Path the EGRESS will write to (inside its container). This must be
+    // a directory the egress process can write to — i.e. one that's
+    // either bind-mounted from the host or owned by the egress user.
+    const egressFilePath = `${EGRESS_RECORDINGS_DIR}/${fileName}`;
+
+    // Path the BACKEND will read from. If the egress dir is bind-mounted
+    // 1:1 to the host (the standard /opt/livekit/recordings layout), we
+    // can read directly from there. Otherwise the backend must have its
+    // own copy via the legacy UPLOAD_PATH/recordings dir.
+    const hostFilePath = HOST_EGRESS_DIR
+        ? `${HOST_EGRESS_DIR}/${fileName}`
+        : path.join(RECORDINGS_DIR, fileName);
 
     const fileOutput = new EncodedFileOutput({
         fileType: EncodedFileType.MP4,
-        filepath: absolutePath,
+        filepath: egressFilePath,
         // No S3/Azure/GCP upload — keep files local.
         disableManifest: true,
     });
@@ -105,7 +163,11 @@ async function startRoomRecording({ roomName, meetingId }) {
         return {
             egressId: info.egressId,
             fileName,
-            filePath: absolutePath,
+            // Backwards-compatible field name for callers that already
+            // store `filePath` on the recording row.
+            filePath: hostFilePath,
+            egressFilePath,
+            hostFilePath,
             startedAtUnixMs: Number(info.startedAt) || Date.now(),
         };
     } catch (err) {
@@ -158,5 +220,7 @@ module.exports = {
     stopRecording,
     getEgress,
     getRecordingsDir,
+    getEgressRecordingsDir: () => EGRESS_RECORDINGS_DIR,
+    getHostEgressDir: () => HOST_EGRESS_DIR,
     computeExpiry,
 };
