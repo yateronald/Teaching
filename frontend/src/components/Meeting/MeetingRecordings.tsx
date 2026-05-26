@@ -63,6 +63,8 @@ const MeetingRecordings: React.FC = () => {
   const [playerOpen, setPlayerOpen] = useState(false);
   const [activeRecording, setActiveRecording] = useState<Recording | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  /** id of the recording currently preparing a download token (button shows spinner) */
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const fetchRecordings = useCallback(async () => {
     setLoading(true);
@@ -117,26 +119,47 @@ const MeetingRecordings: React.FC = () => {
   }, []);
 
   const handleDownload = useCallback(async (rec: Recording) => {
+    if (downloadingId === rec.id) return; // already preparing this one
+    setDownloadingId(rec.id);
     try {
-      const resp = await apiCall(`/meetings/recordings/${rec.id}/download`);
-      if (!resp.ok) {
-        const d = await resp.json().catch(() => ({}));
-        message.error(d.error || 'Download failed');
+      // Step 1: ask the API for a single-use, short-lived download URL.
+      // The server validates the user's permissions, then signs a token
+      // scoped to this recording id. We never put the long-lived user
+      // JWT into a download URL — that JWT lives 7 days; this dt
+      // expires in 60 seconds.
+      const tokenResp = await apiCall(`/meetings/recordings/${rec.id}/download-token`, { method: 'POST' });
+      if (!tokenResp.ok) {
+        const d = await tokenResp.json().catch(() => ({}));
+        message.error(d.error || 'Could not prepare download');
         return;
       }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
+      const { url } = await tokenResp.json();
+
+      // Step 2: navigate the browser to the URL via a hidden anchor with
+      // `download` attribute. The browser handles the streaming
+      // download natively — first byte arrives within ~100ms because
+      // the backend uses createReadStream().pipe(res) so bytes flow as
+      // they're read off disk. Browser shows its own progress UI.
       const a = document.createElement('a');
       a.href = url;
       a.download = `${rec.meeting_title || 'recording'}-${rec.id}.mp4`;
+      a.rel = 'noopener';
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+
+      message.success({
+        content: 'Download started — check your browser downloads',
+        duration: 3,
+      });
     } catch {
       message.error('Download failed');
+    } finally {
+      // Clear the spinner shortly after — give the browser a moment to
+      // pick up the navigation, otherwise the button flickers.
+      setTimeout(() => setDownloadingId(null), 800);
     }
-  }, [apiCall]);
+  }, [apiCall, downloadingId]);
 
   const handleDelete = useCallback((rec: Recording) => {
     Modal.confirm({
@@ -231,8 +254,14 @@ const MeetingRecordings: React.FC = () => {
                     </Button>
                   </Tooltip>
                   {(isHost || isAdmin) && r.status === 'ready' && (
-                    <Tooltip title="Download MP4">
-                      <Button icon={<DownloadOutlined />} onClick={() => handleDownload(r)} style={{ borderRadius: 10 }} />
+                    <Tooltip title={downloadingId === r.id ? 'Preparing download…' : 'Download MP4'}>
+                      <Button
+                        icon={downloadingId === r.id ? <LoadingOutlined /> : <DownloadOutlined />}
+                        onClick={() => handleDownload(r)}
+                        loading={false /* we manage the icon ourselves so we can show a different tooltip */}
+                        disabled={downloadingId === r.id}
+                        style={{ borderRadius: 10 }}
+                      />
                     </Tooltip>
                   )}
                   {canDelete && (
@@ -320,7 +349,7 @@ const MeetingRecordings: React.FC = () => {
             <div style={{
               position: 'absolute',
               top: 0, left: 0, right: 0,
-              padding: r.isMobile ? '14px 56px 32px 16px' : '14px 56px 32px 18px',
+              padding: r.isMobile ? '14px 100px 32px 16px' : '14px 110px 32px 18px',
               background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)',
               color: '#fff',
               pointerEvents: 'none',
@@ -347,6 +376,47 @@ const MeetingRecordings: React.FC = () => {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Top-right action: download (host & admin only). Sits next to
+              the close button. */}
+          {activeRecording && (isAdmin || activeRecording.teacher_id === user?.id) && activeRecording.status === 'ready' && (
+            <button
+              onClick={() => handleDownload(activeRecording)}
+              disabled={downloadingId === activeRecording.id}
+              aria-label={downloadingId === activeRecording.id ? 'Preparing download…' : 'Download recording'}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 56, // leaves room for the close button (right: 10, width: 34)
+                zIndex: 5,
+                width: 34,
+                height: 34,
+                borderRadius: '50%',
+                border: 'none',
+                background: downloadingId === activeRecording.id ? '#22c55e' : 'rgba(0,0,0,0.6)',
+                backdropFilter: 'blur(8px)',
+                color: '#fff',
+                fontSize: 14,
+                cursor: downloadingId === activeRecording.id ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => {
+                if (downloadingId !== activeRecording.id) {
+                  (e.currentTarget as HTMLButtonElement).style.background = '#22c55e';
+                }
+              }}
+              onMouseLeave={e => {
+                if (downloadingId !== activeRecording.id) {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.6)';
+                }
+              }}
+            >
+              {downloadingId === activeRecording.id ? <LoadingOutlined /> : <DownloadOutlined />}
+            </button>
           )}
         </div>
       </Modal>

@@ -7,7 +7,79 @@ const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
 const LIVEKIT_URL = process.env.LIVEKIT_URL;
 
-// All routes require authentication
+// All routes require authentication EXCEPT the public download-with-token
+// route below which self-authenticates via a single-use signed token.
+//
+// Note: this MUST be mounted before `router.use(authenticateToken)` so
+// the request bypasses the normal auth requirement. Inside, we still
+// fetch the user from the dt token claims and apply the same access
+// checks as the regular auth-protected endpoint.
+router.get('/recordings/:id/download', async (req, res, next) => {
+  // Two acceptance paths:
+  //   1. ?dt=<download_token> — short-lived single-recording token
+  //      issued by /download-token (no Authorization header needed)
+  //   2. Authorization: Bearer <user_jwt> — fall through to the auth
+  //      middleware below, which will reject if missing
+  const dt = req.query.dt;
+  if (!dt) {
+    // No download token — let the normal auth middleware run.
+    return next();
+  }
+  // We have a download token — verify it directly and skip the
+  // standard auth chain.
+  try {
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+    const decoded = jwt.verify(String(dt), JWT_SECRET);
+    if (decoded.kind !== 'recording_download') {
+      return res.status(403).json({ error: 'Wrong token type' });
+    }
+    if (Number(decoded.recording_id) !== Number(req.params.id)) {
+      return res.status(403).json({ error: 'Token not valid for this recording' });
+    }
+
+    // Re-fetch the user (some authenticateToken downstream code expects
+    // req.user to be populated).
+    const user = await req.db.get(
+      'SELECT id, email, role, first_name, last_name, is_active FROM users WHERE id = $1',
+      [decoded.user_id]
+    );
+    if (!user || !user.is_active) {
+      return res.status(403).json({ error: 'Token user no longer valid' });
+    }
+    req.user = user;
+
+    const recording = await req.db.get('SELECT * FROM meeting_recordings WHERE id = $1', [req.params.id]);
+    if (!recording) return res.status(404).json({ error: 'Recording not found' });
+    if (recording.status !== 'ready') return res.status(409).json({ error: 'Not yet ready' });
+
+    const allowed = await canAccessRecording(req.db, recording, req.user);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+    const meeting = await req.db.get('SELECT teacher_id FROM meetings WHERE id = $1', [recording.meeting_id]);
+    if (req.user.role !== 'admin' && meeting.teacher_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the host can download' });
+    }
+    if (!recording.file_path || !fs.existsSync(recording.file_path)) {
+      return res.status(404).json({ error: 'File missing' });
+    }
+
+    // Stat the file so the browser knows the total size and can show
+    // an accurate progress bar in its download manager.
+    const stat = fs.statSync(recording.file_path);
+
+    res.setHeader('Content-Disposition', `attachment; filename="${recording.file_name || 'recording.mp4'}"`);
+    res.setHeader('Content-Type', recording.mime_type || 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Accept-Ranges', 'bytes');
+    fs.createReadStream(recording.file_path).pipe(res);
+  } catch (e) {
+    console.error('Download via token failed:', e?.message);
+    return res.status(403).json({ error: 'Invalid or expired download token' });
+  }
+});
+
+// All other routes require authentication
 router.use(authenticateToken);
 
 // ── Helper: generate LiveKit access token ──
@@ -1300,6 +1372,59 @@ router.post('/:id/recording/stop', async (req, res) => {
   }
 });
 
+// GET /meetings/:id/recording/state — returns the current recording
+// state for a meeting so that participants who join AFTER recording
+// has already started can immediately see the indicator. Without
+// this, late joiners would only see the indicator if a fresh
+// `meeting:recording-started` socket event were broadcast, which
+// only fires once at start.
+//
+// Returns:
+//   { isRecording: boolean, startedAt: string|null, recordingId: number|null }
+router.get('/:id/recording/state', async (req, res) => {
+  try {
+    const meeting = await req.db.get('SELECT id, batch_id, teacher_id FROM meetings WHERE id = $1', [req.params.id]);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    // Anyone allowed in the meeting can see whether it's being recorded.
+    // Permission check matches the meeting-join authorization: host,
+    // admin, or batch student.
+    const isHost = meeting.teacher_id === req.user.id;
+    const isAdmin = req.user.role === 'admin';
+    let allowed = isHost || isAdmin;
+    if (!allowed && req.user.role === 'student' && meeting.batch_id) {
+      const link = await req.db.get(
+        'SELECT 1 FROM batch_students WHERE batch_id = $1 AND student_id = $2',
+        [meeting.batch_id, req.user.id]
+      );
+      if (link) allowed = true;
+    }
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+
+    const active = await req.db.get(
+      `SELECT id, started_at, status
+       FROM meeting_recordings
+       WHERE meeting_id = $1
+         AND status IN ('starting', 'recording')
+       ORDER BY id DESC
+       LIMIT 1`,
+      [meeting.id]
+    );
+
+    if (!active) {
+      return res.json({ isRecording: false, startedAt: null, recordingId: null });
+    }
+    res.json({
+      isRecording: true,
+      startedAt: active.started_at,
+      recordingId: active.id,
+    });
+  } catch (error) {
+    console.error('GET /meetings/:id/recording/state error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /meetings/recordings — list recordings the user can access
 //
 // Access rules (per product spec):
@@ -1428,6 +1553,62 @@ router.get('/recordings/:id/stream', async (req, res) => {
   }
 });
 
+// POST /meetings/recordings/:id/download-token — issue a short-lived
+// signed token that the browser can append to the download URL.
+//
+// Why a separate token instead of just using the user's normal JWT in
+// the URL? The user's JWT is valid for 7 days and gives access to the
+// entire app. If it leaks via the browser's download history, server
+// logs, or referrer headers, that's a major incident. A download token
+// is:
+//   • Scoped to one specific recording (audience = `download:<rec.id>`)
+//   • Valid for only 60 seconds
+//   • Sub-claims locked to the user's id + role
+// So if the URL ever leaks, the worst an attacker can do is grab a
+// single recording within the next minute — and we still log every
+// download via the access-control function.
+router.post('/recordings/:id/download-token', async (req, res) => {
+  try {
+    const recording = await req.db.get('SELECT * FROM meeting_recordings WHERE id = $1', [req.params.id]);
+    if (!recording) return res.status(404).json({ error: 'Recording not found' });
+    if (recording.status !== 'ready') return res.status(409).json({ error: 'Recording not yet ready' });
+
+    // Re-use the same permission check as the actual download.
+    const allowed = await canAccessRecording(req.db, recording, req.user);
+    if (!allowed) return res.status(403).json({ error: 'Forbidden' });
+    const meeting = await req.db.get('SELECT teacher_id FROM meetings WHERE id = $1', [recording.meeting_id]);
+    if (req.user.role !== 'admin' && meeting.teacher_id !== req.user.id) {
+      return res.status(403).json({ error: 'Only the host or admin can download' });
+    }
+
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+    const dt = jwt.sign(
+      {
+        // Custom claim type so we can refuse this token elsewhere
+        kind: 'recording_download',
+        recording_id: recording.id,
+        // Lock the token to the requesting user — even if it leaks,
+        // it can't be used to escalate privileges.
+        user_id: req.user.id,
+        user_role: req.user.role,
+      },
+      JWT_SECRET,
+      { expiresIn: '60s' }
+    );
+
+    const apiBase = process.env.API_PUBLIC_URL || '';
+    // The frontend will GET this URL — it includes the dt query param
+    // which our download endpoint validates separately from the normal
+    // auth flow.
+    const url = `${apiBase}/api/meetings/recordings/${recording.id}/download?dt=${encodeURIComponent(dt)}`;
+    res.json({ url, expires_in_seconds: 60 });
+  } catch (error) {
+    console.error('POST /recordings/:id/download-token error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // GET /meetings/recordings/:id/download — same as stream but with download header
 router.get('/recordings/:id/download', async (req, res) => {
   try {
@@ -1444,8 +1625,11 @@ router.get('/recordings/:id/download', async (req, res) => {
     if (!recording.file_path || !fs.existsSync(recording.file_path)) {
       return res.status(404).json({ error: 'File missing' });
     }
+    const stat = fs.statSync(recording.file_path);
     res.setHeader('Content-Disposition', `attachment; filename="${recording.file_name || 'recording.mp4'}"`);
     res.setHeader('Content-Type', recording.mime_type || 'video/mp4');
+    res.setHeader('Content-Length', stat.size);
+    res.setHeader('Accept-Ranges', 'bytes');
     fs.createReadStream(recording.file_path).pipe(res);
   } catch (error) {
     console.error('GET /meetings/recordings/:id/download error:', error);

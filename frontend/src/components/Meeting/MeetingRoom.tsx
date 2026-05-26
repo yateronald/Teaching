@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App, Drawer } from 'antd';
+import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App } from 'antd';
 import {
   AudioMutedOutlined, VideoCameraOutlined,
   PhoneOutlined, TeamOutlined, MessageOutlined,
@@ -857,6 +857,30 @@ const MeetingRoomUI: React.FC<{
     };
   }, [socket, meeting.id]);
 
+  // ── Hydrate recording state on mount ──
+  // Late joiners (students who arrive after the host started recording)
+  // never receive the `meeting:recording-started` socket event because
+  // it only fires once at the moment of start. Without an explicit
+  // fetch they would never see the recording indicator. Hit the
+  // dedicated state endpoint once on mount to get the current value.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await apiCall(`/meetings/${meeting.id}/recording/state`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (cancelled) return;
+        if (data?.isRecording && data?.startedAt) {
+          setIsRecording(true);
+          setRecordingStartedAt(new Date(data.startedAt).getTime());
+          setRecordingElapsed(Math.floor((Date.now() - new Date(data.startedAt).getTime()) / 1000));
+        }
+      } catch { /* ignore — falls back to socket events */ }
+    })();
+    return () => { cancelled = true; };
+  }, [apiCall, meeting.id]);
+
   const toggleRecording = useCallback(async () => {
     if (recordingLoading) return;
     setRecordingLoading(true);
@@ -1288,228 +1312,220 @@ const MeetingRoomUI: React.FC<{
         </div>
       </div>
 
-      {/* Mobile More Drawer — collects all secondary actions into a tap-friendly grid. */}
-      {isMobile && (
-        <Drawer
-          title={null}
-          placement="bottom"
-          height="auto"
-          open={moreDrawerOpen}
-          onClose={() => setMoreDrawerOpen(false)}
-          closable={false}
-          maskClosable={true}
-          styles={{
-            // Light mask, NO blur — keeps the meeting view sharp and
-            // visible behind the drawer. Tapping anywhere on the mask
-            // closes the drawer (maskClosable=true).
-            mask: { background: 'rgba(2, 6, 23, 0.45)' },
-            body: {
-              padding: 0,
+      {/* ── Mobile More bottom sheet ──
+          Custom portal-rendered sheet (instead of antd Drawer) because:
+          1. The meeting room itself is mounted via createPortal to
+             document.body at z-index 9999 — antd's Drawer was rendering
+             inside that portal and inheriting pointer-event quirks.
+          2. We control the exact stacking and pointer-events here so
+             every action button reliably receives clicks.
+          3. The sheet escapes ALL parent containers via its own portal
+             to document.body. */}
+      {isMobile && moreDrawerOpen && createPortal(
+        <div
+          // Outer backdrop — tapping it closes the sheet, just like a
+          // typical bottom-sheet pattern.
+          onClick={() => setMoreDrawerOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 6, 23, 0.55)',
+            zIndex: 100000, // above the meeting room (9999) and any side panels
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'flex-end',
+            animation: 'meeting-sheet-fade 0.18s ease-out',
+            // Make sure the entire backdrop is interactive — this was
+            // the key bug with the previous Drawer impl.
+            pointerEvents: 'auto',
+          }}
+        >
+          <div
+            // Stop propagation so taps inside the sheet don't bubble up
+            // to the backdrop (which would close it).
+            onClick={(e) => e.stopPropagation()}
+            style={{
               background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-              color: '#fff',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              overflow: 'hidden',
-            },
-            header: { display: 'none' },
-            content: {
-              background: 'transparent',
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               boxShadow: '0 -10px 40px rgba(0, 0, 0, 0.45)',
-            },
-            wrapper: {
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              boxShadow: 'none',
-            },
-          }}
-        >
-          {/* Custom header with grabber bar */}
-          <div style={{ padding: '12px 18px 0', position: 'relative' }}>
-            <div style={{
-              width: 40, height: 4, borderRadius: 999,
-              background: 'rgba(255,255,255,0.25)',
-              margin: '0 auto 12px',
-            }} />
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              color: '#fff',
+              animation: 'meeting-sheet-slide 0.22s ease-out',
+              maxHeight: '85dvh',
+              overflowY: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              pointerEvents: 'auto',
+            }}
+          >
+            {/* Header with grabber bar */}
+            <div style={{ padding: '12px 18px 0' }}>
               <div style={{
-                fontSize: 15, fontWeight: 700, color: '#fff',
-                letterSpacing: -0.2,
-              }}>
-                More options
+                width: 40, height: 4, borderRadius: 999,
+                background: 'rgba(255,255,255,0.25)',
+                margin: '0 auto 12px',
+              }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: -0.2 }}>
+                  More options
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMoreDrawerOpen(false)}
+                  aria-label="Close"
+                  style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    background: 'rgba(255,255,255,0.1)',
+                    color: '#fff', fontSize: 18, fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                onClick={() => setMoreDrawerOpen(false)}
-                aria-label="Close — back to meeting"
-                style={{
-                  width: 36, height: 36, borderRadius: '50%',
-                  border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.1)',
-                  color: '#fff', fontSize: 18, fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'all 0.15s',
-                }}
-              >
-                ✕
-              </button>
+            </div>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 10,
+              padding: '0 16px',
+              paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
+            }}>
+              {/* Screen share */}
+              {(() => {
+                const lp = localParticipant?.localParticipant;
+                const iAmSharing = !!lp?.isScreenShareEnabled;
+                const someoneElseSharing = hasScreenShare && !iAmSharing;
+                return (
+                  <DrawerAction
+                    icon={<ShareAltOutlined />}
+                    label={iAmSharing ? 'Stop My Share' : 'Share Screen'}
+                    active={iAmSharing}
+                    accent={iAmSharing ? '#ef4444' : '#22c55e'}
+                    onClick={async () => {
+                      setMoreDrawerOpen(false);
+                      if (!lp) return;
+                      if (someoneElseSharing && !isHost) {
+                        message.info('Another participant is sharing. Wait for them to stop first.');
+                        return;
+                      }
+                      try {
+                        await lp.setScreenShareEnabled(!iAmSharing);
+                      } catch (err: any) {
+                        console.error('Screen share toggle failed:', err);
+                        message.error(err?.message || 'Could not toggle screen share');
+                      }
+                    }}
+                  />
+                );
+              })()}
+              {/* Host-only stop-other-share */}
+              {isHost && hasScreenShare && !localParticipant?.localParticipant?.isScreenShareEnabled && (
+                <DrawerAction
+                  icon={<ShareAltOutlined />}
+                  label="Stop Their Share"
+                  active={true}
+                  accent="#ef4444"
+                  onClick={() => {
+                    setMoreDrawerOpen(false);
+                    if (!socket) {
+                      message.error('Connection unavailable');
+                      return;
+                    }
+                    socket.emit('meeting:force-stop-share', {
+                      meetingId: meeting.id,
+                      userId: parseInt(localParticipant.localParticipant.identity),
+                    });
+                    message.success('Requested stop on screen share');
+                  }}
+                />
+              )}
+              <DrawerAction
+                icon={<TeamOutlined />}
+                label="Participants"
+                badgeCount={participants.length}
+                active={participantsOpen}
+                onClick={() => { setParticipantsOpen(true); setMoreDrawerOpen(false); }}
+              />
+              <DrawerAction
+                icon={<HighlightOutlined />}
+                label="Whiteboard"
+                active={whiteboardOpen}
+                onClick={() => { setWhiteboardOpen(!whiteboardOpen); setMoreDrawerOpen(false); }}
+              />
+              <DrawerAction
+                icon={<SmileOutlined />}
+                label="Reactions"
+                active={emojiPickerOpen}
+                onClick={() => { setEmojiPickerOpen(true); setMoreDrawerOpen(false); }}
+              />
+              <DrawerAction
+                icon={<SettingOutlined />}
+                label="Settings"
+                active={settingsOpen}
+                onClick={() => { setSettingsOpen(!settingsOpen); setMoreDrawerOpen(false); }}
+              />
+              {isHost && (
+                <>
+                  <DrawerAction
+                    icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
+                    label={isLocked ? 'Unlock' : 'Lock'}
+                    active={isLocked}
+                    accent={isLocked ? '#ef4444' : undefined}
+                    onClick={() => { handleToggleLock(); setMoreDrawerOpen(false); }}
+                  />
+                  <DrawerAction
+                    icon={<span style={{
+                      display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
+                      background: '#ef4444',
+                      animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
+                    }} />}
+                    label={isRecording ? `Recording ${fmtRecTime(recordingElapsed)}` : 'Record'}
+                    active={isRecording}
+                    accent="#ef4444"
+                    loading={recordingLoading}
+                    onClick={() => { toggleRecording(); setMoreDrawerOpen(false); }}
+                  />
+                  <DrawerAction
+                    icon={<SoundOutlined />}
+                    label="Announce"
+                    active={showAnnouncementInput}
+                    onClick={() => { setShowAnnouncementInput(!showAnnouncementInput); setMoreDrawerOpen(false); }}
+                  />
+                  <DrawerAction
+                    icon={<BarChartOutlined />}
+                    label="Polls"
+                    active={pollPanelOpen}
+                    onClick={() => { setPollPanelOpen(!pollPanelOpen); setMoreDrawerOpen(false); }}
+                  />
+                </>
+              )}
+              {activePoll && !isHost && (
+                <DrawerAction
+                  icon={<BarChartOutlined />}
+                  label="Active Poll"
+                  accent="#f59e0b"
+                  onClick={() => { setPollPanelOpen(true); setMoreDrawerOpen(false); }}
+                />
+              )}
             </div>
           </div>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 10,
-            padding: '0 16px 24px',
-            paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
-          }}>
-            {/* Screen share — directly call LiveKit's localParticipant API.
-                The previous DOM-click hack on `.screen-share-btn` didn't
-                work because that button is hidden on mobile via
-                `data-mobile-secondary`.
-
-                Permission rules:
-                  - Anyone can START sharing their own screen
-                  - Only the OWNER of a share can STOP their own share
-                    (LiveKit enforces this — calling stop with someone
-                    else's track id is a no-op)
-                  - Hosts can stop ANY share via the dedicated "Stop
-                    other's share" action below. */}
-            {(() => {
-              const lp = localParticipant?.localParticipant;
-              const iAmSharing = !!lp?.isScreenShareEnabled;
-              const someoneElseSharing = hasScreenShare && !iAmSharing;
-              return (
-                <DrawerAction
-                  icon={<ShareAltOutlined />}
-                  label={iAmSharing ? 'Stop My Share' : 'Share Screen'}
-                  active={iAmSharing}
-                  accent={iAmSharing ? '#ef4444' : '#22c55e'}
-                  // If someone ELSE is sharing and I'm not the host, the
-                  // platform-level "screen share" doesn't make sense to
-                  // start a new one (LiveKit only allows one active
-                  // screenshare per participant). Disable visually.
-                  loading={false}
-                  onClick={async () => {
-                    setMoreDrawerOpen(false);
-                    if (!lp) return;
-                    if (someoneElseSharing && !isHost) {
-                      message.info('Another participant is sharing. Wait for them to stop first.');
-                      return;
-                    }
-                    try {
-                      const next = !iAmSharing;
-                      await lp.setScreenShareEnabled(next);
-                    } catch (err: any) {
-                      console.error('Screen share toggle failed:', err);
-                      message.error(err?.message || 'Could not toggle screen share');
-                    }
-                  }}
-                />
-              );
-            })()}
-            {/* Host-only: force-stop another participant's screen share.
-                Only shown when (a) I am the host AND (b) someone other
-                than me is currently sharing their screen. */}
-            {isHost && hasScreenShare && !localParticipant?.localParticipant?.isScreenShareEnabled && (
-              <DrawerAction
-                icon={<ShareAltOutlined />}
-                label="Stop Their Share"
-                active={true}
-                accent="#ef4444"
-                onClick={() => {
-                  setMoreDrawerOpen(false);
-                  // Use the host-only socket event handled on the server.
-                  // The server then calls LiveKit's mutePublishedTrack
-                  // for every screenshare track that doesn't belong to
-                  // the host — effectively stopping the offending share.
-                  if (!socket) {
-                    message.error('Connection unavailable');
-                    return;
-                  }
-                  socket.emit('meeting:force-stop-share', {
-                    meetingId: meeting.id,
-                    userId: parseInt(localParticipant.localParticipant.identity),
-                  });
-                  message.success('Requested stop on screen share');
-                }}
-              />
-            )}
-            <DrawerAction
-              icon={<TeamOutlined />}
-              label="Participants"
-              badgeCount={participants.length}
-              active={participantsOpen}
-              onClick={() => { setParticipantsOpen(true); setMoreDrawerOpen(false); }}
-            />
-            {/* Whiteboard */}
-            <DrawerAction
-              icon={<HighlightOutlined />}
-              label="Whiteboard"
-              active={whiteboardOpen}
-              onClick={() => { setWhiteboardOpen(!whiteboardOpen); setMoreDrawerOpen(false); }}
-            />
-            {/* Emoji */}
-            <DrawerAction
-              icon={<SmileOutlined />}
-              label="Reactions"
-              active={emojiPickerOpen}
-              onClick={() => { setEmojiPickerOpen(true); setMoreDrawerOpen(false); }}
-            />
-            {/* Settings */}
-            <DrawerAction
-              icon={<SettingOutlined />}
-              label="Settings"
-              active={settingsOpen}
-              onClick={() => { setSettingsOpen(!settingsOpen); setMoreDrawerOpen(false); }}
-            />
-            {/* Host-only actions */}
-            {isHost && (
-              <>
-                <DrawerAction
-                  icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
-                  label={isLocked ? 'Unlock' : 'Lock'}
-                  active={isLocked}
-                  accent={isLocked ? '#ef4444' : undefined}
-                  onClick={() => { handleToggleLock(); setMoreDrawerOpen(false); }}
-                />
-                <DrawerAction
-                  icon={<span style={{
-                    display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
-                    background: '#ef4444',
-                    animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
-                  }} />}
-                  label={isRecording ? `Recording ${fmtRecTime(recordingElapsed)}` : 'Record'}
-                  active={isRecording}
-                  accent="#ef4444"
-                  loading={recordingLoading}
-                  onClick={() => { toggleRecording(); setMoreDrawerOpen(false); }}
-                />
-                <DrawerAction
-                  icon={<SoundOutlined />}
-                  label="Announce"
-                  active={showAnnouncementInput}
-                  onClick={() => { setShowAnnouncementInput(!showAnnouncementInput); setMoreDrawerOpen(false); }}
-                />
-                <DrawerAction
-                  icon={<BarChartOutlined />}
-                  label="Polls"
-                  active={pollPanelOpen}
-                  onClick={() => { setPollPanelOpen(!pollPanelOpen); setMoreDrawerOpen(false); }}
-                />
-              </>
-            )}
-            {activePoll && !isHost && (
-              <DrawerAction
-                icon={<BarChartOutlined />}
-                label="Active Poll"
-                accent="#f59e0b"
-                onClick={() => { setPollPanelOpen(true); setMoreDrawerOpen(false); }}
-              />
-            )}
-          </div>
-        </Drawer>
+          <style>{`
+            @keyframes meeting-sheet-fade {
+              from { opacity: 0; }
+              to   { opacity: 1; }
+            }
+            @keyframes meeting-sheet-slide {
+              from { transform: translateY(100%); }
+              to   { transform: translateY(0); }
+            }
+          `}</style>
+        </div>,
+        document.body
       )}
 
       {/* Chat Panel */}
