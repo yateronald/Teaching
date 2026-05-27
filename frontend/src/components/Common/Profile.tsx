@@ -29,6 +29,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
 import TimezoneSelect from './TimezoneSelect';
+import useResponsive from '../../hooks/useResponsive';
 
 const { Text } = Typography;
 
@@ -76,39 +77,95 @@ const ROLE_CONFIG: Record<string, { label: string; bg: string; color: string; do
     student: { label: 'Student',       bg: '#dcfce7', color: '#15803d', dot: '#22c55e', gradient: 'linear-gradient(135deg, #22c55e, #16a34a)' },
 };
 
-/* ── Small field display row ── */
-const InfoRow = ({ icon, label, value, mono = false }: { icon: React.ReactNode; label: string; value: string; mono?: boolean }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid #f0f0f8' }}>
-        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f4f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 15, flexShrink: 0 }}>
+/* ── Small field display row ──
+ * Uses a flex layout that adapts to compact screens by stacking.
+ */
+const InfoRow = ({ icon, label, value, mono = false, compact = false }: { icon: React.ReactNode; label: string; value: string; mono?: boolean; compact?: boolean }) => (
+    <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: compact ? 12 : 14,
+        padding: compact ? '12px 0' : '14px 0',
+        borderBottom: '1px solid #f0f0f8',
+    }}>
+        <div style={{
+            width: compact ? 32 : 36,
+            height: compact ? 32 : 36,
+            borderRadius: 10,
+            background: '#f4f3ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#6366f1',
+            fontSize: compact ? 13 : 15,
+            flexShrink: 0,
+        }}>
             {icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1d2e', fontFamily: mono ? 'monospace' : undefined }}>{value || '—'}</div>
+            <div style={{
+                fontSize: compact ? 10 : 11,
+                fontWeight: 600,
+                color: '#94a3b8',
+                textTransform: 'uppercase',
+                letterSpacing: 0.6,
+                marginBottom: 2,
+            }}>{label}</div>
+            <div style={{
+                fontSize: compact ? 13 : 14,
+                fontWeight: 600,
+                color: '#1a1d2e',
+                fontFamily: mono ? 'monospace' : undefined,
+                wordBreak: 'break-word',
+                lineHeight: 1.35,
+            }}>{value || '—'}</div>
         </div>
     </div>
 );
 
-/* ── Security action row ── */
-const SecurityRow = ({ icon, title, subtitle, actionLabel, onAction, danger = false }: {
-    icon: React.ReactNode; title: string; subtitle: string; actionLabel: string; onAction: () => void; danger?: boolean;
+/* ── Security action row ──
+ * On compact screens stacks the action button below the title to give
+ * it room to breathe — on desktop keeps the button on the right.
+ */
+const SecurityRow = ({ icon, title, subtitle, actionLabel, onAction, danger = false, compact = false }: {
+    icon: React.ReactNode; title: string; subtitle: string; actionLabel: string; onAction: () => void; danger?: boolean; compact?: boolean;
 }) => (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 0', borderBottom: '1px solid #f0f0f8' }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: danger ? '#fff1f2' : '#f4f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: danger ? '#ef4444' : '#6366f1', fontSize: 18, flexShrink: 0 }}>
+    <div style={{
+        display: 'flex',
+        alignItems: compact ? 'flex-start' : 'center',
+        gap: compact ? 12 : 16,
+        padding: compact ? '14px 0' : '16px 0',
+        borderBottom: '1px solid #f0f0f8',
+        flexWrap: compact ? 'wrap' : 'nowrap',
+    }}>
+        <div style={{
+            width: compact ? 36 : 40,
+            height: compact ? 36 : 40,
+            borderRadius: 12,
+            background: danger ? '#fff1f2' : '#f4f3ff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: danger ? '#ef4444' : '#6366f1',
+            fontSize: compact ? 16 : 18,
+            flexShrink: 0,
+        }}>
             {icon}
         </div>
-        <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 2 }}>{title}</div>
-            <div style={{ fontSize: 12, color: '#94a3b8' }}>{subtitle}</div>
+        <div style={{ flex: compact ? '1 1 calc(100% - 48px)' : 1, minWidth: 0 }}>
+            <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 2 }}>{title}</div>
+            <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8', lineHeight: 1.4 }}>{subtitle}</div>
         </div>
         <Button
             onClick={onAction}
+            block={compact}
             style={{
-                borderRadius: 10, fontWeight: 600, fontSize: 13, height: 36,
+                borderRadius: 10, fontWeight: 600,
+                fontSize: compact ? 12.5 : 13,
+                height: compact ? 38 : 36,
                 borderColor: danger ? '#fecaca' : '#e0e7ff',
                 color: danger ? '#ef4444' : '#6366f1',
                 background: danger ? '#fff1f2' : '#f4f3ff',
-                paddingInline: 18,
+                paddingInline: compact ? 14 : 18,
+                marginLeft: compact ? 48 : 0,
+                marginTop: compact ? 2 : 0,
+                width: compact ? 'calc(100% - 48px)' : 'auto',
             }}
         >
             {actionLabel}
@@ -118,6 +175,10 @@ const SecurityRow = ({ icon, title, subtitle, actionLabel, onAction, danger = fa
 
 const Profile: React.FC = () => {
     const { apiCall, updateProfile, changePassword, isAdmin, token, refreshUser } = useAuth();
+    const responsive = useResponsive();
+    // Compact = phone-width (<768): stacks fields, full-width buttons,
+    // smaller card padding, larger touch targets.
+    const compact = responsive.isMobile;
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -270,20 +331,44 @@ const Profile: React.FC = () => {
     /* ── Loading skeleton ── */
     if (loading) return (
         <div style={{ maxWidth: 960, margin: '0 auto' }}>
-            <div style={{ display: 'flex', gap: 24 }}>
-                <div style={{ width: 300, flexShrink: 0 }}>
-                    <div style={{ borderRadius: 20, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 16px rgba(99,102,241,0.07)', padding: 32, textAlign: 'center' }}>
-                        <Skeleton.Avatar active size={96} style={{ marginBottom: 16 }} />
+            <div style={{
+                display: 'flex',
+                gap: compact ? 16 : 24,
+                flexDirection: compact ? 'column' : 'row',
+            }}>
+                <div style={{ width: compact ? '100%' : 300, flexShrink: 0 }}>
+                    <div style={{
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
+                        border: '1px solid #f0f0f8',
+                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
+                        padding: compact ? 22 : 32,
+                        textAlign: 'center',
+                    }}>
+                        <Skeleton.Avatar active size={compact ? 80 : 96} style={{ marginBottom: 16 }} />
                         <Skeleton.Input active style={{ width: 160, height: 20, borderRadius: 8, marginBottom: 10 }} />
                         <Skeleton.Input active style={{ width: 80, height: 16, borderRadius: 20, marginBottom: 20 }} />
                         <Skeleton active paragraph={{ rows: 2 }} title={false} />
                     </div>
                 </div>
                 <div style={{ flex: 1 }}>
-                    <div style={{ borderRadius: 20, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 16px rgba(99,102,241,0.07)', padding: 28, marginBottom: 20 }}>
+                    <div style={{
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
+                        border: '1px solid #f0f0f8',
+                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
+                        padding: compact ? 18 : 28,
+                        marginBottom: compact ? 16 : 20,
+                    }}>
                         <Skeleton active paragraph={{ rows: 5 }} />
                     </div>
-                    <div style={{ borderRadius: 20, background: '#fff', border: '1px solid #f0f0f8', boxShadow: '0 2px 16px rgba(99,102,241,0.07)', padding: 28 }}>
+                    <div style={{
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
+                        border: '1px solid #f0f0f8',
+                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
+                        padding: compact ? 18 : 28,
+                    }}>
                         <Skeleton active paragraph={{ rows: 3 }} />
                     </div>
                 </div>
@@ -292,20 +377,36 @@ const Profile: React.FC = () => {
     );
 
     return (
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
+        <div style={{
+            maxWidth: 960,
+            margin: '0 auto',
+            paddingInline: compact ? 0 : undefined,
+        }}>
 
             {/* Page header */}
-            <div style={{ marginBottom: 28 }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#1a1d2e', letterSpacing: 0.2 }}>My Profile</div>
-                <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 4 }}>Manage your personal information and account settings</div>
+            <div style={{ marginBottom: compact ? 18 : 28 }}>
+                <div style={{
+                    fontSize: compact ? 18 : 22,
+                    fontWeight: 800,
+                    color: '#1a1d2e',
+                    letterSpacing: 0.2,
+                    fontFamily: 'Manrope, Inter, sans-serif',
+                }}>My Profile</div>
+                <div style={{
+                    fontSize: compact ? 12 : 13,
+                    color: '#94a3b8',
+                    marginTop: 4,
+                    lineHeight: 1.4,
+                }}>Manage your personal information and account settings</div>
             </div>
 
-            <Row gutter={[24, 24]}>
+            <Row gutter={[compact ? 16 : 24, compact ? 16 : 24]}>
 
                 {/* ── LEFT: Avatar card ── */}
                 <Col xs={24} md={9}>
                     <div style={{
-                        borderRadius: 20, background: '#fff',
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
                         border: '1px solid #f0f0f8',
                         boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
                         overflow: 'hidden',
@@ -387,8 +488,20 @@ const Profile: React.FC = () => {
                         </div>
 
                         {/* identity */}
-                        <div style={{ textAlign: 'center', paddingTop: 56, paddingBottom: 28, paddingInline: 24 }}>
-                            <div style={{ fontSize: 18, fontWeight: 800, color: '#1a1d2e', marginBottom: 6 }}>{displayName}</div>
+                        <div style={{
+                            textAlign: 'center',
+                            paddingTop: compact ? 50 : 56,
+                            paddingBottom: compact ? 22 : 28,
+                            paddingInline: compact ? 18 : 24,
+                        }}>
+                            <div style={{
+                                fontSize: compact ? 16 : 18,
+                                fontWeight: 800,
+                                color: '#1a1d2e',
+                                marginBottom: 6,
+                                fontFamily: 'Manrope, Inter, sans-serif',
+                                wordBreak: 'break-word',
+                            }}>{displayName}</div>
 
                             {/* Remove photo link (only when one exists) */}
                             {hasPhoto && (
@@ -438,43 +551,80 @@ const Profile: React.FC = () => {
 
                     {/* Personal Information card */}
                     <div style={{
-                        borderRadius: 20, background: '#fff',
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
                         border: '1px solid #f0f0f8',
                         boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: 28, marginBottom: 20,
+                        padding: compact ? 18 : 28,
+                        marginBottom: compact ? 16 : 20,
                     }}>
                         {/* Card header */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 16 }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: compact ? 'flex-start' : 'center',
+                            justifyContent: 'space-between',
+                            gap: compact ? 12 : 0,
+                            marginBottom: compact ? 16 : 20,
+                            flexWrap: compact ? 'wrap' : 'nowrap',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: compact ? '1 1 auto' : 'unset' }}>
+                                <div style={{
+                                    width: compact ? 32 : 36,
+                                    height: compact ? 32 : 36,
+                                    borderRadius: 10,
+                                    background: '#eef2ff',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    color: '#6366f1',
+                                    fontSize: compact ? 14 : 16,
+                                    flexShrink: 0,
+                                }}>
                                     <IdcardOutlined />
                                 </div>
-                                <div>
-                                    <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1d2e' }}>Personal Information</div>
-                                    <div style={{ fontSize: 12, color: '#94a3b8' }}>Your account details</div>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{
+                                        fontSize: compact ? 14 : 15,
+                                        fontWeight: 700,
+                                        color: '#1a1d2e',
+                                        fontFamily: 'Manrope, Inter, sans-serif',
+                                    }}>Personal Information</div>
+                                    <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8' }}>Your account details</div>
                                 </div>
                             </div>
 
                             {/* Edit/Save/Cancel */}
                             {editing ? (
-                                <div style={{ display: 'flex', gap: 8 }}>
+                                <div style={{
+                                    display: 'flex',
+                                    gap: 8,
+                                    width: compact ? '100%' : 'auto',
+                                }}>
                                     <Button
                                         icon={<CloseOutlined />}
                                         onClick={() => { setEditing(false); form.setFieldsValue(profile!); }}
-                                        style={{ borderRadius: 10, height: 36, borderColor: '#e2e8f0', color: '#64748b' }}
+                                        block={compact}
+                                        style={{ borderRadius: 10, height: compact ? 38 : 36, borderColor: '#e2e8f0', color: '#64748b' }}
                                     >Cancel</Button>
                                     <Button
                                         type="primary" icon={<SaveOutlined />}
                                         onClick={() => form.submit()}
                                         loading={saving}
-                                        style={{ borderRadius: 10, height: 36, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}
+                                        block={compact}
+                                        style={{ borderRadius: 10, height: compact ? 38 : 36, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}
                                     >Save Changes</Button>
                                 </div>
                             ) : (
                                 <Button
                                     icon={<EditOutlined />}
                                     onClick={() => setEditing(true)}
-                                    style={{ borderRadius: 10, height: 36, borderColor: '#e0e7ff', color: '#6366f1', background: '#f4f3ff', fontWeight: 600 }}
+                                    block={compact}
+                                    style={{
+                                        borderRadius: 10,
+                                        height: compact ? 38 : 36,
+                                        borderColor: '#e0e7ff',
+                                        color: '#6366f1',
+                                        background: '#f4f3ff',
+                                        fontWeight: 600,
+                                    }}
                                 >Edit Profile</Button>
                             )}
                         </div>
@@ -482,41 +632,41 @@ const Profile: React.FC = () => {
                         {/* View or Edit */}
                         {editing ? (
                             <Form form={form} layout="vertical" onFinish={handleUpdateProfile} initialValues={profile!}>
-                                <Row gutter={16}>
-                                    <Col span={12}>
+                                <Row gutter={compact ? 12 : 16}>
+                                    <Col xs={24} sm={12}>
                                         <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>First Name</span>} name="first_name"
                                             rules={[{ required: true, message: 'Required' }]}>
                                             <Input prefix={<UserOutlined style={{ color: '#94a3b8' }} />} style={{ borderRadius: 10, height: 40 }} />
                                         </Form.Item>
                                     </Col>
-                                    <Col span={12}>
+                                    <Col xs={24} sm={12}>
                                         <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Last Name</span>} name="last_name"
                                             rules={[{ required: true, message: 'Required' }]}>
                                             <Input prefix={<UserOutlined style={{ color: '#94a3b8' }} />} style={{ borderRadius: 10, height: 40 }} />
                                         </Form.Item>
                                     </Col>
                                 </Row>
-                                <Row gutter={16}>
-                                    <Col span={12}>
+                                <Row gutter={compact ? 12 : 16}>
+                                    <Col xs={24} sm={12}>
                                         <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Username</span>} name="username"
                                             rules={[{ required: true, message: 'Required' }, { min: 3, message: 'Min 3 characters' }]}>
                                             <Input prefix={<span style={{ color: '#94a3b8' }}>@</span>} style={{ borderRadius: 10, height: 40 }} />
                                         </Form.Item>
                                     </Col>
-                                    <Col span={12}>
+                                    <Col xs={24} sm={12}>
                                         <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Email</span>} name="email"
                                             rules={[{ type: 'email', message: 'Invalid email' }]}>
                                             <Input prefix={<MailOutlined style={{ color: '#94a3b8' }} />} disabled={!isAdmin} style={{ borderRadius: 10, height: 40 }} />
                                         </Form.Item>
                                     </Col>
                                 </Row>
-                                <Row gutter={16}>
+                                <Row gutter={compact ? 12 : 16}>
                                     <Col span={24}>
                                         <Form.Item
                                             label={
                                                 <span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>
                                                     Timezone
-                                                    <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
+                                                    <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 8, display: compact ? 'block' : 'inline', marginTop: compact ? 2 : 0 }}>
                                                         — All scheduled quizzes and classes will be shown in this timezone.
                                                     </span>
                                                 </span>
@@ -530,36 +680,37 @@ const Profile: React.FC = () => {
                             </Form>
                         ) : (
                             <div>
-                                <Row gutter={24}>
-                                    <Col span={12}>
-                                        <InfoRow icon={<UserOutlined />} label="First Name" value={profile?.first_name || ''} />
+                                <Row gutter={compact ? 12 : 24}>
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<UserOutlined />} label="First Name" value={profile?.first_name || ''} compact={compact} />
                                     </Col>
-                                    <Col span={12}>
-                                        <InfoRow icon={<UserOutlined />} label="Last Name" value={profile?.last_name || ''} />
-                                    </Col>
-                                </Row>
-                                <Row gutter={24}>
-                                    <Col span={12}>
-                                        <InfoRow icon={<span style={{ fontWeight: 700 }}>@</span>} label="Username" value={profile?.username || ''} mono />
-                                    </Col>
-                                    <Col span={12}>
-                                        <InfoRow icon={<MailOutlined />} label="Email" value={profile?.email || ''} />
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<UserOutlined />} label="Last Name" value={profile?.last_name || ''} compact={compact} />
                                     </Col>
                                 </Row>
-                                <Row gutter={24}>
-                                    <Col span={12}>
-                                        <InfoRow icon={<IdcardOutlined />} label="Role" value={roleConfig.label} />
+                                <Row gutter={compact ? 12 : 24}>
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<span style={{ fontWeight: 700 }}>@</span>} label="Username" value={profile?.username || ''} mono compact={compact} />
                                     </Col>
-                                    <Col span={12}>
-                                        <InfoRow icon={<CalendarOutlined />} label="Member Since" value={formatDateSafe(profile?.created_at)} />
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<MailOutlined />} label="Email" value={profile?.email || ''} compact={compact} />
                                     </Col>
                                 </Row>
-                                <Row gutter={24}>
+                                <Row gutter={compact ? 12 : 24}>
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<IdcardOutlined />} label="Role" value={roleConfig.label} compact={compact} />
+                                    </Col>
+                                    <Col xs={24} sm={12}>
+                                        <InfoRow icon={<CalendarOutlined />} label="Member Since" value={formatDateSafe(profile?.created_at)} compact={compact} />
+                                    </Col>
+                                </Row>
+                                <Row gutter={compact ? 12 : 24}>
                                     <Col span={24}>
                                         <InfoRow
                                             icon={<GlobalOutlined />}
                                             label="Timezone"
                                             value={timezoneDisplay(profile?.timezone)}
+                                            compact={compact}
                                         />
                                     </Col>
                                 </Row>
@@ -569,18 +720,38 @@ const Profile: React.FC = () => {
 
                     {/* Security card */}
                     <div style={{
-                        borderRadius: 20, background: '#fff',
+                        borderRadius: compact ? 16 : 20,
+                        background: '#fff',
                         border: '1px solid #f0f0f8',
                         boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: 28,
+                        padding: compact ? 18 : 28,
                     }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                            <div style={{ width: 36, height: 36, borderRadius: 10, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', fontSize: 16 }}>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            marginBottom: compact ? 6 : 8,
+                        }}>
+                            <div style={{
+                                width: compact ? 32 : 36,
+                                height: compact ? 32 : 36,
+                                borderRadius: 10,
+                                background: '#fef3c7',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                color: '#f59e0b',
+                                fontSize: compact ? 14 : 16,
+                                flexShrink: 0,
+                            }}>
                                 <SafetyOutlined />
                             </div>
-                            <div>
-                                <div style={{ fontSize: 15, fontWeight: 700, color: '#1a1d2e' }}>Security Settings</div>
-                                <div style={{ fontSize: 12, color: '#94a3b8' }}>Manage your password and login details</div>
+                            <div style={{ minWidth: 0 }}>
+                                <div style={{
+                                    fontSize: compact ? 14 : 15,
+                                    fontWeight: 700,
+                                    color: '#1a1d2e',
+                                    fontFamily: 'Manrope, Inter, sans-serif',
+                                }}>Security Settings</div>
+                                <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8' }}>Manage your password and login details</div>
                             </div>
                         </div>
 
@@ -590,6 +761,7 @@ const Profile: React.FC = () => {
                             subtitle="Use a strong password that you don't use elsewhere"
                             actionLabel="Change Password"
                             onAction={() => setPasswordModalVisible(true)}
+                            compact={compact}
                         />
                         <SecurityRow
                             icon={<MailOutlined />}
@@ -597,6 +769,7 @@ const Profile: React.FC = () => {
                             subtitle="Update your email address for account notifications"
                             actionLabel="Change Email"
                             onAction={() => setEmailModalOpen(true)}
+                            compact={compact}
                         />
                     </div>
                 </Col>
@@ -610,7 +783,7 @@ const Profile: React.FC = () => {
                             <LockOutlined />
                         </div>
                         <div>
-                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15 }}>Change Password</div>
+                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15, fontFamily: 'Manrope, Inter, sans-serif' }}>Change Password</div>
                             <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>Choose a strong, unique password</div>
                         </div>
                     </div>
@@ -618,7 +791,9 @@ const Profile: React.FC = () => {
                 open={passwordModalVisible}
                 onCancel={() => { setPasswordModalVisible(false); passwordForm.resetFields(); }}
                 footer={null}
-                width={440}
+                width={compact ? '94vw' : 440}
+                centered={compact}
+                styles={{ body: { padding: compact ? '8px 0 4px' : undefined } }}
             >
                 <Form
                     form={passwordForm}
@@ -650,13 +825,21 @@ const Profile: React.FC = () => {
                         <Input.Password style={{ borderRadius: 10, height: 42 }} />
                     </Form.Item>
 
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                    <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: 8,
+                        marginTop: 8,
+                        flexDirection: compact ? 'column-reverse' : 'row',
+                    }}>
                         <Button onClick={() => { setPasswordModalVisible(false); passwordForm.resetFields(); }}
-                            style={{ borderRadius: 10, height: 40, borderColor: '#e2e8f0', color: '#64748b' }}>
+                            block={compact}
+                            style={{ borderRadius: 10, height: compact ? 42 : 40, borderColor: '#e2e8f0', color: '#64748b' }}>
                             Cancel
                         </Button>
                         <Button type="primary" htmlType="submit" loading={pwLoading}
-                            style={{ borderRadius: 10, height: 40, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}>
+                            block={compact}
+                            style={{ borderRadius: 10, height: compact ? 42 : 40, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}>
                             Update Password
                         </Button>
                     </div>
