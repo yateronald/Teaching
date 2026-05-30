@@ -612,7 +612,6 @@ const ExamAssignmentModal: React.FC<{
                       style={{ width: '100%' }}
                       loading={loading}
                       maxTagCount="responsive"
-                      getPopupContainer={trigger => trigger.parentElement || document.body}
                       options={studentOptions.options}
                       notFoundContent={loading ? 'Loading...' : 'No students found'}
                       dropdownRender={menu => (
@@ -645,7 +644,6 @@ const ExamAssignmentModal: React.FC<{
                       style={{ width: '100%' }}
                       loading={loading}
                       maxTagCount="responsive"
-                      getPopupContainer={trigger => trigger.parentElement || document.body}
                       options={batchOptions.options}
                       notFoundContent={loading ? 'Loading...' : 'No batches found'}
                       dropdownRender={menu => (
@@ -679,7 +677,6 @@ const ExamAssignmentModal: React.FC<{
                       style={{ width: '100%', borderRadius: 8 }}
                       placeholder="No expiration (optional)"
                       format="YYYY-MM-DD HH:mm"
-                      getPopupContainer={trigger => trigger.parentElement || document.body}
                     />
                   </div>
 

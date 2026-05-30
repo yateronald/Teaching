@@ -572,38 +572,20 @@ const StudentExamPreparation: React.FC = () => {
             {credits && (
               <>
                 <div style={{
-                  background: 'rgba(255,255,255,0.10)',
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  borderRadius: 12, padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  backdropFilter: 'blur(8px)',
+                  background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
+                  border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
+                  textAlign: 'center', minWidth: 70,
                 }}>
-                  <FormOutlined style={{ color: '#fda4af', fontSize: 18 }} />
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                      EE credits
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>
-                      {credits.ee_credits}
-                    </div>
-                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{credits.ee_credits}</div>
+                  <div style={{ fontSize: 9, color: '#fda4af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>EE Credits</div>
                 </div>
                 <div style={{
-                  background: 'rgba(255,255,255,0.10)',
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  borderRadius: 12, padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  backdropFilter: 'blur(8px)',
+                  background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
+                  border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
+                  textAlign: 'center', minWidth: 70,
                 }}>
-                  <AudioOutlined style={{ color: '#86efac', fontSize: 18 }} />
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.65)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-                      EO credits
-                    </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>
-                      {credits.eo_credits}
-                    </div>
-                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{credits.eo_credits}</div>
+                  <div style={{ fontSize: 9, color: '#86efac', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>EO Credits</div>
                 </div>
               </>
             )}
