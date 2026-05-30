@@ -82,7 +82,7 @@ const StatusDot: React.FC<{ isAssigned: boolean; isExpired: boolean; hasAssigned
 // ── Category Card ──
 const CategoryCard: React.FC<{ node: ContentNode; onClick: () => void }> = ({ node, onClick }) => {
   const isAccessible = node.is_assigned || node.has_assigned_children;
-  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children);
+  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
   const theme = getTheme(node.name || '');
   
   const childCount = node.total_count !== undefined ? node.total_count : (node.children?.length || 0);
@@ -92,11 +92,21 @@ const CategoryCard: React.FC<{ node: ContentNode; onClick: () => void }> = ({ no
     
   const icon = node.icon && ICON_MAP[node.icon] ? ICON_MAP[node.icon] : <FolderOutlined />;
 
+  const handleClick = (e: React.MouseEvent) => {
+    if (isFrozen) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    onClick();
+  };
+
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       style={{
-        borderRadius: 16, overflow: 'hidden', cursor: 'pointer',
+        borderRadius: 16, overflow: 'hidden', 
+        cursor: isFrozen ? 'not-allowed' : 'pointer',
         transition: 'all 0.25s ease', position: 'relative',
         opacity: isFrozen ? 0.5 : 1,
         filter: isFrozen ? 'grayscale(50%)' : 'none',
@@ -105,12 +115,14 @@ const CategoryCard: React.FC<{ node: ContentNode; onClick: () => void }> = ({ no
         boxShadow: isFrozen ? 'none' : `0 2px 12px ${theme.accent}08`,
       }}
       onMouseEnter={e => {
+        if (isFrozen) return;
         e.currentTarget.style.transform = 'translateY(-5px)';
-        e.currentTarget.style.boxShadow = `0 16px 40px ${isFrozen ? 'rgba(0,0,0,0.06)' : theme.accent + '20'}`;
+        e.currentTarget.style.boxShadow = `0 16px 40px ${theme.accent + '20'}`;
       }}
       onMouseLeave={e => {
+        if (isFrozen) return;
         e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = isFrozen ? 'none' : `0 2px 12px ${theme.accent}08`;
+        e.currentTarget.style.boxShadow = `0 2px 12px ${theme.accent}08`;
       }}
     >
       {/* Gradient header */}
@@ -220,7 +232,7 @@ const ItemCard: React.FC<{
   node: ContentNode; accent: string; onClick?: () => void; isLeaf?: boolean; onAnalytics?: () => void;
 }> = ({ node, accent, onClick, isLeaf, onAnalytics }) => {
   const isAccessible = node.is_assigned || node.has_assigned_children;
-  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children);
+  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
   const isExpired = node.is_assigned && node.is_expired && !node.has_assigned_children;
   const label = node.name || (node.year ? `${node.year}` : node.month_name || `#${node.content_id || node.id}`);
   const childCount = node.total_count !== undefined ? node.total_count : (node.children?.length || 0);
@@ -231,13 +243,22 @@ const ItemCard: React.FC<{
     ? `${node.total_questions} questions · ${node.total_points} pts`
     : childCount > 0 ? `${stats.available}/${childCount} available` : '';
 
+  const handleClick = (e: React.MouseEvent) => {
+    if (isFrozen) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    if (onClick) onClick();
+  };
+
   return (
     <div
-      onClick={onClick}
+      onClick={handleClick}
       style={{
         borderRadius: 12, padding: '16px 18px',
         border: `1.5px solid ${isFrozen ? '#e2e8f0' : accent + '25'}`,
-        cursor: onClick || (isLeaf && !isFrozen) ? 'pointer' : 'default',
+        cursor: isFrozen ? 'not-allowed' : (onClick ? 'pointer' : 'default'),
         transition: 'all 0.2s ease', position: 'relative',
         opacity: isFrozen ? 0.5 : 1,
         filter: isFrozen ? 'grayscale(50%)' : 'none',
@@ -245,16 +266,18 @@ const ItemCard: React.FC<{
         height: '100%',
       }}
       onMouseEnter={e => {
+        if (isFrozen) return;
         if (onClick || (isLeaf && !isFrozen)) {
           e.currentTarget.style.transform = 'translateY(-3px)';
-          e.currentTarget.style.boxShadow = `0 8px 24px ${isFrozen ? 'rgba(0,0,0,0.04)' : accent + '15'}`;
-          e.currentTarget.style.borderColor = isFrozen ? '#e2e8f0' : accent + '50';
+          e.currentTarget.style.boxShadow = `0 8px 24px ${accent + '15'}`;
+          e.currentTarget.style.borderColor = accent + '50';
         }
       }}
       onMouseLeave={e => {
+        if (isFrozen) return;
         e.currentTarget.style.transform = 'translateY(0)';
         e.currentTarget.style.boxShadow = 'none';
-        e.currentTarget.style.borderColor = isFrozen ? '#e2e8f0' : accent + '25';
+        e.currentTarget.style.borderColor = accent + '25';
       }}
     >
       {/* Top row: status + label */}
@@ -414,6 +437,10 @@ const StudentExamPreparation: React.FC = () => {
   const navigateToChildren = async (node: ContentNode) => {
     const isLeaf = LEAF_TYPES.includes(node.type);
     if (isLeaf) return;
+
+    const isAccessible = node.is_assigned || node.has_assigned_children;
+    const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
+    if (isFrozen) return;
 
     let children = node.children || [];
     if (!node.childrenLoaded) {
@@ -699,7 +726,11 @@ const StudentExamPreparation: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
           {currentNodes.map((node, i) => {
             const isLeaf = LEAF_TYPES.includes(node.type);
+            const isAccessible = node.is_assigned || node.has_assigned_children;
+            const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
+
             const handleClick = () => {
+              if (isFrozen) return;
               if (!isLeaf) {
                 navigateToChildren(node);
               } else if (isLeaf && node.type === 'co_series' && node.content_id) {

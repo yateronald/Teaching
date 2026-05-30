@@ -121,10 +121,48 @@ async function getRecentTransactions(db, userId, limit = 20) {
   );
 }
 
+/** Revoke credits (negative). Used for admin corrections. */
+async function revokeCredits(db, userId, type, amount, opts = {}) {
+  if (!VALID_TYPES.includes(type)) throw new Error(`Invalid credit type: ${type}`);
+  const balance = await getBalance(db, userId);
+  const current = type === 'ee' ? balance.ee_credits : balance.eo_credits;
+  
+  const toRemove = amount === 'all' ? current : Math.max(0, Math.floor(Number(amount) || 0));
+  const finalRemove = Math.min(current, toRemove);
+  if (finalRemove === 0) return 0; // no-op
+
+  const column = type === 'ee' ? 'ee_credits' : 'eo_credits';
+  await db.run(
+    `UPDATE student_ai_credits
+     SET ${column} = ${column} - $1,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = $2`,
+    [finalRemove, userId]
+  );
+
+  // Audit log
+  await db.run(
+    `INSERT INTO ai_credit_transactions
+       (user_id, credit_type, delta, reason, actor_id, related_entity_type, related_entity_id, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      userId, type, -finalRemove,
+      opts.reason || 'admin_revoke',
+      opts.actor_id || null,
+      opts.related_entity_type || null,
+      opts.related_entity_id || null,
+      opts.notes || null,
+    ]
+  );
+  return finalRemove;
+}
+
 module.exports = {
   getBalance,
   grantCredits,
   consumeCredit,
   bulkGrant,
   getRecentTransactions,
+  revokeCredits,
 };
+

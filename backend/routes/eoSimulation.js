@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
+const { checkExamAccess, hasAnyActiveAssignmentForCategory } = require('../services/examAccessService');
 const { GoogleGenAI } = require('@google/genai');
 
 const GEMINI_API_KEYS = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY1].filter(Boolean);
@@ -67,6 +68,19 @@ router.get('/config', async (req, res) => {
 router.post('/start', async (req, res) => {
   try {
     const { partieId } = req.body || {};
+    const studentId = req.user.id;
+
+    if (partieId) {
+      const hasAccess = await checkExamAccess(req.db, studentId, 'eo_partie', partieId);
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied: Exam content is not assigned or has expired.' });
+      }
+    } else {
+      const hasAccess = await hasAnyActiveAssignmentForCategory(req.db, studentId, 'Expression Orale');
+      if (!hasAccess) {
+        return res.status(403).json({ error: 'Access denied: Exam content is not assigned or has expired.' });
+      }
+    }
 
     let partieInfo = null;
     let tache1Info = null;

@@ -107,4 +107,67 @@ router.post('/bulk-grant', authenticateToken, adminOnly, async (req, res) => {
   }
 });
 
+// GET /api/ai-credits/balances — admin: view all student credit balances
+router.get('/balances', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const sql = `
+      SELECT u.id as user_id, u.first_name, u.last_name, u.email,
+             COALESCE(sac.ee_credits, 0) as ee_credits,
+             COALESCE(sac.eo_credits, 0) as eo_credits,
+             sac.updated_at
+      FROM users u
+      LEFT JOIN student_ai_credits sac ON u.id = sac.user_id
+      WHERE u.role = 'student'
+      ORDER BY u.first_name ASC, u.last_name ASC
+    `;
+    const rows = await req.db.all(sql);
+    // Coerce values to numbers
+    const balances = rows.map(r => ({
+      ...r,
+      ee_credits: Number(r.ee_credits) || 0,
+      eo_credits: Number(r.eo_credits) || 0,
+    }));
+    res.json(balances);
+  } catch (err) {
+    console.error('[GET /ai-credits/balances]', err);
+    res.status(500).json({ error: 'Failed to load student credit balances' });
+  }
+});
+
+// POST /api/ai-credits/revoke — admin: revoke/remove credits from a single user
+router.post('/revoke', authenticateToken, adminOnly, async (req, res) => {
+  try {
+    const { user_id, type, amount, notes } = req.body;
+    if (!user_id || !type) return res.status(400).json({ error: 'user_id, type required' });
+    
+    const opts = {
+      reason: 'admin_revoke',
+      actor_id: req.user.id,
+      notes: notes || null,
+    };
+
+    if (type === 'all') {
+      const revokedEe = await aiCredits.revokeCredits(req.db, parseInt(user_id), 'ee', 'all', opts);
+      const revokedEo = await aiCredits.revokeCredits(req.db, parseInt(user_id), 'eo', 'all', opts);
+      const balance = await aiCredits.getBalance(req.db, parseInt(user_id));
+      return res.json({ ok: true, revoked_ee: revokedEe, revoked_eo: revokedEo, balance });
+    }
+
+    const revokedAmount = await aiCredits.revokeCredits(
+      req.db,
+      parseInt(user_id),
+      type,
+      amount || 'all',
+      opts
+    );
+    
+    const balance = await aiCredits.getBalance(req.db, parseInt(user_id));
+    res.json({ ok: true, revoked_amount: revokedAmount, balance });
+  } catch (err) {
+    console.error('[POST /ai-credits/revoke]', err);
+    res.status(500).json({ error: err.message || 'Failed to revoke credits' });
+  }
+});
+
 module.exports = router;
+
