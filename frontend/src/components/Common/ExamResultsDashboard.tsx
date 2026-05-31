@@ -241,6 +241,13 @@ const ExamResultsDashboard: React.FC<ExamResultsDashboardProps> = ({ mode, onBac
     fetchLists();
   };
 
+  // Back from student detail to batch detail (when navigated from batch table)
+  const handleBackFromStudentToBatch = () => {
+    setSelectedStudentId(null);
+    setStudentDetail(null);
+    // selectedBatchId and batchDetail are still set, so the batch detail will render
+  };
+
   // Render Batch Detail Analytics
   const renderBatchDetail = () => {
     if (!batchDetail) return null;
@@ -590,7 +597,7 @@ const ExamResultsDashboard: React.FC<ExamResultsDashboardProps> = ({ mode, onBac
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={handleBackToList} style={{ borderRadius: 10 }} />
+            <Button icon={<ArrowLeftOutlined />} onClick={selectedBatchId ? handleBackFromStudentToBatch : handleBackToList} style={{ borderRadius: 10 }} />
             <div>
               <Title level={3} style={{ margin: 0 }}>Student Report: {student.first_name} {student.last_name}</Title>
               <Text type="secondary">
@@ -819,12 +826,13 @@ const ExamResultsDashboard: React.FC<ExamResultsDashboardProps> = ({ mode, onBac
     );
   }
 
-  if (selectedBatchId) {
-    return renderBatchDetail();
-  }
-
+  // Student detail takes priority — user may have drilled in from a batch
   if (selectedStudentId) {
     return renderStudentDetail();
+  }
+
+  if (selectedBatchId) {
+    return renderBatchDetail();
   }
 
   return (
