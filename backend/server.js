@@ -138,6 +138,9 @@ app.use('/api/ai-credits', aiCreditsRoutes);
 const tcfExamPrepRoutes = require('./routes/tcfExamPrep');
 app.use('/api/tcf', tcfExamPrepRoutes);
 
+const tcfResultsRoutes = require('./routes/tcfResults');
+app.use('/api/tcf-results', tcfResultsRoutes);
+
 const meetingRoutes = require('./routes/meetings');
 app.use('/api/meetings', meetingRoutes);
 

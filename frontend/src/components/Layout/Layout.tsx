@@ -501,6 +501,7 @@ const Layout: React.FC = () => {
             '/settings': 'Admin Settings',
             '/admin-resources': 'Resources',
             '/exam-preparation': 'Exam Preparation',
+            '/teacher-exam-prep': 'Exam Preparation',
             '/teacher-dashboard': 'Dashboard',
             '/teacher-batches': 'My Batches',
             '/quiz-management': 'Quiz Management',
@@ -545,6 +546,7 @@ const Layout: React.FC = () => {
             { key: '/app/resources',         icon: <FolderOutlined />,       label: 'Resources' },
             { key: '/app/schedules',         icon: <CalendarOutlined />,     label: 'Schedule' },
             { key: '/app/meetings',          icon: <PhoneOutlined />,        label: 'Live Meetings' },
+            { key: '/app/teacher-exam-prep', icon: <ReadOutlined />,         label: 'Exam Preparation' },
             { key: '/app/profile',           icon: <SettingOutlined />,      label: 'Profile Settings' },
         ];
         if (isStudent) return [

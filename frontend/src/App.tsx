@@ -16,6 +16,7 @@ import AssignDemo from './components/Teacher/AssignDemo';
 import QuizManagement from './components/Teacher/QuizManagement';
 import ResourceManagement from './components/Teacher/ResourceManagement';
 import ScheduleManagement from './components/Teacher/ScheduleManagement';
+import TeacherExamPrep from './components/Teacher/TeacherExamPrep';
 import StudentQuizzes from './components/Student/StudentQuizzes';
 import StudentResources from './components/Student/StudentResources';
 import StudentSchedule from './components/Student/StudentSchedule';
@@ -176,6 +177,11 @@ function App() {
                 <Route path="schedules" element={
                   <ProtectedRoute requiredRole="teacher">
                     <ScheduleManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="teacher-exam-prep" element={
+                  <ProtectedRoute requiredRole="teacher">
+                    <TeacherExamPrep />
                   </ProtectedRoute>
                 } />
 

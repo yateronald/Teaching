@@ -25,6 +25,7 @@ import {
 import ExamAssignmentModal from './ExamAssignmentModal';
 import GrantCreditsModal from './GrantCreditsModal';
 import AdminCOAnalytics from './AdminCOAnalytics';
+import ExamResultsDashboard from '../Common/ExamResultsDashboard';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -3640,7 +3641,7 @@ const ExamPreparation: React.FC = () => {
   const { apiCall, token } = useAuth();
 
   // Navigation state
-  const [view, setView] = useState<'categories' | 'series-list' | 'series-detail' | 'ee-years' | 'ee-months' | 'ee-combinaisons' | 'eo-years' | 'eo-months' | 'eo-parties' | 'eo-partie-detail'>('categories');
+  const [view, setView] = useState<'categories' | 'series-list' | 'series-detail' | 'ee-years' | 'ee-months' | 'ee-combinaisons' | 'eo-years' | 'eo-months' | 'eo-parties' | 'eo-partie-detail' | 'student-results'>('categories');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<number | null>(null);
   const [selectedCategoryName, setSelectedCategoryName] = useState<string>('');
@@ -4162,6 +4163,19 @@ const ExamPreparation: React.FC = () => {
                 }}
               >
                 Grant Credits
+              </Button>
+              <Button
+                type="primary"
+                icon={<BarChartOutlined />}
+                onClick={() => setView('student-results')}
+                style={{
+                  borderRadius: 10, height: 42, fontWeight: 600, fontSize: 14,
+                  background: 'linear-gradient(135deg, #ec4899, #db2777)',
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
+                }}
+              >
+                Student Results
               </Button>
               <Button
                 type="primary"
@@ -5175,6 +5189,7 @@ const ExamPreparation: React.FC = () => {
         {view === 'eo-months' && renderEoMonthsView()}
         {view === 'eo-parties' && renderEoPartiesView()}
         {view === 'eo-partie-detail' && renderEoPartieDetailView()}
+        {view === 'student-results' && <ExamResultsDashboard mode="admin" onBack={() => setView('categories')} />}
       </div>
 
       {/* Modals */}
