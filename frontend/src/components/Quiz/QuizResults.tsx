@@ -1,1074 +1,458 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Drawer, Input, Segmented, Select, Skeleton, Tabs, Tooltip } from 'antd';
 import {
-    Card,
-    Table,
-    Typography,
-    Space,
-    Tag,
-    Button,
-    Row,
-    Col,
-    Modal,
-    message,
-    Select,
-    DatePicker,
-    Empty,
-    Skeleton
-} from 'antd';
-import {
-    EyeOutlined,
-    ClockCircleOutlined,
-    DownOutlined,
-    RightOutlined
+    CheckCircleFilled, CheckOutlined, CloseCircleFilled, CloseOutlined, DownloadOutlined, LeftOutlined, MinusCircleFilled, ReloadOutlined,
+    RightOutlined, SearchOutlined, SoundOutlined, WarningOutlined,
 } from '@ant-design/icons';
-import { useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import type { ColumnsType } from 'antd/es/table';
+import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone } from '../../utils/timezone';
+import QuizInsights from './QuizInsights';
+import { ClipPlayer } from './QuizDetails';
+import {
+    PASS_MARK, TYPE_META, csvOf, fmtMinutes, fmtNumber, fmtPct, gradeFromPercent, initials, isFinished, makeWhen, plural,
+    resultRowsFromApi, toneOfScore,
+} from './quizModel';
+import type { QuestionType, QuizRow, ResultRow, SubmissionStatus } from './quizModel';
+import '../Teacher/Teacher.css';
+import './Quiz.css';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
-const { RangePicker } = DatePicker;
+/* ══════════════════════════════════════════
+   QUIZ RESULTS — overview, every student, and what each question revealed.
+══════════════════════════════════════════ */
 
-interface Quiz {
-    id: number;
-    title: string;
-    description?: string;
-    status?: string;
+export type ResultsTab = 'overview' | 'students' | 'questions';
+
+interface Props {
+    quiz: QuizRow | null;
+    initialTab: ResultsTab;
+    onClose: () => void;
 }
 
-interface StudentRow {
-    id: number; // student id
-    name: string;
-    email: string;
-    submission_id: number | null;
-    status: string;
-    score: number | null;
-    max_score: number | null;
-    percentage: number | null;
-    started_at: string | null;
-    submitted_at: string | null;
-    time_taken_minutes: number | null;
-    batch_id: number;
-    batch_name: string;
-}
+type StatusFilter = 'all' | 'finished' | 'in_progress' | 'not_started' | 'below';
+type SortKey = 'name' | 'high' | 'low' | 'fast' | 'recent';
 
-interface BatchResult {
-    batch_id: number;
-    batch_name: string;
-    total_students: number;
-    submitted_count: number;
-    not_submitted_count: number;
-    average_score: number; // percent
-    students: StudentRow[];
-}
+const LETTERS = 'ABCDEFGHIJ';
+const STATUS_LABEL: Record<SubmissionStatus, string> = {
+    not_started: 'Not started', in_progress: 'In progress', submitted: 'Submitted', auto_submitted: 'Time ran out', graded: 'Submitted',
+};
 
-interface QuestionOption {
-    id: number;
-    option_text: string;
-    is_correct?: number | boolean;
+interface AnalysisQuestion {
+    id: number; order: number; question_text: string; question_type: string; marks: number; audio_clip_id: number | null;
+    correct_answer: string | null; answered: number; correct: number; partial: number; avg_points: number | null; correct_rate: number | null;
+    yes_no: { yes: number; no: number } | null; options: { id: number; option_text: string; is_correct: boolean; picks: number }[];
 }
+interface Analysis { finished: number; questions: AnalysisQuestion[] }
 
-interface QuestionDetail {
-    id: number;
-    question_text: string;
-    question_type: 'mcq' | 'mcq_single' | 'mcq_multiple' | 'text' | 'yes_no';
-    marks?: number | null;
-    correct_answer?: string | null;
-    answer_text?: string | null;
-    selected_options?: number[] | null;
-    marks_awarded?: number | null;
-    is_correct?: number | boolean | null;
-    options?: QuestionOption[];
-    audio_clip_id?: number | null;
-}
+const typeOf = (t: string): QuestionType => (t === 'yes_no' || t === 'boolean' ? 'yes_no' : t === 'mcq_multiple' ? 'mcq_multiple' : 'mcq_single');
 
-interface AudioClipInfo {
-    id: number;
-    duration_seconds?: number;
-    audio_order: number;
-    max_plays: number;
-    has_audio: boolean;
-    kdrive_file_id?: string;
-    transcript?: string;
-    voice_name?: string;
-}
-
-interface SubmissionDetails {
-    submission: {
-        id: number;
-        student_id: number;
-        student_name: string;
-        email: string;
-        total_score?: number | null;
-        max_score?: number | null;
-        percentage?: number | null;
-        status?: string;
-        time_taken_minutes?: number | null;
-        submitted_at?: string | null;
-        started_at?: string | null;
-    };
-    questions: QuestionDetail[];
-    audio_clips?: AudioClipInfo[];
-}
-
-interface QuizResultsProps {
-    quizId?: string;
-}
-
-const QuizResults: React.FC<QuizResultsProps> = ({ quizId: propQuizId }) => {
-    const { quizId: paramQuizId } = useParams<{ quizId: string }>();
+/* ─────────────── Submission review ─────────────── */
+const Review: React.FC<{ quizId: number; row: ResultRow | null; tz: string; onClose: () => void; onStep: (dir: -1 | 1) => void; position: string; hasPrev: boolean; hasNext: boolean }> = ({
+    quizId, row, tz, onClose, onStep, position, hasPrev, hasNext,
+}) => {
     const { apiCall } = useAuth();
-    const [audioBlobUrls, setAudioBlobUrls] = useState<Record<number, string>>({});
-
-    // Securely fetch audio and create blob URL (no token in URL)
-    const getAudioBlobUrl = async (clipId: number) => {
-        if (audioBlobUrls[clipId]) return audioBlobUrls[clipId];
-        try {
-            const resp = await apiCall(`/quizzes/audio/${clipId}/stream`);
-            if (resp.ok) {
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                setAudioBlobUrls(prev => ({ ...prev, [clipId]: url }));
-                return url;
-            }
-        } catch {}
-        return '';
-    };
-    
-    const quizId = propQuizId || paramQuizId;
-
-    // Helper function to format numbers
-    const formatNumber = (num: number | string | null | undefined): string => {
-        if (num === null || num === undefined) return '0';
-        
-        // Convert to number if it's a string
-        const numValue = typeof num === 'string' ? parseFloat(num) : num;
-        
-        // Handle NaN or invalid numbers
-        if (isNaN(numValue)) {
-            return '0';
-        }
-        
-        // If it's a whole number, return as is
-        if (Number.isInteger(numValue)) {
-            return numValue.toString();
-        }
-        
-        // For decimals, format to 2 decimal places and remove trailing zeros
-        return parseFloat(numValue.toFixed(2)).toString();
-    };
-    
-    const [quiz, setQuiz] = useState<Quiz | null>(null);
-
-    const [results, setResults] = useState<StudentRow[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [selectedResult, setSelectedResult] = useState<StudentRow | null>(null);
-    const [detailModalVisible, setDetailModalVisible] = useState(false);
-    const [detailLoading, setDetailLoading] = useState(false);
-    const [submissionDetails, setSubmissionDetails] = useState<SubmissionDetails | null>(null);
-    const [filterStatus, setFilterStatus] = useState<string>('all');
-    const [dateRange, setDateRange] = useState<any>(null);
-    const [expandedQuestions, setExpandedQuestions] = useState<Set<number>>(new Set());
+    const r = useResponsive();
+    const when = useMemo(() => makeWhen(tz), [tz]);
+    const [data, setData] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [filter, setFilter] = useState<'all' | 'wrong' | 'right'>('all');
+    const sid = row?.submissionId ?? null;
 
     useEffect(() => {
-        if (quizId) {
-            fetchQuizData();
-            fetchResults();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [quizId]);
+        if (!sid) return;
+        let cancelled = false;
+        setData(null);
+        setError(null);
+        apiCall(`/quizzes/${quizId}/submissions/${sid}`)
+            .then(async res => {
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(body?.error || 'This submission could not be loaded.');
+                if (!cancelled) setData(body);
+            })
+            .catch(e => { if (!cancelled) setError(e?.message || 'This submission could not be loaded.'); });
+        return () => { cancelled = true; };
+    }, [quizId, sid, apiCall]);
 
-    const fetchQuizData = async () => {
-        try {
-            const response = await apiCall(`/quizzes/${quizId}`);
-            if (response.ok) {
-                const data = await response.json();
-                // Backend returns quiz fields at the top-level with { questions, batches } alongside
-                // or in some cases may return { quiz, questions, batches }
-                setQuiz(data?.quiz ?? data);
-            }
-        } catch (error) {
-            message.error('Failed to fetch quiz data');
-        }
-    };
+    const items = useMemo(() => (Array.isArray(data?.questions) ? data.questions : []).map((q: any, i: number) => {
+        const type = typeOf(q.question_type);
+        const marks = Number(q.marks) || 0;
+        const awarded = Number(q.score ?? q.marks_awarded) || 0;
+        const selected: number[] = Array.isArray(q.selected_options) ? q.selected_options.map(Number) : [];
+        const answered = type === 'yes_no' ? !!q.answer_text : selected.length > 0;
+        const outcome = !answered ? 'blank' : q.is_correct ? 'right' : awarded > 0 ? 'partial' : 'wrong';
+        return { q, i, type, marks, awarded, selected, outcome };
+    }), [data]);
 
-    const fetchResults = async () => {
-        try {
-            const response = await apiCall(`/quizzes/${quizId}/results`);
-            if (response.ok) {
-                const data = await response.json();
-                // If API provides quiz in results payload, hydrate quiz state if not already
-                if (data?.quiz && !quiz) {
-                    setQuiz(prev => prev ?? data.quiz);
-                }
-                const batches: BatchResult[] = (data.batch_results || []).map((b: any) => ({
-                    ...b,
-                    students: (b.students || []).map((s: any) => ({
-                        ...s,
-                        // ensure nullable numbers are handled
-                        score: s.score ?? null,
-                        max_score: s.max_score ?? null,
-                        percentage: s.percentage ?? null,
-                        started_at: s.started_at ?? null,
-                        submitted_at: s.submitted_at ?? null,
-                        time_taken_minutes: s.time_taken_minutes ?? null,
-                        batch_id: b.batch_id,
-                        batch_name: b.batch_name,
-                    }))
-                }));
-                const flatStudents: StudentRow[] = batches.flatMap(b => b.students);
-                setResults(flatStudents);
-            } else {
-                const err = await response.json().catch(() => ({}));
-                message.error(err.error || 'Failed to fetch quiz results');
-            }
-        } catch (error) {
-            message.error('Failed to fetch quiz results');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const counts = { right: items.filter((x: any) => x.outcome === 'right').length, total: items.length };
+    const visible = items.filter((x: any) => filter === 'all' || (filter === 'right' ? x.outcome === 'right' : x.outcome !== 'right'));
+    const clips = new Map<number, any>((data?.audio_clips || []).map((c: any) => [Number(c.id), c]));
+    const shownClip = new Set<number>();
 
-    const toggleQuestionExpansion = (questionId: number) => {
-        setExpandedQuestions(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(questionId)) {
-                newSet.delete(questionId);
-            } else {
-                newSet.add(questionId);
-            }
-            return newSet;
-        });
-    };
-
-    const fetchSubmissionDetails = async (submissionId: number) => {
-        setDetailLoading(true);
-        setSubmissionDetails(null);
-        try {
-            const response = await apiCall(`/quizzes/${quizId}/submissions/${submissionId}`);
-            if (response.ok) {
-                const data = await response.json();
-                // Normalize selected_options from JSON string to number[] if needed
-                const normalizedQuestions: QuestionDetail[] = (data.questions || []).map((q: any) => {
-                    let selected = q.selected_options;
-                    if (typeof selected === 'string') {
-                        try { selected = JSON.parse(selected); } catch { selected = []; }
-                    }
-                    return {
-                        id: q.id,
-                        question_text: q.question_text,
-                        question_type: q.question_type,
-                        marks: q.marks ?? null,
-                        correct_answer: q.correct_answer ?? null,
-                        answer_text: q.answer_text ?? null,
-                        selected_options: selected ?? null,
-                        marks_awarded: q.marks_awarded ?? q.score ?? null,
-                        is_correct: q.is_correct ?? null,
-                        options: q.options || [],
-                        audio_clip_id: q.audio_clip_id ?? null,
-                    } as QuestionDetail;
-                });
-                console.log('Teacher submission fetched questions:', normalizedQuestions);
-
-
-                // Build submission object — handle both flat and nested formats
-                const sub = data.submission ?? data;
-                setSubmissionDetails({
-                    submission: {
-                        id: sub.id,
-                        student_id: sub.student_id,
-                        student_name: sub.student_name ?? `${sub.first_name || ''} ${sub.last_name || ''}`.trim(),
-                        email: sub.email ?? '',
-                        total_score: sub.total_score ?? null,
-                        max_score: sub.max_score ?? null,
-                        percentage: sub.percentage ?? null,
-                        status: sub.status,
-                        time_taken_minutes: sub.time_taken_minutes ?? null,
-                        submitted_at: sub.submitted_at ?? null,
-                        started_at: sub.started_at ?? null,
-                    },
-                    questions: normalizedQuestions,
-                    audio_clips: data.audio_clips || [],
-                });
-            } else {
-                const err = await response.json().catch(() => ({}));
-                message.error(err.error || 'Failed to load submission details');
-            }
-        } catch (error) {
-            message.error('Failed to load submission details');
-        } finally {
-            setDetailLoading(false);
-        }
-    };
-
-    const handleViewDetails = (row: StudentRow) => {
-        if (!row.submission_id) {
-            message.info('This student has not submitted the quiz yet.');
-            return;
-        }
-        setSelectedResult(row);
-        setDetailModalVisible(true);
-        fetchSubmissionDetails(row.submission_id);
-    };
-
-    const getScoreColor = (percentage: number | null) => {
-        if (percentage === null || percentage === undefined) return 'default';
-        if (percentage >= 80) return 'success';
-        if (percentage >= 60) return 'warning';
-        return 'error';
-    };
-
-    const getGrade = (percentage: number | null) => {
-        if (percentage === null || percentage === undefined) return '-';
-        if (percentage >= 90) return 'A+';
-        if (percentage >= 80) return 'A';
-        if (percentage >= 70) return 'B+';
-        if (percentage >= 60) return 'B';
-        if (percentage >= 50) return 'C';
-        return 'F';
-    };
-
-    const formatMinutes = (minutes: number | null) => {
-        if (minutes === null || minutes === undefined) return '—';
-        const m = Math.floor(minutes);
-        return `${m}m`;
-    };
-
-    const columns: ColumnsType<StudentRow> = [
-        {
-            title: 'Student',
-            dataIndex: 'name',
-            key: 'name',
-            render: (name: string, record: StudentRow) => (
-                <div>
-                    <Text strong>{name}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                        {record.email}
-                    </Text>
-                </div>
-            ),
-        },
-        {
-            title: 'Batch',
-            dataIndex: 'batch_name',
-            key: 'batch_name',
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            render: (status: string) => (
-                <Tag color={status === 'graded' || status === 'submitted' || status === 'auto_submitted' ? 'blue' : 'default'}>
-                    {status.replace('_', ' ')}
-                </Tag>
-            ),
-        },
-        {
-            title: 'Score',
-            dataIndex: 'score',
-            key: 'score',
-            render: (_: number | null, record: StudentRow) => (
-                <div>
-                    {record.percentage !== null ? (
-                        <>
-                            <Text strong style={{ fontSize: '16px' }}>
-                                {formatNumber(record.score)}/{formatNumber(record.max_score)}
-                            </Text>
-                            <br />
-                            <Tag color={getScoreColor(record.percentage)}>
-                                {formatNumber(record.percentage || 0)}% ({getGrade(record.percentage)})
-                            </Tag>
-                        </>
-                    ) : (
-                        <Text type="secondary">Not submitted</Text>
-                    )}
-                </div>
-            ),
-            sorter: (a, b) => (a.percentage || 0) - (b.percentage || 0),
-        },
-        {
-            title: 'Time Taken',
-            dataIndex: 'time_taken_minutes',
-            key: 'time_taken_minutes',
-            render: (time: number | null) => (
-                <Space>
-                    <ClockCircleOutlined />
-                    <Text>{formatMinutes(time)}</Text>
-                </Space>
-            ),
-            sorter: (a, b) => (a.time_taken_minutes || 0) - (b.time_taken_minutes || 0),
-        },
-        {
-            title: 'Submitted At',
-            dataIndex: 'submitted_at',
-            key: 'submitted_at',
-            render: (date: string | null) => (date ? new Date(date).toLocaleString() : '—'),
-            sorter: (a, b) => new Date(a.submitted_at || 0).getTime() - new Date(b.submitted_at || 0).getTime(),
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, record: StudentRow) => (
-                <Button
-                    type="link"
-                    icon={<EyeOutlined />}
-                    onClick={() => handleViewDetails(record)}
-                    disabled={!record.submission_id}
-                >
-                    View Details
-                </Button>
-            ),
-        },
-    ];
-
-    if (loading) {
-        return (
-            <div style={{ padding: '24px' }}>
-                <Skeleton active title={{ width: 300 }} paragraph={{ rows: 2, width: ['100%', '60%'] }} />
-                <div style={{ marginTop: '32px' }}>
-                    <Skeleton.Input active size="large" style={{ width: 160, marginRight: 16 }} />
-                    <Skeleton.Input active size="large" style={{ width: 280 }} />
-                </div>
-                <Card style={{ marginTop: '24px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
-                    <Skeleton active paragraph={{ rows: 6 }} />
-                </Card>
-            </div>
-        );
-    }
-
-    if (!quiz) {
-        return (
-            <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-                <Empty description={<Text type="secondary">Quiz details not found.</Text>} />
-            </div>
-        );
-    }
-
-    const filteredResults = results.filter(result => {
-        if (filterStatus === 'passed') return (result.percentage || 0) >= 60;
-        if (filterStatus === 'failed') return (result.percentage || 0) < 60;
-        return true;
-    }).filter(result => {
-        if (!dateRange || dateRange.length !== 2) return true;
-        const [start, end] = dateRange;
-        if (!result.submitted_at) return false;
-        const startMs = start?.toDate ? start.toDate().getTime() : new Date(start).getTime();
-        const endMs = end?.toDate ? end.toDate().getTime() : new Date(end).getTime();
-        const t = new Date(result.submitted_at).getTime();
-        return t >= startMs && t <= endMs;
-    });
+    const OUTCOME = {
+        right: { icon: <CheckCircleFilled />, label: 'Correct' },
+        partial: { icon: <MinusCircleFilled />, label: 'Partly correct' },
+        wrong: { icon: <CloseCircleFilled />, label: 'Incorrect' },
+        blank: { icon: <MinusCircleFilled />, label: 'Not answered' },
+    } as const;
 
     return (
-        <div style={{ margin: '0 auto', backgroundColor: '#fcfcfc', minHeight: '100%' }}>
-            {/* Edge-to-Edge Hero Header Section */}
-            <div style={{ 
-                padding: '40px 32px 32px', 
-                background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
-                boxShadow: '0 10px 30px rgba(37, 99, 235, 0.15)',
-                position: 'relative',
-                overflow: 'hidden'
-            }}>
-                {/* Decorative background circle */}
-                <div style={{
-                    position: 'absolute', right: '-10%', top: '-20%', width: '300px', height: '300px',
-                    borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%)',
-                    pointerEvents: 'none'
-                }} />
+        <Drawer open={!!row} onClose={onClose} placement="right" width={r.isMobile ? '100%' : Math.min(720, r.width - 40)} destroyOnHidden
+            rootClassName="tc-drawer qz-drawer" closeIcon={<CloseOutlined />}
+            title={<span className="tc-dtitle"><strong>{row?.name}</strong><em>{position}</em></span>}
+            extra={(
+                <span className="qz-drawer-actions">
+                    <Tooltip title="Previous student"><Button size="small" icon={<LeftOutlined />} disabled={!hasPrev} onClick={() => onStep(-1)} aria-label="Previous student" /></Tooltip>
+                    <Tooltip title="Next student"><Button size="small" icon={<RightOutlined />} disabled={!hasNext} onClick={() => onStep(1)} aria-label="Next student" /></Tooltip>
+                </span>
+            )}>
+            {error ? (
+                <div className="tc-alert" role="alert"><WarningOutlined /><span>{error}</span></div>
+            ) : !data || !row ? (
+                <div className="tc-card tc-pad"><Skeleton active avatar paragraph={{ rows: 8 }} /></div>
+            ) : (
+                <>
+                    <section className="tc-card qz-review-head">
+                        <span className="tc-av is-lg">{initials(row.name)}</span>
+                        <div className="tc-cell"><strong>{row.name}</strong><em>{row.email}</em></div>
+                        <div className="qz-review-score">
+                            <span className={`tc-score ${toneOfScore(row.percentage)}`}>{fmtPct(row.percentage)}</span>
+                            {row.percentage !== null && <b className="qz-grade">{gradeFromPercent(row.percentage)}</b>}
+                        </div>
+                        <dl className="qz-facts is-wide">
+                            <div><dt>Points</dt><dd>{fmtNumber(Number(data.total_score))} / {fmtNumber(Number(data.max_score))}</dd></div>
+                            <div><dt>Correct</dt><dd>{counts.right} / {counts.total}</dd></div>
+                            <div><dt>Time</dt><dd>{fmtMinutes(row.minutes)}</dd></div>
+                            <div><dt>{row.status === 'auto_submitted' ? 'Auto-submitted' : 'Submitted'}</dt><dd>{when.at(row.submittedAt)}</dd></div>
+                        </dl>
+                    </section>
 
-                <Title level={2} style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px' }}>
-                    {quiz.title}
-                </Title>
-                <Text style={{ fontSize: '16px', display: 'block', marginTop: '12px', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '80%' }}>
-                    Overview of student submissions and detailed performance analytics for this quiz.
-                </Text>
-            </div>
-
-            <div style={{ padding: '32px' }}>
-                {/* Actions and Filters */}
-                <Row justify="space-between" align="middle" style={{ marginBottom: 24 }}>
-                    <Col>
-                        <Space size="middle">
-                            <Select
-                                value={filterStatus}
-                                onChange={setFilterStatus}
-                                style={{ width: 180 }}
-                                size="large"
-                            >
-                                <Option value="all">All Results</Option>
-                                <Option value="passed">Passed (≥60%)</Option>
-                                <Option value="failed">Failed (&lt;60%)</Option>
-                            </Select>
-                            <RangePicker
-                                value={dateRange}
-                                onChange={setDateRange}
-                                placeholder={['Start Date', 'End Date']}
-                                size="large"
-                            />
-                        </Space>
-                    </Col>
-                </Row>
-
-            {/* Results Table */}
-            <Card 
-                title={<span style={{ fontSize: '18px', fontWeight: 600 }}>Student Grades</span>}
-                style={{ 
-                    borderRadius: '16px', 
-                    border: 'none', 
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.04)' 
-                }}
-                styles={{ header: { borderBottom: '1px solid #f0f0f0', padding: '20px 24px' }, body: { padding: 0 } }}
-            >
-                {filteredResults.length === 0 ? (
-                    <Empty
-                        style={{ padding: '40px 0' }}
-                        description={<Text type="secondary">No students have submitted this quiz yet.</Text>}
-                        image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    />
-                ) : (
-                    <Table
-                        columns={columns}
-                        dataSource={filteredResults}
-                        rowKey={(row) => `${row.batch_id}-${row.id}`}
-                        pagination={{
-                            pageSize: 10,
-                            showSizeChanger: true,
-                            showQuickJumper: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} results`,
-                            style: { padding: '0 24px 24px 24px' }
-                        }}
-                    />
-                )}
-            </Card>
-            </div>
-
-            {/* Result Detail Modal */}
-            <Modal
-                title={null}
-                open={detailModalVisible}
-                onCancel={() => { setDetailModalVisible(false); setSubmissionDetails(null); }}
-                footer={null}
-                width={1000}
-                centered
-                closeIcon={
-                    <div style={{
-                        width: '32px', height: '32px', borderRadius: '50%',
-                        backgroundColor: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ff4d4f';
-                        e.currentTarget.style.color = '#fff';
-                        e.currentTarget.style.transform = 'rotate(90deg)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#fff';
-                        e.currentTarget.style.color = 'inherit';
-                        e.currentTarget.style.transform = 'none';
-                    }}
-                    >
-                        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>✕</span>
+                    <div className="qz-review-filter">
+                        <Segmented size="small" value={filter} onChange={v => setFilter(v as typeof filter)}
+                            options={[{ value: 'all', label: `All ${counts.total}` }, { value: 'wrong', label: `To review ${counts.total - counts.right}` }, { value: 'right', label: `Correct ${counts.right}` }]} />
                     </div>
-                }
-                style={{ top: 20 }}
-                styles={{
-                    content: { borderRadius: '24px', padding: 0, overflow: 'hidden' },
-                    body: { 
-                        padding: 0,
-                        height: '80vh',
-                        display: 'flex',
-                        flexDirection: 'column'
-                    }
-                }}
-            >
-                {detailLoading && (
-                    <div style={{ padding: '32px' }}>
-                        <Skeleton active title={{ width: 250 }} paragraph={{ rows: 1 }} />
-                        <Row gutter={24} style={{ marginTop: '32px', marginBottom: '32px' }}>
-                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-                            <Col span={8}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-                        </Row>
-                        <Skeleton active paragraph={{ rows: 6 }} />
+
+                    <ol className="qz-review-list">
+                        {visible.map(({ q, i, type, marks, awarded, selected, outcome }: any) => {
+                            const clipId = Number(q.audio_clip_id) || null;
+                            const clip = clipId && !shownClip.has(clipId) ? clips.get(clipId) : null;
+                            if (clipId) shownClip.add(clipId);
+                            return (
+                                <li key={q.id} className={`qz-review-q is-${outcome}`}>
+                                    {clip && (
+                                        <div className="qz-review-clip"><SoundOutlined /> Listening section {clip.has_audio && <ClipPlayer clipId={clip.id} />}</div>
+                                    )}
+                                    <div className="qz-review-q-head">
+                                        <span className="qz-review-outcome">{OUTCOME[outcome as keyof typeof OUTCOME].icon}</span>
+                                        <span className="qz-q-num">{i + 1}</span>
+                                        <span className="qz-q-type">{TYPE_META[type as QuestionType].short}</span>
+                                        <span className="qz-review-pts">{fmtNumber(awarded)} / {fmtNumber(marks)} pts</span>
+                                    </div>
+                                    <p className="qz-q-text">{q.question_text}</p>
+                                    {type === 'yes_no' ? (
+                                        <ul className="qz-opts is-view is-review">
+                                            {(['yes', 'no'] as const).map(v => {
+                                                const picked = q.answer_text === v;
+                                                const correct = q.correct_answer === v || (v === 'yes' && q.correct_answer === 'true') || (v === 'no' && q.correct_answer === 'false');
+                                                return (
+                                                    <li key={v} className={`${correct ? 'is-correct' : ''}${picked ? ' is-picked' : ''}${picked && !correct ? ' is-wrong' : ''}`}>
+                                                        <span className="qz-opt-letter">{correct ? <CheckOutlined /> : picked ? <CloseOutlined /> : '·'}</span>
+                                                        <span>{v === 'yes' ? 'Yes' : 'No'}</span>
+                                                        {picked && <em className="qz-pick-tag">Their answer</em>}
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    ) : (
+                                        <ul className="qz-opts is-view is-review">
+                                            {(q.options || []).map((o: any, j: number) => {
+                                                const picked = selected.includes(Number(o.id));
+                                                const correct = !!o.is_correct;
+                                                return (
+                                                    <li key={o.id} className={`${correct ? 'is-correct' : ''}${picked ? ' is-picked' : ''}${picked && !correct ? ' is-wrong' : ''}`}>
+                                                        <span className="qz-opt-letter">{correct ? <CheckOutlined /> : picked ? <CloseOutlined /> : LETTERS[j]}</span>
+                                                        <span>{o.option_text}</span>
+                                                        {picked && <em className="qz-pick-tag">Their answer</em>}
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    )}
+                                    {outcome === 'blank' && <p className="qz-hint">No answer given.</p>}
+                                </li>
+                            );
+                        })}
+                        {!visible.length && <li className="tc-muted-line">Nothing in this filter.</li>}
+                    </ol>
+                </>
+            )}
+        </Drawer>
+    );
+};
+
+/* ─────────────── Results ─────────────── */
+const QuizResults: React.FC<Props> = ({ quiz, initialTab, onClose }) => {
+    const { apiCall, user } = useAuth();
+    const r = useResponsive();
+    const tz = resolveTimezone(user?.timezone);
+    const when = useMemo(() => makeWhen(tz), [tz]);
+
+    const [tab, setTab] = useState<ResultsTab>(initialTab);
+    const [rows, setRows] = useState<ResultRow[] | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [analysis, setAnalysis] = useState<Analysis | null>(null);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+    const [attempt, setAttempt] = useState(0);
+
+    const [search, setSearch] = useState('');
+    const [status, setStatus] = useState<StatusFilter>('all');
+    const [batch, setBatch] = useState<string | null>(null);
+    const [sort, setSort] = useState<SortKey>('high');
+    const [qSort, setQSort] = useState<'order' | 'hard'>('order');
+    const [reviewId, setReviewId] = useState<number | null>(null);
+
+    const id = quiz?.id ?? null;
+    useEffect(() => { if (id !== null) { setTab(initialTab); setSearch(''); setStatus('all'); setBatch(null); setReviewId(null); } }, [id, initialTab]);
+
+    useEffect(() => {
+        if (id === null) return;
+        let cancelled = false;
+        setRows(null);
+        setError(null);
+        setAnalysis(null);
+        setAnalysisError(null);
+        apiCall(`/quizzes/${id}/results`)
+            .then(async res => {
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.error || 'The results could not be loaded.');
+                if (!cancelled) setRows(resultRowsFromApi(data));
+            })
+            .catch(e => { if (!cancelled) setError(e?.message || 'The results could not be loaded.'); });
+        return () => { cancelled = true; };
+    }, [id, attempt, apiCall]);
+
+    // Question analysis loads the first time its tab is opened.
+    useEffect(() => {
+        if (id === null || tab !== 'questions' || analysis || analysisError) return;
+        let cancelled = false;
+        apiCall(`/quizzes/${id}/analysis`)
+            .then(async res => {
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.error || 'The question analysis could not be loaded.');
+                if (!cancelled) setAnalysis(data);
+            })
+            .catch(e => { if (!cancelled) setAnalysisError(e?.message || 'The question analysis could not be loaded.'); });
+        return () => { cancelled = true; };
+    }, [id, tab, analysis, analysisError, apiCall]);
+
+    const batches = useMemo(() => [...new Set((rows || []).flatMap(x => x.batches))].sort((a, b) => a.localeCompare(b)), [rows]);
+
+    const list = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        const out = (rows || []).filter(x => {
+            if (batch && !x.batches.includes(batch)) return false;
+            if (q && !`${x.name} ${x.email}`.toLowerCase().includes(q)) return false;
+            if (status === 'finished') return isFinished(x.status);
+            if (status === 'in_progress') return x.status === 'in_progress';
+            if (status === 'not_started') return x.status === 'not_started';
+            if (status === 'below') return x.percentage !== null && x.percentage < PASS_MARK;
+            return true;
+        });
+        const score = (x: ResultRow) => x.percentage ?? -1;
+        return out.sort((a, b) => {
+            if (sort === 'name') return a.name.localeCompare(b.name);
+            if (sort === 'low') return (a.percentage ?? Infinity) - (b.percentage ?? Infinity);
+            if (sort === 'fast') return (a.minutes ?? Infinity) - (b.minutes ?? Infinity);
+            if (sort === 'recent') return (Date.parse(b.submittedAt || '') || 0) - (Date.parse(a.submittedAt || '') || 0);
+            return score(b) - score(a) || a.name.localeCompare(b.name);
+        });
+    }, [rows, search, status, batch, sort]);
+
+    // Review navigation follows the list as it is currently filtered and sorted.
+    const reviewable = useMemo(() => list.filter(x => x.submissionId && isFinished(x.status)), [list]);
+    const reviewIndex = reviewable.findIndex(x => x.studentId === reviewId);
+    const reviewRow = reviewIndex >= 0 ? reviewable[reviewIndex] : (rows || []).find(x => x.studentId === reviewId) || null;
+    const openStudent = useCallback((row: ResultRow) => { if (row.submissionId && isFinished(row.status)) setReviewId(row.studentId); }, []);
+
+    const exportCsv = () => {
+        if (!quiz || !rows) return;
+        const blob = new Blob(['﻿', csvOf(list, tz)], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${quiz.title.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'quiz'}-results.csv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 5000);
+    };
+
+    const analysisList = useMemo(() => {
+        const qs = [...(analysis?.questions || [])];
+        return qSort === 'hard' ? qs.sort((a, b) => (a.correct_rate ?? 101) - (b.correct_rate ?? 101)) : qs;
+    }, [analysis, qSort]);
+
+    const students = (
+        <div className="qz-results-students">
+            <div className="qz-toolbar is-sub">
+                <Segmented size={r.isMobile ? 'small' : 'middle'} value={status} onChange={v => setStatus(v as StatusFilter)} options={[
+                    { value: 'all', label: 'All' }, { value: 'finished', label: 'Submitted' }, { value: 'in_progress', label: 'In progress' },
+                    { value: 'not_started', label: 'Not started' }, { value: 'below', label: `Below ${PASS_MARK}%` },
+                ]} />
+                <div className="qz-filters">
+                    <Input className="qz-search" allowClear prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} placeholder="Find a student" value={search} onChange={e => setSearch(e.target.value)} aria-label="Find a student" />
+                    {batches.length > 1 && <Select<string> className="qz-filter" allowClear placeholder="All batches" value={batch ?? undefined} onChange={v => setBatch(v ?? null)} options={batches.map(b => ({ value: b, label: b }))} />}
+                    <Select<SortKey> className="qz-sort" value={sort} onChange={setSort} aria-label="Sort" options={[
+                        { value: 'high', label: 'Highest score' }, { value: 'low', label: 'Lowest score' }, { value: 'name', label: 'Name (A–Z)' },
+                        { value: 'fast', label: 'Fastest' }, { value: 'recent', label: 'Latest submitted' },
+                    ]} />
+                </div>
+            </div>
+            {list.length === 0 ? (
+                <p className="tc-muted-line">No students match these filters.</p>
+            ) : (
+                <div className="qz-stable" role="table" aria-label="Students">
+                    <div className="qz-srow is-head" role="row">
+                        <span role="columnheader">Student</span><span role="columnheader">Status</span><span role="columnheader">Score</span>
+                        <span role="columnheader">Time</span><span role="columnheader">Submitted</span><span role="columnheader"><span className="qz-sr">Open</span></span>
                     </div>
-                )}
-                {!detailLoading && submissionDetails && (
-                    <>
-                        {/* Fixed Header Section */}
-                        <div style={{ 
-                            padding: '32px',
-                            background: 'linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%)',
-                            borderBottom: '1px solid rgba(24, 144, 255, 0.1)',
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                                <div>
-                                    <Title level={3} style={{ margin: 0, color: '#1a1a1a', fontWeight: 700, fontSize: '24px' }}>
-                                        {selectedResult?.name || 'Student Results'}
-                                    </Title>
-                                    <Text type="secondary" style={{ fontSize: '14px', display: 'block', marginTop: '4px' }}>
-                                        {submissionDetails.submission.email}
-                                    </Text>
-                                </div>
+                    {list.map(x => {
+                        const open = !!x.submissionId && isFinished(x.status);
+                        return (
+                            <div key={x.studentId} className={`qz-srow${open ? ' is-open' : ''}`} role="row" tabIndex={open ? 0 : -1}
+                                onClick={() => openStudent(x)} onKeyDown={e => { if (open && e.key === 'Enter') openStudent(x); }}>
+                                <span className="qz-s-name" role="cell">
+                                    <span className="tc-av is-sm">{initials(x.name)}</span>
+                                    <span className="tc-cell"><strong>{x.name}</strong><em>{batches.length > 1 ? x.batches.join(', ') : x.email}</em></span>
+                                </span>
+                                <span role="cell"><span className={`qz-sub-status is-${x.status}`}>{STATUS_LABEL[x.status]}</span></span>
+                                <span className="qz-s-score" role="cell">
+                                    {x.percentage === null ? <span className="qz-muted">—</span> : (
+                                        <>
+                                            <span className={`tc-score ${toneOfScore(x.percentage)}`}>{fmtPct(x.percentage)}</span>
+                                            <em>{fmtNumber(x.score)}/{fmtNumber(x.maxScore)} · {gradeFromPercent(x.percentage)}</em>
+                                        </>
+                                    )}
+                                </span>
+                                <span className="qz-s-time" role="cell">{isFinished(x.status) ? fmtMinutes(x.minutes) : x.status === 'in_progress' && x.startedAt ? `Started ${when.at(x.startedAt)}` : '—'}</span>
+                                <span className="qz-s-when" role="cell">{x.submittedAt && isFinished(x.status) ? when.at(x.submittedAt) : '—'}</span>
+                                <span className="qz-s-go" role="cell">{open && <RightOutlined />}</span>
                             </div>
-                            
-                            <Row gutter={24}>
-                                <Col span={8}>
-                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(24,144,255,0.08)' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#1890ff', fontSize: '28px' }}>
-                                            {formatNumber(submissionDetails.submission.total_score)}<span style={{ fontSize: '18px', color: '#8c8c8c' }}>/{formatNumber(submissionDetails.submission.max_score)}</span>
-                                        </Title>
-                                        <Text style={{ color: '#52c41a', fontSize: '14px', fontWeight: 600 }}>
-                                            ({formatNumber(submissionDetails.submission.percentage ?? 0)}%)
-                                        </Text>
-                                        <div style={{ marginTop: '4px' }}>
-                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total Score</Text>
-                                        </div>
-                                    </div>
-                                </Col>
-                                <Col span={8}>
-                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(114,46,209,0.08)' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#722ed1', fontSize: '28px' }}>
-                                            {getGrade(submissionDetails.submission.percentage ?? null)}
-                                        </Title>
-                                        <div style={{ marginTop: '26px' }}>
-                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Final Grade</Text>
-                                        </div>
-                                    </div>
-                                </Col>
-                                <Col span={8}>
-                                    <div style={{ padding: '16px', textAlign: 'center', background: '#fff', borderRadius: '16px', boxShadow: '0 4px 15px rgba(250,140,22,0.08)' }}>
-                                        <Title level={2} style={{ margin: 0, color: '#fa8c16', fontSize: '28px' }}>
-                                            {formatMinutes(submissionDetails.submission.time_taken_minutes ?? null)}
-                                        </Title>
-                                        <div style={{ marginTop: '26px' }}>
-                                            <Text type="secondary" style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Time Taken</Text>
-                                        </div>
-                                    </div>
-                                </Col>
-                            </Row>
-                        </div>
-
-                        {/* Title Bar for Scrollable Area */}
-                        <div style={{ 
-                            padding: '16px 32px',
-                            backgroundColor: '#fff',
-                            borderBottom: '1px solid #f0f0f0',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
-                            zIndex: 1
-                        }}>
-                            <Title level={5} style={{ margin: 0, color: '#1a1a1a' }}>Detailed Evaluation</Title>
-                        </div>
-
-                        {/* Scrollable Content Section */}
-                        <div style={{ 
-                            flex: 1,
-                            overflow: 'auto',
-                            padding: '20px 24px 32px 24px',
-                            backgroundColor: '#f8f9fa'
-                        }}>
-
-                            {/* Answer Details — Grouped by Audio */}
-                            {(() => {
-                                const questions = submissionDetails.questions;
-                                const audioClips = submissionDetails.audio_clips || [];
-
-                                // Build groups: audio sections + independent questions
-                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: QuestionDetail[] }
-                                    | { type: 'independent'; question: QuestionDetail };
-                                const groups: QGroup[] = [];
-                                const audioMap = new Map<number, QuestionDetail[]>();
-                                const independent: QuestionDetail[] = [];
-
-                                questions.forEach(q => {
-                                    if (q.audio_clip_id) {
-                                        if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []);
-                                        audioMap.get(q.audio_clip_id)!.push(q);
-                                    } else {
-                                        independent.push(q);
-                                    }
-                                });
-
-                                // Maintain order: iterate through questions, outputting groups as encountered
-                                const processedClips = new Set<number>();
-                                let globalIdx = 0;
-                                questions.forEach(q => {
-                                    if (q.audio_clip_id && !processedClips.has(q.audio_clip_id)) {
-                                        processedClips.add(q.audio_clip_id);
-                                        const clip = audioClips.find(c => c.id === q.audio_clip_id);
-                                        groups.push({
-                                            type: 'audio',
-                                            clipId: q.audio_clip_id,
-                                            clip: clip || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false },
-                                            questions: audioMap.get(q.audio_clip_id) || []
-                                        });
-                                    } else if (!q.audio_clip_id) {
-                                        groups.push({ type: 'independent', question: q });
-                                    }
-                                });
-
-                                // Helper to render a single question card
-                                const renderQuestionCard = (q: QuestionDetail, qIndex: number) => {
-                                    const isCorrect = typeof q.is_correct === 'boolean' ? q.is_correct : q.is_correct === 1;
-                                    const pointsEarned = q.marks_awarded ?? 0;
-                                    const maxPoints = q.marks ?? 0;
-                                    const isMCQ = q.question_type === 'mcq' || q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
-                                    const selectedOptionObjs = isMCQ
-                                        ? (q.selected_options || []).map((id) => (q.options || []).find(o => o.id === id)).filter(Boolean)
-                                        : [];
-                                    const correctOptionObjs = isMCQ
-                                        ? (q.options || []).filter(o => o.is_correct === true || o.is_correct === 1)
-                                        : [];
-                                    const pct = maxPoints > 0 ? pointsEarned / maxPoints : 0;
-                                    const isFullyCorrect = pct >= 1;
-                                    const isZero = pct <= 0;
-                                    const isPartial = !isZero && !isFullyCorrect;
-                                    const statusTag = isFullyCorrect
-                                        ? { color: 'success' as const, text: 'Correct' }
-                                        : isPartial
-                                            ? { color: 'orange' as const, text: 'Partially Correct' }
-                                            : { color: 'error' as const, text: 'Incorrect' };
-                                    const isExpanded = expandedQuestions.has(q.id);
-
-                                    return (
-                                        <div
-                                            key={q.id}
-                                            style={{
-                                                backgroundColor: '#ffffff',
-                                                marginBottom: '12px',
-                                                borderRadius: '10px',
-                                                border: '1px solid #e8e8e8',
-                                                boxShadow: isExpanded
-                                                    ? '0 6px 20px rgba(0,0,0,0.1)'
-                                                    : '0 1px 4px rgba(0,0,0,0.04)',
-                                                transition: 'all 0.3s ease',
-                                                overflow: 'hidden'
-                                            }}
-                                        >
-                                            {/* Question Header */}
-                                            <div
-                                                style={{
-                                                    padding: '14px 20px',
-                                                    cursor: 'pointer',
-                                                    backgroundColor: isExpanded ? '#f8faff' : '#fff',
-                                                    borderBottom: isExpanded ? '1px solid #e8f4fd' : 'none',
-                                                    transition: 'background 0.2s'
-                                                }}
-                                                onClick={() => toggleQuestionExpansion(q.id)}
-                                            >
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', flex: '1 1 0', minWidth: 0 }}>
-                                                        <div style={{
-                                                            width: '22px', height: '22px', borderRadius: '6px',
-                                                            backgroundColor: isExpanded ? '#1890ff' : '#f0f0f0',
-                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                            transition: 'all 0.2s', flexShrink: 0, marginTop: '2px'
-                                                        }}>
-                                                            {isExpanded
-                                                                ? <DownOutlined style={{ fontSize: '11px', color: '#fff' }} />
-                                                                : <RightOutlined style={{ fontSize: '11px', color: '#8c8c8c' }} />}
-                                                        </div>
-                                                        <div style={{ minWidth: 0 }}>
-                                                            <Text strong style={{ fontSize: '14px', color: '#1a1a1a', display: 'block' }}>
-                                                                Question {qIndex + 1}
-                                                            </Text>
-                                                            <Text style={{
-                                                                fontSize: '12px', color: '#8c8c8c', lineHeight: '1.4',
-                                                                display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
-                                                                overflow: 'hidden', marginTop: '2px'
-                                                            }}>
-                                                                {q.question_text}
-                                                            </Text>
-                                                        </div>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, marginLeft: '12px', paddingTop: '2px' }}>
-                                                        <Tag color={statusTag.color} style={{
-                                                            fontSize: '11px', fontWeight: '600', padding: '3px 10px',
-                                                            borderRadius: '16px', margin: 0, border: 'none',
-                                                            textTransform: 'uppercase' as const, letterSpacing: '0.4px', whiteSpace: 'nowrap'
-                                                        }}>
-                                                            {statusTag.text}
-                                                        </Tag>
-                                                        <Tag style={{
-                                                            fontSize: '11px', fontWeight: '600', padding: '3px 10px',
-                                                            borderRadius: '16px', margin: 0, whiteSpace: 'nowrap',
-                                                            backgroundColor: isFullyCorrect ? '#f6ffed' : isPartial ? '#fff7e6' : '#e6f7ff',
-                                                            color: isFullyCorrect ? '#52c41a' : isPartial ? '#fa8c16' : '#1890ff',
-                                                            border: `1px solid ${isFullyCorrect ? '#b7eb8f' : isPartial ? '#ffd591' : '#91d5ff'}`
-                                                        }}>
-                                                            {formatNumber(pointsEarned)}/{formatNumber(maxPoints)} pts
-                                                        </Tag>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Expanded Content */}
-                                            {isExpanded && (
-                                                <div style={{ padding: '20px', backgroundColor: '#fff' }}>
-                                                    {/* Question text */}
-                                                    <div style={{
-                                                        marginBottom: '20px', padding: '16px 20px',
-                                                        backgroundColor: '#f8faff', borderRadius: '10px',
-                                                        border: '1px solid #e8f4fd', position: 'relative' as const
-                                                    }}>
-                                                        <div style={{
-                                                            position: 'absolute' as const, top: 0, left: 0,
-                                                            width: '4px', height: '100%',
-                                                            backgroundColor: '#1890ff', borderRadius: '2px 0 0 2px'
-                                                        }} />
-                                                        <Text style={{ fontSize: '14px', lineHeight: '1.6', color: '#1a1a1a' }}>
-                                                            {q.question_text}
-                                                        </Text>
-                                                    </div>
-
-                                                    {/* Student Answer */}
-                                                    <div style={{ marginBottom: '16px' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#8c8c8c' }} />
-                                                            <Text strong style={{ fontSize: '12px', color: '#595959', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-                                                                Student Answer
-                                                            </Text>
-                                                        </div>
-                                                        {isMCQ ? (
-                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                                                {selectedOptionObjs.map(opt => {
-                                                                    const isOptCorrect = opt!.is_correct === true || opt!.is_correct === 1;
-                                                                    return (
-                                                                        <div key={opt!.id} style={{
-                                                                            padding: '6px 14px', borderRadius: '16px', fontSize: '12px', fontWeight: '500',
-                                                                            backgroundColor: isOptCorrect ? '#f6ffed' : '#fff2f0',
-                                                                            color: isOptCorrect ? '#52c41a' : '#ff4d4f',
-                                                                            border: `1px solid ${isOptCorrect ? '#b7eb8f' : '#ffccc7'}`,
-                                                                            display: 'flex', alignItems: 'center', gap: '5px'
-                                                                        }}>
-                                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: isOptCorrect ? '#52c41a' : '#ff4d4f' }} />
-                                                                            {opt!.option_text}
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                                {selectedOptionObjs.length === 0 && (
-                                                                    <div style={{
-                                                                        padding: '10px 16px', backgroundColor: '#f5f5f5',
-                                                                        borderRadius: '16px', border: '1px solid #d9d9d9',
-                                                                        fontStyle: 'italic', color: '#8c8c8c', fontSize: '12px'
-                                                                    }}>No answer selected</div>
-                                                                )}
-                                                            </div>
-                                                        ) : (
-                                                            <div style={{
-                                                                padding: '12px 16px', borderRadius: '10px',
-                                                                backgroundColor: isCorrect ? '#f6ffed' : '#fff2f0',
-                                                                border: `1px solid ${isCorrect ? '#b7eb8f' : '#ffccc7'}`,
-                                                                position: 'relative' as const
-                                                            }}>
-                                                                <div style={{
-                                                                    position: 'absolute' as const, top: 0, left: 0,
-                                                                    width: '3px', height: '100%',
-                                                                    backgroundColor: isCorrect ? '#52c41a' : '#ff4d4f',
-                                                                    borderRadius: '2px 0 0 2px'
-                                                                }} />
-                                                                <Text style={{ fontSize: '12px', color: isCorrect ? '#52c41a' : '#ff4d4f', fontWeight: '500' }}>
-                                                                    {q.answer_text || 'No answer provided'}
-                                                                </Text>
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Correct Answer */}
-                                                    {!isFullyCorrect && (
-                                                        <div style={{ marginTop: '16px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px' }}>
-                                                                <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#52c41a' }} />
-                                                                <Text strong style={{ fontSize: '12px', color: '#52c41a', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-                                                                    Correct Answer
-                                                                </Text>
-                                                            </div>
-                                                            {isMCQ ? (
-                                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                                                                    {correctOptionObjs.map(opt => (
-                                                                        <div key={opt.id} style={{
-                                                                            padding: '6px 14px', borderRadius: '16px', fontSize: '12px', fontWeight: '500',
-                                                                            backgroundColor: '#f6ffed', color: '#52c41a', border: '1px solid #b7eb8f',
-                                                                            display: 'flex', alignItems: 'center', gap: '5px'
-                                                                        }}>
-                                                                            <div style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: '#52c41a' }} />
-                                                                            {opt.option_text}
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            ) : (
-                                                                <div style={{
-                                                                    padding: '12px 16px', borderRadius: '10px',
-                                                                    backgroundColor: '#f6ffed', border: '1px solid #b7eb8f',
-                                                                    position: 'relative' as const
-                                                                }}>
-                                                                    <div style={{
-                                                                        position: 'absolute' as const, top: 0, left: 0,
-                                                                        width: '3px', height: '100%',
-                                                                        backgroundColor: '#52c41a', borderRadius: '2px 0 0 2px'
-                                                                    }} />
-                                                                    <Text style={{ color: '#52c41a', fontSize: '12px', fontWeight: '500' }}>
-                                                                        {q.correct_answer}
-                                                                    </Text>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                };
-
-                                // Track global question index
-                                globalIdx = 0;
-
-                                return (
-                                    <div>
-                                        {groups.map((group, gIdx) => {
-                                            if (group.type === 'independent') {
-                                                globalIdx++;
-                                                return renderQuestionCard(group.question, globalIdx);
-                                            }
-
-                                            // Audio group
-                                            const audioQs = group.questions;
-                                            const correctCount = audioQs.filter(q => {
-                                                const pe = q.marks_awarded ?? 0;
-                                                const mp = q.marks ?? 0;
-                                                return mp > 0 && pe >= mp;
-                                            }).length;
-                                            const totalPtsEarned = audioQs.reduce((s, q) => s + (q.marks_awarded ?? 0), 0);
-                                            const totalPtsMax = audioQs.reduce((s, q) => s + (q.marks ?? 0), 0);
-                                            const sectionPct = totalPtsMax > 0 ? Math.round((totalPtsEarned / totalPtsMax) * 100) : 0;
-                                            const sectionColor = sectionPct >= 80 ? '#52c41a' : sectionPct >= 50 ? '#faad14' : '#ff4d4f';
-
-                                            return (
-                                                <div key={`audio-${group.clipId}`} style={{
-                                                    marginBottom: '24px',
-                                                    borderRadius: '16px',
-                                                    overflow: 'hidden',
-                                                    border: '2px solid #06b6d4',
-                                                    boxShadow: '0 4px 20px rgba(6,182,212,0.15)'
-                                                }}>
-                                                    {/* Audio Section Header */}
-                                                    <div style={{
-                                                        background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
-                                                        padding: '18px 24px',
-                                                        color: '#fff'
-                                                    }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                                <div style={{
-                                                                    background: 'rgba(255,255,255,0.2)',
-                                                                    width: 36, height: 36, borderRadius: '50%',
-                                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                                    fontSize: 18
-                                                                }}>🎧</div>
-                                                                <div>
-                                                                    <Text strong style={{ color: '#fff', fontSize: '15px', display: 'block' }}>
-                                                                        Listening Comprehension — Audio {group.clip.audio_order || gIdx + 1}
-                                                                    </Text>
-                                                                    <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: '12px' }}>
-                                                                        {audioQs.length} question{audioQs.length > 1 ? 's' : ''} linked to this audio
-                                                                    </Text>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Audio KPIs */}
-                                                        <div style={{
-                                                            display: 'flex', gap: '12px', flexWrap: 'wrap'
-                                                        }}>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '10px', padding: '8px 16px',
-                                                                display: 'flex', alignItems: 'center', gap: '8px',
-                                                                backdropFilter: 'blur(10px)'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Accuracy</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
-                                                                    {correctCount}/{audioQs.length}
-                                                                </Text>
-                                                            </div>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '10px', padding: '8px 16px',
-                                                                display: 'flex', alignItems: 'center', gap: '8px',
-                                                                backdropFilter: 'blur(10px)'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Points</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
-                                                                    {formatNumber(totalPtsEarned)}/{formatNumber(totalPtsMax)}
-                                                                </Text>
-                                                            </div>
-                                                            <div style={{
-                                                                background: 'rgba(255,255,255,0.15)',
-                                                                borderRadius: '10px', padding: '8px 16px',
-                                                                display: 'flex', alignItems: 'center', gap: '8px',
-                                                                backdropFilter: 'blur(10px)'
-                                                            }}>
-                                                                <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px' }}>Score</Text>
-                                                                <Text strong style={{ color: '#fff', fontSize: '14px' }}>
-                                                                    {sectionPct}%
-                                                                </Text>
-                                                                <div style={{
-                                                                    width: 8, height: 8, borderRadius: '50%',
-                                                                    backgroundColor: sectionColor
-                                                                }} />
-                                                            </div>
-                                                        </div>
-
-                                                        {/* Audio player for teacher */}
-                                                        {group.clip.has_audio && (
-                                                            <div style={{ marginTop: '12px' }}>
-                                                                {audioBlobUrls[group.clipId] ? (
-                                                                    <audio
-                                                                        controls
-                                                                        controlsList="nodownload noplaybackrate"
-                                                                        onContextMenu={(e) => e.preventDefault()}
-                                                                        src={audioBlobUrls[group.clipId]}
-                                                                        style={{
-                                                                            width: '100%', height: '36px',
-                                                                            borderRadius: '8px', filter: 'invert(1) hue-rotate(180deg)',
-                                                                            opacity: 0.9
-                                                                        }}
-                                                                    />
-                                                                ) : (
-                                                                    <Button
-                                                                        size="small"
-                                                                        type="link"
-                                                                        onClick={() => getAudioBlobUrl(group.clipId)}
-                                                                    >
-                                                                        🔊 Load Audio
-                                                                    </Button>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-
-                                                    {/* Audio Section Questions */}
-                                                    <div style={{
-                                                        padding: '16px 20px',
-                                                        backgroundColor: '#f0fdfa'
-                                                    }}>
-                                                        {audioQs.map(q => {
-                                                            globalIdx++;
-                                                            return renderQuestionCard(q, globalIdx);
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })()}
-                        </div>
-                    </>
-                )}
-            </Modal>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
-}
+
+    const questions = analysisError ? (
+        <div className="tc-alert" role="alert"><WarningOutlined /><span>{analysisError}</span><Button size="small" onClick={() => setAnalysisError(null)}>Retry</Button></div>
+    ) : !analysis ? (
+        <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 10 }} /></div>
+    ) : analysis.finished === 0 ? (
+        <div className="qz-empty is-compact"><strong>No submissions to analyse yet</strong><span>Each question’s success rate and the most common wrong answers appear here once students submit.</span></div>
+    ) : (
+        <div className="qz-analysis">
+            <div className="qz-toolbar is-sub">
+                <span className="qz-hint">Based on {plural(analysis.finished, 'submission')}. Blank answers count as incorrect.</span>
+                <Segmented size="small" value={qSort} onChange={v => setQSort(v as 'order' | 'hard')} options={[{ value: 'order', label: 'In order' }, { value: 'hard', label: 'Hardest first' }]} />
+            </div>
+            <ol className="qz-analysis-list">
+                {analysisList.map(q => {
+                    const type = typeOf(q.question_type);
+                    const rate = q.correct_rate;
+                    const pickTotal = Math.max(1, analysis.finished);
+                    const topWrong = q.options.filter(o => !o.is_correct && o.picks > 0).sort((a, b) => b.picks - a.picks)[0];
+                    return (
+                        <li key={q.id} className="qz-analysis-q">
+                            <div className="qz-analysis-top">
+                                <div className="qz-analysis-main">
+                                    <div className="qz-q-head is-plain">
+                                        <span className="qz-q-num">{q.order}</span>
+                                        <span className="qz-q-type">{TYPE_META[type].short}</span>
+                                        <span className="qz-q-pts">{fmtNumber(q.marks)} pts</span>
+                                        {q.audio_clip_id && <span className="qz-q-type"><SoundOutlined /> Listening</span>}
+                                    </div>
+                                    <p className="qz-q-text">{q.question_text}</p>
+                                </div>
+                                <div className={`qz-rate ${toneOfScore(rate)}`}>
+                                    <strong>{fmtPct(rate)}</strong>
+                                    <em>correct</em>
+                                    <span className="qz-meter"><i style={{ width: `${rate ?? 0}%` }} /></span>
+                                    <small>{q.correct}/{analysis.finished}{q.partial ? ` · ${q.partial} partly` : ''} · avg {fmtNumber(q.avg_points)} pts</small>
+                                </div>
+                            </div>
+                            {type === 'yes_no' && q.yes_no ? (
+                                <ul className="qz-picks">
+                                    {(['yes', 'no'] as const).map(v => {
+                                        const picks = q.yes_no![v];
+                                        const correct = q.correct_answer === v || (v === 'yes' && q.correct_answer === 'true') || (v === 'no' && q.correct_answer === 'false');
+                                        return (
+                                            <li key={v} className={correct ? 'is-correct' : picks ? 'is-wrong' : ''}>
+                                                <span className="qz-pick-label">{correct && <CheckOutlined />}{v === 'yes' ? 'Yes' : 'No'}</span>
+                                                <span className="qz-pick-track"><i style={{ width: `${(picks / pickTotal) * 100}%` }} /></span>
+                                                <span className="qz-pick-val">{picks}</span>
+                                            </li>
+                                        );
+                                    })}
+                                    {analysis.finished - q.answered > 0 && <li className="is-blank"><span className="qz-pick-label">No answer</span><span className="qz-pick-track"><i style={{ width: `${((analysis.finished - q.answered) / pickTotal) * 100}%` }} /></span><span className="qz-pick-val">{analysis.finished - q.answered}</span></li>}
+                                </ul>
+                            ) : (
+                                <ul className="qz-picks">
+                                    {q.options.map((o, j) => (
+                                        <li key={o.id} className={o.is_correct ? 'is-correct' : o === topWrong ? 'is-wrong' : ''}>
+                                            <span className="qz-pick-label">{o.is_correct ? <CheckOutlined /> : <b>{LETTERS[j]}</b>}{o.option_text}</span>
+                                            <span className="qz-pick-track"><i style={{ width: `${(o.picks / pickTotal) * 100}%` }} /></span>
+                                            <span className="qz-pick-val">{o.picks}{o === topWrong && <em>most chosen mistake</em>}</span>
+                                        </li>
+                                    ))}
+                                    {analysis.finished - q.answered > 0 && <li className="is-blank"><span className="qz-pick-label">No answer</span><span className="qz-pick-track"><i style={{ width: `${((analysis.finished - q.answered) / pickTotal) * 100}%` }} /></span><span className="qz-pick-val">{analysis.finished - q.answered}</span></li>}
+                                </ul>
+                            )}
+                        </li>
+                    );
+                })}
+            </ol>
+        </div>
+    );
+
+    return (
+        <>
+            <Drawer open={!!quiz} onClose={onClose} placement="right" width={r.isMobile ? '100%' : Math.min(1120, r.width - 48)} destroyOnHidden
+                rootClassName="tc-drawer qz-drawer qz-results-drawer" closeIcon={<CloseOutlined />}
+                title={<span className="tc-dtitle"><strong>{quiz?.title}</strong><em>Results{rows ? ` · ${plural(rows.length, 'student')}` : ''}</em></span>}
+                extra={(
+                    <span className="qz-drawer-actions">
+                        <Tooltip title="Refresh"><Button size="small" icon={<ReloadOutlined />} onClick={() => setAttempt(a => a + 1)} aria-label="Refresh results" /></Tooltip>
+                        <Button size="small" icon={<DownloadOutlined />} disabled={!rows?.length} onClick={exportCsv}>{r.isMobile ? '' : 'Export CSV'}</Button>
+                    </span>
+                )}>
+                {error ? (
+                    <div className="tc-alert" role="alert"><WarningOutlined /><span><strong>Couldn't load the results.</strong> {error}</span><Button size="small" onClick={() => setAttempt(a => a + 1)}>Retry</Button></div>
+                ) : !rows || !quiz ? (
+                    <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 10 }} /></div>
+                ) : (
+                    <Tabs className="qz-tabs-bar" activeKey={tab} onChange={k => setTab(k as ResultsTab)} items={[
+                        { key: 'overview', label: 'Overview', children: <QuizInsights quiz={quiz} rows={rows} tz={tz} onOpenStudent={openStudent} onShow={setTab} /> },
+                        { key: 'students', label: `Students ${rows.length}`, children: students },
+                        { key: 'questions', label: 'Question analysis', children: questions },
+                    ]} />
+                )}
+            </Drawer>
+
+            {quiz && (
+                <Review
+                    quizId={quiz.id}
+                    row={reviewRow}
+                    tz={tz}
+                    onClose={() => setReviewId(null)}
+                    position={reviewIndex >= 0 ? `Submission ${reviewIndex + 1} of ${reviewable.length}` : 'Submission'}
+                    hasPrev={reviewIndex > 0}
+                    hasNext={reviewIndex >= 0 && reviewIndex < reviewable.length - 1}
+                    onStep={dir => { const next = reviewable[reviewIndex + dir]; if (next) setReviewId(next.studentId); }}
+                />
+            )}
+        </>
+    );
+};
 
 export default QuizResults;

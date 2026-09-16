@@ -9,7 +9,7 @@
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/logo.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#4338ca" />
+    <meta name="theme-color" content="#14264C" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Learn French with Natives" />
@@ -84,10 +84,16 @@
     <meta name="twitter:image:alt" content="Learn French with Natives" />
 
     <!-- ════════════════════════════════════════════════════════════════════
-         Performance: preconnect to font CDN
+         Performance: fonts loaded here (parallel, non-render-blocking) rather
+         than via CSS @import; hero image preloaded for LCP (Core Web Vitals)
          ════════════════════════════════════════════════════════════════════ -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    />
+    <link rel="preload" as="image" href="/assets/French_Platform1.png" fetchpriority="high" />
 
     <!-- ════════════════════════════════════════════════════════════════════
          Structured Data (JSON-LD) — EducationalOrganization
@@ -191,95 +197,9 @@
     }
     </script>
 
-    <!-- FAQ structured data — boosts featured snippets on Google -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "How can I prepare for TEF Canada online?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Learn French with Natives offers personalized 1-on-1 sessions with certified native French teachers, full mock TEF Canada exams, AI-powered speaking simulation for the Expression Orale, and detailed examiner-style feedback for all four skills."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "What is the difference between TEF and TCF?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "TEF (Test d'Évaluation de Français) and TCF (Test de Connaissance du Français) are both official French proficiency exams. TEF Canada and TCF Canada are accepted by Immigration, Refugees and Citizenship Canada (IRCC) for Express Entry and citizenship. Choose based on your immigration program and test availability."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Are your French teachers native speakers?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes. Every teacher on our platform is a certified native French speaker with several years of teaching experience and specialized training for TEF, TCF, DELF and DALF exam preparation."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Can I book a free demo lesson?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes — we offer a 100% free, no-commitment discovery session where we assess your level, discuss your goals and exam timeline, and pair you with the right teacher."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "What CLB score do I need for Canadian Express Entry?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Most Express Entry programs require at least CLB 7 in all four skills (Speaking, Listening, Reading, Writing). For maximum points under the French-language Comprehensive Ranking System bonus, aim for CLB 7 or higher."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "How long does it take to prepare for the TEF Canada exam?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Preparation time varies by starting level. Most students reach CLB 7 within 3 to 6 months of consistent training (3–4 sessions per week). Higher targets like CLB 9 may take 6 to 12 months. We provide a personalized roadmap after your free demo."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Do you offer French classes for beginners (A1)?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Absolutely. Our curriculum covers every level from A1 (complete beginner) through C2 (mastery), aligned with the CEFR framework. We also offer dedicated programs for kids (ages 6–16), business French, and conversational French."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Comment se préparer au TEF Canada en ligne ?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Learn French with Natives propose des cours individuels avec des professeurs natifs certifiés, des examens blancs complets pour le TEF Canada, une simulation IA pour l'expression orale, et un retour détaillé style examinateur pour les quatre compétences."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Quel score CLB est requis pour Entrée Express ?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "La plupart des programmes Entrée Express exigent au moins CLB 7 dans les quatre compétences (Expression orale, Compréhension orale, Compréhension écrite, Expression écrite). Pour le maximum de points bonus dans le SCG, visez CLB 7 ou plus."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "¿Cómo puedo prepararme para el TEF Canada en línea?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Learn French with Natives ofrece clases personalizadas con profesores nativos de francés certificados, exámenes simulados completos del TEF Canada, simulación de expresión oral con IA y retroalimentación detallada al estilo del examinador en las cuatro destrezas."
-          }
-        }
-      ]
-    }
-    </script>
+    <!-- FAQ structured data is emitted dynamically by the landing page
+         (react-helmet-async) so it always matches the visible FAQ section
+         in the active language — a Google requirement for FAQ rich results. -->
 
     <!-- Service schema — captures "online French course" search intents -->
     <script type="application/ld+json">
@@ -388,6 +308,18 @@
             <li>Learn live with your native French teacher</li>
             <li>Pass your French exam with confidence</li>
           </ol>
+        </section>
+
+        <section>
+          <h2>Frequently asked questions</h2>
+          <h3>How can I prepare for TEF Canada online?</h3>
+          <p>We offer personalized 1-on-1 sessions with certified native French teachers, full mock TEF Canada exams, AI-powered speaking simulation for the Expression Orale, and detailed examiner-style feedback for all four skills.</p>
+          <h3>What is the difference between TEF and TCF?</h3>
+          <p>TEF Canada and TCF Canada are both accepted by Immigration, Refugees and Citizenship Canada (IRCC) for Express Entry and citizenship. Choose based on your immigration program and test availability.</p>
+          <h3>What CLB score do I need for Canadian Express Entry?</h3>
+          <p>Most Express Entry programs require at least CLB 7 in all four skills. For maximum French-language bonus points, aim for CLB 7 or higher.</p>
+          <h3>How long does it take to prepare for the TEF Canada exam?</h3>
+          <p>Most students reach CLB 7 within 3 to 6 months of consistent training. Higher targets like CLB 9 may take 6 to 12 months.</p>
         </section>
 
         <section lang="fr">

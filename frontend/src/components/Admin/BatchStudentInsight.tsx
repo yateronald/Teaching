@@ -1,190 +1,182 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Space, Select, Table, Tag, Empty, Spin, message, Divider } from 'antd';
+import { Input, Select, Skeleton } from 'antd';
+import { CheckCircleFilled, ClockCircleOutlined, FallOutlined, RiseOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import dayjs from 'dayjs';
+import { formatPlain } from '../../utils/timezone';
+import { DEFAULT_FILTERS, computeView, fmtNum, fmtPct, initialsOf, toneOf } from '../Insights/insightsModel';
+import type { InsightsData } from '../Insights/insightsModel';
+import '../Insights/BatchInsights.css';
 
-const { Title, Text } = Typography;
+/* ══════════════════════════════════════════
+   STUDENT REPORT — one student's results inside the batch, compared with the class.
+══════════════════════════════════════════ */
 
-interface BatchStudentInsightProps { batchId: string; }
+interface Props {
+  batchId: string;
+  data?: InsightsData | null;
+  studentId?: number | null;
+  onStudentChange?: (id: number) => void;
+}
 
-interface BreakdownRow { quiz_id: number; quiz_title: string; total_score: number | null; max_score: number | null; percentage: number | null; submitted_at: string | null; }
-interface StudentWithMetrics { id: number; first_name: string; last_name: string; email: string; breakdown: BreakdownRow[]; }
-interface QuizAgg { quiz_id: number; quiz_title: string; }
-
-const gradeFor = (pct: number | null | undefined) => {
-  if (pct == null || Number.isNaN(pct)) return { letter: '-', color: 'default' as const };
-  if (pct >= 90) return { letter: 'A', color: 'green' as const };
-  if (pct >= 85) return { letter: 'A-', color: 'green' as const };
-  if (pct >= 80) return { letter: 'B+', color: 'blue' as const };
-  if (pct >= 75) return { letter: 'B', color: 'blue' as const };
-  if (pct >= 70) return { letter: 'C+', color: 'gold' as const };
-  if (pct >= 60) return { letter: 'C', color: 'gold' as const };
-  if (pct >= 50) return { letter: 'D', color: 'orange' as const };
-  return { letter: 'F', color: 'red' as const };
-};
-
-const BatchStudentInsight: React.FC<BatchStudentInsightProps> = ({ batchId }) => {
-  const { apiCall } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [students, setStudents] = useState<StudentWithMetrics[]>([]);
-  const [quizzes, setQuizzes] = useState<QuizAgg[]>([]);
-  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
+const BatchStudentInsight: React.FC<Props> = ({ batchId, data, studentId, onStudentChange }) => {
+  const { apiCall, user } = useAuth();
+  const external = data !== undefined;
+  const [own, setOwn] = useState<InsightsData | null>(null);
+  const [loading, setLoading] = useState(!external);
+  const [localId, setLocalId] = useState<number | null>(studentId ?? null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      try {
-        const res = await apiCall(`/batches/${batchId}/insights`);
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          message.error(err.error || 'Failed to load insights');
-          setLoading(false);
-          return;
-        }
-        const data = await res.json();
-        const studentsData: StudentWithMetrics[] = Array.isArray(data.students) ? data.students : [];
-        const quizAgg: QuizAgg[] = Array.isArray(data.quizzes) ? data.quizzes.map((q: any) => ({ quiz_id: q.quiz_id, quiz_title: q.quiz_title })) : [];
-        setStudents(studentsData);
-        setQuizzes(quizAgg);
-        if (studentsData.length && !selectedStudentId) setSelectedStudentId(studentsData[0].id);
-      } catch (e) {
-        message.error('Error loading insights');
-      } finally {
-        setLoading(false);
-      }
-    };
-    if (batchId) void load();
-  }, [batchId]);
+    if (external || !batchId) return;
+    let cancelled = false;
+    setLoading(true);
+    apiCall(`/batches/${batchId}/insights`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(d => { if (!cancelled) setOwn(d); })
+      .catch(() => { if (!cancelled) setOwn(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [batchId, external, apiCall]);
 
-  const studentOptions = useMemo(() => students.map(s => ({ label: `${s.first_name} ${s.last_name}`.trim(), value: s.id, keywords: `${s.email}` })), [students]);
-  const current = useMemo(() => students.find(s => s.id === selectedStudentId) || null, [students, selectedStudentId]);
+  useEffect(() => { if (studentId != null) setLocalId(studentId); }, [studentId]);
 
-  // Helper function to format numbers - show whole numbers without .00
-  const formatNumber = (num: number | null | undefined): string => {
-    if (num == null) return '0';
-    if (Number.isInteger(num)) {
-      return num.toString();
-    }
-    return num.toFixed(2);
-  };
+  const source = external ? data : own;
+  const view = useMemo(() => (source ? computeView(source, DEFAULT_FILTERS) : null), [source]);
+  const list = useMemo(() => {
+    if (!view) return [];
+    const q = query.trim().toLowerCase();
+    return [...view.studentStats]
+      .sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1))
+      .filter(s => !q || `${s.name} ${s.email}`.toLowerCase().includes(q));
+  }, [view, query]);
 
-  const metrics = useMemo(() => {
-    if (!current) return { total: 0, max: 0, avg: null as number | null, attempted: 0, totalQuizzes: quizzes.length };
-    const rows = current.breakdown || [];
-    const attemptedRows = rows.filter(r => r.submitted_at);
-    const sumScore = attemptedRows.reduce((a, r) => a + (r.total_score ?? 0), 0);
-    const sumMax = attemptedRows.reduce((a, r) => a + (r.max_score ?? 0), 0);
-    
-    // Calculate average using total score / total max score instead of percentage averages
-    const avg = sumMax > 0 ? (sumScore / sumMax) * 100 : null;
-    
-    return { total: sumScore, max: sumMax, avg: avg, attempted: attemptedRows.length, totalQuizzes: rows.length || quizzes.length };
-  }, [current, quizzes.length]);
+  const selectedId = localId ?? list[0]?.id ?? null;
+  const select = (id: number) => { setLocalId(id); onStudentChange?.(id); };
 
-  const dataSource = useMemo(() => {
-    if (!current) return [] as any[];
-    const rows = current.breakdown || [];
-    return rows.map(r => ({
-      key: `${current.id}-${r.quiz_id}`,
-      quiz: r.quiz_title,
-      score: r.total_score != null && r.max_score != null ? 
-        `${formatNumber(r.total_score)}/${formatNumber(r.max_score)}` : '-/-',
-      percent: r.percentage != null ? r.percentage : null,
-      submitted_at: r.submitted_at ? dayjs(r.submitted_at).format('MMM DD, YYYY HH:mm') : '-',
-    }));
-  }, [current]);
+  if (!external && loading) return <div className="bi"><div className="bi-card bi-pad"><Skeleton active avatar paragraph={{ rows: 6 }} /></div></div>;
+  if (!source || !view || view.studentStats.length === 0) {
+    return (
+      <div className="bi">
+        <div className="bi-empty">
+          <span className="bi-empty-ic"><UserOutlined /></span>
+          <strong>No students in this batch</strong>
+          <span>Enrol students to follow their results here.</span>
+        </div>
+      </div>
+    );
+  }
 
-  const columns = [
-    { title: 'Quiz', dataIndex: 'quiz', key: 'quiz' },
-    { title: 'Score', dataIndex: 'score', key: 'score' },
-    { title: 'Percentage', dataIndex: 'percent', key: 'percent', render: (v: number | null) => v == null ? <Tag>-</Tag> : <Tag color={v >= 60 ? 'green' : 'red'}>{formatNumber(v)}%</Tag> },
-    { title: 'Submitted At', dataIndex: 'submitted_at', key: 'submitted_at' },
-  ];
+  const pass = view.pass;
+  const s = view.studentStats.find(x => x.id === selectedId) || view.studentStats[0];
+  const rows = view.quizStats.map(q => ({ q, c: view.cellMap.get(`${s.id}:${q.quiz_id}`) || null }));
+  const scored = rows.filter(r => r.c && r.c.pct !== null) as { q: typeof rows[number]['q']; c: NonNullable<typeof rows[number]['c']> }[];
+  const best = [...scored].sort((a, b) => (b.c.pct as number) - (a.c.pct as number))[0];
+  const worst = [...scored].sort((a, b) => (a.c.pct as number) - (b.c.pct as number))[0];
+  const delta = s.avg !== null && view.avg !== null ? s.avg - view.avg : null;
+  const missing = rows.filter(r => !r.c).length;
+  const fmtDate = (iso: string) => formatPlain(iso, user?.timezone, { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size="large">
-      <div>
-        <Title level={4} style={{ marginBottom: 0 }}>Student Insight</Title>
-        <Text type="secondary">Professional marksheet with totals, average, grade and per-quiz breakdown</Text>
+    <div className="bi bi-sr">
+      {/* ── Student list ── */}
+      <aside className="bi-card bi-sr-list" aria-label="Students">
+        <div className="bi-sr-search">
+          <Input prefix={<SearchOutlined />} allowClear placeholder="Search students" value={query} onChange={e => setQuery(e.target.value)} />
+        </div>
+        <ul>
+          {list.map(x => (
+            <li key={x.id}>
+              <button type="button" className={x.id === s.id ? 'is-on' : ''} onClick={() => select(x.id)} aria-pressed={x.id === s.id}>
+                <span className="bi-av">{initialsOf(x.name)}</span>
+                <span className="bi-sr-name"><strong>{x.name}</strong><em>{x.submitted}/{x.expected} quizzes{x.risk ? ' · needs support' : ''}</em></span>
+                <span className={`bi-score ${toneOf(x.avg, pass)}`}>{fmtPct(x.avg)}</span>
+              </button>
+            </li>
+          ))}
+          {list.length === 0 && <li className="bi-muted-line">No student matches.</li>}
+        </ul>
+      </aside>
+
+      <div className="bi-sr-select">
+        <Select showSearch optionFilterProp="label" value={s.id} onChange={select} style={{ width: '100%' }}
+          options={view.studentStats.map(x => ({ value: x.id, label: `${x.name} · ${fmtPct(x.avg)}` }))} />
       </div>
 
-      <Card size="small">
-        {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 180 }}>
-            <Spin />
+      {/* ── Report ── */}
+      <div className="bi-sr-report">
+        <section className="bi-card bi-sr-head">
+          <span className="bi-av is-lg">{initialsOf(s.name)}</span>
+          <div className="bi-sr-id">
+            <h3>{s.name}</h3>
+            <p>{s.email}</p>
+            <div className="bi-sr-tags">
+              {s.rank !== null && <span className="bi-pill is-rank">Rank {s.rank} of {view.ranked.length}</span>}
+              {s.risk ? <span className="bi-pill is-f">Needs support</span> : s.avg !== null && <span className="bi-pill is-b">On track</span>}
+              {s.last && <span className="bi-pill is-none"><ClockCircleOutlined /> Last submission {fmtDate(s.last)}</span>}
+            </div>
           </div>
-        ) : students.length === 0 ? (
-          <Empty description="No students found for this batch" />
-        ) : (
-          <>
-            <Row gutter={[12, 12]} align="middle">
-              <Col xs={24} md={12}>
-                <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                  <Text type="secondary">Filter by student</Text>
-                  <Select
-                    showSearch
-                    placeholder="Select a student"
-                    options={studentOptions as any}
-                    value={selectedStudentId as any}
-                    onChange={setSelectedStudentId}
-                    style={{ width: '100%' }}
-                    allowClear={false}
-                    optionFilterProp="label"
-                    filterOption={(input, option) => {
-                      const label = String(option?.label ?? '').toLowerCase();
-                      const keywords = String((option as any)?.keywords ?? '').toLowerCase();
-                      const query = input.toLowerCase();
-                      return label.includes(query) || keywords.includes(query);
-                    }}
-                    notFoundContent={
-                      students.length === 0 ? 'No students available' : 'No matching students'
-                    }
-                  />
-                </Space>
-              </Col>
-            </Row>
+          <div className={`bi-sr-grade ${toneOf(s.avg, pass)}`}>
+            <strong>{s.grade}</strong>
+            <span>{fmtPct(s.avg)}</span>
+          </div>
+        </section>
 
-            <Divider style={{ margin: '12px 0' }} />
+        <section className="bi-kpis is-compact">
+          <div className="bi-kpi">
+            <span className="bi-kpi-label">Vs class average</span>
+            <div className="bi-kpi-row">
+              <strong className={delta === null ? '' : delta >= 0 ? 'is-up' : 'is-down'}>
+                {delta === null ? '—' : `${delta >= 0 ? '+' : ''}${Math.round(delta)} pts`}
+              </strong>
+            </div>
+            <span className="bi-kpi-sub">Class average {fmtPct(view.avg)}</span>
+          </div>
+          <div className="bi-kpi">
+            <span className="bi-kpi-label">Quizzes done</span>
+            <div className="bi-kpi-row"><strong>{s.submitted}</strong><span className="bi-kpi-of">/ {s.expected}</span></div>
+            <div className="bi-meter"><i style={{ width: `${s.completion}%` }} className={s.completion < 50 ? 'is-low' : ''} /></div>
+          </div>
+          <div className="bi-kpi">
+            <span className="bi-kpi-label">Passed</span>
+            <div className="bi-kpi-row"><strong>{s.passed}</strong><span className="bi-kpi-of">/ {s.passed + s.failed}</span></div>
+            <span className="bi-kpi-sub">At {pass}% or more</span>
+          </div>
+          <div className="bi-kpi">
+            <span className="bi-kpi-label">Points</span>
+            <div className="bi-kpi-row"><strong>{fmtNum(s.points)}</strong><span className="bi-kpi-of">/ {fmtNum(s.maxPoints)}</span></div>
+            <span className="bi-kpi-sub">{missing ? `${missing} ${missing === 1 ? 'quiz' : 'quizzes'} not submitted` : 'Every quiz submitted'}</span>
+          </div>
+        </section>
 
-            {current ? (
-              <>
-                <Row gutter={[16, 16]}>
-                  <Col xs={24} md={6}>
-                    <Card>
-                      <Statistic title="Total Score" value={`${formatNumber(metrics.total)}/${formatNumber(metrics.max)}`} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={6}>
-                    <Card>
-                      <Statistic title="Average %" value={metrics.avg != null ? `${formatNumber(metrics.avg)}%` : '-'} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={6}>
-                    <Card>
-                      <Statistic title="Quizzes Attempted" value={`${metrics.attempted}/${metrics.totalQuizzes}`} />
-                    </Card>
-                  </Col>
-                  <Col xs={24} md={6}>
-                    <Card>
-                      <Statistic title="Grade" valueRender={() => {
-                        const g = gradeFor(metrics.avg);
-                        return <Tag color={g.color} style={{ fontSize: 16, padding: '2px 10px' }}>{g.letter}</Tag>;
-                      }} />
-                    </Card>
-                  </Col>
-                </Row>
-
-                <Card title="Per-Quiz Breakdown" style={{ marginTop: 12 }}>
-                  <Table columns={columns as any} dataSource={dataSource} pagination={{ pageSize: 8 }} />
-                </Card>
-              </>
-            ) : (
-              <Empty description="Select a student to view marksheet" />
-            )}
-          </>
+        {(best || worst) && scored.length > 1 && (
+          <div className="bi-grid">
+            <div className="bi-callout is-good"><RiseOutlined /><span><strong>Strongest</strong>{best.q.title} · {fmtPct(best.c.pct)}</span></div>
+            <div className="bi-callout is-warn"><FallOutlined /><span><strong>To work on</strong>{worst.q.title} · {fmtPct(worst.c.pct)}</span></div>
+          </div>
         )}
-      </Card>
-    </Space>
+
+        <section className="bi-card">
+          <header className="bi-card-head"><span className="bi-card-title"><CheckCircleFilled /> Quiz by quiz</span><span className="bi-muted">Marker = class average</span></header>
+          <ul className="bi-sq">
+            {rows.map(({ q, c }) => (
+              <li key={q.quiz_id} className={c ? '' : 'is-missing'}>
+                <span className="bi-sq-title"><b>#{q.order}</b><span><strong>{q.title}</strong><em>{c ? `Submitted ${fmtDate(c.submitted_at)}` : 'Not submitted'}</em></span></span>
+                <span className="bi-sq-bar">
+                  <span className="bi-sq-track">
+                    {c && c.pct !== null && <i className={toneOf(c.pct, pass)} style={{ width: `${Math.max(2, c.pct)}%` }} />}
+                    {q.avg !== null && <span className="bi-sq-mark" style={{ left: `${q.avg}%` }} title={`Class average ${fmtPct(q.avg)}`} />}
+                  </span>
+                </span>
+                <span className="bi-sq-score">
+                  <span className={`bi-score ${c ? toneOf(c.pct, pass) : 'is-none'}`}>{c ? fmtPct(c.pct) : '—'}</span>
+                  <em>{c && c.score !== null && c.max !== null ? `${fmtNum(c.score)}/${fmtNum(c.max)}` : ''}</em>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </div>
   );
 };
 

@@ -1,405 +1,336 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Space, Divider, Tag, Empty, Spin, message, Select, DatePicker, Slider, Button, Tooltip, Table, Alert } from 'antd';
-import { PieChart, BarChart, LineChart } from '@mui/x-charts';
-import dayjs from 'dayjs';
-import isBetween from 'dayjs/plugin/isBetween';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Button, DatePicker, Segmented, Select, Skeleton, Tooltip } from 'antd';
+import {
+    BulbOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined, ReloadOutlined, RiseOutlined, TeamOutlined,
+    TrophyOutlined, WarningOutlined,
+} from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { TeamOutlined, CheckCircleOutlined, ReloadOutlined, InfoCircleOutlined, TrophyOutlined, OrderedListOutlined } from '@ant-design/icons';
+import { formatPlain } from '../../utils/timezone';
+import { gradeFromPercent } from '../../utils/grading';
+import { DEFAULT_FILTERS, computeView, fmtPct, initialsOf, toneOf } from '../Insights/insightsModel';
+import type { Filters, InsightsData, InsightsView } from '../Insights/insightsModel';
+import '../Insights/BatchInsights.css';
 
-dayjs.extend(isBetween);
+/* ══════════════════════════════════════════
+   BATCH PERFORMANCE — used on the admin Batch insights page and in the teacher batch drawer.
+   Pass `data` when the parent already loaded /batches/:id/insights; otherwise it fetches itself.
+══════════════════════════════════════════ */
 
-const { Title, Text, Paragraph } = Typography;
-const { RangePicker } = DatePicker;
+interface Props {
+    batchId: string;
+    data?: InsightsData | null;
+    onOpenStudent?: (studentId: number) => void;
+}
 
-interface BatchInsightsProps { batchId: string; }
+const PASS_OPTIONS = [40, 50, 60, 70, 75, 80];
+const TAKEAWAY_ICON = { good: <RiseOutlined />, warn: <WarningOutlined />, bad: <CloseCircleOutlined />, info: <InfoCircleOutlined /> };
 
-interface QuizAgg { quiz_id: number; quiz_title: string; submitted_count: number; avg_percentage: number | null; min_percentage: number | null; max_percentage: number | null; }
-interface BreakdownRow { quiz_id: number; quiz_title: string; total_score: number | null; max_score: number | null; percentage: number | null; submitted_at: string | null; }
-interface StudentWithMetrics { id: number; first_name: string; last_name: string; email: string; submitted_count: number; avg_percentage: number | null; breakdown: BreakdownRow[]; }
-interface BatchMeta { id: number; name: string; french_level: string; start_date: string; end_date: string; }
-interface KPIs { total_students: number; total_quizzes: number; submissions_count: number; completion_rate: number; avg_percentage: number; best_quiz: QuizAgg | null; hardest_quiz: QuizAgg | null; top_student: { student_id: number; first_name: string; last_name: string; email: string; avg_percentage: number } | null; }
-
-const bins = [0,10,20,30,40,50,60,70,80,90,100];
-
-// Guard against double-invocation in React.StrictMode and avoid duplicate API calls
-const BatchInsights: React.FC<BatchInsightsProps> = ({ batchId }) => {
-  const { apiCall } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [batch, setBatch] = useState<BatchMeta | null>(null);
-  const [kpis, setKpis] = useState<KPIs | null>(null);
-  const [quizzes, setQuizzes] = useState<QuizAgg[]>([]);
-  const [students, setStudents] = useState<StudentWithMetrics[]>([]);
-  const loadedBatchIdRef = useRef<string | null>(null);
-
-  // Filters
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-  const [selectedQuizIds, setSelectedQuizIds] = useState<number[]>([]);
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
-  const [passMarkLocal, setPassMarkLocal] = useState<number>(60);
-
-  useEffect(() => {
-    // Only load when batchId changes and not already loaded (prevents StrictMode double-fetch)
-    if (batchId && loadedBatchIdRef.current !== batchId) {
-      loadedBatchIdRef.current = batchId;
-      void load();
-    }
-  }, [batchId]);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await apiCall(`/batches/${batchId}/insights`);
-      if (!res.ok) {
-        const err = await res.json().catch(()=>({}));
-        message.error(err.error || 'Failed to load batch insights');
-        setLoading(false);
-        return;
-      }
-      const data = await res.json();
-      setBatch(data.batch);
-      setKpis(data.kpis);
-      setQuizzes(data.quizzes || []);
-      setStudents(data.students || []);
-    } catch (e) {
-      message.error('Error loading batch insights');
-    } finally { setLoading(false); }
-  };
-
-  // Build options with keywords to enable robust searching
-  const studentOptions = useMemo(() => students.map(s => ({
-    label: `${s.first_name} ${s.last_name}`,
-    value: s.id,
-    // add email and name parts for search
-    keywords: [`${s.first_name} ${s.last_name}`, s.first_name, s.last_name, s.email]
-  })), [students]);
-
-  const quizOptions = useMemo(() => quizzes.map(q => ({
-    label: q.quiz_title,
-    value: q.quiz_id
-  })), [quizzes]);
-
-  const filteredBreakdown = useMemo(() => {
-    // Flatten rows enriched with student info for filtering
-    const list: Array<BreakdownRow & { student_id: number; student_name: string }> = [];
-    students.forEach(s => {
-      if (selectedStudentIds.length && !selectedStudentIds.includes(s.id)) return;
-      s.breakdown.forEach(b => {
-        if (selectedQuizIds.length && !selectedQuizIds.includes(b.quiz_id)) return;
-        if (dateRange) {
-          const ts = b.submitted_at ? dayjs(b.submitted_at) : null;
-          if (!ts || !ts.isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]')) return;
-        }
-        list.push({ ...b, student_id: s.id, student_name: `${s.first_name} ${s.last_name}` });
-      });
-    });
-    return list;
-  }, [students, selectedStudentIds, selectedQuizIds, dateRange]);
-
-  const filteredStudentIds = useMemo(() => {
-    return students.map(s=>s.id).filter(id => {
-      if (selectedStudentIds.length) return selectedStudentIds.includes(id);
-      return true;
-    });
-  }, [students, selectedStudentIds]);
-
-  const totalSelectedStudents = filteredStudentIds.length;
-  const totalSelectedQuizzes = useMemo(() => selectedQuizIds.length || quizzes.length, [selectedQuizIds, quizzes]);
-
-  // Build metrics from filtered data
-  const metrics = useMemo(() => {
-    const valid = filteredBreakdown.filter(b => typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0);
-    const submitted = filteredBreakdown.filter(b => b.submitted_at);
-    const completion = totalSelectedStudents * totalSelectedQuizzes > 0
-      ? Math.round((submitted.length / (totalSelectedStudents * totalSelectedQuizzes)) * 100)
-      : 0;
-    
-    // Calculate average using total score / total max score
-    const totalScore = valid.reduce((sum, b) => sum + (b.total_score as number), 0);
-    const totalMaxScore = valid.reduce((sum, b) => sum + (b.max_score as number), 0);
-    const avg = totalMaxScore > 0 ? Math.round((totalScore / totalMaxScore) * 100) : 0;
-
-    // histogram
-    const hist = bins.slice(0,-1).map((_,i)=>({ bin: `${bins[i]}-${bins[i+1]}`, count: valid.filter(v => {
-      const p = (v.max_score && v.max_score > 0) ? (v.total_score as number / v.max_score) * 100 : 0; 
-      return p >= bins[i] && p <= (i === bins.length-2 ? bins[i+1] : bins[i+1] - 0.0001);
-    }).length }));
-
-    // completion over time
-    const timeline = submitted
-      .slice()
-      .sort((a,b)=>dayjs(a.submitted_at!).valueOf()-dayjs(b.submitted_at!).valueOf());
-    const series = timeline.map((s,i)=>({ x: dayjs(s.submitted_at!).format('MM-DD HH:mm'), y: Math.round(((i+1)/(submitted.length||1))*100) }));
-
-    // per-quiz average among filtered
-    const byQuiz: Record<number, { title: string; totalScore: number; totalMaxScore: number; submitted: number } > = {};
-    filteredBreakdown.forEach(b => {
-      if (!byQuiz[b.quiz_id]) byQuiz[b.quiz_id] = { title: b.quiz_title, totalScore: 0, totalMaxScore: 0, submitted: 0 };
-      if (typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0) { 
-        byQuiz[b.quiz_id].totalScore += b.total_score; 
-        byQuiz[b.quiz_id].totalMaxScore += b.max_score; 
-      }
-      if (b.submitted_at) byQuiz[b.quiz_id].submitted++;
-    });
-    const quizAvg = Object.entries(byQuiz).map(([id, v]) => ({ 
-      quiz_id: Number(id), 
-      title: v.title, 
-      avg: v.totalMaxScore > 0 ? Math.round((v.totalScore / v.totalMaxScore) * 100) : 0, 
-      completion: totalSelectedStudents>0 ? Math.round((v.submitted/(totalSelectedStudents))*100) : 0 
-    }));
-
-    // ranking by student average within filtered scope
-    const byStudent: Record<number, { name: string; email?: string; totalScore: number; totalMaxScore: number } > = {};
-    students.forEach(s => {
-      if (selectedStudentIds.length && !selectedStudentIds.includes(s.id)) return;
-      const rows = s.breakdown.filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))));
-      const validRows = rows.filter(r=> typeof r.total_score === 'number' && typeof r.max_score === 'number' && r.max_score > 0);
-      const totalScore = validRows.reduce((sum, r) => sum + (r.total_score as number), 0);
-      const totalMaxScore = validRows.reduce((sum, r) => sum + (r.max_score as number), 0);
-      byStudent[s.id] = { name: `${s.first_name} ${s.last_name}`, email: s.email, totalScore, totalMaxScore };
-    });
-    const ranking = Object.entries(byStudent)
-      .filter(([_,v]) => v.totalMaxScore > 0)
-      .map(([id,v]) => ({ 
-        student_id: Number(id), 
-        name: v.name, 
-        email: v.email, 
-        avg: Math.round((v.totalScore / v.totalMaxScore) * 100), 
-        attempts: students.find(s => s.id === Number(id))?.breakdown.filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))) && typeof b.total_score === 'number').length || 0
-      }))
-      .sort((a,b)=>b.avg-a.avg);
-
-    return { completion, avg, hist, series, quizAvg, ranking, submissions: submitted.length, total: totalSelectedStudents * totalSelectedQuizzes };
-  }, [filteredBreakdown, totalSelectedStudents, totalSelectedQuizzes, selectedStudentIds, selectedQuizIds, dateRange, students]);
-
-  const hasScores = useMemo(() => filteredBreakdown.some(b => typeof b.total_score === 'number' && typeof b.max_score === 'number' && b.max_score > 0), [filteredBreakdown]);
-
-  const resetFilters = () => {
-    setSelectedStudentIds([]);
-    setSelectedQuizIds([]);
-    setDateRange(null);
-    setPassMarkLocal(60);
-  };
-
-  // Helper function to format numbers - show whole numbers without .00
-  const formatNumber = (num: number | string | null | undefined): string => {
-  if (num === null || num === undefined || num === '') return '0';
-  const n = typeof num === 'string' ? Number(num) : num;
-  if (!Number.isFinite(n)) return '0';
-  if (Number.isInteger(n)) return String(n);
-  return n.toFixed(2).replace(/\.0+$/,'').replace(/(\.\d*[1-9])0+$/,'$1');
-  };
-
-  const columns = [
-    { title: 'Rank', dataIndex: 'rank', key: 'rank', render: (_: any, __: any, idx: number) => <Tag color={idx===0?'gold':idx===1?'silver':idx===2?'volcano':'blue'}>#{idx+1}</Tag> },
-    { title: 'Student', dataIndex: 'name', key: 'name' },
-    { title: 'Average %', dataIndex: 'avg', key: 'avg', render: (v:number)=> <Tag color={v>=passMarkLocal?'green':'red'}>{formatNumber(v)}%</Tag> },
-    { title: 'Submitted', dataIndex: 'attempts', key: 'attempts' }
-  ];
-
-  const expandedRowRender = (record: any) => {
-    const s = students.find(st => st.id === record.student_id);
-    if (!s) return null;
-    const rows = s.breakdown
-      .filter(b => (!selectedQuizIds.length || selectedQuizIds.includes(b.quiz_id)) && (!dateRange || (b.submitted_at && dayjs(b.submitted_at).isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'))))
-      .map(b => ({ key: `${s.id}-${b.quiz_id}`, quiz: b.quiz_title, score: b.total_score!=null && b.max_score!=null ? `${formatNumber(b.total_score)}/${formatNumber(b.max_score)}` : '-', percent: b.percentage!=null ? `${formatNumber(b.percentage)}%` : '-', submitted_at: b.submitted_at ? dayjs(b.submitted_at).format('MMM DD, YYYY HH:mm') : '-' }));
+/* ── Submissions over time ── */
+const TimelineChart: React.FC<{ points: InsightsView['timeline']; expected: number; tz?: string | null }> = ({ points, expected, tz }) => {
+    const W = 600;
+    const H = 150;
+    const top = Math.max(expected, points[points.length - 1]?.cum || 0, 1);
+    const coords: [number, number][] = [[0, H], ...points.map((p, i) => [((i + 1) / points.length) * W, H - (p.cum / top) * (H - 8)] as [number, number])];
+    const line = coords.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
+    const area = `${line} L${W},${H} L0,${H} Z`;
+    const goalY = H - (expected / top) * (H - 8);
+    const label = (d: string) => formatPlain(`${d}T12:00:00Z`, tz, { month: 'short', day: 'numeric' });
     return (
-      <Table
-        columns={[{title:'Quiz',dataIndex:'quiz'},{title:'Score',dataIndex:'score'},{title:'Percentage',dataIndex:'percent'},{title:'Submitted At',dataIndex:'submitted_at'}]}
-        dataSource={Array.isArray(rows) ? rows : []}
-        pagination={false}
-        size="small"
-      />
+        <div className="bi-timeline">
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
+                <defs>
+                    <linearGradient id="bi-area" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="#6366f1" stopOpacity="0.28" />
+                        <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                    </linearGradient>
+                </defs>
+                {expected > 0 && <line x1="0" x2={W} y1={goalY} y2={goalY} className="bi-timeline-goal" />}
+                <path d={area} fill="url(#bi-area)" />
+                <path d={line} className="bi-timeline-line" />
+            </svg>
+            <div className="bi-timeline-axis">
+                <span>{label(points[0].day)}</span>
+                {points.length > 2 && <span>{label(points[Math.floor(points.length / 2)].day)}</span>}
+                <span>{label(points[points.length - 1].day)}</span>
+            </div>
+        </div>
     );
-  };
+};
 
-  if (loading) return <div style={{padding:24, display:'flex', alignItems:'center', justifyContent:'center', minHeight:260}}><Spin /></div>;
-  if (!batch || !kpis) return <Empty description="No batch insights available" />;
+const BatchInsights: React.FC<Props> = ({ batchId, data, onOpenStudent }) => {
+    const { apiCall, user } = useAuth();
+    const external = data !== undefined;
+    const [own, setOwn] = useState<InsightsData | null>(null);
+    const [ownLoading, setOwnLoading] = useState(!external);
+    const [ownError, setOwnError] = useState<string | null>(null);
+    const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+    const [quizSort, setQuizSort] = useState<'order' | 'score' | 'completion'>('order');
+    const [showAll, setShowAll] = useState(false);
 
-  // Automated insights texts based on filtered view
-  const autoInsights = (() => {
-    const parts: React.ReactNode[] = [];
-    parts.push(<li key="c">Completion rate for current view is <b>{formatNumber(metrics.completion)}%</b> across {totalSelectedStudents} students and {totalSelectedQuizzes} quizzes.</li>);
-    if (metrics.ranking.length) {
-      parts.push(<li key="t">Top performer: <b>{metrics.ranking[0].name}</b> with an average of <b>{formatNumber(metrics.ranking[0].avg)}%</b>.</li>);
-      const last = metrics.ranking[metrics.ranking.length-1];
-      if (last) parts.push(<li key="b">Needs attention: <b>{last.name}</b> at <b>{formatNumber(last.avg)}%</b>.</li>);
+    useEffect(() => {
+        if (external || !batchId) return;
+        let cancelled = false;
+        setOwnLoading(true);
+        apiCall(`/batches/${batchId}/insights`)
+            .then(async res => {
+                if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not load the insights');
+                return res.json();
+            })
+            .then(d => { if (!cancelled) { setOwn(d); setOwnError(null); } })
+            .catch(e => { if (!cancelled) setOwnError(e?.message || 'Could not load the insights'); })
+            .finally(() => { if (!cancelled) setOwnLoading(false); });
+        return () => { cancelled = true; };
+    }, [batchId, external, apiCall]);
+
+    const source = external ? data : own;
+    const view = useMemo(() => (source ? computeView(source, filters) : null), [source, filters]);
+
+    if (!external && ownLoading) return <div className="bi"><div className="bi-card bi-pad"><Skeleton active paragraph={{ rows: 8 }} /></div></div>;
+    if (!source || !view) {
+        return (
+            <div className="bi">
+                <div className="bi-empty">
+                    <span className="bi-empty-ic"><InfoCircleOutlined /></span>
+                    <strong>No insights available</strong>
+                    <span>{ownError || 'This batch has no quiz data yet.'}</span>
+                </div>
+            </div>
+        );
     }
-    const best = [...metrics.quizAvg].sort((a,b)=>b.avg-a.avg)[0];
-    const worst = [...metrics.quizAvg].sort((a,b)=>a.avg-b.avg)[0];
-    if (best) parts.push(<li key="best">Best quiz in current view: <b>{best.title}</b> with <b>{formatNumber(best.avg)}%</b> average.</li>);
-    if (worst) parts.push(<li key="hard">Challenging quiz: <b>{worst.title}</b> averaging <b>{formatNumber(worst.avg)}%</b>.</li>);
-    return parts;
-  })();
 
-  return (
-    <Space direction="vertical" style={{ width:'100%' }} size="large">
-      <div>
-        <Title level={4} style={{ marginBottom: 0 }}>{batch.name}</Title>
-        <Text type="secondary">Batch Insights dashboard</Text>
-      </div>
+    const pass = filters.passMark;
+    const isDefault = !filters.studentIds.length && !filters.quizIds.length && !filters.range && filters.passMark === DEFAULT_FILTERS.passMark;
+    const noQuizzes = source.quizzes.length === 0;
+    const scoredCount = view.cells.filter(c => c.pct !== null).length;
+    const passCount = view.cells.filter(c => c.pct !== null && (c.pct as number) >= pass).length;
+    const bandMax = Math.max(1, ...view.bands.map(b => b.count));
+    const sortedQuizzes = [...view.quizStats].sort((a, b) =>
+        quizSort === 'score' ? (a.avg ?? 101) - (b.avg ?? 101) : quizSort === 'completion' ? a.completion - b.completion : a.order - b.order);
+    const board = showAll ? view.ranked : view.ranked.slice(0, 8);
+    const heatStudents = [...view.studentStats].sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
 
-      {/* Filters */}
-      <Card size="small" bodyStyle={{ paddingBottom: 8 }}>
-        <Row gutter={[12,12]} align="middle">
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Text type="secondary">Filter by student</Text>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="All students"
-                options={studentOptions as any}
-                value={selectedStudentIds}
-                onChange={setSelectedStudentIds}
-                showSearch
-                optionFilterProp="label"
-                filterOption={(input, option) => {
-                  const q = (input || '').toLowerCase().trim();
-                  const lbl = String(option?.label ?? '').toLowerCase();
-                  const keys = Array.isArray((option as any)?.keywords) ? (option as any).keywords.map((k: any) => String(k).toLowerCase()) : [];
-                  return lbl.includes(q) || keys.some((k: string) => k.includes(q));
-                }}
-                style={{ width: '100%' }}
-                dropdownStyle={{ minWidth: '300px' }}
-              />
-            </Space>
-          </Col>
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Text type="secondary">Filter by quiz</Text>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="All quizzes"
-                options={quizOptions}
-                value={selectedQuizIds}
-                onChange={setSelectedQuizIds}
-                showSearch
-                optionFilterProp="label"
-                filterOption={(input, option) => {
-                  const q = (input || '').toLowerCase().trim();
-                  const lbl = String(option?.label ?? '').toLowerCase();
-                  return lbl.includes(q);
-                }}
-                style={{ width: '100%' }}
-                dropdownStyle={{ minWidth: '300px' }}
-              />
-            </Space>
-          </Col>
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Space align="center" style={{ display:'flex', justifyContent:'space-between', width:'100%' }}>
-                <Text type="secondary">Pass mark: {passMarkLocal}%</Text>
-                <Tooltip title="Adjust threshold used for pass/fail visuals in this view.">
-                  <InfoCircleOutlined />
+    return (
+        <div className="bi">
+            {/* ── Filters ── */}
+            <div className="bi-filters">
+                <Select mode="multiple" allowClear maxTagCount="responsive" placeholder="All students" className="bi-f-wide"
+                    value={filters.studentIds} onChange={v => setFilters(f => ({ ...f, studentIds: v }))} optionFilterProp="label"
+                    options={source.students.map(s => ({ value: s.id, label: `${s.first_name} ${s.last_name}`.trim() || s.email }))} />
+                <Select mode="multiple" allowClear maxTagCount="responsive" placeholder="All quizzes" className="bi-f-wide"
+                    value={filters.quizIds} onChange={v => setFilters(f => ({ ...f, quizIds: v }))} optionFilterProp="label"
+                    options={source.quizzes.map(q => ({ value: q.quiz_id, label: q.quiz_title }))} />
+                <DatePicker.RangePicker className="bi-f-range" value={filters.range} format="MMM D, YYYY" placeholder={['Submitted from', 'To']}
+                    onChange={v => setFilters(f => ({ ...f, range: v && v[0] && v[1] ? [v[0], v[1]] : null }))} />
+                <Tooltip title="Scores at or above this mark count as a pass in this view">
+                    <Select className="bi-f-pass" value={pass} onChange={v => setFilters(f => ({ ...f, passMark: v }))}
+                        options={PASS_OPTIONS.map(p => ({ value: p, label: `Pass mark ${p}%` }))} />
                 </Tooltip>
-              </Space>
-              <Slider min={0} max={100} value={passMarkLocal} onChange={(v)=> setPassMarkLocal(v as number)} />
-            </Space>
-          </Col>
-          <Col xs={24} md={16}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Text type="secondary">Submitted between</Text>
-              <RangePicker style={{ width: '100%' }} value={dateRange as any} onChange={(v)=> setDateRange(v as any)} allowEmpty={[true,true]} />
-            </Space>
-          </Col>
-          <Col xs={24} md={8}>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={resetFilters}>Reset filters</Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
+                {!isDefault && <Button type="link" size="small" icon={<ReloadOutlined />} onClick={() => setFilters(DEFAULT_FILTERS)}>Reset</Button>}
+            </div>
 
-      {/* KPIs */}
-      <Row gutter={[16,16]}>
-        <Col xs={12} md={6}><Card><Statistic title="Selected Students" value={totalSelectedStudents} prefix={<TeamOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Selected Quizzes" value={totalSelectedQuizzes} /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Submissions" value={metrics.submissions} suffix={`(${metrics.completion}%)`} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Average Score" value={metrics.avg} suffix="%" /></Card></Col>
-      </Row>
-
-      {/* Comparative charts across quizzes */}
-      <Row gutter={[16,16]}>
-        <Col xs={24} lg={12}>
-          <Card title={<Space><OrderedListOutlined /> <span>Average Score by Quiz</span></Space>}>
-            {metrics.quizAvg.length ? (
-              <BarChart height={280} xAxis={[{ scaleType:'band', data: metrics.quizAvg.map(q=>q.title) }]} series={[{ data: metrics.quizAvg.map(q=>q.avg), color:'#1677ff' }]} />
+            {noQuizzes ? (
+                <div className="bi-empty">
+                    <span className="bi-empty-ic"><BulbOutlined /></span>
+                    <strong>No quizzes assigned yet</strong>
+                    <span>Assign quizzes to this batch to see scores, completion and trends here.</span>
+                </div>
             ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No quiz data to display" />
+                <>
+                    {/* ── KPIs ── */}
+                    <section className="bi-kpis" aria-label="Key numbers">
+                        <div className={`bi-kpi ${view.avg === null ? '' : toneOf(view.avg, pass)}`}>
+                            <span className="bi-kpi-label">Class average</span>
+                            <div className="bi-kpi-row">
+                                <strong>{fmtPct(view.avg)}</strong>
+                                {view.avg !== null && <span className="bi-grade">{gradeFromPercent(view.avg)}</span>}
+                            </div>
+                            <span className="bi-kpi-sub">{scoredCount} graded {scoredCount === 1 ? 'submission' : 'submissions'}</span>
+                        </div>
+                        <div className="bi-kpi">
+                            <span className="bi-kpi-label">Completion</span>
+                            <div className="bi-kpi-row"><strong>{fmtPct(view.completion)}</strong></div>
+                            <div className="bi-meter"><i style={{ width: `${Math.min(100, view.completion)}%` }} /></div>
+                            <span className="bi-kpi-sub">{view.submitted} of {view.expected} submissions</span>
+                        </div>
+                        <div className="bi-kpi">
+                            <span className="bi-kpi-label">Pass rate</span>
+                            <div className="bi-kpi-row"><strong>{fmtPct(view.passRate)}</strong></div>
+                            <span className="bi-kpi-sub">{passCount} of {scoredCount} at {pass}% or more</span>
+                        </div>
+                        <div className={`bi-kpi${view.atRisk.length ? ' is-alert' : ''}`}>
+                            <span className="bi-kpi-label">Need support</span>
+                            <div className="bi-kpi-row"><strong>{view.atRisk.length}</strong><span className="bi-kpi-of">/ {view.students.length}</span></div>
+                            <span className="bi-kpi-sub">{view.atRisk.length ? 'Below pass mark or < 50% done' : 'Everyone is on track'}</span>
+                        </div>
+                    </section>
+
+                    {/* ── Takeaways + distribution ── */}
+                    <div className="bi-grid">
+                        <section className="bi-card">
+                            <header className="bi-card-head"><span className="bi-card-title"><BulbOutlined /> Key takeaways</span></header>
+                            <div className="bi-card-body">
+                                {view.takeaways.length === 0 ? <div className="bi-muted-line">Not enough submissions yet to draw conclusions.</div> : (
+                                    <ul className="bi-takeaways">
+                                        {view.takeaways.map(t => (
+                                            <li key={t.key} className={`is-${t.tone}`}>
+                                                <span className="bi-take-ic">{TAKEAWAY_ICON[t.tone]}</span>
+                                                <span><strong>{t.title}</strong><em>{t.text}</em></span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        </section>
+                        <section className="bi-card">
+                            <header className="bi-card-head"><span className="bi-card-title"><TrophyOutlined /> Grade distribution</span></header>
+                            <div className="bi-card-body">
+                                {scoredCount === 0 ? <div className="bi-muted-line">No graded submissions in this view.</div> : (
+                                    <>
+                                        <ul className="bi-bands">
+                                            {view.bands.map(b => (
+                                                <li key={b.label} className={`is-${b.label.toLowerCase()}`}>
+                                                    <span className="bi-band-label"><b>{b.label}</b>{b.range}%</span>
+                                                    <span className="bi-band-track"><i style={{ width: `${(b.count / bandMax) * 100}%` }} /></span>
+                                                    <span className="bi-band-val">{b.count}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <div className="bi-passbar" aria-label={`${passCount} passed, ${scoredCount - passCount} below pass mark`}>
+                                            {passCount > 0 && <i className="is-pass" style={{ flexGrow: passCount }} />}
+                                            {scoredCount - passCount > 0 && <i className="is-fail" style={{ flexGrow: scoredCount - passCount }} />}
+                                        </div>
+                                        <div className="bi-passlegend">
+                                            <span><i className="is-pass" />Passed <b>{passCount}</b></span>
+                                            <span><i className="is-fail" />Below {pass}% <b>{scoredCount - passCount}</b></span>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+
+                    {/* ── Quiz performance ── */}
+                    <section className="bi-card">
+                        <header className="bi-card-head">
+                            <span className="bi-card-title"><CheckCircleOutlined /> Quiz performance</span>
+                            <Segmented size="small" value={quizSort} onChange={v => setQuizSort(v as typeof quizSort)}
+                                options={[{ value: 'order', label: 'In order' }, { value: 'score', label: 'Lowest score' }, { value: 'completion', label: 'Lowest completion' }]} />
+                        </header>
+                        <div className="bi-qtable" role="table" aria-label="Quiz performance">
+                            <div className="bi-qrow is-head" role="row">
+                                <span role="columnheader">Quiz</span>
+                                <span role="columnheader">Completion</span>
+                                <span role="columnheader">Average · range</span>
+                                <span role="columnheader">Passed</span>
+                            </div>
+                            {sortedQuizzes.map(q => (
+                                <div key={q.quiz_id} className="bi-qrow" role="row">
+                                    <span className="bi-qtitle" role="cell"><b>#{q.order}</b><span>{q.title}</span></span>
+                                    <span className="bi-qcell" role="cell">
+                                        <span className="bi-meter is-sm"><i style={{ width: `${q.completion}%` }} className={q.completion < 50 ? 'is-low' : ''} /></span>
+                                        <em>{q.submitted}/{q.expected}</em>
+                                    </span>
+                                    <span className="bi-qcell" role="cell">
+                                        <Tooltip title={q.min !== null ? `Lowest ${fmtPct(q.min)} · highest ${fmtPct(q.max)}` : 'No scores yet'}>
+                                            <span className="bi-range">
+                                                {q.min !== null && <span className="bi-range-span" style={{ left: `${q.min}%`, width: `${Math.max(1, (q.max as number) - q.min)}%` }} />}
+                                                {q.avg !== null && <span className={`bi-range-dot ${toneOf(q.avg, pass)}`} style={{ left: `${q.avg}%` }} />}
+                                                <span className="bi-range-pass" style={{ left: `${pass}%` }} />
+                                            </span>
+                                        </Tooltip>
+                                        <em className={`bi-score ${toneOf(q.avg, pass)}`}>{fmtPct(q.avg)}</em>
+                                    </span>
+                                    <span className="bi-qcell" role="cell"><span className={`bi-pill ${q.passRate === null ? 'is-none' : q.passRate >= 70 ? 'is-b' : q.passRate >= 50 ? 'is-c' : 'is-f'}`}>{fmtPct(q.passRate)}</span></span>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="bi-foot">Bar = spread between the lowest and highest score · dot = class average · line = pass mark ({pass}%).</p>
+                    </section>
+
+                    {/* ── Timeline + leaderboard ── */}
+                    <div className="bi-grid">
+                        <section className="bi-card">
+                            <header className="bi-card-head"><span className="bi-card-title"><RiseOutlined /> Submissions over time</span></header>
+                            <div className="bi-card-body">
+                                {view.timeline.length === 0 ? <div className="bi-muted-line">No submissions in this view.</div> : (
+                                    <>
+                                        <div className="bi-tl-head">
+                                            <strong>{view.submitted}</strong><span>of {view.expected} expected · dashed line = everyone done</span>
+                                        </div>
+                                        <TimelineChart points={view.timeline} expected={view.expected} tz={user?.timezone} />
+                                    </>
+                                )}
+                            </div>
+                        </section>
+                        <section className="bi-card">
+                            <header className="bi-card-head">
+                                <span className="bi-card-title"><TeamOutlined /> Leaderboard</span>
+                                {view.ranked.length > 8 && <button type="button" className="bi-link" onClick={() => setShowAll(v => !v)}>{showAll ? 'Show top 8' : `Show all ${view.ranked.length}`}</button>}
+                            </header>
+                            <div className="bi-card-body is-flush">
+                                {board.length === 0 ? <div className="bi-muted-line">No graded students yet.</div> : (
+                                    <ol className="bi-board">
+                                        {board.map(s => (
+                                            <li key={s.id}>
+                                                <button type="button" onClick={() => onOpenStudent?.(s.id)} disabled={!onOpenStudent}>
+                                                    <span className={`bi-rank${s.rank && s.rank <= 3 ? ` is-top${s.rank}` : ''}`}>{s.rank}</span>
+                                                    <span className="bi-av">{initialsOf(s.name)}</span>
+                                                    <span className="bi-board-name"><strong>{s.name}</strong><em>{s.submitted}/{s.expected} quizzes{s.risk ? ' · needs support' : ''}</em></span>
+                                                    <span className="bi-board-bar"><i className={toneOf(s.avg, pass)} style={{ width: `${Math.max(3, s.avg ?? 0)}%` }} /></span>
+                                                    <span className={`bi-score ${toneOf(s.avg, pass)}`}>{fmtPct(s.avg)}</span>
+                                                </button>
+                                            </li>
+                                        ))}
+                                    </ol>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+
+                    {/* ── Gradebook heatmap ── */}
+                    <section className="bi-card">
+                        <header className="bi-card-head">
+                            <span className="bi-card-title"><TrophyOutlined /> Gradebook</span>
+                            <span className="bi-heat-legend">
+                                <span><i className="is-a" />85+</span><span><i className="is-b" />70–84</span>
+                                <span><i className="is-c" />{pass}–69</span><span><i className="is-f" />&lt;{pass}</span><span><i className="is-none" />Missing</span>
+                            </span>
+                        </header>
+                        <div className="bi-heat-wrap">
+                            <table className="bi-heat">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Student</th>
+                                        {view.quizStats.map(q => <th key={q.quiz_id} scope="col"><Tooltip title={q.title}><span>#{q.order}</span></Tooltip></th>)}
+                                        <th scope="col">Average</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {heatStudents.map(s => (
+                                        <tr key={s.id} className={onOpenStudent ? 'is-click' : ''} onClick={() => onOpenStudent?.(s.id)}>
+                                            <th scope="row"><span className="bi-av is-sm">{initialsOf(s.name)}</span><span className="bi-heat-name">{s.name}</span></th>
+                                            {view.quizStats.map(q => {
+                                                const c = view.cellMap.get(`${s.id}:${q.quiz_id}`);
+                                                const p = c?.pct ?? null;
+                                                return (
+                                                    <td key={q.quiz_id}>
+                                                        <Tooltip title={`${q.title}: ${c ? fmtPct(p) : 'not submitted'}`}>
+                                                            <span className={`bi-heat-cell ${c ? toneOf(p, pass) : 'is-none'}`}>{c ? (p === null ? '✓' : Math.round(p)) : '–'}</span>
+                                                        </Tooltip>
+                                                    </td>
+                                                );
+                                            })}
+                                            <td><span className={`bi-score ${toneOf(s.avg, pass)}`}>{fmtPct(s.avg)}</span></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </>
             )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Completion by Quiz (% of selected students)">
-            {metrics.quizAvg.length ? (
-              <BarChart height={280} xAxis={[{ scaleType:'band', data: metrics.quizAvg.map(q=>q.title) }]} series={[{ data: metrics.quizAvg.map(q=>q.completion), color:'#52c41a' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No completion data to display" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Distribution and timeline */}
-      <Row gutter={[16,16]}>
-        <Col xs={24} lg={12}>
-          <Card title={<Space><span>Pass vs Fail</span><Tag color="blue">threshold {passMarkLocal}%</Tag></Space>}>
-            {hasScores ? (
-              <PieChart height={280} series={[{ data:[{id:0,value:filteredBreakdown.filter(b=>(b.percentage||0)>=passMarkLocal).length,label:'Pass'},{id:1,value:filteredBreakdown.filter(b=>typeof b.percentage==='number' && (b.percentage as number)<passMarkLocal).length,label:'Fail'}] }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Score Distribution (Percentage)">
-            {hasScores ? (
-              <BarChart height={280} xAxis={[{ scaleType:'band', data: metrics.hist.map(h=>h.bin) }]} series={[{ data: metrics.hist.map(h=>h.count), color:'#722ed1' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16,16]}>
-        <Col xs={24}>
-          <Card title="Completion Over Time" extra={<Tag color="default">% complete</Tag>}>
-            {metrics.series.length ? (
-              <LineChart height={280} xAxis={[{ data: metrics.series.map(p=>p.x), scaleType:'point' }]} series={[{ data: metrics.series.map(p=>p.y), label:'Completion %', color:'#13c2c2' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No submissions in selected range" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      {/* Ranking with collapsible rows */}
-      <Card title={<Space><TrophyOutlined /> <span>Top Performers</span></Space>}>
-        <Alert type="info" showIcon message="Click a row to expand and view this student's marks across quizzes." style={{ marginBottom: 12 }} />
-        <Table
-          rowKey={(r:any)=>`rank-${r.student_id}`}
-          columns={columns as any}
-          dataSource={Array.isArray(metrics.ranking) ? metrics.ranking.map((r, idx)=>({ ...r, rank: idx+1 })) : []}
-          expandable={{ expandedRowRender }}
-          pagination={{ pageSize: 8, showSizeChanger: true }}
-        />
-      </Card>
-
-      <Divider style={{ margin: 0 }} />
-
-      {/* Automated insights */}
-      <Card size="small" title="Automated Insights" style={{ border: '1px dashed #f0f0f0' }}>
-        <ul style={{ margin: 0, paddingLeft: 16 }}>{autoInsights}</ul>
-        <Paragraph type="secondary" style={{ marginTop: 8 }}>
-          Insights reflect the filters you have applied. Use student and quiz filters above to drill down to an individual student's trajectory or compare groups.
-        </Paragraph>
-      </Card>
-
-      <Text type="secondary">Charts reflect applied filters. Hover to explore values. Data comes from all quizzes assigned to this batch.</Text>
-    </Space>
-  );
+        </div>
+    );
 };
 
 export default BatchInsights;

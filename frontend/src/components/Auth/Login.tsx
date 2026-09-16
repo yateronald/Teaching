@@ -1,6 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Form, Input, Button, message, Spin } from 'antd';
-import { UserOutlined, LockOutlined, CheckCircleFilled } from '@ant-design/icons';
+import {
+  MailOutlined,
+  LockOutlined,
+  GlobalOutlined,
+  DownOutlined,
+  CheckOutlined,
+  ArrowLeftOutlined,
+  StarFilled,
+} from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ASSET_PATHS } from '../../utils/assets';
@@ -111,175 +119,195 @@ const Login: React.FC = () => {
         noindex
       />
       <div className="login-page">
-        {/* Full-bleed image background */}
-        <div className="login-bg-image" />
-        <div className="login-bg-overlay" />
+        {/* ── LEFT — image-backed editorial brand panel ── */}
+        <aside className="login-side">
+          <div className="login-side-bg" aria-hidden="true" />
+          <div className="login-side-tint" aria-hidden="true" />
+          <div className="login-tricolore" aria-hidden="true">
+            <span /><span /><span />
+          </div>
 
-        {/* Decorative floating shapes */}
-        <div className="login-bg-blob login-bg-blob--a" />
-        <div className="login-bg-blob login-bg-blob--b" />
-
-        {/* Top brand bar */}
-        <div className="login-brand-bar">
-          <div className="login-brand">
-            <img src={ASSET_PATHS.LOGOS.MAIN} alt="Logo" className="login-brand-logo" />
-            <div className="login-brand-text">
+          <a href="/" className="login-side-logo" aria-label="Accueil">
+            <span className="login-side-logo-mark">
+              <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
+            </span>
+            <span className="login-side-logo-text">
               <strong>Learn French</strong>
-              <span>with Natives</span>
-            </div>
-          </div>
-          <div className="login-brand-bar-right">
-            {/* Language switcher dropdown */}
-            <div ref={langSwitcherRef} className={`lp-lang-switcher${langOpen ? ' is-open' : ''}`}>
-              <button
-                type="button"
-                className="lp-lang-toggle"
-                onClick={() => setLangOpen((o) => !o)}
-                aria-label="Switch language"
-                aria-expanded={langOpen}
-              >
-                <span className="lp-lang-toggle-flag">
-                  {i18n.language === 'en' ? '🇬🇧' : '🇫🇷'}
-                </span>
-                <span className="lp-lang-toggle-label">
-                  {i18n.language === 'en' ? 'EN' : 'FR'}
-                </span>
-                <span className="lp-lang-toggle-chevron">▾</span>
-              </button>
-              {langOpen && (
-                <div className="lp-lang-dropdown">
-                  <button
-                    type="button"
-                    className={`lp-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
-                  >
-                    <span>🇬🇧</span> English
-                  </button>
-                  <button
-                    type="button"
-                    className={`lp-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
-                  >
-                    <span>🇫🇷</span> Français
-                  </button>
-                </div>
-              )}
-            </div>
-            <a href="/" className="login-back-link">← {i18n.language === 'en' ? 'Back to home' : 'Retour à l\'accueil'}</a>
-          </div>
-        </div>
+              <em>with Natives</em>
+            </span>
+          </a>
 
-        {/* Centered card */}
-        <div className="login-card">
-          <div className="login-card-inner">
-            {/* Header */}
-            <div className="login-form-header">
-              <div className="login-logo-mark">
-                <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
+          <div className="login-side-body">
+            <p className="login-eyebrow">
+              <span className="login-eyebrow-dash" aria-hidden="true" />
+              {t('login.brand_title')}
+            </p>
+            <h1 className="login-side-title">
+              {t('login.brand_sub')}
+            </h1>
+
+            <div className="login-side-exams">
+              {['TEF Canada', 'DELF', 'DALF', 'TCF', 'TEFAQ'].map((e) => (
+                <span key={e}>{e}</span>
+              ))}
+            </div>
+
+            <dl className="login-side-stats">
+              <div>
+                <dd>98%</dd>
+                <dt>{t('login.stat_pass')}</dt>
               </div>
-              <h2>{t('login.title')}</h2>
-              <p>{t('login.sub')}</p>
-            </div>
-
-            {/* Form */}
-            <Form form={form} name="login" onFinish={onFinish} layout="vertical" size="large" className="login-form">
-              <Form.Item
-                name="email"
-                label={t('login.email_label')}
-                rules={[
-                  { required: true, message: t('login.email_label') },
-                  { type: 'email', message: t('login.error_invalid') },
-                ]}
-              >
-                <Input
-                  prefix={<UserOutlined className="login-input-icon" />}
-                  placeholder={t('login.email_placeholder')}
-                  className="login-input"
-                />
-              </Form.Item>
-
-              <Form.Item
-                name="password"
-                label={t('login.password_label')}
-                rules={[
-                  { required: true, message: t('login.password_label') },
-                  { min: 6, message: t('login.error_invalid') },
-                ]}
-              >
-                <Input.Password
-                  prefix={<LockOutlined className="login-input-icon" />}
-                  placeholder={t('login.password_placeholder')}
-                  className="login-input"
-                />
-              </Form.Item>
-
-              <div className="login-forgot-row">
-                <Button type="link" onClick={() => setResetOpen(true)} className="login-forgot-link">
-                  {t('login.forgot')}
-                </Button>
+              <div>
+                <dd>15+</dd>
+                <dt>{t('login.stat_teachers')}</dt>
               </div>
+              <div>
+                <dd>1 000+</dd>
+                <dt>{t('login.stat_students')}</dt>
+              </div>
+            </dl>
+          </div>
 
-              <Form.Item style={{ marginBottom: 0 }}>
-                <Button
-                  type="primary"
-                  htmlType="submit"
-                  loading={loading}
-                  block
-                  className="login-submit-btn"
+          <div className="login-side-foot">
+            <span className="login-side-rating">
+              {[...Array(5)].map((_, i) => <StarFilled key={i} aria-hidden="true" />)}
+            </span>
+            <span>4,9 / 5 · 500+ avis</span>
+          </div>
+        </aside>
+
+        {/* ── RIGHT — form panel ── */}
+        <main className="login-main">
+          <header className="login-topbar">
+            {/* Mobile-only logo (side panel hidden on small screens) */}
+            <a href="/" className="login-topbar-logo" aria-label="Accueil">
+              <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
+              <strong>Learn French <em>with Natives</em></strong>
+            </a>
+
+            <div className="login-topbar-actions">
+              <div ref={langSwitcherRef} className={`login-lang${langOpen ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="login-lang-toggle"
+                  onClick={() => setLangOpen((o) => !o)}
+                  aria-label="Switch language"
+                  aria-expanded={langOpen}
                 >
-                  {loading ? t('login.loading') : t('login.submit')}
-                </Button>
-              </Form.Item>
-            </Form>
-
-            {/* Brand panel — official prep + trust signals merged into one elegant card */}
-            <div className="login-brand-panel">
-              <div className="login-brand-panel-header">
-                <div className="login-brand-panel-icon">
-                  <CheckCircleFilled />
-                </div>
-                <div>
-                  <strong>{t('login.brand_title')}</strong>
-                  <span>{t('login.brand_sub')}</span>
-                </div>
+                  <GlobalOutlined />
+                  <span>{i18n.language === 'en' ? 'EN' : 'FR'}</span>
+                  <DownOutlined className="login-lang-chevron" />
+                </button>
+                {langOpen && (
+                  <div className="login-lang-dropdown">
+                    <button
+                      type="button"
+                      className={`login-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
+                    >
+                      English
+                      {i18n.language === 'en' && <CheckOutlined />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`login-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
+                    >
+                      Français
+                      {i18n.language === 'fr' && <CheckOutlined />}
+                    </button>
+                  </div>
+                )}
               </div>
-
-              <div className="login-brand-panel-exams">
-                {['TEF Canada', 'DELF', 'DALF', 'TCF', 'TEFAQ'].map((e) => (
-                  <span key={e} className="login-brand-exam-pill">{e}</span>
-                ))}
-              </div>
-
-              <div className="login-brand-panel-stats">
-                <div className="login-brand-stat">
-                  <strong>98%</strong>
-                  <span>{t('login.stat_pass')}</span>
-                </div>
-                <div className="login-brand-stat-divider" />
-                <div className="login-brand-stat">
-                  <strong>15+</strong>
-                  <span>{t('login.stat_teachers')}</span>
-                </div>
-                <div className="login-brand-stat-divider" />
-                <div className="login-brand-stat">
-                  <strong>1 000+</strong>
-                  <span>{t('login.stat_students')}</span>
-                </div>
-              </div>
+              <a href="/" className="login-back-link">
+                <ArrowLeftOutlined aria-hidden="true" />
+                <span>{i18n.language === 'en' ? 'Back to home' : 'Retour à l\'accueil'}</span>
+              </a>
             </div>
-          </div>
-        </div>
+          </header>
 
-        {/* Footer */}
-        <div className="login-footer">
-          <p>© {new Date().getFullYear()} Learn French with Natives · Tous droits réservés</p>
-        </div>
+          <div className="login-form-wrap">
+            <div className="login-card">
+              <div className="login-card-tricolore" aria-hidden="true">
+                <span /><span /><span />
+              </div>
+
+              <div className="login-card-mark">
+                <img src={ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" />
+              </div>
+
+              <p className="login-eyebrow login-eyebrow--dark">
+                <span className="login-eyebrow-dash" aria-hidden="true" />
+                {i18n.language === 'en' ? 'Student space' : 'Espace étudiant'}
+              </p>
+              <h2 className="login-title">{t('login.title')}</h2>
+              <p className="login-sub">{t('login.sub')}</p>
+
+              <Form form={form} name="login" onFinish={onFinish} layout="vertical" size="large" className="login-form">
+                <Form.Item
+                  name="email"
+                  label={t('login.email_label')}
+                  rules={[
+                    { required: true, message: t('login.email_label') },
+                    { type: 'email', message: t('login.error_invalid') },
+                  ]}
+                >
+                  <Input
+                    prefix={<MailOutlined className="login-input-icon" />}
+                    placeholder={t('login.email_placeholder')}
+                    autoComplete="email"
+                    className="login-input"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="password"
+                  label={t('login.password_label')}
+                  rules={[
+                    { required: true, message: t('login.password_label') },
+                    { min: 6, message: t('login.error_invalid') },
+                  ]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined className="login-input-icon" />}
+                    placeholder={t('login.password_placeholder')}
+                    autoComplete="current-password"
+                    className="login-input"
+                  />
+                </Form.Item>
+
+                <div className="login-forgot-row">
+                  <Button type="link" onClick={() => setResetOpen(true)} className="login-forgot-link">
+                    {t('login.forgot')}
+                  </Button>
+                </div>
+
+                <Form.Item style={{ marginBottom: 0 }}>
+                  <Button
+                    type="primary"
+                    htmlType="submit"
+                    loading={loading}
+                    block
+                    className="login-submit-btn"
+                  >
+                    {loading ? t('login.loading') : t('login.submit')}
+                  </Button>
+                </Form.Item>
+              </Form>
+            </div>
+
+            <p className="login-footer">
+              © {new Date().getFullYear()} Learn French with Natives · Tous droits réservés
+            </p>
+          </div>
+        </main>
       </div>
 
       <PasswordResetModal
         open={resetOpen}
         onClose={() => setResetOpen(false)}
         initialEmail={form.getFieldValue('email')}
+        onSuccess={email => form.setFieldsValue({ email, password: '' })}
       />
       <AccountDisabledModal
         visible={accountDisabledOpen}

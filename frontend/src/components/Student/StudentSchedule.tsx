@@ -1,61 +1,45 @@
-import React, { useState, useEffect } from 'react';
-import {
-    Card,
-    message,
-    Typography,
-    Tag,
-    Tabs,
-    Row,
-    Col,
-    List,
-    Avatar,
-    Empty,
-    Timeline,
-    Button,
-    Modal,
-    Space,
-    Descriptions,
-    Spin,
-    Input,
-    Alert,
-    Form,
-    Tooltip,
-    Skeleton,
-    Select,
-    DatePicker
-} from 'antd';
-
-const { RangePicker } = DatePicker;
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, DatePicker, Input, Modal, Segmented, Select, Skeleton, Tooltip, message } from 'antd';
 import {
     CalendarOutlined,
-    ClockCircleOutlined,
-    BookOutlined,
-    TeamOutlined,
-    EnvironmentOutlined,
-    InfoCircleOutlined,
+    CheckCircleFilled,
     CheckCircleOutlined,
+    ClockCircleOutlined,
+    CloseOutlined,
+    EnvironmentOutlined,
     ExclamationCircleOutlined,
-    VideoCameraOutlined,
-    GlobalOutlined,
+    FieldTimeOutlined,
+    FileDoneOutlined,
+    InfoCircleOutlined,
+    KeyOutlined,
+    LeftOutlined,
     LoginOutlined,
-    KeyOutlined
+    ReadOutlined,
+    RightOutlined,
+    ScheduleOutlined,
+    TeamOutlined,
+    UserOutlined,
+    VideoCameraOutlined,
 } from '@ant-design/icons';
-import { useAuth } from '../../contexts/AuthContext';
-import { formatLocal, formatTimeLocal, detectBrowserTimezone } from '../../utils/timezone';
-import KpiCard from '../Common/KpiCard';
-import PageHeader from '../Common/PageHeader';
-import useResponsive from '../../hooks/useResponsive';
-
 import dayjs from 'dayjs';
 import FullCalendar from '@fullcalendar/react';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
-// FullCalendar styles removed to avoid Vite import-analysis errors in this environment
-// import '@fullcalendar/daygrid/index.css';
-// import '@fullcalendar/timegrid/index.css';
+import type { DatesSetArg, EventClickArg, EventContentArg } from '@fullcalendar/core';
+import type { DateClickArg } from '@fullcalendar/interaction';
+import { useAuth } from '../../contexts/AuthContext';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import useResponsive from '../../hooks/useResponsive';
+import './StudentSchedule.css';
 
-const { Text } = Typography;
+const { RangePicker } = DatePicker;
+
+type SType = 'class' | 'exam' | 'meeting' | 'other';
+type SState = 'scheduled' | 'active' | 'ended' | 'completed' | 'cancelled';
+type JoinState = 'none' | 'attended' | 'open' | 'locked';
+type AgendaTab = 'today' | 'upcoming' | 'week';
+type CalView = 'dayGridMonth' | 'timeGridWeek' | 'timeGridDay';
 
 interface Schedule {
     id: number;
@@ -65,1355 +49,840 @@ interface Schedule {
     batch_name: string;
     teacher_name: string;
     french_level?: string;
-    /** Original UTC ISO from backend — used for `formatLocal` display in user's tz. */
     start_iso: string;
     end_iso: string;
-    /** Browser-local HH:mm derived strings — kept for FullCalendar event objects only. */
-    start_time: string;
-    end_time: string;
-    date: string;
+    start: Date;
+    end: Date;
     location: string;
-    location_mode?: 'online' | 'physical';
-    link?: string | null;
-    type: 'class' | 'exam' | 'meeting' | 'other';
+    location_mode: 'online' | 'physical';
+    link: string | null;
+    type: SType;
     status: 'scheduled' | 'completed' | 'cancelled';
-    /** Server-authoritative state from backend (preferred over time math). */
-    schedule_state?: 'cancelled' | 'completed' | 'ended' | 'active' | 'scheduled';
-    seconds_until_end?: number;
+    /** Server-authoritative state (computed with PG NOW()) at fetch time. */
+    schedule_state?: string;
     seconds_until_start?: number;
-    created_at: string;
+    seconds_until_end?: number;
+    /** Client clock when the server seconds were read — lets us age them without trusting the browser clock. */
+    fetched_at: number;
 }
 
-interface ScheduleStats {
-    total_classes: number;
-    upcoming_classes: number;
-    completed_classes: number;
-    this_week_classes: number;
-    next_class?: Schedule;
+/** A schedule placed on the calendar in the user's timezone. */
+interface Item extends Schedule {
+    dayKey: string;
+    wallStart: Date;
+    wallEnd: Date;
 }
+
+const TYPES: SType[] = ['class', 'exam', 'meeting', 'other'];
+const TYPE_META: Record<SType, { label: string; icon: React.ReactNode }> = {
+    class: { label: 'Class', icon: <ReadOutlined /> },
+    exam: { label: 'Exam', icon: <FileDoneOutlined /> },
+    meeting: { label: 'Meeting', icon: <TeamOutlined /> },
+    other: { label: 'Event', icon: <CalendarOutlined /> },
+};
+const STATE_LABEL: Record<SState, string> = {
+    scheduled: 'Scheduled',
+    active: 'Live now',
+    ended: 'Ended',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+};
+const JOIN_WINDOW_SECS = 5 * 60;
+
+/* ── Timezone helpers ──
+   FullCalendar can only render in the browser zone, so each event is converted to
+   a "wall clock" Date: same Y/M/D h:m as the user's profile zone, built in local time. */
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+const cachedFmt = (key: string, make: () => Intl.DateTimeFormat) => {
+    let f = fmtCache.get(key);
+    if (!f) { f = make(); fmtCache.set(key, f); }
+    return f;
+};
+const wallDate = (d: Date, tz: string): Date => {
+    const f = cachedFmt(`parts|${tz}`, () => new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }));
+    const p: Record<string, number> = {};
+    for (const part of f.formatToParts(d)) if (part.type !== 'literal') p[part.type] = Number(part.value);
+    return new Date(p.year, p.month - 1, p.day, p.hour % 24, p.minute);
+};
+const keyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fmtTime = (d: Date, tz: string) =>
+    cachedFmt(`time|${tz}`, () => new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true })).format(d);
+const fmtDate = (d: Date, tz: string, long = false) =>
+    cachedFmt(`date|${tz}|${long}`, () => new Intl.DateTimeFormat('en-US', long
+        ? { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }
+        : { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })).format(d);
+const shortTime = (d: Date, tz: string) => fmtTime(d, tz).replace(':00', '');
+const timeRange = (s: Schedule, tz: string) => {
+    const a = fmtTime(s.start, tz);
+    const b = fmtTime(s.end, tz);
+    return a.slice(-2) === b.slice(-2) ? `${a.slice(0, -3)} – ${b}` : `${a} – ${b}`;
+};
+const durationText = (s: Schedule) => {
+    const m = Math.round((s.end.getTime() - s.start.getTime()) / 60000);
+    if (m < 60) return `${m} min`;
+    return `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60}` : ''}`;
+};
+const untilText = (secs: number) => {
+    const m = Math.max(1, Math.ceil(secs / 60));
+    if (m < 60) return `${m} min`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${h} h${m % 60 ? ` ${m % 60} min` : ''}`;
+    const d = Math.floor(h / 24);
+    return `${d} d${h % 24 ? ` ${h % 24} h` : ''}`;
+};
+
+/* ── Status helpers — prefer the server's seconds (aged locally) over browser-clock math ── */
+const secsUntil = (s: Schedule, edge: 'start' | 'end', now: number) => {
+    const server = edge === 'start' ? s.seconds_until_start : s.seconds_until_end;
+    if (typeof server === 'number' && !Number.isNaN(server)) return server - (now - s.fetched_at) / 1000;
+    return ((edge === 'start' ? s.start : s.end).getTime() - now) / 1000;
+};
+const stateOf = (s: Schedule, now: number): SState => {
+    if (s.status === 'cancelled' || s.schedule_state === 'cancelled') return 'cancelled';
+    if (s.status === 'completed' || s.schedule_state === 'completed') return 'completed';
+    if (secsUntil(s, 'end', now) <= 0) return 'ended';
+    if (secsUntil(s, 'start', now) <= 0) return 'active';
+    return 'scheduled';
+};
+const isOver = (st: SState) => st === 'ended' || st === 'completed' || st === 'cancelled';
+const inJoinWindow = (s: Schedule, now: number) => !isOver(stateOf(s, now)) && secsUntil(s, 'start', now) <= JOIN_WINDOW_SECS;
+
+const normalize = (fetchedAt: number) => (s: any): Schedule => {
+    const parsed = new Date(s.start_time);
+    const start = isNaN(parsed.getTime()) ? new Date(fetchedAt) : parsed;
+    let end = new Date(s.end_time);
+    if (isNaN(end.getTime()) || end <= start) end = new Date(start.getTime() + 3600_000);
+    const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
+    return {
+        id: s.id,
+        title: s.title || 'Untitled session',
+        description: s.description || '',
+        batch_id: s.batch_id,
+        batch_name: s.batch_name || '',
+        teacher_name: [s.teacher_first_name, s.teacher_last_name].filter(Boolean).join(' ').trim(),
+        french_level: s.french_level || undefined,
+        start_iso: s.start_time,
+        end_iso: s.end_time,
+        start,
+        end,
+        location: s.location || '',
+        location_mode: s.location_mode === 'online' ? 'online' : 'physical',
+        link: s.link || null,
+        type: (TYPES as string[]).includes(s.type) ? s.type : 'other',
+        status: s.status === 'completed' || s.status === 'cancelled' ? s.status : 'scheduled',
+        schedule_state: s.schedule_state,
+        seconds_until_start: num(s.seconds_until_start),
+        seconds_until_end: num(s.seconds_until_end),
+        fetched_at: fetchedAt,
+    };
+};
+
+const StatePill: React.FC<{ state: SState }> = ({ state }) => (
+    <span className={`sc-pill is-${state}`}>
+        {state === 'active' && <i className="sc-pulse" aria-hidden />}
+        {STATE_LABEL[state]}
+    </span>
+);
 
 const StudentSchedule: React.FC = () => {
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [stats, setStats] = useState<ScheduleStats | null>(null);
-    const [loading, setLoading] = useState(true); // Add loading state
+    const { apiCall, user } = useAuth();
+    const tz = resolveTimezone(user?.timezone);
+    const tzLabel = timezoneLabel(user?.timezone);
+    const r = useResponsive();
+    const [msg, contextHolder] = message.useMessage();
 
-    // Filter states
+    const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [now, setNow] = useState(() => Date.now());
+
     const [batchFilter, setBatchFilter] = useState<number | null>(null);
     const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
     const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
 
-    const [detailsVisible, setDetailsVisible] = useState(false);
-    const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null);
-    const { apiCall, user } = useAuth();
-    const userTz = user?.timezone || detectBrowserTimezone();
-    const r = useResponsive();
+    const [agendaTab, setAgendaTab] = useState<AgendaTab>('today');
+    const [selectedDay, setSelectedDay] = useState<string | null>(null);
+    const [view, setView] = useState<CalView>('dayGridMonth');
+    const [calTitle, setCalTitle] = useState('');
+    const [details, setDetails] = useState<Item | null>(null);
 
-    // Attendance-related state
-    const [joinClassModalVisible, setJoinClassModalVisible] = useState(false);
-    const [selectedScheduleForJoin, setSelectedScheduleForJoin] = useState<Schedule | null>(null);
-    const [joiningClass, setJoiningClass] = useState(false);
+    // Join-class flow
+    const [joinTarget, setJoinTarget] = useState<Item | null>(null);
+    const [joinOpen, setJoinOpen] = useState(false);
+    const [joining, setJoining] = useState(false);
     const [accessCode, setAccessCode] = useState('');
     const [sessionStatus, setSessionStatus] = useState<any>(null);
-    const [form] = Form.useForm();
 
-    // Track joined meetings locally to show a "JOINED" badge after user joins
+    // Joined badges: local (this device) + server-confirmed
     const [joinedMap, setJoinedMap] = useState<Record<number, string>>(() => {
-        try {
-            const raw = localStorage.getItem('joinedSchedules');
-            return raw ? JSON.parse(raw) : {};
-        } catch {
-            return {};
-        }
+        try { return JSON.parse(localStorage.getItem('joinedSchedules') || '{}') || {}; } catch { return {}; }
     });
-
-    // Track server-side join status
     const [serverJoinedMap, setServerJoinedMap] = useState<Record<number, boolean>>({});
-
     const hasJoined = (id: number) => Boolean(joinedMap[id]) || Boolean(serverJoinedMap[id]);
-
-    // Check server-side join status for a schedule
-    const checkServerJoinStatus = async (scheduleId: number) => {
-        try {
-            const response = await apiCall(`/attendance/sessions/${scheduleId}/status`);
-            if (response.ok) {
-                const status = await response.json();
-                setServerJoinedMap(prev => ({
-                    ...prev,
-                    [scheduleId]: status.alreadyJoined || false
-                }));
-                return status.alreadyJoined || false;
-            }
-        } catch (error) {
-            console.error('Error checking server join status:', error);
-        }
-        return false;
-    };
-    
     const markJoined = (id: number) => {
-        const next = { ...joinedMap, [id]: dayjs().toISOString() };
-        setJoinedMap(next);
-        try { 
-            localStorage.setItem('joinedSchedules', JSON.stringify(next)); 
-        } catch {}
+        setJoinedMap(prev => {
+            const next = { ...prev, [id]: dayjs().toISOString() };
+            try { localStorage.setItem('joinedSchedules', JSON.stringify(next)); } catch { /* storage unavailable */ }
+            return next;
+        });
     };
 
-    // Compute stats locally from schedules
-    const computeStats = (items: Schedule[]): ScheduleStats => {
-        const now = dayjs();
-        const total = items.length;
-        const upcoming = items.filter((s) => dayjs(`${s.date} ${s.start_time}`).isAfter(now)).length;
-        // Count completed sessions as either explicitly marked 'completed' or those that have ended by time
-        const completed = items.filter((s) => {
-            const effective = getEffectiveStatus(s);
-            return effective === 'completed' || effective === 'ended';
-        }).length;
-        const startOfWeek = now.startOf('week');
-        const endOfWeek = now.endOf('week');
-        const thisWeek = items.filter((s) => {
-            const d = dayjs(s.date);
-            return d.isBetween(startOfWeek, endOfWeek, 'day', '[]');
-        }).length;
-        const next = items
-            .filter((s) => dayjs(`${s.date} ${s.start_time}`).isAfter(now))
-            .sort((a, b) => dayjs(`${a.date} ${a.start_time}`).valueOf() - dayjs(`${b.date} ${b.start_time}`).valueOf())[0];
-        return {
-            total_classes: total,
-            upcoming_classes: upcoming,
-            completed_classes: completed,
-            this_week_classes: thisWeek,
-            next_class: next,
-        };
-    };
+    const calRef = useRef<FullCalendar>(null);
+    const agendaRef = useRef<HTMLElement>(null);
 
-    useEffect(() => {
-        fetchSchedules();
-        // fetchStats(); // replaced by local computation after fetching schedules
-    }, []);
+    /* ═══════════ DATA ═══════════ */
+    const checkServerJoin = async (id: number) => {
+        try {
+            const res = await apiCall(`/attendance/sessions/${id}/status`);
+            if (res.ok) {
+                const status = await res.json();
+                setServerJoinedMap(prev => ({ ...prev, [id]: Boolean(status.alreadyJoined) }));
+            }
+        } catch { /* badge only — ignore */ }
+    };
 
     const fetchSchedules = async () => {
         setLoading(true);
+        setError(null);
         try {
-            // Use backend list endpoint with role-based filtering
-            const response = await apiCall('/schedules');
-            if (response.ok) {
-                const raw = await response.json();
-                const list = Array.isArray(raw) ? raw : (raw.schedules || []);
-                const normalized: Schedule[] = list.map((s: any) => {
-                    const start = dayjs(s.start_time);
-                    const end = dayjs(s.end_time);
-                    const teacherName = [s.teacher_first_name, s.teacher_last_name].filter(Boolean).join(' ').trim();
-                    // Map unknown types to 'other' to satisfy union type
-                    const allowedTypes = new Set(['class', 'exam', 'meeting', 'other']);
-                    const mappedType = allowedTypes.has(s.type) ? s.type : 'other';
-                    return {
-                        id: s.id,
-                        title: s.title,
-                        description: s.description || '',
-                        batch_id: s.batch_id,
-                        batch_name: s.batch_name || '',
-                        teacher_name: teacherName || '',
-                        // Original UTC ISO — preferred for display
-                        start_iso: s.start_time,
-                        end_iso: s.end_time,
-                        // Browser-local strings — only used for FullCalendar events
-                        start_time: start.isValid() ? start.format('HH:mm') : '00:00',
-                        end_time: end.isValid() ? end.format('HH:mm') : start.isValid() ? start.add(1, 'hour').format('HH:mm') : '01:00',
-                        date: start.isValid() ? start.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-                        location: s.location || '',
-                        location_mode: s.location_mode || 'physical',
-                        link: s.link || null,
-                        type: mappedType as 'class' | 'exam' | 'meeting' | 'other',
-                        status: (s.status as 'scheduled' | 'completed' | 'cancelled') || 'scheduled',
-                        schedule_state: s.schedule_state,
-                        seconds_until_end: s.seconds_until_end != null ? Number(s.seconds_until_end) : undefined,
-                        seconds_until_start: s.seconds_until_start != null ? Number(s.seconds_until_start) : undefined,
-                        created_at: s.created_at || start.toISOString(),
-                    };
-                });
-                setSchedules(normalized);
-                
-                // Check server-side join status for all class schedules in parallel (not sequential)
-                const classSchedules = normalized.filter(s => s.type === 'class');
-                if (classSchedules.length > 0) {
-                    Promise.all(classSchedules.map(s => checkServerJoinStatus(s.id))).catch(() => {});
-                }
-            } else {
-                message.error('Failed to fetch schedule');
-            }
-        } catch (error) {
-            console.error('Error fetching schedule:', error);
-            message.error('Error fetching schedule');
+            const res = await apiCall('/schedules');
+            if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+            const raw = await res.json();
+            const list = Array.isArray(raw) ? raw : (raw.schedules || []);
+            const fetchedAt = Date.now();
+            const normalized: Schedule[] = list.map(normalize(fetchedAt));
+            setSchedules(normalized);
+            setNow(fetchedAt);
+            // Attendance badges only matter for recent classes and the ones about to start.
+            const from = fetchedAt - 14 * 86400_000;
+            const to = fetchedAt + 86400_000;
+            normalized
+                .filter(s => s.type === 'class' && s.start.getTime() >= from && s.start.getTime() <= to)
+                .forEach(s => { checkServerJoin(s.id); });
+        } catch (e: any) {
+            setError(e?.message || 'Could not load your schedule.');
         } finally {
             setLoading(false);
         }
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    useEffect(() => { fetchSchedules(); }, []);
+    useEffect(() => {
+        const t = window.setInterval(() => setNow(Date.now()), 30_000);
+        return () => window.clearInterval(t);
+    }, []);
 
+    /* ═══════════ DERIVED ═══════════ */
+    const items = useMemo<Item[]>(() => schedules
+        .map(s => {
+            const wallStart = wallDate(s.start, tz);
+            return { ...s, wallStart, wallEnd: wallDate(s.end, tz), dayKey: keyOf(wallStart) };
+        })
+        .sort((a, b) => a.start.getTime() - b.start.getTime()), [schedules, tz]);
 
-    const getTypeColor = (type: string) => {
-        switch (type) {
-            case 'class': return 'blue';
-            case 'exam': return 'red';
-            case 'meeting': return 'green';
-            default: return 'default';
-        }
-    };
-
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'scheduled': return 'processing';
-            case 'completed': return 'success';
-            case 'cancelled': return 'error';
-            case 'ended': return 'default';
-            default: return 'default';
-        }
-    };
-
-    // Helper function to check if schedule has ended
-    // Prefers server-authoritative `schedule_state` / `seconds_until_end` (computed
-    // via PG NOW()) over browser-clock math to avoid clock-skew false positives.
-    const isScheduleEnded = (schedule: Schedule): boolean => {
-        if (schedule.schedule_state === 'ended' || schedule.schedule_state === 'completed' || schedule.schedule_state === 'cancelled') {
-            return true;
-        }
-        if (typeof schedule.seconds_until_end === 'number') {
-            return schedule.seconds_until_end <= 0;
-        }
-        // Fallback when server fields are missing
-        return dayjs(schedule.end_iso).isBefore(dayjs());
-    };
-
-    // Helper function to get effective status (returns 'ended' for active schedules that have passed their end time)
-    const getEffectiveStatus = (schedule: Schedule): string => {
-        if (schedule.schedule_state) return schedule.schedule_state;
-        if (schedule.status === 'scheduled' && isScheduleEnded(schedule)) {
-            return 'ended';
-        }
-        return schedule.status;
-    };
-
-    const getStatusIcon = (status: string) => {
-        switch (status) {
-            case 'scheduled': return <ClockCircleOutlined />;
-            case 'completed': return <CheckCircleOutlined />;
-            case 'cancelled': return <ExclamationCircleOutlined />;
-            case 'ended': return <CheckCircleOutlined />;
-            default: return <InfoCircleOutlined />;
-        }
-    };
-
-    // FullCalendar color palette by type (aligned with teacher view)
-    const typeColors: Record<string, string> = {
-        class: '#1677ff',
-        exam: '#ff4d4f',
-        meeting: '#52c41a',
-        other: '#6c757d',
-    };
-
-    const availableBatches = React.useMemo(() => {
+    const batchOptions = useMemo(() => {
         const map = new Map<number, string>();
-        schedules.forEach(s => {
-            if (s.batch_id && s.batch_name) map.set(s.batch_id, s.batch_name);
-        });
-        return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+        schedules.forEach(s => { if (s.batch_id && s.batch_name) map.set(s.batch_id, s.batch_name); });
+        return Array.from(map, ([value, label]) => ({ value, label }));
     }, [schedules]);
+    const teacherOptions = useMemo(() => Array.from(new Set(schedules.map(s => s.teacher_name).filter(Boolean)))
+        .sort().map(name => ({ value: name, label: name })), [schedules]);
 
-    const availableTeachers = React.useMemo(() => {
-        const set = new Set<string>();
-        schedules.forEach(s => {
-            if (s.teacher_name) set.add(s.teacher_name);
-        });
-        return Array.from(set).map(name => ({ value: name, label: name }));
-    }, [schedules]);
+    const filtered = useMemo(() => {
+        const range = dateRange ? [dateRange[0].format('YYYY-MM-DD'), dateRange[1].format('YYYY-MM-DD')] : null;
+        return items.filter(s =>
+            (!batchFilter || s.batch_id === batchFilter)
+            && (!teacherFilter || s.teacher_name === teacherFilter)
+            && (!range || (s.dayKey >= range[0] && s.dayKey <= range[1])));
+    }, [items, batchFilter, teacherFilter, dateRange]);
+    const hasFilters = Boolean(batchFilter || teacherFilter || dateRange);
 
-    const filteredSchedules = React.useMemo(() => {
-        return schedules.filter(s => {
-            if (batchFilter && s.batch_id !== batchFilter) return false;
-            if (teacherFilter && s.teacher_name !== teacherFilter) return false;
-            if (dateRange && dateRange[0] && dateRange[1]) {
-                const sDate = dayjs(s.date);
-                if (sDate.isBefore(dateRange[0].startOf('day')) || sDate.isAfter(dateRange[1].endOf('day'))) {
-                    return false;
-                }
-            }
-            return true;
-        });
-    }, [schedules, batchFilter, teacherFilter, dateRange]);
+    const derived = useMemo(() => {
+        const wallNow = wallDate(new Date(now), tz);
+        const todayKey = keyOf(wallNow);
+        const tomorrowKey = dayjs(wallNow).add(1, 'day').format('YYYY-MM-DD');
+        const weekStart = dayjs(wallNow).startOf('week');
+        const [wFrom, wTo] = [weekStart.format('YYYY-MM-DD'), weekStart.add(6, 'day').format('YYYY-MM-DD')];
+        const states = new Map(filtered.map(s => [s.id, stateOf(s, now)]));
+        const upcoming = filtered.filter(s => states.get(s.id) === 'scheduled');
+        const live = filtered.filter(s => states.get(s.id) === 'active');
+        return {
+            todayKey,
+            tomorrowKey,
+            states,
+            today: filtered.filter(s => s.dayKey === todayKey),
+            week: filtered.filter(s => s.dayKey >= wFrom && s.dayKey <= wTo),
+            upcoming,
+            done: filtered.filter(s => { const st = states.get(s.id); return st === 'ended' || st === 'completed'; }).length,
+            featured: live[0] || upcoming[0] || null,
+        };
+    }, [filtered, now, tz]);
+    const st = (s: Schedule): SState => derived.states.get(s.id) ?? stateOf(s, now);
 
-    React.useEffect(() => {
-        setStats(computeStats(filteredSchedules));
-    }, [filteredSchedules]);
+    const joinStateOf = (s: Item): JoinState => {
+        if (s.type !== 'class' && !s.link) return 'none';
+        if (hasJoined(s.id)) return 'attended';
+        if (isOver(st(s))) return 'none';
+        // Classes can be checked on the day (the teacher may open the session early); other sessions 5 min before.
+        if (inJoinWindow(s, now) || (s.type === 'class' && s.dayKey === derived.todayKey)) return 'open';
+        return 'locked';
+    };
 
-    // Convert schedules to FullCalendar events
-    const events = React.useMemo(() => {
-        return filteredSchedules.map((s) => {
-            const startD = dayjs(`${s.date}T${s.start_time}`);
-            let endD = dayjs(`${s.date}T${s.end_time}`);
-            if (!endD.isValid() || !endD.isAfter(startD)) {
-                endD = startD.add(1, 'hour');
-            }
-            const color = typeColors[s.type] || '#1677ff';
-            return {
-                id: String(s.id),
-                title: s.title,
-                start: startD.toDate(),
-                end: endD.toDate(),
-                allDay: false,
-                backgroundColor: color,
-                borderColor: color,
-                extendedProps: { schedule: s },
-            } as any;
-        });
-    }, [schedules]);
+    const events = useMemo(() => filtered.map(s => {
+        const state = derived.states.get(s.id) ?? 'scheduled';
+        return {
+            id: String(s.id),
+            title: s.title,
+            start: s.wallStart,
+            end: s.wallEnd,
+            classNames: ['sc-fc-ev', `sc-t-${s.type}`, `is-${state}`],
+            extendedProps: { item: s },
+        };
+    }), [filtered, derived]);
 
-    const handleEventClick = (clickInfo: any) => {
-        const sched: Schedule | undefined = clickInfo?.event?.extendedProps?.schedule;
-        if (sched) {
-            setSelectedSchedule(sched);
-            setDetailsVisible(true);
+    // Fit the time grid to the sessions instead of a fixed 24 h column.
+    const slots = useMemo(() => {
+        let min = 8, max = 20;
+        for (const s of filtered) {
+            min = Math.min(min, s.wallStart.getHours());
+            const spansMidnight = keyOf(s.wallEnd) !== s.dayKey;
+            max = Math.max(max, spansMidnight ? 24 : s.wallEnd.getHours() + (s.wallEnd.getMinutes() ? 1 : 0));
         }
-    };
+        const hh = (h: number) => `${String(Math.min(24, h)).padStart(2, '0')}:00:00`;
+        return { min: hh(min), max: hh(max), scroll: hh(Math.max(min, 8)) };
+    }, [filtered]);
 
-
-
-
-
-    const handleViewDetails = (schedule: Schedule) => {
-        setSelectedSchedule(schedule);
-        setDetailsVisible(true);
-    };
-
-    /** Display the start time in the user's timezone, with offset suffix.
-     *  Falls back to browser zone if profile is on the migration default 'UTC'. */
-    const renderStartLocal = (s: Schedule) => formatTimeLocal(s.start_iso, userTz);
-    const renderEndLocal   = (s: Schedule) => formatTimeLocal(s.end_iso, userTz);
-
-    const isToday = (date: string) => {
-        return dayjs(date).isSame(dayjs(), 'day');
-    };
-
-    const isUpcoming = (date: string, time: string) => {
-        const scheduleDateTime = dayjs(`${date} ${time}`);
-        return scheduleDateTime.isAfter(dayjs());
-    };
-
-    const todaySchedules = filteredSchedules.filter(schedule => isToday(schedule.date));
-    const upcomingSchedules = filteredSchedules
-        .filter(schedule => isUpcoming(schedule.date, schedule.start_time))
-        .sort((a, b) => {
-            const dateTimeA = dayjs(`${a.date} ${a.start_time}`);
-            const dateTimeB = dayjs(`${b.date} ${b.start_time}`);
-            return dateTimeA.valueOf() - dateTimeB.valueOf();
-        });
-    const thisWeekSchedules = filteredSchedules.filter(schedule => {
-        const scheduleDate = dayjs(schedule.date);
-        const startOfWeek = dayjs().startOf('week');
-        const endOfWeek = dayjs().endOf('week');
-        return scheduleDate.isBetween(startOfWeek, endOfWeek, 'day', '[]');
-    });
-
-    const nextClass = upcomingSchedules[0];
-
-    // Helper function to check if user can join the meeting (5 minutes before start time and not ended)
-
-    // Enhanced canJoinMeeting that uses schedule object
-    const canJoinMeetingSchedule = (schedule: Schedule): boolean => {
-        // Prefer server-authoritative seconds from PG NOW(); avoids browser
-        // clock skew making the meeting look ended/unstarted incorrectly.
-        const sStart = schedule.seconds_until_start;
-        const sEnd = schedule.seconds_until_end;
-        if (typeof sStart === 'number' && typeof sEnd === 'number') {
-            return sStart <= 5 * 60 && sEnd > 0 && !isScheduleEnded(schedule);
+    const agendaItems: Item[] = selectedDay
+        ? filtered.filter(s => s.dayKey === selectedDay)
+        : agendaTab === 'today' ? derived.today
+            : agendaTab === 'week' ? derived.week
+                : derived.upcoming.slice(0, 30);
+    const grouped = !selectedDay && agendaTab !== 'today';
+    const groups = useMemo(() => {
+        const out: { key: string; items: Item[] }[] = [];
+        for (const s of agendaItems) {
+            const last = out[out.length - 1];
+            if (last && last.key === s.dayKey) last.items.push(s);
+            else out.push({ key: s.dayKey, items: [s] });
         }
-        const meetingDateTime = dayjs(schedule.start_iso);
-        const meetingEndTime = dayjs(schedule.end_iso);
-        const now = dayjs();
-        const fiveMinutesBefore = meetingDateTime.subtract(5, 'minute');
-        return now.isAfter(fiveMinutesBefore) && now.isBefore(meetingEndTime) && !isScheduleEnded(schedule);
-    };
+        return out;
+    }, [agendaItems]);
+    const dayLabel = (key: string) => key === derived.todayKey ? 'Today'
+        : key === derived.tomorrowKey ? 'Tomorrow'
+            : dayjs(key).format(dayjs(key).year() === dayjs().year() ? 'dddd, MMM D' : 'ddd, MMM D, YYYY');
 
-
-
-    // Handle join class button click
-    const handleJoinClass = async (schedule: Schedule) => {
-        setSelectedScheduleForJoin(schedule);
-        
-        // Check session status first
-        await checkSessionStatus(schedule.id);
-        
-        // Get the session status to check if already joined
-        try {
-            const response = await apiCall(`/attendance/sessions/${schedule.id}/status`);
-            if (response.ok) {
-                const status = await response.json();
-                
-                // If student has already joined and there's a meeting link, redirect directly
-                if (status.alreadyJoined && schedule.link) {
-                    message.success('You have already joined this class. Opening meeting link...');
-                    markJoined(schedule.id);
-                    window.open(schedule.link, '_blank');
-                    return;
-                }
-                
-                // If already joined but no meeting link, show success message
-                if (status.alreadyJoined) {
-                    message.success('You have already joined this class.');
-                    markJoined(schedule.id);
-                    return;
-                }
-            }
-        } catch (error) {
-            console.error('Error checking join status:', error);
+    /* ═══════════ CALENDAR HANDLERS ═══════════ */
+    const api = () => calRef.current?.getApi();
+    const nowProvider = useCallback(() => wallDate(new Date(), tz), [tz]);
+    const onDatesSet = useCallback((a: DatesSetArg) => {
+        setCalTitle(a.view.title);
+        setView(a.view.type as CalView);
+    }, []);
+    const onEventClick = useCallback((a: EventClickArg) => {
+        a.jsEvent.preventDefault();
+        setDetails(a.event.extendedProps.item as Item);
+    }, []);
+    const onDateClick = useCallback((a: DateClickArg) => {
+        if (a.view.type !== 'dayGridMonth') return;
+        const key = keyOf(a.date);
+        setSelectedDay(prev => (prev === key ? null : key));
+        const el = agendaRef.current;
+        if (el && el.getBoundingClientRect().top > window.innerHeight - 120) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, []);
+    const dayCellClassNames = useCallback((a: { date: Date }) => (keyOf(a.date) === selectedDay ? ['sc-day-selected'] : []), [selectedDay]);
+    const renderEvent = useCallback((a: EventContentArg) => {
+        const s = a.event.extendedProps.item as Item;
+        if (a.view.type === 'dayGridMonth') {
+            if (r.isMobile) return <span className="sc-ev-bar" />;
+            return (
+                <div className="sc-ev">
+                    <span className="sc-ev-time">{shortTime(s.start, tz)}</span>
+                    <span className="sc-ev-title">{s.title}</span>
+                </div>
+            );
         }
-        
-        // If not joined yet, show the access code modal
-        setJoinClassModalVisible(true);
+        return (
+            <div className="sc-ev sc-ev--block">
+                <span className="sc-ev-title">{s.title}</span>
+                <span className="sc-ev-time">{timeRange(s, tz)}</span>
+            </div>
+        );
+    }, [r.isMobile, tz]);
+
+    /* ═══════════ JOIN FLOW ═══════════ */
+    const closeJoin = () => {
+        if (joining) return;
+        setJoinOpen(false);
+        setJoinTarget(null);
         setAccessCode('');
-        form.resetFields();
+        setSessionStatus(null);
     };
 
-    // Check session status for a schedule
-    const checkSessionStatus = async (scheduleId: number) => {
+    const handleJoin = async (s: Item) => {
+        setDetails(null);
+        setJoinTarget(s);
+        let status: any = null;
         try {
-            const response = await apiCall(`/attendance/sessions/${scheduleId}/status`);
-            if (response.ok) {
-                const status = await response.json();
-                setSessionStatus(status);
+            const res = await apiCall(`/attendance/sessions/${s.id}/status`);
+            if (res.ok) status = await res.json();
+        } catch { /* treated as "not started" */ }
+        setSessionStatus(status);
+        if (status?.alreadyJoined) {
+            markJoined(s.id);
+            if (s.link) {
+                msg.success('You already joined this class — opening the meeting link.');
+                window.open(s.link, '_blank', 'noopener,noreferrer');
             } else {
-                setSessionStatus(null);
+                msg.success('You already joined this class.');
             }
-        } catch (error) {
-            console.error('Error checking session status:', error);
-            setSessionStatus(null);
-        }
-    };
-
-    // Handle access code submission
-    const handleSubmitAccessCode = async () => {
-        if (!selectedScheduleForJoin || !accessCode.trim()) {
-            message.error('Please enter the access code');
+            setJoinTarget(null);
             return;
         }
+        setAccessCode('');
+        setJoinOpen(true);
+    };
 
-        setJoiningClass(true);
+    const submitAccessCode = async () => {
+        if (!joinTarget || accessCode.length !== 6) return;
+        setJoining(true);
         try {
-            let sessionId: number | null = null;
-            let lastResponseData: any = null;
-
-            // Prefer the session status endpoint result (checked when opening the modal)
-            if (sessionStatus?.canJoin && sessionStatus?.sessionId) {
-                sessionId = sessionStatus.sessionId;
-                console.log('Using sessionId from status endpoint:', sessionId);
-            }
-
+            let sessionId: number | null = sessionStatus?.canJoin && sessionStatus?.sessionId ? sessionStatus.sessionId : null;
             if (!sessionId) {
-                // Fallback: query sessions by schedule only (no date filter to avoid mismatches)
-                const listResp = await apiCall(`/attendance/sessions?schedule_id=${selectedScheduleForJoin.id}`);
-                if (!listResp.ok) {
-                    throw new Error('Failed to fetch sessions for this schedule');
-                }
-
-                const responseData = await listResp.json();
-                lastResponseData = responseData;
-                const sessions = responseData.sessions || [];
-
-                // Debug logging
-                console.log('API Response (fallback):', responseData);
-                console.log('Sessions found:', sessions);
-                console.log('Looking for schedule_id:', selectedScheduleForJoin.id);
-                console.log('Selected schedule:', selectedScheduleForJoin);
-
-                // Prefer an active session
-                const active = sessions.find((s: any) =>
-                    Number(s.schedule_id) === Number(selectedScheduleForJoin.id) &&
-                    (s.status === 'in_progress' || s.status === 'started')
-                ) || sessions.find((s: any) => Number(s.schedule_id) === Number(selectedScheduleForJoin.id));
-
-                sessionId = active?.id ?? null;
+                const listRes = await apiCall(`/attendance/sessions?schedule_id=${joinTarget.id}`);
+                if (!listRes.ok) throw new Error('Could not find the session for this class.');
+                const sessions: any[] = (await listRes.json()).sessions || [];
+                const mine = sessions.filter(x => Number(x.schedule_id) === Number(joinTarget.id));
+                sessionId = (mine.find(x => x.status === 'in_progress' || x.status === 'started') || mine[0])?.id ?? null;
             }
+            if (!sessionId) throw new Error('No active session was found for this class.');
 
-            if (!sessionId) {
-                console.log('No session found. Available sessions:', (lastResponseData?.sessions || []).map((s: any) => ({ id: s.id, schedule_id: s.schedule_id, status: s.status })));
-                throw new Error('No active session found for this class');
-            }
-
-            // Join the session with access code
-            const joinResponse = await apiCall(`/attendance/sessions/${sessionId}/join`, {
+            const res = await apiCall(`/attendance/sessions/${sessionId}/join`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ accessCode: accessCode.trim().toUpperCase() })
+                body: JSON.stringify({ accessCode: accessCode.toUpperCase() }),
             });
-
-            if (joinResponse.ok) {
-                const result = await joinResponse.json();
-                message.success(`Successfully joined class! Attendance marked as ${result.status}`);
-                
-                // Mark as joined locally
-                markJoined(selectedScheduleForJoin.id);
-                
-                // Open meeting link if available
-                if (selectedScheduleForJoin.link) {
-                    window.open(selectedScheduleForJoin.link, '_blank', 'noopener,noreferrer');
-                }
-                
-                // Close modal
-                setJoinClassModalVisible(false);
-                setAccessCode('');
-                setSelectedScheduleForJoin(null);
-                form.resetFields();
-                
-                // Refresh schedules to update status
-                fetchSchedules();
-            } else {
-                const error = await joinResponse.json();
-                message.error(error.error || 'Failed to join class');
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                msg.error(body.error || 'That code was not accepted. Please check it and try again.');
+                return;
             }
-        } catch (error) {
-            console.error('Error joining class:', error);
-            message.error('Error joining class. Please try again.');
+            const result = await res.json();
+            msg.success(`You're in — attendance recorded as ${result.status}.`);
+            markJoined(joinTarget.id);
+            if (joinTarget.link) window.open(joinTarget.link, '_blank', 'noopener,noreferrer');
+            setJoining(false);
+            setJoinOpen(false);
+            setJoinTarget(null);
+            setAccessCode('');
+            fetchSchedules();
+        } catch (e: any) {
+            msg.error(e?.message || 'Could not join the class. Please try again.');
         } finally {
-            setJoiningClass(false);
+            setJoining(false);
         }
     };
 
+    /* ═══════════ PIECES ═══════════ */
+    const modeText = (s: Schedule) => (s.location_mode === 'online' ? 'Online' : s.location || 'On site');
+    const ModeIcon = ({ s }: { s: Schedule }) => (s.location_mode === 'online' ? <VideoCameraOutlined /> : <EnvironmentOutlined />);
+    const joinLabel = (s: Schedule) => (s.type === 'class' ? 'Join class' : 'Join session');
 
-
-    if (loading && schedules.length === 0) return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ marginBottom: 24 }}>
-                <Skeleton.Input active style={{ width: 200, height: 26, borderRadius: 8 }} />
-                <div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 300, height: 13, borderRadius: 6 }} /></div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 20 }}>
-                {[1,2,3,4].map(i => (
-                    <div key={i} style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 16 }}><Skeleton.Avatar active size={46} shape="square" style={{ borderRadius: 13 }} /><div style={{ flex: 1 }}><Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 40, height: 26, borderRadius: 6 }} /></div></div>
-                ))}
-            </div>
-            <div style={{ display: 'flex', gap: 16, flex: 1 }}>
-                <Skeleton.Node active style={{ width: '100%', height: '100%', borderRadius: 16 }}><div /></Skeleton.Node>
-                <div style={{ width: '33%', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <Skeleton.Node active style={{ width: '100%', height: 200, borderRadius: 16 }}><div /></Skeleton.Node>
+    const renderRow = (s: Item) => {
+        const state = st(s);
+        const js = joinStateOf(s);
+        const startsIn = state === 'scheduled' ? secsUntil(s, 'start', now) : 0;
+        const open = () => setDetails(s);
+        return (
+            <div key={s.id} role="button" tabIndex={0} className={`sc-row sc-t-${s.type} is-${state}`} onClick={open}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}>
+                <div className="sc-row-time">
+                    <strong>{fmtTime(s.start, tz)}</strong>
+                    <span>{durationText(s)}</span>
                 </div>
+                <div className="sc-row-body">
+                    <div className="sc-row-title">{s.title}</div>
+                    <div className="sc-row-meta">
+                        <span>{TYPE_META[s.type].label}</span>
+                        {s.teacher_name && <span><UserOutlined /> {s.teacher_name}</span>}
+                        <span><ModeIcon s={s} /> {modeText(s)}</span>
+                    </div>
+                </div>
+                <div className="sc-row-side">
+                    {js === 'attended' ? <span className="sc-attended"><CheckCircleFilled /> Attended</span>
+                        : js === 'open' ? (
+                            <Button size="small" type="primary" icon={<LoginOutlined />}
+                                onClick={e => { e.stopPropagation(); handleJoin(s); }}>Join</Button>
+                        ) : state === 'scheduled'
+                            ? startsIn < 86400 && <span className="sc-pill is-soon">In {untilText(startsIn)}</span>
+                            : <StatePill state={state} />}
+                </div>
+            </div>
+        );
+    };
+
+    /* ═══════════ LOADING ═══════════ */
+    if (loading && schedules.length === 0) return (
+        <div className="sc" aria-busy="true">
+            <div className="sc-header">
+                <div>
+                    <Skeleton.Input active size="small" style={{ width: 90, height: 12 }} />
+                    <div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 220, height: 24 }} /></div>
+                </div>
+            </div>
+            <div className="sc-overview">
+                <div className="sc-panel sc-pad"><Skeleton active title={{ width: '40%' }} paragraph={{ rows: 2 }} /></div>
+                <div className="sc-stats">
+                    {[0, 1, 2, 3].map(i => (
+                        <div key={i} className="sc-stat"><Skeleton.Avatar active shape="square" size={38} /><Skeleton.Input active size="small" style={{ width: 70 }} /></div>
+                    ))}
+                </div>
+            </div>
+            <div className="sc-main">
+                <div className="sc-panel sc-pad"><Skeleton active paragraph={{ rows: 12 }} /></div>
+                <div className="sc-panel sc-pad sc-agenda-skel"><Skeleton active paragraph={{ rows: 6 }} /></div>
             </div>
         </div>
     );
 
+    const f = derived.featured;
+    const fState = f ? st(f) : null;
+    const fJoin = f ? joinStateOf(f) : 'none';
+    const dState = details ? st(details) : null;
+    const dJoin = details ? joinStateOf(details) : 'none';
+
+    const stats: { key: string; label: string; value: number; icon: React.ReactNode; tone: string; tab?: AgendaTab }[] = [
+        { key: 'week', label: 'This week', value: derived.week.length, icon: <CalendarOutlined />, tone: 'blue', tab: 'week' },
+        { key: 'upcoming', label: 'Upcoming', value: derived.upcoming.length, icon: <FieldTimeOutlined />, tone: 'amber', tab: 'upcoming' },
+        { key: 'done', label: 'Completed', value: derived.done, icon: <CheckCircleOutlined />, tone: 'green' },
+        { key: 'total', label: 'All sessions', value: filtered.length, icon: <ScheduleOutlined />, tone: 'slate' },
+    ];
+
+    const emptyCopy: Record<string, { title: string; text: string }> = {
+        day: { title: 'Nothing on this day', text: 'Pick another day in the calendar, or clear the selection.' },
+        today: { title: 'No sessions today', text: 'Enjoy the free time — your next sessions are under Upcoming.' },
+        upcoming: { title: 'Nothing scheduled ahead', text: 'New sessions from your teachers will appear here.' },
+        week: { title: 'No sessions this week', text: 'Check Upcoming for what comes next.' },
+    };
+    const empty = emptyCopy[selectedDay ? 'day' : agendaTab];
+
     return (
-        <div className="student-portal" style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', maxWidth: 1600, margin: '0 auto', width: '100%', flex: 1, minHeight: 0 }}>
-                <PageHeader
-                    title="My Class Schedule"
-                    subtitle="Upcoming classes, meetings, and academic events"
-                    icon={<CalendarOutlined />}
-                    accent="#10b981"
-                    contextStrip={
-                        <div style={{ fontSize: 12, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: '#eef2ff', border: '1px solid #e0e7ff' }}>
-                            <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 11 }} />
-                            Times in your timezone: <strong style={{ color: '#4338ca' }}>{userTz}</strong>
-                        </div>
-                    }
-                />
+        <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13, borderRadius: 8 } }}>
+            <div className="sc">
+                {contextHolder}
 
-                {/* Filters */}
-                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: r.isMobile ? '10px 12px' : (r.isCompact ? '12px 14px' : '14px 20px'), marginBottom: r.isMobile ? 12 : (r.isCompact ? 14 : 20), display: 'flex', gap: r.isMobile ? 8 : 10, flexWrap: 'wrap', boxShadow: '0 2px 12px rgba(99,102,241,0.06)' }}>
-                    <RangePicker
-                        value={dateRange}
-                        onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                        style={{ borderRadius: 8, flex: r.isMobile ? '1 1 100%' : undefined }}
-                        allowClear
-                    />
-                    <Select
-                        value={batchFilter}
-                        onChange={setBatchFilter}
-                        allowClear
-                        placeholder="All Batches"
-                        style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
-                        options={availableBatches}
-                        showSearch
-                        optionFilterProp="label"
-                    />
-                    <Select
-                        value={teacherFilter}
-                        onChange={setTeacherFilter}
-                        allowClear
-                        placeholder="All Teachers"
-                        style={{ flex: r.isMobile ? '1 1 calc(50% - 4px)' : '1 1 160px', minWidth: r.isMobile ? 0 : 140 }}
-                        options={availableTeachers}
-                        showSearch
-                        optionFilterProp="label"
-                    />
-                </div>
-
-                {stats && (
-                    <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: r.isCompact ? 'repeat(auto-fit, minmax(140px, 1fr))' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: r.isCompact ? 10 : 14, marginBottom: r.isCompact ? 14 : 20, flexShrink: 0 }}>
-                        <KpiCard label="Total Classes" value={stats.total_classes ?? 0} icon={<BookOutlined />} accent="#1a56db" />
-                        <KpiCard label="This Week" value={stats.this_week_classes ?? 0} icon={<CalendarOutlined />} accent="#059669" />
-                        <KpiCard label="Upcoming" value={stats.upcoming_classes ?? 0} icon={<ClockCircleOutlined />} accent="#d97706" />
-                        <KpiCard label="Completed" value={stats.completed_classes ?? 0} icon={<CheckCircleOutlined />} accent="#059669" />
-                    </div>
-                )}
-
-                {nextClass && (
-                    <div style={{
-                        marginBottom: r.isMobile ? 14 : 20,
-                        background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
-                        borderRadius: 16,
-                        padding: r.isMobile ? '14px 16px' : '20px 24px',
-                        color: '#fff',
-                        boxShadow: '0 4px 14px rgba(99,102,241,0.25)',
-                        flexShrink: 0,
-                        display: 'flex',
-                        alignItems: r.isMobile ? 'stretch' : 'center',
-                        justifyContent: 'space-between',
-                        gap: r.isMobile ? 12 : 16,
-                        flexWrap: 'wrap',
-                        flexDirection: r.isMobile ? 'column' : 'row',
-                    }}>
-                        <div style={{ minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: r.isMobile ? 6 : 10, fontSize: r.isMobile ? 10.5 : 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.8)' }}>
-                                <ClockCircleOutlined /> Next Class
-                            </div>
-                            <div style={{ fontSize: r.isMobile ? 16 : 20, fontWeight: 700, marginBottom: r.isMobile ? 4 : 6, lineHeight: 1.25 }}>{nextClass.title}</div>
-                                    <Text style={{ color: 'rgba(255,255,255,0.9)', fontSize: r.isMobile ? '12.5px' : '15px', display: 'block', marginBottom: 4 }}>
-                                        📅 {formatLocal(nextClass.start_iso, userTz, { weekday: r.isMobile ? 'short' : 'long', month: r.isMobile ? 'short' : 'long', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
-                                    </Text>
-                            <div style={{ fontSize: r.isMobile ? 11.5 : 13, color: 'rgba(255,255,255,0.9)' }}>
-                                        {nextClass.location_mode === 'online' ? (
-                                            <><VideoCameraOutlined /> Online Meeting &nbsp;•&nbsp; <TeamOutlined /> {nextClass.teacher_name}</>
-                                        ) : (
-                                            <><EnvironmentOutlined /> {nextClass.location} &nbsp;•&nbsp; <TeamOutlined /> {nextClass.teacher_name}</>
-                                        )}
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: r.isMobile ? 8 : 10, flexWrap: 'wrap' }}>
-                            {nextClass.type === 'class' && (
-                                <Tooltip title={hasJoined(nextClass.id) ? 'Already joined class' : 'Join class with access code'}>
-                                    <Button type="primary" icon={<LoginOutlined />} onClick={() => handleJoinClass(nextClass)}
-                                        disabled={hasJoined(nextClass.id) || isScheduleEnded(nextClass)}
-                                        style={{ flex: r.isMobile ? 1 : undefined, backgroundColor: hasJoined(nextClass.id) ? '#10b981' : '#fff', color: hasJoined(nextClass.id) ? '#fff' : '#6366f1', borderColor: 'transparent', fontWeight: 600, height: r.isMobile ? 36 : 38, borderRadius: 10 }}>
-                                        {hasJoined(nextClass.id) ? 'Attended' : 'Join Class'}
-                                    </Button>
-                                </Tooltip>
-                            )}
-                            <Button onClick={() => handleViewDetails(nextClass)} style={{ flex: r.isMobile ? 1 : undefined, backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'transparent', color: '#fff', fontWeight: 600, height: r.isMobile ? 36 : 38, borderRadius: 10 }}>
-                                View Details
-                            </Button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Main Content Flex Area */}
-                <div style={{ display: 'flex', gap: r.isMobile ? 12 : 20, flex: 1, minHeight: 0, flexWrap: 'wrap' }}>
-                    {/* Calendar Section */}
-                    <div className={`schedule-calendar-wrap${r.isMobile ? ' schedule-calendar-wrap--mobile' : ''}`} style={{ flex: '1 1 500px', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: r.isMobile ? '10px 8px 12px' : '16px 20px', minWidth: 0 }}>
-                                <FullCalendar
-                                    plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
-                                    initialView="dayGridMonth"
-                                    headerToolbar={r.isMobile ? {
-                                        left: 'prev,next',
-                                        center: 'title',
-                                        right: 'today',
-                                    } : {
-                                        left: 'prev,next today',
-                                        center: 'title',
-                                        right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                                    }}
-                                    titleFormat={r.isMobile ? { month: 'short', year: 'numeric' } : { month: 'long', year: 'numeric' }}
-                                    dayHeaderFormat={r.isMobile ? { weekday: 'narrow' } : { weekday: 'short' }}
-                                    height="auto"
-                                    aspectRatio={r.isMobile ? 0.85 : 1.35}
-                                    events={events}
-                                    editable={false}
-                                    selectable={false}
-                                    selectMirror={false}
-                                    dayMaxEvents={r.isMobile ? 1 : true}
-                                    fixedWeekCount={false}
-                                    eventClick={handleEventClick}
-                                    eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: true }}
-                                    eventDisplay={r.isMobile ? 'list-item' : 'auto'}
-                                />
-                        </div>
-                    
-                    {/* Side Panel */}
-                    <div style={{ flex: r.isMobile ? '1 1 100%' : '0 0 340px', maxWidth: '100%', display: 'flex', flexDirection: 'column', background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.07)', flexShrink: 0, minHeight: 0 }}>
-                        <Tabs 
-                            defaultActiveKey="today" 
-                            size="small"
-                            tabBarStyle={{ padding: '0 16px', borderBottom: '1px solid #f0f0f8', marginBottom: 0 }}
-                            items={[
-                                {
-                                    key: 'today',
-                                    label: <span style={{ fontWeight: 600 }}>Today ({todaySchedules.length})</span>,
-                                    children: (
-                                        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: 16 }}>
-                                        {loading ? (
-                                            <div style={{ textAlign: 'center', padding: '20px' }}>
-                                                <Spin size="large" />
-                                                <div style={{ marginTop: 8 }}>Loading today's schedule...</div>
-                                            </div>
-                                        ) : todaySchedules.length > 0 ? (
-                                            <Timeline>
-                                                {todaySchedules
-                                                    .sort((a, b) => a.start_time.localeCompare(b.start_time))
-                                                    .map(schedule => (
-                                                        <Timeline.Item
-                                                            key={schedule.id}
-                                                            dot={getStatusIcon(getEffectiveStatus(schedule))}
-                                                            color={getStatusColor(getEffectiveStatus(schedule))}
-                                                        >
-                                                            <div 
-                                                                style={{ cursor: 'pointer' }}
-                                                                onClick={() => handleViewDetails(schedule)}
-                                                            >
-                                                                <Text strong>{renderStartLocal(schedule)} - {renderEndLocal(schedule)}</Text>
-                                                                <br />
-                                                                <Text>{schedule.title}</Text>
-                                                                <br />
-                                                                <Space size="small" wrap>
-                                                                    {schedule.location_mode === 'online' ? (
-                                                                        <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
-                                                                    ) : (
-                                                                        <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
-                                                                    )}
-                                                                    <Tag color={getTypeColor(schedule.type)}>
-                                                                        {schedule.type.toUpperCase()}
-                                                                    </Tag>
-                                                                    {hasJoined(schedule.id) ? <Tag color="success">ATTENDED</Tag> : null}
-                                                                    {schedule.type === 'class' && (
-                                                                        <Button
-                                                                            size="small"
-                                                                            type="primary"
-                                                                            icon={<LoginOutlined />}
-                                                                            disabled={hasJoined(schedule.id) || isScheduleEnded(schedule)}
-                                                                            style={{
-                                                                                backgroundColor: hasJoined(schedule.id) ? '#52c41a' : '#1890ff',
-                                                                                borderColor: hasJoined(schedule.id) ? '#52c41a' : '#1890ff'
-                                                                            }}
-                                                                            onClick={(e) => {
-                                                                                (e as any).stopPropagation();
-                                                                                handleJoinClass(schedule);
-                                                                            }}
-                                                                        >
-                                                                            {hasJoined(schedule.id) ? 'Joined' : 'Join Class'}
-                                                                        </Button>
-                                                                    )}
-                                                                    {schedule.link ? (
-                                                                        <Button
-                                                                            size="small"
-                                                                            type="primary"
-                                                                            disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
-                                                                            style={{
-                                                                                backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                                borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                                color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
-                                                                            }}
-                                                                            onClick={(e) => {
-                                                                        (e as any).stopPropagation();
-                                                                        if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
-                                                                            handleJoinClass(schedule);
-                                                                        }
-                                                                    }}
-                                                                        >
-                                                                            {isScheduleEnded(schedule) ? 'Ended' : 'Join Meeting'}
-                                                                        </Button>
-                                                                    ) : null}
-                                                                </Space>
-                                                            </div>
-                                                        </Timeline.Item>
-                                                    ))
-                                                }
-                                            </Timeline>
-                                        ) : (
-                                            <Empty 
-                                                description="No classes today" 
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                            />
-                                        )}
-                                    </div>
-                                )
-                            },
-                            {
-                                key: 'upcoming',
-                                label: `Upcoming (${upcomingSchedules.slice(0, 10).length})`,
-                                children: (
-                                    <Card size="small">
-                                        {loading ? (
-                                            <div style={{ textAlign: 'center', padding: '20px' }}>
-                                                <Spin size="large" />
-                                                <div style={{ marginTop: 8 }}>Loading upcoming classes...</div>
-                                            </div>
-                                        ) : upcomingSchedules.slice(0, 10).length > 0 ? (
-                                            <List
-                                                size="small"
-                                                dataSource={upcomingSchedules.slice(0, 10)}
-                                                renderItem={(schedule) => (
-                                                    <List.Item 
-                                                        style={{ cursor: 'pointer' }}
-                                                        onClick={() => handleViewDetails(schedule)}
-                                                        actions={[
-                                                            hasJoined(schedule.id) ? (<Tag color="success" key="joined">JOINED</Tag>) : null,
-                                                            schedule.link ? (
-                                                                <Button
-                                                                    key="join"
-                                                                    size="small"
-                                                                    type="primary"
-                                                                    disabled={!canJoinMeetingSchedule(schedule) || isScheduleEnded(schedule)}
-                                                                    style={{
-                                                                        backgroundColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                        borderColor: isScheduleEnded(schedule) ? '#d9d9d9' : (canJoinMeetingSchedule(schedule) ? '#52c41a' : '#d9d9d9'),
-                                                                        color: isScheduleEnded(schedule) ? '#00000040' : (canJoinMeetingSchedule(schedule) ? '#fff' : '#00000040')
-                                                                    }}
-                                                                    onClick={(e) => {
-                                                                        (e as any).stopPropagation();
-                                                                        if (canJoinMeetingSchedule(schedule) && !isScheduleEnded(schedule)) {
-                                                                            handleJoinClass(schedule);
-                                                                        }
-                                                                    }}
-                                                                >
-                                                                    {isScheduleEnded(schedule) ? 'Ended' : 'Join'}
-                                                                </Button>
-                                                            ) : null
-                                                        ].filter(Boolean) as any}
-                                                    >
-                                                        <List.Item.Meta
-                                                            avatar={
-                                                                <Avatar 
-                                                                    style={{ backgroundColor: getTypeColor(schedule.type) }}
-                                                                    icon={<BookOutlined />}
-                                                                />
-                                                            }
-                                                            title={
-                                                                <Space>
-                                                                    <Text strong>{schedule.title}</Text>
-                                                                    <Tag color={getTypeColor(schedule.type)}>
-                                                                        {schedule.type.toUpperCase()}
-                                                                    </Tag>
-                                                                </Space>
-                                                            }
-                                                            description={
-                                                                <div>
-                                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                        {formatLocal(schedule.start_iso, userTz, { month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
-                                                                    </Text>
-                                                                    <br />
-                                                                    <Space size="small">
-                                                                        {schedule.location_mode === 'online' ? (
-                                                                            <Tag color="geekblue" icon={<VideoCameraOutlined />}>Online</Tag>
-                                                                        ) : (
-                                                                            <Tag color="purple" icon={<EnvironmentOutlined />}>{schedule.location}</Tag>
-                                                                        )}
-                                                                    </Space>
-                                                                </div>
-                                                            }
-                                                        />
-                                                    </List.Item>
-                                                )}
-                                            />
-                                        ) : (
-                                            <Empty 
-                                                description="No upcoming classes" 
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                            />
-                                        )}
-                                    </Card>
-                                )
-                            },
-                            {
-                                key: 'week',
-                                label: `This Week (${thisWeekSchedules.length})`,
-                                children: (
-                                    <Card size="small">
-                                        {loading ? (
-                                            <div style={{ textAlign: 'center', padding: '20px' }}>
-                                                <Spin size="large" />
-                                                <div style={{ marginTop: 8 }}>Loading this week's schedule...</div>
-                                            </div>
-                                        ) : thisWeekSchedules.length > 0 ? (
-                                            <List
-                                                size="small"
-                                                dataSource={thisWeekSchedules
-                                                    .sort((a, b) => {
-                                                        const dateTimeA = dayjs(a.start_iso);
-                                                        const dateTimeB = dayjs(b.start_iso);
-                                                        return dateTimeA.valueOf() - dateTimeB.valueOf();
-                                                    })
-                                                }
-                                                renderItem={(schedule) => (
-                                                    <List.Item 
-                                                        style={{ cursor: 'pointer' }}
-                                                        onClick={() => handleViewDetails(schedule)}
-                                                    >
-                                                        <List.Item.Meta
-                                                            avatar={
-                                                                <Avatar 
-                                                                    style={{ backgroundColor: getStatusColor(getEffectiveStatus(schedule)) }}
-                                                                    icon={getStatusIcon(getEffectiveStatus(schedule))}
-                                                                />
-                                                            }
-                                                            title={
-                                                                <Space>
-                                                                    <Text strong>{schedule.title}</Text>
-                                                                    <Tag color={getStatusColor(getEffectiveStatus(schedule))}>
-                                                                        {getEffectiveStatus(schedule).toUpperCase()}
-                                                                    </Tag>
-                                                                </Space>
-                                                            }
-                                                            description={
-                                                                <div>
-                                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                                        {formatLocal(schedule.start_iso, userTz, { weekday: 'short', month: 'short', day: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true })}
-                                                                    </Text>
-                                                                    <br />
-                                                                    <Text type="secondary" style={{ fontSize: '11px' }}>
-                                                                        <TeamOutlined /> {schedule.teacher_name}
-                                                                    </Text>
-                                                                </div>
-                                                            }
-                                                        />
-                                                    </List.Item>
-                                                )}
-                                            />
-                                        ) : (
-                                            <Empty 
-                                                description="No classes this week" 
-                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                                            />
-                                        )}
-                                    </Card>
-                                )
-                            }
-                        ]}
-                    />
-                </div>
-            </div>
-
-            {/* Redesigned Details Modal to match backend style */}
-            <Modal
-                title={null}
-                wrapClassName="premium-modal"
-                closeIcon={<div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', transition: 'all 0.2s', marginTop: 12, marginRight: 12 }} onMouseEnter={(e) => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.transform = 'rotate(90deg)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.1)'; e.currentTarget.style.transform = 'rotate(0deg)'; }}>✕</div>}
-                open={detailsVisible}
-                onCancel={() => setDetailsVisible(false)}
-                footer={null}
-                width={700}
-                style={{ padding: 0 }}
-            >
-                {selectedSchedule && (
-                    <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '85vh', overflow: 'hidden' }}>
-                        <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', padding: '32px 40px', color: '#fff', position: 'relative' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                                <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(99, 102, 241, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, color: '#818cf8' }}>
-                                    {getStatusIcon(getEffectiveStatus(selectedSchedule))}
-                                </div>
-                                <div>
-                                    <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#fff' }}>{selectedSchedule.title}</h2>
-                                    <div style={{ display: 'flex', gap: 12, marginTop: 4, alignItems: 'center' }}>
-                                        <Tag color={getTypeColor(selectedSchedule.type)} style={{ border: 'none' }}>{selectedSchedule.type.toUpperCase()}</Tag>
-                                        <span style={{ color: '#94a3b8', fontSize: 13 }}>{formatLocal(selectedSchedule.start_iso, userTz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div style={{ padding: '32px 40px', overflowY: 'auto', background: '#f8fafc' }}>
-                            <div style={{ background: '#fff', borderRadius: 16, padding: 24, border: '1px solid #f0f0f8', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
-                        <Descriptions bordered column={2} size="middle">
-                            <Descriptions.Item label="Date" span={1}>
-                                {formatLocal(selectedSchedule.start_iso, userTz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Time" span={1}>
-                                {`${renderStartLocal(selectedSchedule)} - ${renderEndLocal(selectedSchedule)}`}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Type" span={1}>
-                                <Tag color={getTypeColor(selectedSchedule.type)}>{selectedSchedule.type.toUpperCase()}</Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Status" span={1}>
-                                <Tag color={getStatusColor(getEffectiveStatus(selectedSchedule))}>
-                                    {getEffectiveStatus(selectedSchedule).toUpperCase()}
-                                </Tag>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Teacher" span={1}>
-                                <Space><TeamOutlined /> {selectedSchedule.teacher_name}</Space>
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Batch" span={1}>
-                                <Space>
-                                    <BookOutlined /> {selectedSchedule.batch_name}
-                                    {selectedSchedule.french_level && (
-                                        <Tag color="blue" style={{ marginLeft: 8, fontSize: '11px', fontWeight: 'bold' }}>
-                                            <GlobalOutlined /> {selectedSchedule.french_level}
-                                        </Tag>
-                                    )}
-                                </Space>
-                            </Descriptions.Item>
-                            <Descriptions.Item label={selectedSchedule.location_mode === 'online' ? 'Meeting' : 'Location'} span={2}>
-                                {selectedSchedule.location_mode === 'online' ? (
-                                    selectedSchedule.link ? 'Online Meeting' : '—'
-                                ) : (
-                                    <Space><EnvironmentOutlined /> {selectedSchedule.location}</Space>
-                                )}
-                            </Descriptions.Item>
-                            <Descriptions.Item label="Description" span={2}>
-                                {selectedSchedule.description || 'No description provided.'}
-                            </Descriptions.Item>
-                        </Descriptions>
-                        </div>
-                        
-                        <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-                            <Button size="large" onClick={() => setDetailsVisible(false)} style={{ borderRadius: 8, fontWeight: 600 }}>Close</Button>
-                            {selectedSchedule?.link && (
-                                <Button
-                                    size="large"
-                                    type="primary"
-                                    disabled={!canJoinMeetingSchedule(selectedSchedule) || isScheduleEnded(selectedSchedule)}
-                                    style={{
-                                        backgroundColor: isScheduleEnded(selectedSchedule) ? '#d9d9d9' : (canJoinMeetingSchedule(selectedSchedule) ? '#10b981' : '#d9d9d9'),
-                                        borderColor: 'transparent',
-                                        color: isScheduleEnded(selectedSchedule) ? '#00000040' : (canJoinMeetingSchedule(selectedSchedule) ? '#fff' : '#00000040'),
-                                        borderRadius: 8,
-                                        fontWeight: 600
-                                    }}
-                                    onClick={() => {
-                                        if (canJoinMeetingSchedule(selectedSchedule) && !isScheduleEnded(selectedSchedule)) {
-                                            handleJoinClass(selectedSchedule);
-                                        }
-                                    }}
-                                >
-                                    {isScheduleEnded(selectedSchedule) ? 'Meeting Ended' : (canJoinMeetingSchedule(selectedSchedule) ? 'Join Meeting' : 'Join available 5 minutes before')}
-                                </Button>
-                            )}
-                        </div>
-                    </div>
-                </div>
-                )}
-            </Modal>
-
-            {/* Join Class Modal */}
-            <Modal
-                title="Join Class"
-                open={joinClassModalVisible}
-                onCancel={() => {
-                    if (!joiningClass) {
-                        setJoinClassModalVisible(false);
-                        setSelectedScheduleForJoin(null);
-                        setAccessCode('');
-                        setSessionStatus(null);
-                        form.resetFields();
-                    }
-                }}
-                footer={null}
-                width={500}
-                closable={!joiningClass}
-                maskClosable={!joiningClass}
-            >
-                {selectedScheduleForJoin && (
+                {/* ── Header ── */}
+                <header className="sc-header">
                     <div>
-                        {/* Class Information */}
-                        <div style={{ marginBottom: 24 }}>
-                            <h3 style={{ marginBottom: 16, color: '#1890ff' }}>
-                                📚 {selectedScheduleForJoin.title}
-                            </h3>
-                            <Row gutter={16}>
-                                <Col span={12}>
-                                    <p><strong>Batch:</strong> {selectedScheduleForJoin.batch_name}</p>
-                                    <p><strong>Teacher:</strong> {selectedScheduleForJoin.teacher_name}</p>
-                                </Col>
-                                <Col span={12}>
-                                    <p><strong>Date:</strong> {formatLocal(selectedScheduleForJoin.start_iso, userTz, { month: 'long', day: 'numeric', year: 'numeric', hour: undefined, minute: undefined, hour12: undefined })}</p>
-                                    <p><strong>Time:</strong> {renderStartLocal(selectedScheduleForJoin)} - {renderEndLocal(selectedScheduleForJoin)}</p>
-                                </Col>
-                            </Row>
+                        <div className="sc-overline">Schedule</div>
+                        <h1 className="sc-title">My schedule</h1>
+                        <p className="sc-subtitle">Classes, exams and meetings from your batches. Times in {tzLabel} · {tz.replace(/_/g, ' ')}.</p>
+                    </div>
+                    <div className="sc-filters">
+                        <RangePicker className="sc-range" value={dateRange} allowClear format="MMM D, YYYY" placeholder={['From', 'To']}
+                            onChange={v => setDateRange(v && v[0] && v[1] ? [v[0], v[1]] : null)} />
+                        {batchOptions.length > 1 && (
+                            <Select className="sc-filter" value={batchFilter} onChange={setBatchFilter} allowClear placeholder="All batches"
+                                options={batchOptions} showSearch optionFilterProp="label" />
+                        )}
+                        {teacherOptions.length > 1 && (
+                            <Select className="sc-filter" value={teacherFilter} onChange={setTeacherFilter} allowClear placeholder="All teachers"
+                                options={teacherOptions} showSearch optionFilterProp="label" />
+                        )}
+                        {hasFilters && (
+                            <Button type="link" size="small" onClick={() => { setBatchFilter(null); setTeacherFilter(null); setDateRange(null); }}>
+                                Clear filters
+                            </Button>
+                        )}
+                    </div>
+                </header>
+
+                {error && (
+                    <div className="sc-callout is-warning" role="alert">
+                        <ExclamationCircleOutlined />
+                        <div><strong>Couldn't load your schedule</strong><p>{error}</p></div>
+                        <Button size="small" onClick={fetchSchedules}>Retry</Button>
+                    </div>
+                )}
+
+                {/* ── Overview: next session + key numbers ── */}
+                <section className="sc-overview" aria-label="Overview">
+                    {f && fState ? (
+                        <div className={`sc-next${fState === 'active' ? ' is-live' : ''}`}>
+                            <div className="sc-next-main">
+                                <span className="sc-next-over">
+                                    {fState === 'active' ? <><i className="sc-pulse" aria-hidden /> Live now</> : `Next ${TYPE_META[f.type].label.toLowerCase()}`}
+                                </span>
+                                <h2 className="sc-next-title">{f.title}</h2>
+                                <div className="sc-next-meta">
+                                    <span><CalendarOutlined /> {f.dayKey === derived.todayKey ? 'Today' : f.dayKey === derived.tomorrowKey ? 'Tomorrow' : fmtDate(f.start, tz, true)}</span>
+                                    <span><ClockCircleOutlined /> {timeRange(f, tz)}</span>
+                                    {f.teacher_name && <span><UserOutlined /> {f.teacher_name}</span>}
+                                    <span><ModeIcon s={f} /> {modeText(f)}</span>
+                                </div>
+                            </div>
+                            <div className="sc-next-side">
+                                <div className="sc-next-count">
+                                    <span>{fState === 'active' ? 'Ends in' : 'Starts in'}</span>
+                                    <strong>{untilText(secsUntil(f, fState === 'active' ? 'end' : 'start', now))}</strong>
+                                </div>
+                                <div className="sc-next-actions">
+                                    {fJoin === 'attended' && <span className="sc-next-attended"><CheckCircleFilled /> Attended</span>}
+                                    {fJoin === 'open' && <Button className="sc-btn-light" icon={<LoginOutlined />} onClick={() => handleJoin(f)}>{joinLabel(f)}</Button>}
+                                    {fJoin === 'locked' && (
+                                        <Tooltip title="Joining opens 5 minutes before the start">
+                                            <Button className="sc-btn-light" icon={<LoginOutlined />} disabled>{joinLabel(f)}</Button>
+                                        </Tooltip>
+                                    )}
+                                    <Button className="sc-btn-ghost" onClick={() => setDetails(f)}>Details</Button>
+                                </div>
+                            </div>
                         </div>
+                    ) : (
+                        <div className="sc-next is-empty">
+                            <span className="sc-next-art"><CalendarOutlined /></span>
+                            <div>
+                                <h2 className="sc-next-title">You're all caught up</h2>
+                                <p>No upcoming sessions{hasFilters ? ' match your filters' : ''}. New classes from your teachers will show up here.</p>
+                            </div>
+                        </div>
+                    )}
 
-                        {/* Session Status Alert */}
-                        {sessionStatus ? (
-                            sessionStatus.canJoin ? (
-                                <Alert
-                                    message="Class Session Active"
-                                    description="Your teacher has started the class session. Enter the access code you received via email to join and mark your attendance."
-                                    type="success"
-                                    showIcon
-                                    style={{ marginBottom: 24 }}
-                                />
-                            ) : (
-                                <Alert
-                                    message="Cannot Join Class"
-                                    description={sessionStatus.reason || 'Class session is not available for joining at this time.'}
-                                    type="warning"
-                                    showIcon
-                                    style={{ marginBottom: 24 }}
-                                />
-                            )
-                        ) : (
-                            <Alert
-                                message="Waiting for Teacher"
-                                description="The teacher has not started the class session yet. You will receive an email with the access code once the session begins."
-                                type="info"
-                                showIcon
-                                style={{ marginBottom: 24 }}
+                    <div className="sc-stats">
+                        {stats.map(k => {
+                            const body = (
+                                <>
+                                    <span className="sc-stat-icon">{k.icon}</span>
+                                    <span className="sc-stat-text"><span>{k.label}</span><strong>{k.value}</strong></span>
+                                </>
+                            );
+                            return k.tab ? (
+                                <button key={k.key} type="button" className={`sc-stat sc-k-${k.tone}${!selectedDay && agendaTab === k.tab ? ' is-active' : ''}`}
+                                    onClick={() => { setSelectedDay(null); setAgendaTab(k.tab!); }}>{body}</button>
+                            ) : <div key={k.key} className={`sc-stat sc-k-${k.tone}`}>{body}</div>;
+                        })}
+                    </div>
+                </section>
+
+                {/* ── Calendar + agenda ── */}
+                <div className="sc-main">
+                    <section className="sc-panel sc-cal" aria-label="Calendar">
+                        <div className="sc-cal-bar">
+                            <div className="sc-cal-nav">
+                                <Button icon={<LeftOutlined />} aria-label="Previous" onClick={() => api()?.prev()} />
+                                <Button icon={<RightOutlined />} aria-label="Next" onClick={() => api()?.next()} />
+                                <Button onClick={() => api()?.today()}>Today</Button>
+                            </div>
+                            <h2 className="sc-cal-title">{calTitle}</h2>
+                            <Segmented className="sc-views" value={view}
+                                onChange={v => { setView(v as CalView); api()?.changeView(v as CalView); }}
+                                options={[{ label: 'Month', value: 'dayGridMonth' }, { label: 'Week', value: 'timeGridWeek' }, { label: 'Day', value: 'timeGridDay' }]} />
+                        </div>
+                        <div className={`sc-cal-body${r.isMobile ? ' is-mobile' : ''}`}>
+                            <FullCalendar
+                                ref={calRef}
+                                plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+                                initialView="dayGridMonth"
+                                headerToolbar={false}
+                                height={view === 'dayGridMonth' ? 'auto' : (r.isMobile ? 560 : 680)}
+                                expandRows
+                                fixedWeekCount={false}
+                                now={nowProvider}
+                                nowIndicator
+                                events={events}
+                                eventDisplay="block"
+                                dayMaxEvents={r.isMobile ? 4 : 3}
+                                dayHeaderFormat={r.isMobile ? { weekday: 'narrow' } : view === 'dayGridMonth' ? { weekday: 'short' } : { weekday: 'short', day: 'numeric' }}
+                                titleFormat={view === 'timeGridDay' ? { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' } : undefined}
+                                allDaySlot={false}
+                                slotMinTime={slots.min}
+                                slotMaxTime={slots.max}
+                                scrollTime={slots.scroll}
+                                slotLabelFormat={{ hour: 'numeric', meridiem: 'short' }}
+                                eventTimeFormat={{ hour: 'numeric', minute: '2-digit', meridiem: 'short' }}
+                                eventContent={renderEvent}
+                                eventClick={onEventClick}
+                                dateClick={onDateClick}
+                                datesSet={onDatesSet}
+                                dayCellClassNames={dayCellClassNames}
+                                editable={false}
+                                selectable={false}
                             />
+                        </div>
+                        <div className="sc-legend">
+                            {TYPES.map(t => <span key={t} className={`sc-t-${t}`}><i aria-hidden />{TYPE_META[t].label}</span>)}
+                            {view === 'dayGridMonth' && <span className="sc-legend-hint">Select a day to see its sessions</span>}
+                        </div>
+                    </section>
+
+                    <aside className="sc-panel sc-agenda" aria-label="Agenda" ref={agendaRef}>
+                        <div className="sc-agenda-head">
+                            {selectedDay ? (
+                                <div className="sc-dayhead">
+                                    <div>
+                                        <span>Selected day</span>
+                                        <strong>{dayLabel(selectedDay)}</strong>
+                                    </div>
+                                    <Button size="small" type="text" icon={<CloseOutlined />} onClick={() => setSelectedDay(null)}>Clear</Button>
+                                </div>
+                            ) : (
+                                <Segmented block size="small" value={agendaTab} onChange={v => setAgendaTab(v as AgendaTab)}
+                                    options={[
+                                        { value: 'today', label: <span className="sc-seg">Today <b>{derived.today.length}</b></span> },
+                                        { value: 'upcoming', label: <span className="sc-seg">Upcoming <b>{derived.upcoming.length}</b></span> },
+                                        { value: 'week', label: <span className="sc-seg">This week <b>{derived.week.length}</b></span> },
+                                    ]} />
+                            )}
+                        </div>
+                        <div className="sc-agenda-list">
+                            {agendaItems.length === 0 ? (
+                                <div className="sc-empty">
+                                    <span className="sc-empty-art"><CalendarOutlined /></span>
+                                    <strong>{empty.title}</strong>
+                                    <span>{empty.text}</span>
+                                    {!selectedDay && agendaTab === 'today' && derived.upcoming.length > 0 && (
+                                        <Button size="small" onClick={() => setAgendaTab('upcoming')}>See upcoming</Button>
+                                    )}
+                                </div>
+                            ) : grouped ? groups.map(g => (
+                                <div key={g.key} className="sc-group">
+                                    <div className={`sc-group-label${g.key === derived.todayKey ? ' is-today' : ''}`}>{dayLabel(g.key)}</div>
+                                    {g.items.map(renderRow)}
+                                </div>
+                            )) : agendaItems.map(renderRow)}
+                            {!selectedDay && agendaTab === 'upcoming' && derived.upcoming.length > 30 && (
+                                <div className="sc-agenda-more">Showing the next 30 of {derived.upcoming.length} sessions</div>
+                            )}
+                        </div>
+                    </aside>
+                </div>
+            </div>
+
+            {/* ── Session details ── */}
+            <Modal open={!!details} onCancel={() => setDetails(null)} footer={null} width={560} centered className="sc-modal">
+                {details && dState && (
+                    <div className={`sc-md sc-t-${details.type}`}>
+                        <header className="sc-md-head">
+                            <div className="sc-md-tags">
+                                <span className="sc-type-chip">{TYPE_META[details.type].icon} {TYPE_META[details.type].label}</span>
+                                <StatePill state={dState} />
+                            </div>
+                            <h3>{details.title}</h3>
+                            <p>{fmtDate(details.start, tz, true)}</p>
+                        </header>
+                        <dl className="sc-md-facts">
+                            <div>
+                                <span className="sc-md-ic"><ClockCircleOutlined /></span>
+                                <div><dt>Time</dt><dd>{timeRange(details, tz)} <small>· {durationText(details)}</small></dd></div>
+                            </div>
+                            <div>
+                                <span className="sc-md-ic"><UserOutlined /></span>
+                                <div><dt>Teacher</dt><dd>{details.teacher_name || '—'}</dd></div>
+                            </div>
+                            <div>
+                                <span className="sc-md-ic"><TeamOutlined /></span>
+                                <div><dt>Batch</dt><dd>{details.batch_name || '—'}{details.french_level && <span className="sc-level">{details.french_level}</span>}</dd></div>
+                            </div>
+                            <div>
+                                <span className="sc-md-ic"><ModeIcon s={details} /></span>
+                                <div><dt>{details.location_mode === 'online' ? 'Meeting' : 'Location'}</dt><dd>{details.location_mode === 'online' ? (details.link ? 'Online — link opens when you join' : 'Online') : details.location || '—'}</dd></div>
+                            </div>
+                        </dl>
+                        {details.description && (
+                            <div className="sc-md-desc">
+                                <h4>About this session</h4>
+                                <p>{details.description}</p>
+                            </div>
                         )}
-
-                        {/* Access Code Form */}
-                        {sessionStatus?.canJoin && (
-                            <Form
-                                form={form}
-                                layout="vertical"
-                                onFinish={handleSubmitAccessCode}
-                            >
-                                <Form.Item
-                                    label="Access Code"
-                                    name="accessCode"
-                                    rules={[
-                                        { required: true, message: 'Please enter the access code' },
-                                        { len: 6, message: 'Access code must be 6 characters' }
-                                    ]}
-                                >
-                                    <Input
-                                        size="large"
-                                        placeholder="Enter 6-digit access code"
-                                        value={accessCode}
-                                        onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
-                                        maxLength={6}
-                                        style={{
-                                            textAlign: 'center',
-                                            fontSize: '18px',
-                                            letterSpacing: '4px',
-                                            fontFamily: 'monospace'
-                                        }}
-                                        prefix={<KeyOutlined />}
-                                    />
-                                </Form.Item>
-
-                                <Form.Item style={{ marginBottom: 0, textAlign: 'center' }}>
-                                    <Space size="large">
-                                        <Button
-                                            onClick={() => setJoinClassModalVisible(false)}
-                                            disabled={joiningClass}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <Button
-                                            type="primary"
-                                            htmlType="submit"
-                                            loading={joiningClass}
-                                            disabled={!accessCode.trim() || accessCode.length !== 6}
-                                            size="large"
-                                            style={{
-                                                background: 'linear-gradient(135deg, #1890ff 0%, #096dd9 100%)',
-                                                border: 'none'
-                                            }}
-                                        >
-                                            {joiningClass ? 'Joining Class...' : 'Join Class'}
-                                        </Button>
-                                    </Space>
-                                </Form.Item>
-                            </Form>
-                        )}
-
-                        {/* Instructions */}
-                        <Alert
-                            message="How to Join"
-                            description={
-                                <ul style={{ margin: 0, paddingLeft: 20 }}>
-                                    <li>Wait for your teacher to start the class session</li>
-                                    <li>Check your email for the access code</li>
-                                    <li>Enter the 6-digit code above</li>
-                                    <li>Your attendance will be automatically recorded</li>
-                                </ul>
-                            }
-                            type="info"
-                            style={{ marginTop: 16 }}
-                        />
+                        <footer className="sc-md-foot">
+                            <span className="sc-md-hint">
+                                <InfoCircleOutlined />
+                                {dState === 'cancelled' ? 'This session was cancelled.'
+                                    : isOver(dState) ? 'This session has ended.'
+                                        : dState === 'active' ? `In progress · ends in ${untilText(secsUntil(details, 'end', now))}`
+                                            : `Starts in ${untilText(secsUntil(details, 'start', now))}${dJoin === 'locked' ? ' · joining opens 5 min before' : ''}`}
+                            </span>
+                            <div className="sc-md-actions">
+                                <Button onClick={() => setDetails(null)}>Close</Button>
+                                {dJoin === 'attended' && <span className="sc-attended"><CheckCircleFilled /> Attended</span>}
+                                {(dJoin === 'open' || dJoin === 'locked') && (
+                                    <Button type="primary" icon={<LoginOutlined />} disabled={dJoin === 'locked'} onClick={() => handleJoin(details)}>
+                                        {joinLabel(details)}
+                                    </Button>
+                                )}
+                            </div>
+                        </footer>
                     </div>
                 )}
             </Modal>
-            </div>
-            <style>{`
-                .premium-modal .ant-modal-content {
-                    padding: 0;
-                    border-radius: 20px;
-                    overflow: hidden;
-                    border: 1px solid rgba(255,255,255,0.2);
-                    box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-                }
-                .premium-modal .ant-modal-close {
-                    top: 0;
-                    right: 0;
-                }
-                .schedule-calendar-wrap .fc {
-                    height: 100% !important;
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-                }
-                .schedule-calendar-wrap .fc .fc-toolbar-title {
-                    font-size: 20px;
-                    font-weight: 700;
-                    color: #1e293b;
-                }
-                .schedule-calendar-wrap .fc .fc-button {
-                    border-radius: 8px;
-                    text-transform: capitalize;
-                    font-weight: 600;
-                    font-size: 13px;
-                    padding: 6px 14px;
-                    transition: all 0.2s;
-                    box-shadow: none !important;
-                }
-                .schedule-calendar-wrap .fc .fc-button-primary {
-                    background-color: #6366f1;
-                    border-color: #6366f1;
-                }
-                .schedule-calendar-wrap .fc .fc-button-primary:hover {
-                    background-color: #4f46e5;
-                    border-color: #4f46e5;
-                }
-                .schedule-calendar-wrap .fc .fc-button-primary:not(:disabled).fc-button-active {
-                    background-color: #4338ca;
-                    border-color: #4338ca;
-                }
-                .schedule-calendar-wrap .fc .fc-button-primary:not(:disabled):active {
-                    background-color: #4338ca;
-                    border-color: #4338ca;
-                }
-                .schedule-calendar-wrap .fc .fc-col-header-cell {
-                    padding: 10px 0;
-                    font-weight: 600;
-                    font-size: 13px;
-                    color: #64748b;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                    background: #f8fafc;
-                    border-color: #f0f0f8;
-                }
-                .schedule-calendar-wrap .fc .fc-daygrid-day {
-                    transition: background-color 0.2s;
-                    border-color: #f0f0f8;
-                }
-                .schedule-calendar-wrap .fc .fc-daygrid-day:hover {
-                    background-color: #f8f7ff;
-                }
-                .schedule-calendar-wrap .fc .fc-daygrid-day-number {
-                    font-weight: 600;
-                    font-size: 13px;
-                    color: #334155;
-                    padding: 8px 10px;
-                }
-                .schedule-calendar-wrap .fc .fc-day-today {
-                    background-color: #eef2ff !important;
-                }
-                .schedule-calendar-wrap .fc .fc-day-today .fc-daygrid-day-number {
-                    background: #6366f1;
-                    color: #fff;
-                    border-radius: 50%;
-                    width: 28px;
-                    height: 28px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin: 4px;
-                }
-                .schedule-calendar-wrap .fc .fc-event {
-                    border-radius: 6px;
-                    padding: 2px 6px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    border: none;
-                    transition: transform 0.15s, box-shadow 0.15s;
-                }
-                .schedule-calendar-wrap .fc .fc-event:hover {
-                    opacity: 0.9;
-                    transform: translateY(-1px);
-                    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-                }
-                .schedule-calendar-wrap .fc .fc-view-harness {
-                    flex: 1;
-                    min-height: 0;
-                }
-                .schedule-calendar-wrap .fc .fc-scrollgrid {
-                    border-color: #f0f0f8;
-                    border-radius: 10px;
-                    overflow: hidden;
-                }
-                .schedule-calendar-wrap .fc .fc-scroller {
-                    overflow-y: auto !important;
-                }
-                .schedule-calendar-wrap .fc .fc-today-button {
-                    border-radius: 8px;
-                    font-weight: 600;
-                    text-transform: capitalize;
-                }
 
-                /* ── Mobile (≤768px) — compact, tap-friendly calendar ── */
-                .schedule-calendar-wrap--mobile .fc .fc-toolbar.fc-header-toolbar {
-                    flex-wrap: wrap;
-                    gap: 6px;
-                    margin-bottom: 10px;
-                    align-items: center;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-toolbar-chunk {
-                    display: flex;
-                    align-items: center;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-toolbar-title {
-                    font-size: 15px;
-                    font-weight: 700;
-                    margin: 0;
-                    white-space: nowrap;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-button {
-                    padding: 4px 10px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    border-radius: 8px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-button-group .fc-button {
-                    padding: 4px 8px;
-                    min-width: 30px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-icon {
-                    font-size: 13px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-col-header-cell {
-                    padding: 6px 0;
-                    font-size: 10px;
-                    letter-spacing: 0.4px;
-                    color: #6366f1;
-                    background: #f8f7ff;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day-number {
-                    font-size: 12px;
-                    padding: 4px 6px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-day-today .fc-daygrid-day-number {
-                    width: 22px;
-                    height: 22px;
-                    font-size: 11px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day-frame {
-                    min-height: 44px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-event {
-                    font-size: 9.5px;
-                    padding: 1px 4px;
-                    margin-top: 1px;
-                    border-radius: 4px;
-                }
-                /* Make event dots more visible at small size */
-                .schedule-calendar-wrap--mobile .fc .fc-daygrid-event-dot {
-                    border-width: 4px;
-                    margin-right: 3px;
-                }
-                .schedule-calendar-wrap--mobile .fc .fc-daygrid-day.fc-day-other .fc-daygrid-day-number {
-                    opacity: 0.35;
-                }
-                /* Hide "+N more" link's verbosity, just show count */
-                .schedule-calendar-wrap--mobile .fc .fc-daygrid-more-link {
-                    font-size: 9.5px;
-                    padding: 0 4px;
-                    color: #6366f1;
-                    font-weight: 700;
-                }
-            `}</style>
-        </div>
+            {/* ── Join with access code ── */}
+            <Modal open={joinOpen} onCancel={closeJoin} footer={null} width={460} centered className="sc-modal"
+                closable={!joining} maskClosable={!joining}>
+                {joinTarget && (
+                    <div className="sc-join">
+                        <div className="sc-join-head">
+                            <span className="sc-join-icon"><KeyOutlined /></span>
+                            <div>
+                                <h3>{joinLabel(joinTarget)}</h3>
+                                <p>{joinTarget.title}</p>
+                            </div>
+                        </div>
+                        <div className="sc-join-summary">
+                            <span><CalendarOutlined /> {fmtDate(joinTarget.start, tz)}</span>
+                            <span><ClockCircleOutlined /> {timeRange(joinTarget, tz)}</span>
+                            {joinTarget.teacher_name && <span><UserOutlined /> {joinTarget.teacher_name}</span>}
+                            {joinTarget.batch_name && <span><TeamOutlined /> {joinTarget.batch_name}</span>}
+                        </div>
+
+                        {sessionStatus?.canJoin ? (
+                            <>
+                                <div className="sc-callout is-success">
+                                    <CheckCircleFilled />
+                                    <div><strong>Your class is live</strong><p>Enter the 6-character access code from your email to join and record your attendance.</p></div>
+                                </div>
+                                <label className="sc-code-label" htmlFor="sc-code">Access code</label>
+                                <Input id="sc-code" className="sc-code" size="large" autoFocus autoComplete="one-time-code" maxLength={6}
+                                    placeholder="••••••" prefix={<KeyOutlined />} value={accessCode}
+                                    onChange={e => setAccessCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6))}
+                                    onPressEnter={submitAccessCode} />
+                                <div className="sc-join-actions">
+                                    <Button onClick={closeJoin} disabled={joining}>Cancel</Button>
+                                    <Button type="primary" loading={joining} disabled={accessCode.length !== 6} onClick={submitAccessCode}>
+                                        {joining ? 'Joining…' : joinLabel(joinTarget)}
+                                    </Button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {sessionStatus ? (
+                                    <div className="sc-callout is-warning">
+                                        <ExclamationCircleOutlined />
+                                        <div><strong>You can't join yet</strong><p>{sessionStatus.reason || 'This session is not open for joining right now.'}</p></div>
+                                    </div>
+                                ) : (
+                                    <div className="sc-callout is-info">
+                                        <ClockCircleOutlined />
+                                        <div><strong>Waiting for your teacher</strong><p>The session hasn't started. You'll get the access code by email as soon as it begins.</p></div>
+                                    </div>
+                                )}
+                                <ol className="sc-steps">
+                                    <li>Your teacher starts the class session.</li>
+                                    <li>You receive a 6-character access code by email.</li>
+                                    <li>Come back here, enter the code — attendance is recorded automatically.</li>
+                                </ol>
+                                <div className="sc-join-actions">
+                                    <Button onClick={closeJoin}>Close</Button>
+                                    <Button type="primary" onClick={() => handleJoin(joinTarget)}>Check again</Button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+            </Modal>
+        </ConfigProvider>
     );
 };
 

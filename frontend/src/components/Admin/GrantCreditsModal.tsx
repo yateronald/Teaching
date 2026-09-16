@@ -1,35 +1,17 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Modal, Button, Select, InputNumber, message, Spin, Tag, Tabs, Table, Input, Dropdown } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Dropdown, Input, InputNumber, Modal, Segmented, Select, Skeleton, message } from 'antd';
 import {
-    ThunderboltFilled,
-    UserOutlined,
-    TeamOutlined,
-    FormOutlined,
-    AudioOutlined,
-    CheckCircleFilled,
-    SearchOutlined,
-    DeleteOutlined,
-    ReloadOutlined,
+    AudioOutlined, CloseOutlined, DeleteOutlined, FormOutlined, ReloadOutlined, SearchOutlined, TeamOutlined,
+    ThunderboltFilled, UserOutlined,
 } from '@ant-design/icons';
+import { loadPeople, peekPeople, personName } from './examAdminData';
+import type { ApiCall, BatchLite, PersonLite } from './examAdminData';
+import './ExamAdmin.css';
 
-interface GrantCreditsModalProps {
-    open: boolean;
-    onClose: () => void;
-    apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}
-
-interface Student {
-    id: number;
-    first_name: string;
-    last_name: string;
-    email: string;
-}
-
-interface Batch {
-    id: number;
-    name: string;
-    student_count?: number;
-}
+/* ══════════════════════════════════════════
+   AI CREDITS — grant Expression Écrite / Orale credits to students or batches,
+   and review / revoke current balances.
+══════════════════════════════════════════ */
 
 interface CreditBalance {
     user_id: number;
@@ -41,605 +23,218 @@ interface CreditBalance {
     updated_at?: string;
 }
 
-const GrantCreditsModal: React.FC<GrantCreditsModalProps> = ({ open, onClose, apiCall }) => {
-    const [activeTab, setActiveTab] = useState<string>('grant');
-    
-    // Grant state
-    const [students, setStudents] = useState<Student[]>([]);
-    const [batches, setBatches] = useState<Batch[]>([]);
-    const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-    const [selectedBatchIds, setSelectedBatchIds] = useState<number[]>([]);
-    const [eeCredits, setEeCredits] = useState<number | null>(null);
-    const [eoCredits, setEoCredits] = useState<number | null>(null);
-    const [notes, setNotes] = useState<string>('');
-    const [loading, setLoading] = useState(false);
+const QUICK = [1, 5, 10, 20];
+
+const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall: ApiCall }> = ({ open, onClose, apiCall }) => {
+    const [msg, msgHolder] = message.useMessage();
+    const [modal, modalHolder] = Modal.useModal();
+    const [tab, setTab] = useState<'grant' | 'balances'>('grant');
+
+    const [students, setStudents] = useState<PersonLite[]>(() => peekPeople()?.students || []);
+    const [batches, setBatches] = useState<BatchLite[]>(() => peekPeople()?.batches || []);
+    const [studentIds, setStudentIds] = useState<number[]>([]);
+    const [batchIds, setBatchIds] = useState<number[]>([]);
+    const [ee, setEe] = useState<number | null>(null);
+    const [eo, setEo] = useState<number | null>(null);
+    const [notes, setNotes] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
-    // Balances state
-    const [balances, setBalances] = useState<CreditBalance[]>([]);
-    const [loadingBalances, setLoadingBalances] = useState(false);
-    const [balancesSearch, setBalancesSearch] = useState('');
-
-    const fetchData = useCallback(async () => {
-        if (!open) return;
-        setLoading(true);
-        try {
-            const [studentsResp, batchesResp] = await Promise.all([
-                apiCall('/users?role=student'),
-                apiCall('/batches'),
-            ]);
-            if (studentsResp.ok) {
-                const data = await studentsResp.json();
-                setStudents(Array.isArray(data) ? data : (data?.users || []));
-            }
-            if (batchesResp.ok) {
-                const data = await batchesResp.json();
-                setBatches(Array.isArray(data) ? data : []);
-            }
-        } catch {
-            message.error('Failed to load students and batches');
-        } finally {
-            setLoading(false);
-        }
-    }, [open, apiCall]);
+    const [balances, setBalances] = useState<CreditBalance[] | null>(null);
+    const [balancesLoading, setBalancesLoading] = useState(false);
+    const [search, setSearch] = useState('');
 
     const fetchBalances = useCallback(async () => {
-        if (!open) return;
-        setLoadingBalances(true);
+        setBalancesLoading(true);
         try {
-            const resp = await apiCall('/ai-credits/balances');
-            if (resp.ok) {
-                const data = await resp.json();
-                setBalances(Array.isArray(data) ? data : []);
-            } else {
-                message.error('Failed to load student credit balances');
-            }
+            const r = await apiCall('/ai-credits/balances');
+            if (!r.ok) throw new Error();
+            const d = await r.json();
+            setBalances(Array.isArray(d) ? d : []);
         } catch {
-            message.error('Network error loading credit balances');
+            msg.error('Could not load credit balances.');
+            setBalances(b => b ?? []);
         } finally {
-            setLoadingBalances(false);
+            setBalancesLoading(false);
         }
-    }, [open, apiCall]);
+    }, [apiCall, msg]);
 
-    useEffect(() => { 
-        if (open) {
-            fetchData(); 
-            if (activeTab === 'balances') {
-                fetchBalances();
-            }
-        }
-    }, [open, fetchData, fetchBalances, activeTab]);
-
-    // Reset on open
+    // Reset and load once per opening (switching tabs no longer re-fetches the student list).
     useEffect(() => {
-        if (open) {
-            setSelectedStudentIds([]);
-            setSelectedBatchIds([]);
-            setEeCredits(null);
-            setEoCredits(null);
-            setNotes('');
-            setActiveTab('grant');
-            setBalancesSearch('');
-        }
-    }, [open]);
+        if (!open) return;
+        setTab('grant');
+        setStudentIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes(''); setSearch('');
+        setBalances(null);
+        loadPeople(apiCall).then(p => { setStudents(p.students); setBatches(p.batches); }).catch(() => msg.error('Could not load students and batches.'));
+    }, [open, apiCall, msg]);
 
-    const totalRecipients = selectedStudentIds.length + selectedBatchIds.length;
-    const hasCredits = (eeCredits || 0) > 0 || (eoCredits || 0) > 0;
-    const canSubmit = totalRecipients > 0 && hasCredits && !submitting;
+    useEffect(() => { if (open && tab === 'balances' && balances === null) fetchBalances(); }, [open, tab, balances, fetchBalances]);
 
-    const handleSubmit = async () => {
+    const recipients = studentIds.length + batchIds.length;
+    const reach = useMemo(() => {
+        const byId = new Map(batches.map(b => [b.id, Number(b.student_count) || 0]));
+        return studentIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
+    }, [studentIds, batchIds, batches]);
+    const hasCredits = (ee || 0) > 0 || (eo || 0) > 0;
+    const canSubmit = recipients > 0 && hasCredits && !submitting;
+
+    const submit = async () => {
         if (!canSubmit) return;
         setSubmitting(true);
         try {
-            const resp = await apiCall('/ai-credits/bulk-grant', {
+            const r = await apiCall('/ai-credits/bulk-grant', {
                 method: 'POST',
-                body: JSON.stringify({
-                    student_ids: selectedStudentIds,
-                    batch_ids: selectedBatchIds,
-                    ee_credits: eeCredits || 0,
-                    eo_credits: eoCredits || 0,
-                    notes: notes.trim() || undefined,
-                }),
+                body: JSON.stringify({ student_ids: studentIds, batch_ids: batchIds, ee_credits: ee || 0, eo_credits: eo || 0, notes: notes.trim() || undefined }),
             });
-            const data = await resp.json().catch(() => ({}));
-            if (!resp.ok) {
-                message.error(data?.error || 'Failed to grant credits');
-                return;
-            }
-            message.success(
-                `Credits granted to ${data.recipients_count} student${data.recipients_count !== 1 ? 's' : ''}`
-            );
-            onClose();
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) { msg.error(d?.error || 'Credits could not be granted.'); return; }
+            msg.success(`Credits granted to ${d.recipients_count} ${d.recipients_count === 1 ? 'student' : 'students'}`);
+            setStudentIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes('');
+            setBalances(null);
         } catch {
-            message.error('Network error while granting credits');
+            msg.error('Credits could not be granted. Check your connection and try again.');
         } finally {
             setSubmitting(false);
         }
     };
 
-    const handleRevoke = async (userId: number, type: 'ee' | 'eo' | 'all') => {
-        try {
-            const resp = await apiCall('/ai-credits/revoke', {
-                method: 'POST',
-                body: JSON.stringify({
-                    user_id: userId,
-                    type,
-                    amount: 'all',
-                    notes: 'Revoked by admin',
-                }),
-            });
-            const data = await resp.json().catch(() => ({}));
-            if (!resp.ok) {
-                message.error(data?.error || 'Failed to revoke credits');
-                return;
-            }
-            message.success('Credits successfully revoked');
-            fetchBalances();
-        } catch {
-            message.error('Network error while revoking credits');
-        }
+    const revoke = (b: CreditBalance, type: 'ee' | 'eo' | 'all') => {
+        const what = type === 'all' ? 'all AI credits' : type === 'ee' ? 'Expression Écrite credits' : 'Expression Orale credits';
+        modal.confirm({
+            title: `Revoke ${what}?`,
+            content: `${personName(b)} will no longer be able to use ${what === 'all AI credits' ? 'them' : 'these credits'}.`,
+            okText: 'Revoke',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                const r = await apiCall('/ai-credits/revoke', { method: 'POST', body: JSON.stringify({ user_id: b.user_id, type, amount: 'all', notes: 'Revoked by admin' }) });
+                if (!r.ok) { msg.error('Credits could not be revoked.'); throw new Error('revoke failed'); }
+                msg.success('Credits revoked');
+                fetchBalances();
+            },
+        });
     };
 
-    // Filter balances based on search query and positive credit balance
-    const filteredBalances = balances.filter(b => {
-        if ((b.ee_credits || 0) <= 0 && (b.eo_credits || 0) <= 0) return false;
-        const query = balancesSearch.toLowerCase();
-        const fullName = `${b.first_name || ''} ${b.last_name || ''}`.toLowerCase();
-        return fullName.includes(query) || (b.email || '').toLowerCase().includes(query);
-    });
+    const qq = search.trim().toLowerCase();
+    const withCredits = (balances || []).filter(b => (b.ee_credits || 0) > 0 || (b.eo_credits || 0) > 0);
+    const visible = withCredits.filter(b => !qq || `${personName(b)} ${b.email}`.toLowerCase().includes(qq));
+    const totals = withCredits.reduce((t, b) => ({ ee: t.ee + (b.ee_credits || 0), eo: t.eo + (b.eo_credits || 0) }), { ee: 0, eo: 0 });
 
-    const balancesColumns = [
-        {
-            title: 'Student',
-            key: 'student',
-            render: (_: any, record: CreditBalance) => (
-                <div>
-                    <div style={{ fontWeight: 600, color: '#0f172a', fontSize: 13 }}>
-                        {`${record.first_name || ''} ${record.last_name || ''}`.trim() || record.email}
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: 11 }}>{record.email}</div>
-                </div>
-            ),
-        },
-        {
-            title: 'EE Credits',
-            dataIndex: 'ee_credits',
-            key: 'ee',
-            width: 110,
-            align: 'center' as const,
-            render: (v: number) => {
-                const style = v > 0 
-                    ? { background: '#fff1f2', color: '#f43f5e', border: '1px solid #fecdd3', fontWeight: 700, borderRadius: 6 }
-                    : { background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 500, borderRadius: 6 };
-                return <Tag style={style}>{v}</Tag>;
-            },
-        },
-        {
-            title: 'EO Credits',
-            dataIndex: 'eo_credits',
-            key: 'eo',
-            width: 110,
-            align: 'center' as const,
-            render: (v: number) => {
-                const style = v > 0 
-                    ? { background: '#ecfdf5', color: '#10b981', border: '1px solid #a7f3d0', fontWeight: 700, borderRadius: 6 }
-                    : { background: '#f1f5f9', color: '#94a3b8', border: '1px solid #e2e8f0', fontWeight: 500, borderRadius: 6 };
-                return <Tag style={style}>{v}</Tag>;
-            },
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            width: 80,
-            align: 'center' as const,
-            render: (_: any, record: CreditBalance) => {
-                const hasCredits = record.ee_credits > 0 || record.eo_credits > 0;
-                if (!hasCredits) return <span style={{ color: '#cbd5e1', fontSize: 12 }}>—</span>;
-                
-                return (
-                    <Dropdown
-                        menu={{
-                            items: [
-                                {
-                                    key: 'revoke_ee',
-                                    label: 'Revoke Expression Écrite',
-                                    disabled: record.ee_credits === 0,
-                                    danger: true,
-                                },
-                                {
-                                    key: 'revoke_eo',
-                                    label: 'Revoke Expression Orale',
-                                    disabled: record.eo_credits === 0,
-                                    danger: true,
-                                },
-                                {
-                                    type: 'divider',
-                                },
-                                {
-                                    key: 'revoke_all',
-                                    label: 'Revoke All Credits',
-                                    danger: true,
-                                },
-                            ],
-                            onClick: ({ key }) => {
-                                let type: 'ee' | 'eo' | 'all' = 'all';
-                                if (key === 'revoke_ee') type = 'ee';
-                                else if (key === 'revoke_eo') type = 'eo';
-                                
-                                Modal.confirm({
-                                    title: 'Confirm Revocation',
-                                    content: `Are you sure you want to revoke ${
-                                        type === 'all' ? 'all EE and EO' : type.toUpperCase()
-                                    } credits for ${record.first_name || ''} ${record.last_name || ''}?`,
-                                    okText: 'Yes, Revoke',
-                                    okType: 'danger',
-                                    cancelText: 'Cancel',
-                                    onOk: () => handleRevoke(record.user_id, type),
-                                });
-                            },
-                        }}
-                        trigger={['click']}
-                    >
-                        <Button
-                            type="text"
-                            size="small"
-                            icon={<DeleteOutlined style={{ color: '#ef4444' }} />}
-                            style={{ borderRadius: 8 }}
-                        />
-                    </Dropdown>
-                );
-            },
-        },
-    ];
+    const studentOptions = useMemo(() => students.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [students]);
+    const batchOptions = useMemo(() => batches.map(b => ({ value: b.id, label: b.name, count: Number(b.student_count) || 0, search: b.name.toLowerCase() })), [batches]);
 
     return (
-        <Modal
-            open={open}
-            onCancel={() => !submitting && onClose()}
-            footer={null}
-            width={640}
-            centered
-            destroyOnClose
-            closable={false}
-            maskClosable={!submitting}
-            styles={{
-                body: { padding: 0 },
-                content: { padding: 0, borderRadius: 20, overflow: 'hidden' },
-            }}
-        >
-            {/* ── Header band — sky-blue gradient (matches the AI credits theme) ── */}
-            <div style={{
-                position: 'relative', height: 100,
-                background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
-                overflow: 'hidden',
-                padding: '0 28px',
-                display: 'flex', alignItems: 'center', gap: 16,
-            }}>
-                <div style={{
-                    position: 'absolute', top: -30, right: -30,
-                    width: 130, height: 130, borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.10)',
-                }} />
-                <div style={{
-                    position: 'absolute', bottom: -40, right: 70,
-                    width: 90, height: 90, borderRadius: '50%',
-                    background: 'rgba(255,255,255,0.06)',
-                }} />
-                <div style={{
-                    width: 52, height: 52, borderRadius: 14,
-                    background: 'rgba(255,255,255,0.22)',
-                    backdropFilter: 'blur(8px)',
-                    border: '1.5px solid rgba(255,255,255,0.3)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                    position: 'relative',
-                }}>
-                    <ThunderboltFilled style={{ fontSize: 26, color: '#fff' }} />
+        <Modal open={open} onCancel={() => !submitting && onClose()} footer={null} closable={false} centered width="min(620px, calc(100vw - 24px))"
+            wrapClassName="gc-modal" styles={{ content: { padding: 0 }, body: { padding: 0 } }} maskClosable={!submitting}>
+            {msgHolder}{modalHolder}
+            <div className="gc">
+                <header className="ea-head">
+                    <span className="ea-head-ic is-sky"><ThunderboltFilled /></span>
+                    <div className="ea-head-text">
+                        <h2>AI credits</h2>
+                        <p>Credits pay for AI-graded Expression Écrite and Orale attempts.</p>
+                    </div>
+                    <button type="button" className="ea-close" onClick={() => !submitting && onClose()} aria-label="Close"><CloseOutlined /></button>
+                </header>
+                <div className="gc-tabs">
+                    <Segmented block value={tab} onChange={v => setTab(v as 'grant' | 'balances')} options={[
+                        { value: 'grant', label: 'Grant credits' },
+                        { value: 'balances', label: 'Balances' },
+                    ]} />
                 </div>
-                <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.85)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 }}>
-                        AI Credits
-                    </div>
-                    <div style={{ fontSize: 19, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>
-                        Manage Credits
-                    </div>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.85)', fontWeight: 500, marginTop: 2 }}>
-                        Assign AI credits or view and revoke balances for students
-                    </div>
-                </div>
-                <button
-                    onClick={() => !submitting && onClose()}
-                    style={{
-                        width: 32, height: 32, borderRadius: 10,
-                        background: 'rgba(255,255,255,0.18)',
-                        border: '1px solid rgba(255,255,255,0.3)',
-                        color: '#fff', fontSize: 14, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        position: 'relative',
-                        zIndex: 10,
-                    }}
-                >✕</button>
-            </div>
 
-            {/* ── Tabs Navigation & Body Content ── */}
-            <div style={{ padding: '16px 28px 8px' }}>
-                <Tabs
-                    activeKey={activeTab}
-                    onChange={(key) => {
-                        setActiveTab(key);
-                        if (key === 'balances') {
-                            fetchBalances();
-                        }
-                    }}
-                    items={[
-                        {
-                            key: 'grant',
-                            label: (
-                                <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <ThunderboltFilled />
-                                    Grant Credits
-                                </span>
-                            ),
-                            children: (
-                                <>
-                                    {loading ? (
-                                        <div style={{ padding: '40px 0', textAlign: 'center' }}><Spin /></div>
-                                    ) : (
-                                        <>
-                                            {/* Recipient pickers */}
-                                            <div style={{
-                                                background: '#f8fafc',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: 14,
-                                                padding: 16,
-                                                marginBottom: 14,
-                                            }}>
-                                                <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 12 }}>
-                                                    Recipients
-                                                </div>
+                {tab === 'grant' ? (
+                    <>
+                        <div className="gc-body">
+                            <div className="ea-field">
+                                <label><UserOutlined /> Students</label>
+                                <Select mode="multiple" allowClear showSearch placeholder="Search by name or email" value={studentIds} onChange={setStudentIds}
+                                    options={studentOptions} optionFilterProp="search" maxTagCount="responsive"
+                                    optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.email}</em></span>}
+                                    notFoundContent={students.length ? 'No student matches' : 'Loading students…'} />
+                            </div>
+                            <div className="ea-field">
+                                <label><TeamOutlined /> Batches</label>
+                                <Select mode="multiple" allowClear showSearch placeholder="Every student of the batch receives the credits" value={batchIds} onChange={setBatchIds}
+                                    options={batchOptions} optionFilterProp="search" maxTagCount="responsive"
+                                    optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.count} {o.data.count === 1 ? 'student' : 'students'}</em></span>}
+                                    notFoundContent={batches.length ? 'No batch matches' : 'Loading batches…'} />
+                            </div>
 
-                                                {/* Students */}
-                                                <div style={{ marginBottom: 12 }}>
-                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <UserOutlined style={{ color: '#0ea5e9' }} />
-                                                        Students {selectedStudentIds.length > 0 && <Tag color="blue" style={{ marginLeft: 4, fontSize: 10, fontWeight: 700, borderRadius: 6 }}>{selectedStudentIds.length}</Tag>}
-                                                    </div>
-                                                    <Select
-                                                        mode="multiple"
-                                                        value={selectedStudentIds}
-                                                        onChange={setSelectedStudentIds}
-                                                        placeholder="Search and select students…"
-                                                        showSearch
-                                                        optionFilterProp="label"
-                                                        style={{ width: '100%' }}
-                                                        maxTagCount="responsive"
-                                                        options={students.map(s => ({
-                                                            value: s.id,
-                                                            label: `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.email,
-                                                        }))}
-                                                    />
-                                                </div>
-
-                                                {/* Batches */}
-                                                <div>
-                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <TeamOutlined style={{ color: '#0ea5e9' }} />
-                                                        Batches {selectedBatchIds.length > 0 && <Tag color="blue" style={{ marginLeft: 4, fontSize: 10, fontWeight: 700, borderRadius: 6 }}>{selectedBatchIds.length}</Tag>}
-                                                    </div>
-                                                    <Select
-                                                        mode="multiple"
-                                                        value={selectedBatchIds}
-                                                        onChange={setSelectedBatchIds}
-                                                        placeholder="Select batches (every student inside gets credits)…"
-                                                        showSearch
-                                                        optionFilterProp="label"
-                                                        style={{ width: '100%' }}
-                                                        maxTagCount="responsive"
-                                                        options={batches.map(b => ({
-                                                            value: b.id,
-                                                            label: b.name,
-                                                        }))}
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Credit amounts */}
-                                            <div style={{
-                                                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                                                border: '1px solid #bae6fd',
-                                                borderRadius: 14,
-                                                padding: 16,
-                                                marginBottom: 14,
-                                            }}>
-                                                <div style={{ fontSize: 11, fontWeight: 800, color: '#0369a1', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 4 }}>
-                                                    Credit amount per recipient
-                                                </div>
-                                                <div style={{ fontSize: 11.5, color: '#0c4a6e', marginBottom: 12 }}>
-                                                    Credits never expire. Each AI-graded attempt consumes 1 credit.
-                                                </div>
-                                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                                                    <div style={{
-                                                        background: '#fff', borderRadius: 10, padding: 12,
-                                                        border: '1px solid rgba(244,63,94,0.18)',
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                                            <FormOutlined style={{ color: '#f43f5e', fontSize: 14 }} />
-                                                            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>Expression Écrite</span>
-                                                        </div>
-                                                        <InputNumber
-                                                            min={0}
-                                                            max={9999}
-                                                            value={eeCredits ?? undefined}
-                                                            onChange={(v) => setEeCredits(v as number | null)}
-                                                            placeholder="0"
-                                                            style={{ width: '100%' }}
-                                                        />
-                                                    </div>
-                                                    <div style={{
-                                                        background: '#fff', borderRadius: 10, padding: 12,
-                                                        border: '1px solid rgba(16,185,129,0.18)',
-                                                    }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                                                            <AudioOutlined style={{ color: '#10b981', fontSize: 14 }} />
-                                                            <span style={{ fontSize: 11.5, fontWeight: 700, color: '#475569' }}>Expression Orale</span>
-                                                        </div>
-                                                        <InputNumber
-                                                            min={0}
-                                                            max={9999}
-                                                            value={eoCredits ?? undefined}
-                                                            onChange={(v) => setEoCredits(v as number | null)}
-                                                            placeholder="0"
-                                                            style={{ width: '100%' }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Optional note */}
-                                            <div style={{ marginBottom: 14 }}>
-                                                <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 6 }}>
-                                                    Note <span style={{ fontWeight: 500, color: '#94a3b8', textTransform: 'none', letterSpacing: 0 }}>(optional)</span>
-                                                </div>
-                                                <input
-                                                    type="text"
-                                                    value={notes}
-                                                    onChange={e => setNotes(e.target.value)}
-                                                    placeholder="e.g. Practice for January TEF exam"
-                                                    maxLength={120}
-                                                    style={{
-                                                        width: '100%', padding: '8px 12px',
-                                                        border: '1px solid #e2e8f0', borderRadius: 10,
-                                                        fontSize: 13, color: '#0f172a', outline: 'none',
-                                                        fontFamily: 'inherit',
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Summary line */}
-                                            {canSubmit && (
-                                                <div style={{
-                                                    display: 'flex', alignItems: 'center', gap: 8,
-                                                    padding: '10px 14px',
-                                                    background: 'rgba(34,197,94,0.08)',
-                                                    border: '1px solid rgba(34,197,94,0.2)',
-                                                    borderRadius: 10,
-                                                    marginBottom: 6,
-                                                    fontSize: 12.5, color: '#15803d', fontWeight: 600,
-                                                }}>
-                                                    <CheckCircleFilled style={{ color: '#22c55e' }} />
-                                                    Will grant {(eeCredits || 0) > 0 && `${eeCredits} EE`}
-                                                    {(eeCredits || 0) > 0 && (eoCredits || 0) > 0 && ' + '}
-                                                    {(eoCredits || 0) > 0 && `${eoCredits} EO`}
-                                                    {' '} credit{((eeCredits || 0) + (eoCredits || 0)) > 1 ? 's' : ''} per recipient
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </>
-                            ),
-                        },
-                        {
-                            key: 'balances',
-                            label: (
-                                <span style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    <TeamOutlined />
-                                    Assigned Balances
-                                </span>
-                            ),
-                            children: (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 320 }}>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <Input
-                                            placeholder="Search students by name or email…"
-                                            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-                                            value={balancesSearch}
-                                            onChange={(e) => setBalancesSearch(e.target.value)}
-                                            style={{ borderRadius: 10, flex: 1 }}
-                                            allowClear
-                                        />
-                                        <Button
-                                            icon={<ReloadOutlined />}
-                                            onClick={fetchBalances}
-                                            loading={loadingBalances}
-                                            style={{ borderRadius: 10, width: 40 }}
-                                        />
-                                    </div>
-                                    <Table
-                                        dataSource={filteredBalances}
-                                        columns={balancesColumns}
-                                        rowKey="user_id"
-                                        size="small"
-                                        loading={loadingBalances}
-                                        pagination={{
-                                            pageSize: 5,
-                                            showSizeChanger: false,
-                                            size: 'small',
-                                        }}
-                                        locale={{
-                                            emptyText: 'No student credit records found',
-                                        }}
-                                        style={{
-                                            background: '#fff',
-                                            borderRadius: 12,
-                                            overflow: 'hidden',
-                                            border: '1px solid #f0f0f8',
-                                        }}
-                                    />
+                            <div className="ea-field">
+                                <label>Credits per student</label>
+                                <div className="gc-amounts">
+                                    {([['ee', 'Expression Écrite', <FormOutlined key="i" />, ee, setEe], ['eo', 'Expression Orale', <AudioOutlined key="i" />, eo, setEo]] as const).map(([k, label, icon, value, set]) => (
+                                        <div key={k} className={`gc-amount is-${k}`}>
+                                            <span className="gc-amount-head">{icon}{label}</span>
+                                            <InputNumber min={0} max={9999} value={value ?? undefined} onChange={v => set(v ?? null)} placeholder="0" />
+                                            <span className="gc-quick">
+                                                {QUICK.map(n => <button key={n} type="button" className={value === n ? 'is-on' : ''} onClick={() => set(n)}>{n}</button>)}
+                                            </span>
+                                        </div>
+                                    ))}
                                 </div>
-                            ),
-                        },
-                    ]}
-                />
-            </div>
+                                <small>Credits never expire. Each AI-graded attempt uses one credit.</small>
+                            </div>
 
-            {/* ── Footer (Conditionally rendered by tab) ── */}
-            {activeTab === 'grant' ? (
-                <div style={{
-                    padding: '16px 28px 22px',
-                    display: 'flex', justifyContent: 'flex-end', gap: 8,
-                    borderTop: '1px solid #f1f5f9',
-                }}>
-                    <Button
-                        onClick={onClose}
-                        disabled={submitting}
-                        style={{ borderRadius: 10, height: 40, fontWeight: 600, color: '#64748b', borderColor: '#e2e8f0' }}
-                    >
-                        Cancel
-                    </Button>
-                    <Button
-                        type="primary"
-                        onClick={handleSubmit}
-                        disabled={!canSubmit}
-                        loading={submitting}
-                        icon={<ThunderboltFilled />}
-                        style={{
-                            borderRadius: 10, height: 40, fontWeight: 700,
-                            background: canSubmit ? 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)' : undefined,
-                            border: 'none',
-                            boxShadow: canSubmit ? '0 8px 18px -6px rgba(14,165,233,0.5)' : 'none',
-                            paddingInline: 18,
-                        }}
-                    >
-                        Grant credits
-                    </Button>
-                </div>
-            ) : (
-                <div style={{
-                    padding: '16px 28px 22px',
-                    display: 'flex', justifyContent: 'flex-end',
-                    borderTop: '1px solid #f1f5f9',
-                }}>
-                    <Button
-                        onClick={onClose}
-                        style={{ borderRadius: 10, height: 40, fontWeight: 600, color: '#64748b', borderColor: '#e2e8f0', width: 100 }}
-                    >
-                        Close
-                    </Button>
-                </div>
-            )}
+                            <div className="ea-field">
+                                <label>Note <em>optional</em></label>
+                                <Input value={notes} onChange={e => setNotes(e.target.value)} maxLength={120} placeholder="e.g. Practice before the January exam" />
+                            </div>
+                        </div>
+                        <footer className="ea-foot">
+                            <div className="ea-summary">
+                                {!recipients ? 'Choose students or batches.'
+                                    : !hasCredits ? 'Enter at least one credit amount.'
+                                        : <>{(ee || 0) > 0 && <><strong>{ee}</strong> EE</>}{(ee || 0) > 0 && (eo || 0) > 0 && ' + '}{(eo || 0) > 0 && <><strong>{eo}</strong> EO</>} per student{reach ? <> · up to <strong>{reach}</strong> {reach === 1 ? 'student' : 'students'}</> : null}</>}
+                            </div>
+                            <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+                            <Button type="primary" icon={<ThunderboltFilled />} onClick={submit} loading={submitting} disabled={!canSubmit}>Grant credits</Button>
+                        </footer>
+                    </>
+                ) : (
+                    <>
+                        <div className="gc-body">
+                            <div className="gc-totals">
+                                <div><span>Students with credits</span><strong>{balances ? withCredits.length : '–'}</strong></div>
+                                <div className="is-ee"><span>EE credits left</span><strong>{balances ? totals.ee : '–'}</strong></div>
+                                <div className="is-eo"><span>EO credits left</span><strong>{balances ? totals.eo : '–'}</strong></div>
+                            </div>
+                            <div className="gc-search">
+                                <Input allowClear prefix={<SearchOutlined />} placeholder="Search students" value={search} onChange={e => setSearch(e.target.value)} />
+                                <Button icon={<ReloadOutlined spin={balancesLoading} />} onClick={fetchBalances} aria-label="Refresh" />
+                            </div>
+                            <div className="gc-list">
+                                {balances === null ? <div className="ea-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
+                                    : visible.length === 0 ? <div className="ea-state"><ThunderboltFilled /><strong>{withCredits.length ? 'No student matches' : 'No student has credits'}</strong><span>{withCredits.length ? 'Try another name.' : 'Granted credits appear here.'}</span></div>
+                                        : visible.map(b => (
+                                            <div key={b.user_id} className="gc-row">
+                                                <span className="gc-av">{(personName(b)[0] || '?').toUpperCase()}</span>
+                                                <span className="gc-row-text"><strong>{personName(b)}</strong><em>{b.email}</em></span>
+                                                <span className={`gc-badge is-ee${b.ee_credits ? '' : ' is-zero'}`} title="Expression Écrite">EE {b.ee_credits}</span>
+                                                <span className={`gc-badge is-eo${b.eo_credits ? '' : ' is-zero'}`} title="Expression Orale">EO {b.eo_credits}</span>
+                                                <Dropdown trigger={['click']} menu={{
+                                                    items: [
+                                                        { key: 'ee', label: 'Revoke Expression Écrite', disabled: !b.ee_credits, danger: true },
+                                                        { key: 'eo', label: 'Revoke Expression Orale', disabled: !b.eo_credits, danger: true },
+                                                        { type: 'divider' },
+                                                        { key: 'all', label: 'Revoke all credits', danger: true },
+                                                    ],
+                                                    onClick: ({ key }) => revoke(b, key as 'ee' | 'eo' | 'all'),
+                                                }}>
+                                                    <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Revoke credits of ${personName(b)}`} />
+                                                </Dropdown>
+                                            </div>
+                                        ))}
+                            </div>
+                        </div>
+                        <footer className="ea-foot">
+                            <div className="ea-summary">{balances ? `${visible.length} of ${withCredits.length} students` : 'Loading…'}</div>
+                            <Button onClick={onClose}>Close</Button>
+                        </footer>
+                    </>
+                )}
+            </div>
         </Modal>
     );
 };
 
 export default GrantCreditsModal;
-

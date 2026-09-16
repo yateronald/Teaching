@@ -1,12 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Empty, Skeleton, Modal, message, Tag, Tooltip, Button } from 'antd';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Button, Modal, Skeleton, Tooltip, message } from 'antd';
 import {
-  VideoCameraOutlined, ClockCircleOutlined, UserOutlined, DeleteOutlined,
-  DownloadOutlined, PlayCircleFilled, ExclamationCircleOutlined, LoadingOutlined,
+  CalendarOutlined, DeleteOutlined, DownloadOutlined, LoadingOutlined, PlayCircleFilled, UserOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import useResponsive from '../../hooks/useResponsive';
-import dayjs from 'dayjs';
+import { formatPlain } from '../../utils/timezone';
+
+/* Rendered inside MeetingList (.ml) — shares its styles. */
 
 interface Recording {
   id: number;
@@ -24,12 +24,12 @@ interface Recording {
   expires_at: string;
 }
 
-const STATUS_TAG: Record<string, { color: string; bg: string; label: string }> = {
-  recording: { color: '#dc2626', bg: '#fee2e2', label: '● Recording' },
-  finalizing: { color: '#a16207', bg: '#fef3c7', label: 'Finalizing…' },
-  ready: { color: '#15803d', bg: '#dcfce7', label: 'Ready' },
-  failed: { color: '#64748b', bg: '#f1f5f9', label: 'Failed' },
-  deleted: { color: '#94a3b8', bg: '#f8fafc', label: 'Deleted' },
+const STATUS_LABEL: Record<Recording['status'], string> = {
+  recording: 'Recording',
+  finalizing: 'Processing',
+  ready: 'Ready',
+  failed: 'Failed',
+  deleted: 'Deleted',
 };
 
 function fmtDuration(seconds?: number | null): string {
@@ -37,109 +37,75 @@ function fmtDuration(seconds?: number | null): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function fmtSize(bytes?: number | null): string {
-  if (!bytes) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function daysUntil(iso: string): number {
-  const ms = new Date(iso).getTime() - Date.now();
-  return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
-}
+const daysUntil = (iso: string) => Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 86400_000));
 
 const MeetingRecordings: React.FC = () => {
   const { apiCall, user, isAdmin } = useAuth();
-  const r = useResponsive();
+  const [msg, msgHolder] = message.useMessage();
+  const [modal, modalHolder] = Modal.useModal();
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [loading, setLoading] = useState(true);
-  const [playerOpen, setPlayerOpen] = useState(false);
-  const [activeRecording, setActiveRecording] = useState<Recording | null>(null);
+  const [active, setActive] = useState<Recording | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  /** id of the recording currently preparing a download token (button shows spinner) */
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const fetchRecordings = useCallback(async () => {
-    setLoading(true);
     try {
       const r = await apiCall('/meetings/recordings/list');
-      if (r.ok) {
-        const data = await r.json();
-        setRecordings(data);
-      }
+      if (r.ok) setRecordings(await r.json());
     } catch {
-      message.error('Failed to load recordings');
+      msg.error('Could not load recordings');
     } finally {
       setLoading(false);
     }
-  }, [apiCall]);
+  }, [apiCall, msg]);
 
   useEffect(() => { fetchRecordings(); }, [fetchRecordings]);
 
-  // Auto-refresh every 10s while there's a recording in 'finalizing' status
-  // so the UI catches up quickly once the backend reconciles the row.
+  // Poll while something is still recording or processing so it flips to Ready by itself.
   useEffect(() => {
-    const hasFinalizing = recordings.some(r => r.status === 'recording' || r.status === 'finalizing');
-    if (!hasFinalizing) return;
-    const t = setInterval(fetchRecordings, 10 * 1000);
-    return () => clearInterval(t);
+    if (!recordings.some(r => r.status === 'recording' || r.status === 'finalizing')) return;
+    const t = window.setInterval(fetchRecordings, 10_000);
+    return () => window.clearInterval(t);
   }, [recordings, fetchRecordings]);
 
+  const when = (iso: string) => formatPlain(iso, user?.timezone, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+  const canManage = (rec: Recording) => rec.teacher_id === user?.id || isAdmin;
+  const canPlay = (rec: Recording) => rec.status === 'ready' || rec.status === 'finalizing';
+
   const openPlayer = useCallback((rec: Recording) => {
-    if (rec.status !== 'ready' && rec.status !== 'finalizing') {
-      message.info(`This recording is in status: ${rec.status}`);
-      return;
-    }
-    setActiveRecording(rec);
-    // Build a token-bearing stream URL directly. The backend's
-    // `authenticateToken` middleware accepts `?token=...`, so the
-    // <video> element can stream it natively via HTTP Range — same
-    // way YouTube and any HTML5 player does. Avoids the previous
-    // approach of fetch().blob() which downloaded the entire MP4
-    // before the user could press play (slow + memory-heavy for
-    // long recordings).
+    if (!canPlay(rec)) return;
+    // The API accepts ?token=…, so the <video> element streams with HTTP Range requests
+    // instead of downloading the whole MP4 first.
     const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
     const token = localStorage.getItem('token') || '';
-    const url = `${apiBase}/meetings/recordings/${rec.id}/stream?token=${encodeURIComponent(token)}`;
-    setStreamUrl(url);
-    setPlayerOpen(true);
+    setActive(rec);
+    setStreamUrl(`${apiBase}/meetings/recordings/${rec.id}/stream?token=${encodeURIComponent(token)}`);
   }, []);
 
-  const closePlayer = useCallback(() => {
-    setPlayerOpen(false);
-    setStreamUrl(null);
-    setActiveRecording(null);
-  }, []);
+  const closePlayer = () => { setActive(null); setStreamUrl(null); };
 
-  const handleDownload = useCallback(async (rec: Recording) => {
-    if (downloadingId === rec.id) return; // already preparing this one
+  const handleDownload = async (rec: Recording) => {
+    if (downloadingId === rec.id) return;
     setDownloadingId(rec.id);
     try {
-      // Step 1: ask the API for a single-use, short-lived download URL.
-      // The server validates the user's permissions, then signs a token
-      // scoped to this recording id. We never put the long-lived user
-      // JWT into a download URL — that JWT lives 7 days; this dt
-      // expires in 60 seconds.
-      const tokenResp = await apiCall(`/meetings/recordings/${rec.id}/download-token`, { method: 'POST' });
-      if (!tokenResp.ok) {
-        const d = await tokenResp.json().catch(() => ({}));
-        message.error(d.error || 'Could not prepare download');
+      // Short-lived, single-use URL signed by the server — the long-lived session token never goes in a link.
+      const resp = await apiCall(`/meetings/recordings/${rec.id}/download-token`, { method: 'POST' });
+      if (!resp.ok) {
+        msg.error((await resp.json().catch(() => ({}))).error || 'Could not prepare the download');
         return;
       }
-      const { url } = await tokenResp.json();
-
-      // Step 2: navigate the browser to the URL via a hidden anchor with
-      // `download` attribute. The browser handles the streaming
-      // download natively — first byte arrives within ~100ms because
-      // the backend uses createReadStream().pipe(res) so bytes flow as
-      // they're read off disk. Browser shows its own progress UI.
+      const { url } = await resp.json();
       const a = document.createElement('a');
       a.href = url;
       a.download = `${rec.meeting_title || 'recording'}-${rec.id}.mp4`;
@@ -147,315 +113,117 @@ const MeetingRecordings: React.FC = () => {
       document.body.appendChild(a);
       a.click();
       a.remove();
-
-      message.success({
-        content: 'Download started — check your browser downloads',
-        duration: 3,
-      });
+      msg.success('Download started');
     } catch {
-      message.error('Download failed');
+      msg.error('Download failed');
     } finally {
-      // Clear the spinner shortly after — give the browser a moment to
-      // pick up the navigation, otherwise the button flickers.
-      setTimeout(() => setDownloadingId(null), 800);
+      window.setTimeout(() => setDownloadingId(null), 800);
     }
-  }, [apiCall, downloadingId]);
+  };
 
-  const handleDelete = useCallback((rec: Recording) => {
-    Modal.confirm({
-      title: 'Delete recording?',
-      icon: <ExclamationCircleOutlined style={{ color: '#ef4444' }} />,
-      content: `"${rec.meeting_title}" — this cannot be undone.`,
-      okText: 'Delete', okType: 'danger', cancelText: 'Cancel', centered: true,
+  const handleDelete = (rec: Recording) => {
+    modal.confirm({
+      title: 'Delete this recording?',
+      content: `“${rec.meeting_title}” will be removed permanently.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      centered: true,
       onOk: async () => {
         const resp = await apiCall(`/meetings/recordings/${rec.id}`, { method: 'DELETE' });
-        if (resp.ok) { message.success('Recording deleted'); fetchRecordings(); }
-        else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'Delete failed'); }
+        if (resp.ok) { msg.success('Recording deleted'); fetchRecordings(); }
+        else msg.error((await resp.json().catch(() => ({}))).error || 'Delete failed');
       },
     });
-  }, [apiCall, fetchRecordings]);
+  };
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {[1, 2, 3].map(i => <Skeleton.Button key={i} active style={{ height: 96, borderRadius: 12, width: '100%' }} block />)}
-      </div>
-    );
+    return <div className="ml-pad"><Skeleton active title={false} paragraph={{ rows: 5 }} /></div>;
   }
+
   if (!recordings.length) {
     return (
-      <Empty
-        image={<VideoCameraOutlined style={{ fontSize: 64, color: '#cbd5e1' }} />}
-        description={<span style={{ color: '#94a3b8' }}>No recordings yet. Recordings appear here after a class is recorded.</span>}
-        style={{ padding: '48px 0' }}
-      />
+      <div className="ml-empty">
+        {msgHolder}
+        <span className="ml-empty-art"><VideoCameraOutlined /></span>
+        <strong>No recordings yet</strong>
+        <span>When a class is recorded, you can watch it here for 30 days.</span>
+      </div>
     );
   }
 
   return (
-    <>
-      <div style={{ marginBottom: 12, fontSize: 12, color: '#94a3b8' }}>
-        Recordings are kept on the server for 30 days, then automatically deleted.
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {recordings.map(r => {
-          const tag = STATUS_TAG[r.status] || STATUS_TAG.failed;
-          const days = daysUntil(r.expires_at);
-          const isHost = r.teacher_id === user?.id;
-          const canDelete = isHost || isAdmin;
-          const canPlay = r.status === 'ready' || r.status === 'finalizing';
-
-          return (
-            <div key={r.id} style={{
-              padding: '14px 18px', borderRadius: 14, background: '#fff',
-              border: r.status === 'recording' ? '2px solid #ef4444' : '1px solid #f0f0f8',
-              boxShadow: r.status === 'recording' ? '0 0 18px rgba(239,68,68,0.12)' : '0 1px 4px rgba(0,0,0,0.03)',
-              transition: 'all 0.18s ease',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                <div style={{ flex: 1, minWidth: 240 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <Tag style={{ borderRadius: 6, fontWeight: 700, fontSize: 10.5, background: tag.bg, color: tag.color, border: 'none', margin: 0 }}>{tag.label}</Tag>
-                    {r.batch_name && <Tag style={{ borderRadius: 6, fontSize: 10, margin: 0, background: '#f8f9ff', color: '#6366f1', border: '1px solid #e0e7ff' }}>{r.batch_name}</Tag>}
-                    {r.status === 'ready' && (
-                      <Tag style={{
-                        borderRadius: 6, fontSize: 10, margin: 0,
-                        background: days <= 3 ? '#fef2f2' : '#f8fafc',
-                        color: days <= 3 ? '#dc2626' : '#64748b',
-                        border: 'none', fontWeight: 600,
-                      }}>
-                        Expires in {days} {days === 1 ? 'day' : 'days'}
-                      </Tag>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{r.meeting_title}</div>
-                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11, color: '#94a3b8' }}>
-                    <span><UserOutlined /> {r.host_first_name} {r.host_last_name}</span>
-                    <span><ClockCircleOutlined /> {dayjs(r.started_at).format('MMM D, YYYY · HH:mm')}</span>
-                    <span>{fmtDuration(r.duration_seconds)}</span>
-                    <span>{fmtSize(r.file_size_bytes)}</span>
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Tooltip title={canPlay ? 'Play recording' : `Status: ${r.status}`}>
-                    <Button
-                      type="primary"
-                      icon={<PlayCircleFilled />}
-                      onClick={() => openPlayer(r)}
-                      disabled={!canPlay}
-                      style={{
-                        borderRadius: 10, fontWeight: 600,
-                        background: canPlay ? 'linear-gradient(135deg, #4338ca, #6366f1)' : undefined,
-                        border: 'none',
-                      }}
-                    >
-                      Play
-                    </Button>
-                  </Tooltip>
-                  {(isHost || isAdmin) && r.status === 'ready' && (
-                    <Tooltip title={downloadingId === r.id ? 'Preparing download…' : 'Download MP4'}>
-                      <Button
-                        icon={downloadingId === r.id ? <LoadingOutlined /> : <DownloadOutlined />}
-                        onClick={() => handleDownload(r)}
-                        loading={false /* we manage the icon ourselves so we can show a different tooltip */}
-                        disabled={downloadingId === r.id}
-                        style={{ borderRadius: 10 }}
-                      />
-                    </Tooltip>
-                  )}
-                  {canDelete && (
-                    <Tooltip title="Delete">
-                      <Button danger type="text" icon={<DeleteOutlined />} onClick={() => handleDelete(r)} style={{ borderRadius: 8 }} />
-                    </Tooltip>
-                  )}
-                </div>
+    <div className="ml-list">
+      {msgHolder}
+      {modalHolder}
+      {recordings.map(rec => {
+        const days = daysUntil(rec.expires_at);
+        const size = fmtSize(rec.file_size_bytes);
+        return (
+          <div key={rec.id} className={`ml-rec is-${rec.status}`}>
+            <button type="button" className="ml-rec-thumb" onClick={() => openPlayer(rec)} disabled={!canPlay(rec)}
+              aria-label={`Play ${rec.meeting_title}`}>
+              {rec.status === 'recording'
+                ? <span className="ml-rec-live"><i className="ml-pulse" /> REC</span>
+                : <span className="ml-rec-play">{rec.status === 'finalizing' ? <LoadingOutlined /> : <PlayCircleFilled />}</span>}
+              {rec.duration_seconds ? <span className="ml-rec-dur">{fmtDuration(rec.duration_seconds)}</span> : null}
+            </button>
+            <div className="ml-row-body">
+              <div className="ml-rec-tags">
+                <span className={`ml-pill is-rec-${rec.status}`}>{STATUS_LABEL[rec.status]}</span>
+                {rec.batch_name && <span className="ml-chip">{rec.batch_name}</span>}
+                {rec.status === 'ready' && (
+                  <span className={`ml-chip${days <= 3 ? ' is-warn' : ''}`}>{days === 0 ? 'Expires today' : `Expires in ${days} ${days === 1 ? 'day' : 'days'}`}</span>
+                )}
+              </div>
+              <div className="ml-row-title"><span>{rec.meeting_title}</span></div>
+              <div className="ml-row-meta">
+                <span><UserOutlined /> {rec.host_first_name} {rec.host_last_name}</span>
+                <span><CalendarOutlined /> {when(rec.started_at)}</span>
+                {size && <span>{size}</span>}
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      <Modal
-        open={playerOpen}
-        onCancel={closePlayer}
-        footer={null}
-        width={r.isMobile ? '100vw' : (r.isCompact ? '94vw' : 960)}
-        centered={!r.isMobile}
-        destroyOnClose
-        closable
-        title={null}
-        wrapClassName="recording-player-modal"
-        styles={{
-          mask: { background: 'rgba(2, 6, 23, 0.75)', backdropFilter: 'blur(6px)' },
-          content: {
-            padding: 0,
-            borderRadius: r.isMobile ? 0 : 14,
-            overflow: 'hidden',
-            background: '#000',
-            boxShadow: '0 30px 80px -10px rgba(0,0,0,0.5)',
-          },
-          body: { padding: 0, background: '#000' },
-        }}
-        closeIcon={
-          <div style={{
-            width: 34, height: 34, borderRadius: '50%',
-            background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
-            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, transition: 'background 0.15s',
-          }}>✕</div>
-        }
-      >
-        <div style={{
-          background: '#000',
-          width: '100%',
-          /* Aspect ratio 16:9 — same shape regardless of viewport size,
-             matches YouTube's player. On mobile fullscreen we use 100dvh
-             so the video reaches every edge. */
-          aspectRatio: r.isMobile ? undefined : '16 / 9',
-          height: r.isMobile ? '100dvh' : undefined,
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          {streamUrl ? (
-            <video
-              src={streamUrl}
-              controls
-              autoPlay
-              playsInline
-              preload="metadata"
-              controlsList="nodownload"
-              style={{
-                width: '100%',
-                height: '100%',
-                display: 'block',
-                background: '#000',
-                objectFit: 'contain',
-              }}
-              onError={() => message.error('Could not play this recording. The file may be corrupted or unavailable.')}
-            />
-          ) : (
-            <div style={{ color: '#fff', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 60 }}>
-              <LoadingOutlined style={{ fontSize: 32 }} />
-              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>Loading recording…</span>
-            </div>
-          )}
-
-          {/* Top overlay with the meeting title — fades on hover so it
-              doesn't get in the way during playback. */}
-          {activeRecording && (
-            <div style={{
-              position: 'absolute',
-              top: 0, left: 0, right: 0,
-              padding: r.isMobile ? '14px 100px 32px 16px' : '14px 110px 32px 18px',
-              background: 'linear-gradient(180deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0) 100%)',
-              color: '#fff',
-              pointerEvents: 'none',
-              zIndex: 1,
-            }}>
-              <div style={{
-                fontSize: r.isMobile ? 13.5 : 15,
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-              }}>
-                {activeRecording.meeting_title}
-              </div>
-              {activeRecording.host_first_name && (
-                <div style={{
-                  fontSize: 11.5,
-                  opacity: 0.85,
-                  marginTop: 2,
-                  textShadow: '0 1px 3px rgba(0,0,0,0.5)',
-                }}>
-                  {activeRecording.host_first_name} {activeRecording.host_last_name || ''} · {dayjs(activeRecording.started_at).format('MMM DD, YYYY · HH:mm')}
-                </div>
+            <div className="ml-row-actions">
+              <Button type="primary" icon={<PlayCircleFilled />} disabled={!canPlay(rec)} onClick={() => openPlayer(rec)}>Play</Button>
+              {canManage(rec) && rec.status === 'ready' && (
+                <Tooltip title={downloadingId === rec.id ? 'Preparing download…' : 'Download MP4'}>
+                  <Button type="text" className="ml-icon-btn" aria-label="Download recording"
+                    icon={downloadingId === rec.id ? <LoadingOutlined /> : <DownloadOutlined />}
+                    disabled={downloadingId === rec.id} onClick={() => handleDownload(rec)} />
+                </Tooltip>
+              )}
+              {canManage(rec) && (
+                <Tooltip title="Delete">
+                  <Button type="text" danger className="ml-icon-btn" aria-label="Delete recording" icon={<DeleteOutlined />} onClick={() => handleDelete(rec)} />
+                </Tooltip>
               )}
             </div>
-          )}
+          </div>
+        );
+      })}
 
-          {/* Top-right action: download (host & admin only). Sits next to
-              the close button. */}
-          {activeRecording && (isAdmin || activeRecording.teacher_id === user?.id) && activeRecording.status === 'ready' && (
-            <button
-              onClick={() => handleDownload(activeRecording)}
-              disabled={downloadingId === activeRecording.id}
-              aria-label={downloadingId === activeRecording.id ? 'Preparing download…' : 'Download recording'}
-              style={{
-                position: 'absolute',
-                top: 10,
-                right: 56, // leaves room for the close button (right: 10, width: 34)
-                zIndex: 5,
-                width: 34,
-                height: 34,
-                borderRadius: '50%',
-                border: 'none',
-                background: downloadingId === activeRecording.id ? '#22c55e' : 'rgba(0,0,0,0.6)',
-                backdropFilter: 'blur(8px)',
-                color: '#fff',
-                fontSize: 14,
-                cursor: downloadingId === activeRecording.id ? 'wait' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.15s',
-              }}
-              onMouseEnter={e => {
-                if (downloadingId !== activeRecording.id) {
-                  (e.currentTarget as HTMLButtonElement).style.background = '#22c55e';
-                }
-              }}
-              onMouseLeave={e => {
-                if (downloadingId !== activeRecording.id) {
-                  (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.6)';
-                }
-              }}
-            >
-              {downloadingId === activeRecording.id ? <LoadingOutlined /> : <DownloadOutlined />}
+      <Modal open={!!active} onCancel={closePlayer} footer={null} width={960} centered destroyOnClose className="ml-player">
+        <div className="ml-player-stage">
+          {streamUrl ? (
+            <video src={streamUrl} controls autoPlay playsInline preload="metadata" controlsList="nodownload"
+              onError={() => msg.error('This recording could not be played. The file may be unavailable.')} />
+          ) : (
+            <div className="ml-player-loading"><LoadingOutlined /> Loading recording…</div>
+          )}
+          {active && (
+            <div className="ml-player-top">
+              <strong>{active.meeting_title}</strong>
+              <span>{active.host_first_name} {active.host_last_name} · {when(active.started_at)}</span>
+            </div>
+          )}
+          {active && canManage(active) && active.status === 'ready' && (
+            <button type="button" className="ml-player-dl" onClick={() => handleDownload(active)} disabled={downloadingId === active.id}
+              aria-label="Download recording">
+              {downloadingId === active.id ? <LoadingOutlined /> : <DownloadOutlined />}
             </button>
           )}
         </div>
       </Modal>
-
-      <style>{`
-        .recording-player-modal .ant-modal-close {
-          top: 10px !important;
-          right: 10px !important;
-          z-index: 10 !important;
-        }
-        .recording-player-modal .ant-modal-close:hover .anticon,
-        .recording-player-modal .ant-modal-close:hover > div {
-          background: #ef4444 !important;
-        }
-        @media (max-width: 768px) {
-          .recording-player-modal {
-            padding-bottom: 0 !important;
-            top: 0 !important;
-            max-width: 100vw !important;
-          }
-          .recording-player-modal .ant-modal {
-            max-width: 100vw !important;
-            margin: 0 !important;
-            top: 0 !important;
-            padding-bottom: 0 !important;
-          }
-          .recording-player-modal .ant-modal-content {
-            border-radius: 0 !important;
-            height: 100dvh !important;
-            max-height: 100dvh !important;
-          }
-          .recording-player-modal .ant-modal-body {
-            height: 100dvh !important;
-            max-height: 100dvh !important;
-            padding: 0 !important;
-          }
-        }
-      `}</style>
-    </>
+    </div>
   );
 };
 

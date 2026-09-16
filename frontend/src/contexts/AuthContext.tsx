@@ -43,7 +43,7 @@ interface AuthContextType {
     // Password reset additions
     requestPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number }>;
     verifyPasswordReset: (email: string, code: string) => Promise<{ success: boolean; error?: string; token?: string; resetExpiresAt?: string; attemptsLeft?: number }>;
-    completePasswordReset: (email: string, token: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+    completePasswordReset: (email: string, token: string, newPassword: string) => Promise<{ success: boolean; error?: string; expired?: boolean }>;
 }
 
 interface AuthProviderProps {
@@ -285,10 +285,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     // Helper function to make authenticated API calls
     const apiCall = async (endpoint: string, options: RequestInit = {}) => {
-        // First verify token is still valid
-        const isTokenValid = await verifyToken();
-        if (!isTokenValid) {
-            // If token is invalid, throw an error to be handled by the component
+        // No pre-flight /auth/verify here — it doubled every request. A 401 answer is
+        // checked against /auth/verify below, so an expired session still raises the same error.
+        if (!token) {
             throw new Error('Authentication token is invalid or expired.');
         }
 
@@ -332,6 +331,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
             const url = isAbsolute ? ep : `${API_BASE_URL}${ep}`;
             const response = await fetch(url, config);
+            if (response.status === 401 && !(await verifyToken())) {
+                throw new Error('Authentication token is invalid or expired.');
+            }
             return response;
         } catch (error) {
             throw error;
@@ -374,7 +376,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     };
 
-    // Password reset flows (public endpoints, do not use apiCall)
+    // Password reset flows (public endpoints, do not use apiCall).
+    // No toasts here: PasswordResetModal shows every outcome inline, translated.
     const requestPasswordReset = async (email: string) => {
         try {
             const resp = await fetch(`${API_BASE_URL}/password-reset/request`, {
@@ -382,18 +385,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email })
             });
-            const data = await resp.json();
-            if (resp.ok) {
-                message.success('If an account exists, a code has been sent to your email.');
-                return { success: true, expiresAt: data.expiresAt, attemptsLeft: data.attemptsLeft };
-            } else {
-                // Still show success-like message to avoid enumeration
-                message.success('If an account exists, a code has been sent to your email.');
-                return { success: false, error: data.error };
-            }
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok) return { success: true, expiresAt: data.expiresAt, attemptsLeft: data.attemptsLeft };
+            return { success: false, error: data.error };
         } catch (e) {
             console.error('requestPasswordReset error', e);
-            message.error('Network error. Please try again.');
             return { success: false, error: 'Network error' };
         }
     };
@@ -405,21 +401,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, code })
             });
-            const data = await resp.json();
-            if (resp.ok) {
-                message.success('Code verified. You can now set a new password.');
-                return { success: true, token: data.token, resetExpiresAt: data.resetExpiresAt };
-            } else {
-                if (typeof data.attemptsLeft === 'number') {
-                    message.error(`${data.error || 'Invalid code'}. Attempts left: ${data.attemptsLeft}`);
-                } else {
-                    message.error(data.error || 'Verification failed');
-                }
-                return { success: false, error: data.error, attemptsLeft: data.attemptsLeft } as any;
-            }
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok) return { success: true, token: data.token, resetExpiresAt: data.resetExpiresAt };
+            return { success: false, error: data.error || 'Invalid code', attemptsLeft: data.attemptsLeft };
         } catch (e) {
             console.error('verifyPasswordReset error', e);
-            message.error('Network error. Please try again.');
             return { success: false, error: 'Network error' };
         }
     };
@@ -431,17 +417,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ email, token, newPassword })
             });
-            const data = await resp.json();
-            if (resp.ok) {
-                message.success('Your password has been reset. You can now sign in.');
-                return { success: true };
-            } else {
-                message.error(data.error || 'Could not reset password');
-                return { success: false, error: data.error };
-            }
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok) return { success: true };
+            return { success: false, error: data.error, expired: resp.status === 410 };
         } catch (e) {
             console.error('completePasswordReset error', e);
-            message.error('Network error. Please try again.');
             return { success: false, error: 'Network error' };
         }
     };

@@ -1,45 +1,35 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
-import { 
-    Card, 
-    Button, 
-    Radio, 
- 
-    Typography, 
-    Progress, 
-    Space, 
-    Alert, 
-    Modal, 
-    Statistic, 
-    Row, 
-    Col,
-    message,
-    Spin,
-    Checkbox,
-    Skeleton
-} from 'antd';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { Button, Drawer, Modal, Skeleton, Tooltip, message } from 'antd';
 import {
-    ClockCircleOutlined,
-    CheckCircleOutlined,
-    WarningOutlined,
-    QuestionCircleOutlined
+    ClockCircleOutlined, CheckCircleFilled, CheckOutlined, CloseOutlined, FlagOutlined, FlagFilled,
+    LeftOutlined, RightOutlined, AppstoreOutlined, SoundOutlined, CaretRightFilled, PauseOutlined,
+    LoadingOutlined, ExclamationCircleOutlined, LockOutlined, InfoCircleOutlined,
+    FileTextOutlined, QuestionCircleOutlined, TrophyOutlined,
 } from '@ant-design/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone } from '../../utils/timezone';
+import './QuizTaking.css';
 
-const { Title, Text, Paragraph } = Typography;
+/* ══════════════════════════════════════════
+   Quiz player (student). Rendered full-screen by StudentQuizzes.
 
-// Helper function to format numbers - show whole numbers without .00
-const formatNumber = (num: number): string => {
-  return num % 1 === 0 ? num.toString() : num.toFixed(2);
-};
+   Integrity/behaviour kept from the previous version on purpose:
+   – question order is shuffled per load; audio-linked questions stay together;
+   – audio is decoded into Web Audio (no downloadable <audio src>) and plays are
+     counted per clip in this session;
+   – answers auto-save (debounced) and the server is polled for time left and
+     for a server-side auto-submit when time runs out;
+   – copy / cut / paste / context menu are blocked while answering.
+══════════════════════════════════════════ */
 
-interface AudioClip {
-    id: number;
-    duration_seconds?: number;
-    audio_order: number;
-    max_plays: number;
-    has_audio: boolean;
-}
+const formatNumber = (num: number): string => (num % 1 === 0 ? num.toString() : num.toFixed(2));
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const OPTION_KEYS = 'ABCDEFGH';
+const STATUS_POLL_MS = 5000;
+
+interface AudioClip { id: number; duration_seconds?: number; audio_order: number; max_plays: number; has_audio: boolean; }
 
 interface Question {
     id: number;
@@ -54,42 +44,52 @@ interface Quiz {
     id: number;
     title: string;
     description: string;
+    instructions?: string | null;
+    end_date?: string | null;
     duration_minutes?: number;
     total_questions: number;
     questions: Question[];
     audio_clips?: AudioClip[];
 }
 
-interface Answer {
-    question_id: number;
-    answer_text?: string;
-    selected_options?: number[];
-}
-
-interface QuizResults {
-    totalScore: number;
-    maxScore: number;
-    percentage: number;
-    time_taken_minutes: number;
-}
+interface Answer { question_id: number; answer_text?: string; selected_options?: number[]; }
 
 interface QuizTakingProps {
     quizId?: string;
+    /** Called after the student acknowledges a submitted quiz ("Done"). */
     onComplete?: () => void;
+    /** Called when the student cancels before starting, or leaves to resume later. */
+    onExit?: () => void;
 }
 
 export interface QuizTakingHandle {
     submitNow: (auto?: boolean) => Promise<boolean>;
     isStarted: () => boolean;
+    saveNow: () => Promise<boolean>;
 }
 
-// ============================================================
-// Secure Audio Player — No downloadable src in DOM
-// Uses programmatic Audio API + custom controls
-// ============================================================
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
+const parseSavedAnswers = (raw: unknown, validIds: Set<number>): Answer[] => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .filter((a: any) => validIds.has(Number(a?.question_id)))
+        .map((a: any) => {
+            let selected: number[] | undefined;
+            if (Array.isArray(a.selected_options)) selected = a.selected_options.map((n: any) => Number(n));
+            else if (a.selected_options) {
+                try { selected = (JSON.parse(a.selected_options) as any[]).map(Number); } catch { selected = undefined; }
+            }
+            return { question_id: Number(a.question_id), answer_text: a.answer_text ?? undefined, selected_options: selected };
+        });
+};
+
+/* ══════════════════════════════
+   Secure audio player — no downloadable src in the DOM
+══════════════════════════════ */
 interface SecureAudioPlayerProps {
-    clipId: number;
     blobUrl?: string;
+    unavailable: boolean;
     isExhausted: boolean;
     isLimited: boolean;
     remaining: number;
@@ -101,9 +101,7 @@ interface SecureAudioPlayerProps {
 }
 
 const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    clipId: _clipId, blobUrl, isExhausted, isLimited, remaining, maxPlays,
-    durationSeconds, linkedCount, currentAudioIdx, onPlay
+    blobUrl, unavailable, isExhausted, isLimited, remaining, maxPlays, durationSeconds, linkedCount, currentAudioIdx, onPlay,
 }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -111,133 +109,95 @@ const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const progressRef = useRef<HTMLDivElement>(null);
     const hasCountedRef = useRef(false);
-
     const audioCtxRef = useRef<AudioContext | null>(null);
     const audioBufferRef = useRef<AudioBuffer | null>(null);
     const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-    const startTimeRef = useRef<number>(0);
-    const offsetRef = useRef<number>(0);
+    const startTimeRef = useRef(0);
+    const offsetRef = useRef(0);
     const animationRef = useRef<number | null>(null);
 
-    // Initialize Web Audio API
     useEffect(() => {
         if (!blobUrl) return;
         setIsLoading(true);
-
         let isCancelled = false;
-
         const initAudio = async () => {
             try {
-                const response = await fetch(blobUrl);
-                const arrayBuffer = await response.arrayBuffer();
+                const arrayBuffer = await (await fetch(blobUrl)).arrayBuffer();
                 if (isCancelled) return;
-
                 const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-                if (!audioCtxRef.current) {
-                    audioCtxRef.current = new AudioContextClass();
-                }
-                const ctx = audioCtxRef.current;
-                const buffer = await ctx.decodeAudioData(arrayBuffer);
+                if (!audioCtxRef.current) audioCtxRef.current = new AudioContextClass();
+                const buffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
                 if (isCancelled) return;
-
                 audioBufferRef.current = buffer;
-                if (buffer.duration && isFinite(buffer.duration)) {
-                    setDuration(buffer.duration);
-                }
-                setIsLoading(false);
+                if (buffer.duration && isFinite(buffer.duration)) setDuration(buffer.duration);
             } catch (err) {
-                console.error("Failed to decode audio", err);
+                console.error('Failed to decode audio', err);
+            } finally {
                 if (!isCancelled) setIsLoading(false);
             }
         };
-
         void initAudio();
-
         return () => {
             isCancelled = true;
             if (sourceNodeRef.current) {
-                try { sourceNodeRef.current.stop(); } catch {}
+                try { sourceNodeRef.current.stop(); } catch { /* already stopped */ }
                 sourceNodeRef.current.disconnect();
                 sourceNodeRef.current = null;
             }
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
-            // Note: We don't close audioCtxRef so it can be reused safely
         };
     }, [blobUrl]);
 
-    // Timer loop for tracking progress
     const updateProgress = () => {
         if (!audioCtxRef.current || !audioBufferRef.current) return;
-        
-        const currentOffset = offsetRef.current + (audioCtxRef.current.currentTime - startTimeRef.current);
-        
-        if (currentOffset >= audioBufferRef.current.duration) {
-            // Reached the end
+        const offset = offsetRef.current + (audioCtxRef.current.currentTime - startTimeRef.current);
+        if (offset >= audioBufferRef.current.duration) {
             setIsPlaying(false);
             setCurrentTime(audioBufferRef.current.duration);
             offsetRef.current = 0;
-            hasCountedRef.current = false;
+            hasCountedRef.current = false; // the next full listen counts as a new play
         } else {
-            setCurrentTime(currentOffset);
+            setCurrentTime(offset);
             animationRef.current = requestAnimationFrame(updateProgress);
         }
     };
 
     const togglePlay = () => {
         if (isExhausted || !audioBufferRef.current || !audioCtxRef.current) return;
-
         if (isPlaying) {
-            // Pause
             if (sourceNodeRef.current) {
-                try { sourceNodeRef.current.stop(); } catch {}
+                try { sourceNodeRef.current.stop(); } catch { /* already stopped */ }
                 sourceNodeRef.current.disconnect();
                 sourceNodeRef.current = null;
             }
-            offsetRef.current += (audioCtxRef.current.currentTime - startTimeRef.current);
+            offsetRef.current += audioCtxRef.current.currentTime - startTimeRef.current;
             setIsPlaying(false);
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
             setCurrentTime(offsetRef.current);
-        } else {
-            // Play
-            if (!hasCountedRef.current) {
-                onPlay();
-                hasCountedRef.current = true;
-            }
-
-            if (audioCtxRef.current.state === 'suspended') {
-                audioCtxRef.current.resume();
-            }
-
-            const source = audioCtxRef.current.createBufferSource();
-            source.buffer = audioBufferRef.current;
-            source.connect(audioCtxRef.current.destination);
-            
-            // Loop protection: if offset is at the end, reset
-            if (offsetRef.current >= audioBufferRef.current.duration) {
-                offsetRef.current = 0;
-                setCurrentTime(0);
-            }
-            
-            source.start(0, offsetRef.current);
-            startTimeRef.current = audioCtxRef.current.currentTime;
-            sourceNodeRef.current = source;
-            
-            setIsPlaying(true);
-            if (animationRef.current) cancelAnimationFrame(animationRef.current);
-            animationRef.current = requestAnimationFrame(updateProgress);
+            return;
         }
+        if (!hasCountedRef.current) { onPlay(); hasCountedRef.current = true; }
+        if (audioCtxRef.current.state === 'suspended') void audioCtxRef.current.resume();
+        const source = audioCtxRef.current.createBufferSource();
+        source.buffer = audioBufferRef.current;
+        source.connect(audioCtxRef.current.destination);
+        if (offsetRef.current >= audioBufferRef.current.duration) { offsetRef.current = 0; setCurrentTime(0); }
+        source.start(0, offsetRef.current);
+        startTimeRef.current = audioCtxRef.current.currentTime;
+        sourceNodeRef.current = source;
+        setIsPlaying(true);
+        if (animationRef.current) cancelAnimationFrame(animationRef.current);
+        animationRef.current = requestAnimationFrame(updateProgress);
     };
 
     const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!audioBufferRef.current || !progressRef.current || isExhausted || !audioCtxRef.current) return;
-        
         const rect = progressRef.current.getBoundingClientRect();
         const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         const newOffset = pct * (audioBufferRef.current.duration || duration);
-        
         if (isPlaying) {
             if (sourceNodeRef.current) {
-                try { sourceNodeRef.current.stop(); } catch {}
+                try { sourceNodeRef.current.stop(); } catch { /* already stopped */ }
                 sourceNodeRef.current.disconnect();
             }
             const source = audioCtxRef.current.createBufferSource();
@@ -247,1536 +207,839 @@ const SecureAudioPlayer: React.FC<SecureAudioPlayerProps> = ({
             startTimeRef.current = audioCtxRef.current.currentTime;
             sourceNodeRef.current = source;
         }
-        
         offsetRef.current = newOffset;
         setCurrentTime(newOffset);
     };
 
-    const formatTime = (s: number) => {
-        const m = Math.floor(s / 60);
-        const sec = Math.floor(s % 60);
-        return `${m}:${sec.toString().padStart(2, '0')}`;
-    };
-
+    const fmt = (s: number) => `${Math.floor(s / 60)}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
     const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+    const busy = !unavailable && (!blobUrl || isLoading);
 
     return (
-        <div
-            data-quiz-audio
-            onContextMenu={e => e.preventDefault()}
-            style={{
-                background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
-                borderRadius: 12,
-                padding: '14px 18px',
-                marginBottom: 24,
-                position: 'relative',
-                zIndex: 10,
-                boxShadow: '0 4px 16px rgba(8,145,178,0.25)',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                width: '100%'
-            }}
-        >
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                        background: 'rgba(255,255,255,0.2)',
-                        width: 34, height: 34, borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-                    }}>🎧</div>
-                    <div>
-                        <Text strong style={{ color: 'white', fontSize: 14, display: 'block' }}>
-                            Listening Comprehension
-                        </Text>
-                        {linkedCount > 1 && (
-                            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 11 }}>
-                                Question {currentAudioIdx + 1} of {linkedCount} for this audio
-                            </Text>
-                        )}
+        <div className={`qt-audio${isExhausted ? ' is-exhausted' : ''}`} data-quiz-audio onContextMenu={e => e.preventDefault()}>
+            <div className="qt-audio-head">
+                <span className="qt-audio-icon"><SoundOutlined /></span>
+                <div className="qt-audio-title">
+                    <strong>Listening passage</strong>
+                    {linkedCount > 1 && <span>Question {currentAudioIdx + 1} of {linkedCount} for this audio</span>}
+                </div>
+                {isLimited && (
+                    <span className={`qt-audio-plays${isExhausted ? ' is-out' : remaining <= 1 ? ' is-low' : ''}`}>
+                        {isExhausted ? 'No plays left' : `${remaining} of ${maxPlays} plays left`}
+                    </span>
+                )}
+            </div>
+            {unavailable ? (
+                <div className="qt-audio-error"><ExclamationCircleOutlined /> The audio could not be loaded. Tell your teacher.</div>
+            ) : (
+                <div className="qt-audio-controls">
+                    <button type="button" className="qt-audio-play" onClick={togglePlay} disabled={busy || isExhausted}
+                        aria-label={isPlaying ? 'Pause audio' : 'Play audio'}>
+                        {busy ? <LoadingOutlined /> : isPlaying ? <PauseOutlined /> : <CaretRightFilled />}
+                    </button>
+                    <span className="qt-audio-time">{fmt(currentTime)}</span>
+                    <div className="qt-audio-bar" ref={progressRef} onClick={handleProgressClick} aria-hidden>
+                        <span style={{ width: `${progress}%` }} />
+                        <i style={{ left: `${progress}%` }} />
                     </div>
+                    <span className="qt-audio-time">{fmt(duration)}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                    {durationSeconds && (
-                        <div style={{
-                            background: 'rgba(255,255,255,0.2)', borderRadius: 6,
-                            padding: '3px 10px', color: 'white', fontSize: 11, fontWeight: 600,
-                        }}>⏱ {durationSeconds}s</div>
-                    )}
-                    {isLimited && (
-                        <div style={{
-                            background: isExhausted ? 'rgba(255,80,80,0.4)' : remaining <= 1 ? 'rgba(255,200,0,0.4)' : 'rgba(255,255,255,0.2)',
-                            borderRadius: 6, padding: '3px 10px', color: 'white', fontSize: 11, fontWeight: 600,
-                        }}>
-                            {isExhausted ? '🔒 No plays left' : `🔊 ${remaining}/${maxPlays} plays left`}
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Custom Controls */}
-            <div style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                background: 'rgba(0,0,0,0.15)', borderRadius: 10, padding: '8px 14px',
-                opacity: isExhausted ? 0.4 : 1,
-                pointerEvents: isExhausted ? 'none' : 'auto',
-            }}>
-                {/* Play/Pause */}
-                <button
-                    onClick={togglePlay}
-                    disabled={!blobUrl || isExhausted}
-                    style={{
-                        width: 36, height: 36, borderRadius: '50%',
-                        background: 'rgba(255,255,255,0.2)', border: 'none',
-                        color: 'white', fontSize: 16, cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'background 0.2s', flexShrink: 0,
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.35)'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.2)'}
-                >
-                    {isLoading ? '⏳' : isPlaying ? '⏸' : '▶'}
-                </button>
-
-                {/* Time */}
-                <span style={{ color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: 600, minWidth: 42, fontFamily: 'monospace' }}>
-                    {formatTime(currentTime)}
-                </span>
-
-                {/* Progress bar */}
-                <div
-                    ref={progressRef}
-                    onClick={handleProgressClick}
-                    style={{
-                        flex: 1, height: 6, background: 'rgba(255,255,255,0.2)',
-                        borderRadius: 3, cursor: 'pointer', position: 'relative',
-                    }}
-                >
-                    <div style={{
-                        width: `${progress}%`, height: '100%',
-                        background: 'white', borderRadius: 3,
-                        transition: 'width 0.1s linear',
-                    }} />
-                    <div style={{
-                        position: 'absolute', top: -4,
-                        left: `calc(${progress}% - 7px)`,
-                        width: 14, height: 14, borderRadius: '50%',
-                        background: 'white', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-                        transition: 'left 0.1s linear',
-                    }} />
-                </div>
-
-                {/* Duration */}
-                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: 600, minWidth: 42, fontFamily: 'monospace', textAlign: 'right' }}>
-                    {formatTime(duration)}
-                </span>
-            </div>
+            )}
         </div>
     );
 };
 
-const QuizTaking = forwardRef(( { quizId: propQuizId, onComplete }: QuizTakingProps, ref: React.Ref<QuizTakingHandle> ) => {
+/* ══════════════════════════════
+   QUIZ PLAYER
+══════════════════════════════ */
+const QuizTaking = forwardRef(({ quizId: propQuizId, onComplete, onExit }: QuizTakingProps, ref: React.Ref<QuizTakingHandle>) => {
     const { quizId: paramQuizId } = useParams<{ quizId: string }>();
     const navigate = useNavigate();
-    const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    const r = useResponsive();
     const [messageApi, contextHolder] = message.useMessage();
-    
     const quizId = propQuizId || paramQuizId;
-    
+    const isNarrow = r.width < 1024;
+    const zone = resolveTimezone(user?.timezone);
+
     const [quiz, setQuiz] = useState<Quiz | null>(null);
     const [loading, setLoading] = useState(true);
-    const [currentQuestion, setCurrentQuestion] = useState(0);
+    const [blocked, setBlocked] = useState<{ title: string; text: string } | null>(null);
+    const [resumeLeft, setResumeLeft] = useState<number | null | undefined>(undefined); // undefined = fresh start
+    const [current, setCurrent] = useState(0);
     const [answers, setAnswers] = useState<Answer[]>([]);
     const [timeLeft, setTimeLeft] = useState(0);
-    const [quizStarted, setQuizStarted] = useState(false);
-    const [quizCompleted, setQuizCompleted] = useState(false);
+    const [totalTimeSeconds, setTotalTimeSeconds] = useState(0);
+    const [started, setStarted] = useState(false);
+    const [starting, setStarting] = useState(false);
+    const [completed, setCompleted] = useState<{ auto: boolean; timeTaken: number | null } | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [showConfirmModal, setShowConfirmModal] = useState(false);
-    const [quizResults, setQuizResults] = useState<QuizResults | null>(null);
-    const [totalTimeSeconds, setTotalTimeSeconds] = useState<number>(0);
-    const timerRef = useRef<number | null>(null);
-    const autoSaveTimerRef = useRef<number | null>(null);
-    // Server sync polling interval
-    const syncIntervalRef = useRef<number | null>(null);
-    // Track visited questions for nav coloring
-    const [visitedQuestions, setVisitedQuestions] = useState<Set<number>>(() => new Set());
-    // Audio play tracking: { clipId: playCount }
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [leaveOpen, setLeaveOpen] = useState(false);
+    const [leaving, setLeaving] = useState(false);
+    const [navOpen, setNavOpen] = useState(false);
+    const [saveState, setSaveState] = useState<SaveState>('idle');
+    const [visited, setVisited] = useState<Set<number>>(() => new Set());
+    const [flagged, setFlagged] = useState<Set<number>>(() => new Set());
     const [audioPlayCounts, setAudioPlayCounts] = useState<Record<number, number>>({});
     const [audioBlobUrls, setAudioBlobUrls] = useState<Record<number, string>>({});
     const [audioPreloaded, setAudioPreloaded] = useState(false);
     const [totalAudioClips, setTotalAudioClips] = useState(0);
 
+    const timerRef = useRef<number | null>(null);
+    const autoSaveTimerRef = useRef<number | null>(null);
+    const retryTimerRef = useRef<number | null>(null);
+    const syncIntervalRef = useRef<number | null>(null);
+    const blobUrlsRef = useRef<string[]>([]);
+    const warnedRef = useRef({ five: false, one: false });
+    const mainRef = useRef<HTMLDivElement>(null);
+
+    const safeJson = async (resp: Response) => { try { return await resp.json(); } catch { return null; } };
+    const stopTimers = () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        if (syncIntervalRef.current) { clearInterval(syncIntervalRef.current); syncIntervalRef.current = null; }
+    };
+
+    /* ── Load quiz (+ current session status, to offer "Resume") ── */
     useEffect(() => {
-        if (quizId) {
-            fetchQuiz();
-        }
+        if (!quizId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const [response, statusResp] = await Promise.all([
+                    apiCall(`/quizzes/${quizId}`),
+                    apiCall(`/quizzes/${quizId}/status`).catch(() => null),
+                ]);
+                const status = statusResp?.ok ? await safeJson(statusResp) : null;
+                if (cancelled) return;
+                if (status && ['submitted', 'auto_submitted', 'graded', 'published'].includes(status.status)) {
+                    setBlocked({ title: 'Already submitted', text: 'You have already submitted this quiz. Your result will appear in My Results once it is released.' });
+                    return;
+                }
+                if (status?.status === 'in_progress') setResumeLeft(typeof status.time_left_seconds === 'number' ? status.time_left_seconds : null);
+
+                if (!response.ok) {
+                    const err = await safeJson(response);
+                    setBlocked({ title: 'This quiz is not available', text: err?.error || 'The quiz could not be loaded.' });
+                    return;
+                }
+                const data = await response.json();
+                const normalized: Quiz = data?.quiz
+                    ? { ...(data.quiz as Quiz), questions: data.questions ?? data.quiz?.questions ?? [] }
+                    : (data as Quiz);
+
+                if (Array.isArray(normalized.questions)) {
+                    normalized.questions = normalized.questions.map((q: any) => ({ ...q, points: q.points ?? q.marks ?? 0 }));
+                    // Shuffle: every independent question is its own cluster; audio-linked questions stay together
+                    // (shuffled within their clip), then the clusters are shuffled.
+                    const independent: Question[][] = [];
+                    const byClip: Record<string, Question[]> = {};
+                    normalized.questions.forEach(q => {
+                        if (q.audio_clip_id) (byClip[q.audio_clip_id] ??= []).push(q);
+                        else independent.push([q]);
+                    });
+                    const shuffle = <T,>(arr: T[]) => {
+                        for (let i = arr.length - 1; i > 0; i--) {
+                            const j = Math.floor(Math.random() * (i + 1));
+                            [arr[i], arr[j]] = [arr[j], arr[i]];
+                        }
+                        return arr;
+                    };
+                    const clusters: Question[][] = [...independent, ...Object.values(byClip).map(g => shuffle(g))];
+                    normalized.questions = shuffle(clusters).flat();
+                }
+                setQuiz(normalized);
+
+                // Preload audio in the background; "Start" waits for it.
+                const clips: AudioClip[] = (normalized?.audio_clips || data?.audio_clips || []).filter((c: AudioClip) => c?.id && c.has_audio);
+                setTotalAudioClips(clips.length);
+                if (clips.length === 0) { setAudioPreloaded(true); return; }
+                let loadedCount = 0;
+                clips.forEach(async clip => {
+                    try {
+                        const audioResp = await apiCall(`/quizzes/audio/${clip.id}/stream`);
+                        if (!audioResp.ok) return;
+                        let blob: Blob;
+                        if ((audioResp.headers.get('content-type') || '').includes('application/json')) {
+                            // Base64 JSON wrapper keeps download managers from grabbing the file.
+                            const payload = await audioResp.json();
+                            const bin = atob(payload.audioData);
+                            const bytes = new Uint8Array(bin.length);
+                            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                            blob = new Blob([bytes], { type: payload.contentType || 'audio/wav' });
+                        } else {
+                            blob = await audioResp.blob();
+                        }
+                        const url = URL.createObjectURL(blob);
+                        blobUrlsRef.current.push(url);
+                        if (!cancelled) setAudioBlobUrls(prev => ({ ...prev, [clip.id]: url }));
+                    } catch (err) {
+                        console.warn('Failed to preload audio clip', clip.id, err);
+                    } finally {
+                        loadedCount++;
+                        if (loadedCount >= clips.length && !cancelled) setAudioPreloaded(true);
+                    }
+                });
+            } catch {
+                if (!cancelled) setBlocked({ title: 'Connection problem', text: 'The quiz could not be loaded. Check your connection and try again.' });
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [quizId]);
 
+    // Release decoded audio files when the player closes.
+    useEffect(() => () => { blobUrlsRef.current.forEach(u => { try { URL.revokeObjectURL(u); } catch { /* noop */ } }); }, []);
+
+    /* ── Countdown (local) ── */
     useEffect(() => {
-        if (quizStarted && timeLeft > 0) {
-            timerRef.current = setTimeout(() => {
+        if (started && !completed && timeLeft > 0) {
+            timerRef.current = window.setTimeout(() => {
                 setTimeLeft(prev => {
-                    if (prev <= 1) {
-                        handleAutoSubmit();
-                        return 0;
-                    }
+                    if (prev <= 1) { void handleAutoSubmit(); return 0; }
                     return prev - 1;
                 });
             }, 1000);
         }
-        
-        return () => {
-            if (timerRef.current) {
-                clearTimeout(timerRef.current);
-            }
-        };
-    }, [timeLeft, quizStarted]);
+        return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timeLeft, started, completed]);
 
-    // Server UTC status polling to avoid drift and trigger auto-submit server-side
+    /* ── Time warnings (once each) ── */
     useEffect(() => {
-        if (!quizStarted || !quizId) return;
+        if (!started || completed) return;
+        if (timeLeft <= 60 && timeLeft > 0 && !warnedRef.current.one) {
+            warnedRef.current.one = true;
+            warnedRef.current.five = true;
+            messageApi.warning('1 minute left. The quiz will submit automatically.');
+        } else if (timeLeft <= 300 && timeLeft > 60 && totalTimeSeconds > 300 && !warnedRef.current.five) {
+            warnedRef.current.five = true;
+            messageApi.warning('5 minutes left.');
+        }
+    }, [timeLeft, started, completed, totalTimeSeconds, messageApi]);
 
+    /* ── Server sync: corrects drift, restores answers, detects server-side auto-submit ── */
+    useEffect(() => {
+        if (!started || !quizId) return;
         const poll = async () => {
             try {
                 const resp = await apiCall(`/quizzes/${quizId}/status`);
                 if (!resp.ok) return;
                 const data = await resp.json();
-
                 if (data?.status === 'in_progress') {
-                    // Restore saved answers on resume (only if we don't already have local answers)
                     if (Array.isArray(data.answers) && quiz?.questions) {
-                        // Get valid question IDs from current quiz
-                        const validQuestionIds = new Set(quiz.questions.map(q => q.id));
-                        
-                        setAnswers(prev => {
-                            if (prev && prev.length > 0) return prev; // don't override ongoing edits
-                            // Filter to only include answers for questions in current quiz
-                            return data.answers
-                                .filter((a: any) => validQuestionIds.has(Number(a.question_id)))
-                                .map((a: any) => ({
-                                    question_id: Number(a.question_id),
-                                    answer_text: a.answer_text ?? undefined,
-                                    selected_options: Array.isArray(a.selected_options)
-                                        ? a.selected_options.map((n: any) => Number(n))
-                                        : (a.selected_options ? JSON.parse(a.selected_options) : undefined)
-                                }));
-                        });
+                        const valid = new Set(quiz.questions.map(q => q.id));
+                        setAnswers(prev => (prev.length > 0 ? prev : parseSavedAnswers(data.answers, valid)));
                     }
-
                     if (typeof data.time_left_seconds === 'number') {
-                        setTimeLeft(prev => {
-                            // Adjust if drift is greater than 2 seconds
-                            return Math.abs(prev - data.time_left_seconds) > 2 ? data.time_left_seconds : prev;
-                        });
+                        setTimeLeft(prev => (Math.abs(prev - data.time_left_seconds) > 2 ? data.time_left_seconds : prev));
                     }
-                    if (!totalTimeSeconds && typeof data.duration_minutes === 'number') {
-                        setTotalTimeSeconds(data.duration_minutes * 60);
-                    }
+                    if (typeof data.duration_minutes === 'number') setTotalTimeSeconds(t => t || data.duration_minutes * 60);
                 } else if (data?.status === 'auto_submitted' || data?.status === 'submitted') {
-                    // Server forced submission (e.g., time expired)
-                    if (timerRef.current) {
-                        clearTimeout(timerRef.current);
-                    }
-                    if (syncIntervalRef.current) {
-                        clearInterval(syncIntervalRef.current);
-                        syncIntervalRef.current = null;
-                    }
-                    setQuizCompleted(true);
-                    const r = data.results;
-                    if (r) {
-                        setQuizResults({
-                            totalScore: r.totalScore,
-                            maxScore: r.maxScore,
-                            percentage: r.percentage,
-                            time_taken_minutes: data.time_taken_minutes ?? r.time_taken_minutes ?? 0
-                        });
-                    }
-                    messageApi.warning(data?.message || 'Time expired, quiz auto-submitted');
-                    if (onComplete) setTimeout(() => onComplete(), 1500);
+                    stopTimers();
+                    setCompleted({ auto: data.status === 'auto_submitted', timeTaken: data.time_taken_minutes ?? null });
                 }
-            } catch {
-                // ignore transient errors
-            }
+            } catch { /* transient — next poll reconciles */ }
         };
-
-        // Initial poll then interval
         void poll();
-        syncIntervalRef.current = setInterval(poll, 2000);
+        syncIntervalRef.current = window.setInterval(poll, STATUS_POLL_MS);
+        return () => { if (syncIntervalRef.current) { clearInterval(syncIntervalRef.current); syncIntervalRef.current = null; } };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [started, quizId]);
 
-        return () => {
-            if (syncIntervalRef.current) {
-                clearInterval(syncIntervalRef.current);
-                syncIntervalRef.current = null;
-            }
-        };
-    }, [quizStarted, quizId]);
-
-    // Track visited questions when current changes
+    /* ── Visited questions (navigator colouring) + scroll to top on change ── */
     useEffect(() => {
-        if (!quizStarted || !quiz?.questions?.length) return;
-        const q = quiz.questions[currentQuestion];
-        if (!q) return;
-        setVisitedQuestions(prev => {
-            const next = new Set(prev);
-            next.add(q.id);
-            return next;
-        });
-    }, [quizStarted, quiz, currentQuestion]);
+        const q = quiz?.questions?.[current];
+        if (!started || !q) return;
+        setVisited(prev => (prev.has(q.id) ? prev : new Set(prev).add(q.id)));
+        mainRef.current?.scrollTo({ top: 0 });
+    }, [started, quiz, current]);
 
-    // Warn before closing the tab/window if quiz is in progress
+    /* ── Warn before closing the tab while a quiz is running ── */
     useEffect(() => {
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (quizStarted && !quizCompleted) {
-                e.preventDefault();
-                e.returnValue = '';
-            }
+        const handler = (e: BeforeUnloadEvent) => {
+            if (started && !completed) { e.preventDefault(); e.returnValue = ''; }
         };
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [quizStarted, quizCompleted]);
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [started, completed]);
 
-    // Cleanup blob URLs on unmount
-    useEffect(() => {
-        return () => {
-            Object.values(audioBlobUrls).forEach(url => {
-                try { URL.revokeObjectURL(url); } catch {}
-            });
-        };
-    }, []);
+    /* ── Answers & saving ── */
+    const payloadFromAnswers = () => answers.map(a => ({
+        question_id: a.question_id,
+        answer_text: a.answer_text ?? null,
+        selected_options: a.selected_options ?? null,
+    }));
 
-    const fetchQuiz = async () => {
+    const saveNow = async (): Promise<boolean> => {
+        if (!started || completed) return true;
+        setSaveState('saving');
         try {
-            const response = await apiCall(`/quizzes/${quizId}`);
-            if (response.ok) {
-                const data = await response.json();
-                const normalized: Quiz = data?.quiz
-                    ? { ...(data.quiz as Quiz), questions: data.questions ?? data.quiz?.questions ?? [] }
-                    : (data as Quiz);
-                // Normalize points if backend uses `marks`
-                if (Array.isArray(normalized.questions)) {
-                    normalized.questions = normalized.questions.map((q: any) => ({
-                        ...q,
-                        points: q.points ?? q.marks ?? 0,
-                    }));
-
-                    // --- Randomize Questions with Audio Grouping ---
-                    // 1. Group questions: independent questions vs audio-linked groups
-                    const groups: Record<string, any[]> = { 'independent': [] };
-                    normalized.questions.forEach((q: any) => {
-                        if (q.audio_clip_id) {
-                            if (!groups[q.audio_clip_id]) groups[q.audio_clip_id] = [];
-                            groups[q.audio_clip_id].push(q);
-                        } else {
-                            // Each independent question is its own cluster
-                            groups['independent'].push([q]); 
-                        }
-                    });
-
-                    // 2. Build array of clusters
-                    let clusters: any[][] = [];
-                    Object.keys(groups).forEach(key => {
-                        if (key === 'independent') {
-                            clusters = clusters.concat(groups[key]); 
-                        } else {
-                            const audioGroup = groups[key];
-                            // Optional: Shuffle questions *within* the audio group
-                            for (let i = audioGroup.length - 1; i > 0; i--) {
-                                const j = Math.floor(Math.random() * (i + 1));
-                                [audioGroup[i], audioGroup[j]] = [audioGroup[j], audioGroup[i]];
-                            }
-                            clusters.push(audioGroup);
-                        }
-                    });
-
-                    // 3. Shuffle the clusters (groups + independent qs)
-                    for (let i = clusters.length - 1; i > 0; i--) {
-                        const j = Math.floor(Math.random() * (i + 1));
-                        [clusters[i], clusters[j]] = [clusters[j], clusters[i]];
-                    }
-
-                    // 4. Flatten back into the main questions array
-                    normalized.questions = clusters.flat();
-                }
-                setQuiz(normalized);
-
-                // --- Start Async Audio Preload ---
-                const clips = normalized?.audio_clips || data?.audio_clips || [];
-                const validClips = clips.filter((c: any) => c?.id && c.has_audio);
-                setTotalAudioClips(validClips.length);
-                if (validClips.length === 0) {
-                    setAudioPreloaded(true);
-                } else {
-                    let loadedCount = 0;
-                    validClips.forEach(async (clip: any) => {
-                        try {
-                            const audioResp = await apiCall(`/quizzes/audio/${clip.id}/stream`);
-                            if (audioResp.ok) {
-                                const contentType = audioResp.headers.get('content-type');
-                                let blob: Blob;
-                                
-                                if (contentType && contentType.includes('application/json')) {
-                                    // Handle base64 JSON wrapped response to evade download managers completely
-                                    const data = await audioResp.json();
-                                    const byteCharacters = atob(data.audioData);
-                                    const byteNumbers = new Array(byteCharacters.length);
-                                    for (let i = 0; i < byteCharacters.length; i++) {
-                                        byteNumbers[i] = byteCharacters.charCodeAt(i);
-                                    }
-                                    const byteArray = new Uint8Array(byteNumbers);
-                                    blob = new Blob([byteArray], { type: data.contentType || 'audio/wav' });
-                                } else {
-                                    // Handle standard binary stream
-                                    blob = await audioResp.blob();
-                                }
-                                
-                                const url = URL.createObjectURL(blob);
-                                setAudioBlobUrls(prev => ({ ...prev, [clip.id]: url }));
-                            }
-                        } catch (err) {
-                            console.warn('Failed to preload audio clip', clip.id, err);
-                        } finally {
-                            loadedCount++;
-                            if (loadedCount >= validClips.length) {
-                                setAudioPreloaded(true);
-                            }
-                        }
-                    });
-                }
-                // --- End Async Audio Preload ---
-
-            } else {
-                const err = await safeJson(response);
-                messageApi.error(err?.error || 'Failed to load quiz');
-                navigate('/student-dashboard');
-            }
-        } catch (error) {
-            messageApi.error('Error loading quiz');
-            navigate('/student-dashboard');
-        } finally {
-            setLoading(false);
+            const response = await apiCall(`/quizzes/${quizId}/auto-save`, {
+                method: 'POST',
+                body: JSON.stringify({ answers: payloadFromAnswers() }),
+            });
+            setSaveState(response.ok ? 'saved' : 'error');
+            return response.ok;
+        } catch {
+            setSaveState('error');
+            return false;
         }
     };
 
-    const safeJson = async (resp: Response) => {
-        try { return await resp.json(); } catch { return null; }
+    // Debounced auto-save whenever answers change.
+    useEffect(() => {
+        if (!started || completed) return;
+        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = window.setTimeout(() => { void saveNow(); }, 1500);
+        return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [answers, started, completed]);
+
+    // A failed save retries on its own.
+    useEffect(() => {
+        if (saveState !== 'error' || !started || completed) return;
+        retryTimerRef.current = window.setTimeout(() => { void saveNow(); }, 5000);
+        return () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [saveState, started, completed]);
+
+    const handleAnswerChange = (question: Question, value: any) => {
+        setAnswers(prev => {
+            const updated: Answer = { question_id: question.id };
+            if (question.question_type === 'yes_no') updated.answer_text = value as string;
+            else if (question.question_type === 'mcq_single') updated.selected_options = value != null ? [Number(value)] : [];
+            else updated.selected_options = Array.isArray(value) ? value.map(Number) : [];
+            return prev.some(a => a.question_id === question.id)
+                ? prev.map(a => (a.question_id === question.id ? { ...a, ...updated } : a))
+                : [...prev, updated];
+        });
     };
 
+    const getAnswerForQuestion = (question: Question): any => {
+        const a = answers.find(ans => ans.question_id === question.id);
+        if (question.question_type === 'yes_no') return a?.answer_text || '';
+        if (question.question_type === 'mcq_single') return a?.selected_options?.[0];
+        return a?.selected_options || [];
+    };
+
+    const toggleMultiple = (question: Question, optionId: number) => {
+        const selected = new Set<number>(getAnswerForQuestion(question) as number[]);
+        if (selected.has(optionId)) selected.delete(optionId); else selected.add(optionId);
+        handleAnswerChange(question, Array.from(selected));
+    };
+
+    /* ── Start / submit ── */
     const startQuiz = async () => {
+        if (!quiz) return;
+        setStarting(true);
         try {
             const response = await apiCall(`/quizzes/${quizId}/start`, { method: 'POST' });
             if (!response.ok) {
                 const errJson = await safeJson(response);
-                const errText = errJson?.error || (await response.text());
-                messageApi.error(errText || 'Failed to start quiz');
+                messageApi.error(errJson?.error || 'Failed to start the quiz');
                 return;
             }
             const data = await response.json();
-            const duration = data.quiz?.duration_minutes ?? 0;
-            const seconds = duration * 60;
-            setTotalTimeSeconds(seconds);
-            setTimeLeft(seconds);
-            setQuizStarted(true);
-            // Clear any stale answers from previous quiz attempts
-            setAnswers([]);
-            setQuiz(prev => (prev ? { ...prev, duration_minutes: duration } : prev));
-            // Mark the first question as visited
-            const firstQ = (data?.quiz?.questions ?? quiz?.questions)?.[0] || quiz?.questions?.[0];
-            if (firstQ?.id) {
-                setVisitedQuestions(prev => {
-                    const next = new Set(prev);
-                    next.add(firstQ.id);
-                    return next;
-                });
+            const duration = Number(data.quiz?.duration_minutes ?? quiz.duration_minutes ?? 0);
+            let secondsLeft = duration * 60;
+            let restored: Answer[] = [];
+
+            // Resuming: restore saved answers and the real time left before showing the questions,
+            // so nothing can overwrite the saved answers with an empty set.
+            if (data?.submission?.status === 'in_progress' || data?.message === 'Quiz already in progress') {
+                const st = await apiCall(`/quizzes/${quizId}/status`).then(res => (res.ok ? res.json() : null)).catch(() => null);
+                if (st?.status === 'in_progress') {
+                    restored = parseSavedAnswers(st.answers, new Set(quiz.questions.map(q => q.id)));
+                    if (typeof st.time_left_seconds === 'number') secondsLeft = st.time_left_seconds;
+                }
             }
-            messageApi.success('Quiz started! Good luck!');
-        } catch (e) {
-            messageApi.error('Failed to start quiz');
+            setAnswers(restored);
+            setTotalTimeSeconds(duration * 60 || secondsLeft);
+            setTimeLeft(secondsLeft);
+            setQuiz(prev => (prev ? { ...prev, duration_minutes: duration || prev.duration_minutes } : prev));
+            setCurrent(0);
+            setStarted(true);
+            if (restored.length) messageApi.success(`Welcome back — ${plural(restored.length, 'saved answer')} restored.`);
+        } catch {
+            messageApi.error('Failed to start the quiz');
+        } finally {
+            setStarting(false);
         }
     };
 
-    const handleAnswerChange = (question: Question, value: any) => {
-        setAnswers(prev => {
-            const existing = prev.find(a => a.question_id === question.id);
-            let updated: Answer = { question_id: question.id };
-            if (question.question_type === 'yes_no') {
-                updated.answer_text = value as string; // 'yes' | 'no'
-            } else if (question.question_type === 'mcq_single') {
-                updated.selected_options = value != null ? [Number(value)] : [];
-            } else if (question.question_type === 'mcq_multiple') {
-                updated.selected_options = Array.isArray(value) ? value.map(Number) : [];
-            }
-            if (existing) {
-                return prev.map(a => (a.question_id === question.id ? { ...a, ...updated } : a));
-            } else {
-                return [...prev, updated];
-            }
-        });
-    };
-
-    // Debounced auto-save on answers change
-    useEffect(() => {
-        if (!quizStarted || quizCompleted) return;
-        if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-        autoSaveTimerRef.current = setTimeout(() => {
-            void autoSave();
-        }, 1500);
-        return () => {
-            if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-        };
-    }, [answers, quizStarted, quizCompleted]);
-
-    const getAnswerForQuestion = (question: Question): any => {
-        const a = answers.find(ans => ans.question_id === question.id);
-        switch (question.question_type) {
-            case 'yes_no':
-                return a?.answer_text || '';
-            case 'mcq_single':
-                return a?.selected_options?.[0];
-            case 'mcq_multiple':
-                return a?.selected_options || [];
-            default:
-                return '';
-        }
-    };
-
-    const payloadFromAnswers = () => answers.map(a => ({
-        question_id: a.question_id,
-        answer_text: a.answer_text ?? null,
-        selected_options: a.selected_options ?? null
-    }));
-
-    const nextQuestion = async () => {
-        // Save immediately on Next click
-        try {
-            await apiCall(`/quizzes/${quizId}/auto-save`, {
-                method: 'POST',
-                body: JSON.stringify({ answers: payloadFromAnswers() })
-            });
-        } catch {}
-        if (currentQuestion < ((quiz?.questions?.length || 0) - 1)) {
-            setCurrentQuestion(prev => prev + 1);
-        }
-    };
-
-    const previousQuestion = async () => {
-        // Save on Previous as well
-        try {
-            await apiCall(`/quizzes/${quizId}/auto-save`, {
-                method: 'POST',
-                body: JSON.stringify({ answers: payloadFromAnswers() })
-            });
-        } catch {}
-        if (currentQuestion > 0) {
-            setCurrentQuestion(prev => prev - 1);
-        }
-    };
-
-    const handleAutoSubmit = async () => {
-        messageApi.warning('Time is up! Submitting quiz automatically...');
-        await submitQuiz(true);
-    };
-
-    const autoSave = async () => {
-        try {
-            const response = await apiCall(`/quizzes/${quizId}/auto-save`, {
-                method: 'POST',
-                body: JSON.stringify({ answers: payloadFromAnswers() })
-            });
-            // Do not spam messages; optionally, one-time success toast could be added
-            if (!response.ok) {
-                const err = await safeJson(response);
-                // Silent fail; optionally log
-                console.warn('Auto-save failed', err?.error || response.statusText);
-            }
-        } catch (e) {
-            console.warn('Auto-save exception', e);
-        }
-    };
-
-    const submitQuiz = async (isAuto: boolean = false): Promise<boolean> => {
-        if (submitting) return false;
+    const submitQuiz = async (isAuto = false): Promise<boolean> => {
+        if (submitting || completed) return false;
         setSubmitting(true);
         try {
             const response = await apiCall(`/quizzes/${quizId}/submit`, {
                 method: 'POST',
-                body: JSON.stringify({
-                    answers: payloadFromAnswers(),
-                    is_auto_submit: isAuto
-                })
+                body: JSON.stringify({ answers: payloadFromAnswers(), is_auto_submit: isAuto }),
             });
-
-            if (response.ok) {
-                const data = await response.json();
-                setQuizCompleted(true);
-
-                if (data?.results) {
-                    setQuizResults({
-                        totalScore: data.results.totalScore,
-                        maxScore: data.results.maxScore,
-                        percentage: data.results.percentage,
-                        time_taken_minutes: data.time_taken_minutes
-                    });
-                    messageApi.success('Quiz submitted and graded automatically!');
-                } else {
-                    messageApi.success('Quiz submitted!');
-                }
-
-                if (timerRef.current) {
-                    clearTimeout(timerRef.current);
-                }
-
-                if (onComplete) {
-                    setTimeout(() => onComplete(), 1500);
-                }
-                return true;
-            } else {
+            if (!response.ok) {
                 const err = await safeJson(response);
-                messageApi.error(err?.error || 'Failed to submit quiz');
+                messageApi.error(err?.error || 'Failed to submit the quiz');
                 return false;
             }
-        } catch (error) {
-            messageApi.error('Error submitting quiz');
+            const data = await safeJson(response);
+            stopTimers();
+            setCompleted({ auto: isAuto, timeTaken: data?.time_taken_minutes ?? null });
+            return true;
+        } catch {
+            messageApi.error('Could not submit — check your connection and try again.');
             return false;
         } finally {
             setSubmitting(false);
-            setShowConfirmModal(false);
+            setConfirmOpen(false);
         }
+    };
+
+    const handleAutoSubmit = async () => {
+        messageApi.warning("Time's up — submitting your answers.");
+        await submitQuiz(true);
     };
 
     useImperativeHandle(ref, () => ({
-        submitNow: async (auto?: boolean) => {
-            // Avoid duplicate submits
-            if (!quizStarted || quizCompleted) return false;
-            return await submitQuiz(!!auto);
-        },
-        isStarted: () => quizStarted,
-    }), [quizStarted, quizCompleted, answers]);
+        submitNow: async (auto?: boolean) => (!started || completed ? false : submitQuiz(!!auto)),
+        isStarted: () => started && !completed,
+        saveNow,
+    }), [started, completed, answers]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const formatTime = (seconds: number): string => {
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        
-        if (hours > 0) {
-            return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-        return `${minutes}:${secs.toString().padStart(2, '0')}`;
+    /* ── Navigation ── */
+    const questions = quiz?.questions ?? [];
+    const total = questions.length;
+    const goTo = (idx: number) => {
+        if (idx < 0 || idx >= total) return;
+        void saveNow();
+        setCurrent(idx);
+        setNavOpen(false);
+    };
+    const goNext = () => goTo(current + 1);
+    const goPrev = () => goTo(current - 1);
+    const toggleFlag = (id: number) => setFlagged(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+
+    const requestExit = () => {
+        if (completed) { onComplete?.(); return; }
+        if (!started) { onExit?.(); return; }
+        setLeaveOpen(true);
+    };
+    const leaveQuiz = async () => {
+        setLeaving(true);
+        await saveNow();
+        stopTimers();
+        setLeaving(false);
+        setLeaveOpen(false);
+        onExit?.();
     };
 
-    const getTimeColor = (): string => {
-        const totalTime = totalTimeSeconds || 1;
-        const percentage = (timeLeft / totalTime) * 100;
-        
-        if (percentage > 50) return '#52c41a';
-        if (percentage > 25) return '#fa8c16';
-        return '#f5222d';
-    };
-
-    // Compute answered set for nav panel coloring
-    const answeredSet = new Set(
+    const answeredSet = useMemo(() => new Set(
         answers
-            .filter(a => {
-                // Only count answers for questions that exist in the quiz
-                const questionExists = quiz?.questions?.some(q => q.id === a.question_id);
-                if (!questionExists) return false;
-                // Check if answer has content
-                return (a.answer_text && a.answer_text !== '') || (Array.isArray(a.selected_options) && a.selected_options.length > 0);
-            })
-            .map(a => a.question_id)
+            .filter(a => questions.some(q => q.id === a.question_id)
+                && ((a.answer_text && a.answer_text !== '') || (Array.isArray(a.selected_options) && a.selected_options.length > 0)))
+            .map(a => a.question_id),
+    ), [answers, questions]);
+    const answered = answeredSet.size;
+    const unanswered = questions.map((q, i) => (answeredSet.has(q.id) ? -1 : i)).filter(i => i >= 0);
+
+    /* ── Keyboard: ← → to move, A–H / 1–8 to answer ── */
+    useEffect(() => {
+        if (!started || completed || confirmOpen || leaveOpen) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            const t = e.target as HTMLElement | null;
+            if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+            const q = questions[current];
+            if (!q) return;
+            if (e.key === 'ArrowRight') { e.preventDefault(); goNext(); return; }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); return; }
+            let idx = OPTION_KEYS.indexOf(e.key.toUpperCase());
+            if (idx < 0 && /^[1-8]$/.test(e.key)) idx = Number(e.key) - 1;
+            if (idx < 0) return;
+            if (q.question_type === 'yes_no') {
+                if (idx <= 1) handleAnswerChange(q, idx === 0 ? 'yes' : 'no');
+                return;
+            }
+            const opt = q.options?.[idx];
+            if (!opt) return;
+            if (q.question_type === 'mcq_single') handleAnswerChange(q, opt.id);
+            else toggleMultiple(q, opt.id);
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [started, completed, confirmOpen, leaveOpen, questions, current, answers]);
+
+    /* ── Formatting ── */
+    const formatTime = (seconds: number) => {
+        const s = Math.max(0, Math.floor(seconds));
+        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+        return h > 0 ? `${h}:${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}` : `${m}:${sec.toString().padStart(2, '0')}`;
+    };
+    const fmtDateTime = (iso?: string | null) => {
+        if (!iso) return null;
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return null;
+        return new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
+    };
+
+    /* ═══════════ STATES BEFORE THE QUIZ ═══════════ */
+    if (loading) return (
+        <div className="qt qt-center">
+            {contextHolder}
+            <div className="qt-card qt-intro"><Skeleton active paragraph={{ rows: 7 }} /></div>
+        </div>
     );
 
-    const renderQuestion = (question: Question) => {
-        const currentAnswer = getAnswerForQuestion(question);
+    if (blocked || !quiz) return (
+        <div className="qt qt-center">
+            {contextHolder}
+            <div className="qt-card qt-done">
+                <div className="qt-done-icon is-muted"><InfoCircleOutlined /></div>
+                <h1 className="qt-done-title">{blocked?.title || 'Quiz not found'}</h1>
+                <p className="qt-done-text">{blocked?.text || 'This quiz could not be loaded.'}</p>
+                <div className="qt-actions is-center">
+                    <Button type="primary" onClick={() => onExit?.()}>Close</Button>
+                </div>
+            </div>
+        </div>
+    );
 
-        switch (question.question_type) {
-            case 'mcq_single':
-                return (
-                    <Radio.Group
-                        value={currentAnswer}
-                        onChange={(e) => handleAnswerChange(question, e.target.value)}
-                        style={{ width: '100%' }}
-                    >
-                        <Space direction="vertical" style={{ width: '100%', gap: 10 }}>
-                            {question.options?.map((option, idx) => (
-                                <div
-                                    key={option.id}
-                                    style={{
-                                        padding: '12px 16px',
-                                        backgroundColor: currentAnswer === option.id ? '#eff6ff' : '#ffffff',
-                                        border: `1.5px solid ${currentAnswer === option.id ? '#3b82f6' : '#e2e8f0'}`,
-                                        borderRadius: '12px',
-                                        transition: 'all 0.2s ease-in-out',
-                                        cursor: 'pointer',
-                                        boxShadow: currentAnswer === option.id ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)'
-                                    }}
-                                    onClick={() => handleAnswerChange(question, option.id)}
-                                    className="quiz-option-card"
-                                >
-                                    <Radio value={option.id} style={{ fontSize: 15, width: '100%', display: 'flex', alignItems: 'center' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-                                            <span style={{
-                                                display: 'inline-flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                width: '28px',
-                                                height: '28px',
-                                                borderRadius: '8px',
-                                                backgroundColor: currentAnswer === option.id ? '#3b82f6' : '#f1f5f9',
-                                                color: currentAnswer === option.id ? 'white' : '#64748b',
-                                                fontWeight: '700',
-                                                fontSize: '13px',
-                                                flexShrink: 0
-                                            }}>
-                                                {String.fromCharCode(65 + idx)}
-                                            </span>
-                                            <span style={{ flex: 1, fontSize: '15px', color: currentAnswer === option.id ? '#1e3a8a' : '#334155', fontWeight: currentAnswer === option.id ? '600' : '400', lineHeight: 1.4 }}>
-                                                {option.option_text}
-                                            </span>
-                                        </div>
-                                    </Radio>
-                                </div>
-                            ))}
-                        </Space>
-                    </Radio.Group>
-                );
-            case 'mcq_multiple':
-                return (
-                    <div style={{ width: '100%' }}>
-                        <Space direction="vertical" style={{ width: '100%', gap: 10 }}>
-                            {question.options?.map((option, idx) => {
-                                const isSelected = (currentAnswer as number[]).includes(option.id);
-                                return (
-                                    <div
-                                        key={option.id}
-                                        style={{
-                                            padding: '12px 16px',
-                                            backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
-                                            border: `1.5px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
-                                            borderRadius: '12px',
-                                            transition: 'all 0.2s ease-in-out',
-                                            cursor: 'pointer',
-                                            boxShadow: isSelected ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)'
-                                        }}
-                                        onClick={() => {
-                                            const selected = new Set<number>(currentAnswer as number[]);
-                                            if (isSelected) selected.delete(option.id);
-                                            else selected.add(option.id);
-                                            handleAnswerChange(question, Array.from(selected));
-                                        }}
-                                        className="quiz-option-card"
-                                    >
-                                        <Checkbox
-                                            checked={isSelected}
-                                            onChange={(e) => {
-                                                const selected = new Set<number>(currentAnswer as number[]);
-                                                if (e.target.checked) selected.add(option.id);
-                                                else selected.delete(option.id);
-                                                handleAnswerChange(question, Array.from(selected));
-                                            }}
-                                            style={{ fontSize: 15, width: '100%', display: 'flex', alignItems: 'center' }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', marginLeft: 4 }}>
-                                                <span style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    width: '28px',
-                                                    height: '28px',
-                                                    borderRadius: '8px',
-                                                    backgroundColor: isSelected ? '#3b82f6' : '#f1f5f9',
-                                                    color: isSelected ? 'white' : '#475569',
-                                                    fontWeight: '700',
-                                                    fontSize: '13px',
-                                                    flexShrink: 0
-                                                }}>
-                                                    {String.fromCharCode(65 + idx)}
-                                                </span>
-                                                <span style={{ flex: 1, fontSize: '15px', color: isSelected ? '#1e3a8a' : '#334155', fontWeight: isSelected ? '600' : '400', lineHeight: 1.4 }}>
-                                                    {option.option_text}
-                                                </span>
-                                            </div>
-                                        </Checkbox>
-                                    </div>
-                                );
-                            })}
-                        </Space>
+    if (completed) {
+        const endLabel = quiz.end_date && new Date(quiz.end_date).getTime() > Date.now() ? fmtDateTime(quiz.end_date) : null;
+        return (
+            <div className="qt qt-center">
+                {contextHolder}
+                <div className="qt-card qt-done">
+                    <div className="qt-done-icon"><CheckCircleFilled /></div>
+                    <h1 className="qt-done-title">{completed.auto ? "Time's up — your quiz was submitted" : 'Quiz submitted'}</h1>
+                    <p className="qt-done-text">
+                        {total > 0 && <>You answered {answered} of {total} questions{completed.timeTaken != null ? ` in ${plural(completed.timeTaken, 'minute')}` : ''}. </>}
+                        Your answers are safely recorded.
+                    </p>
+                    <div className="qt-done-note">
+                        <LockOutlined />
+                        {endLabel ? `Your score will be released when the quiz closes on ${endLabel}.` : 'Your score will be available in My Results.'}
                     </div>
-                );
-            case 'yes_no':
-                return (
-                    <Radio.Group
-                        value={currentAnswer}
-                        onChange={(e) => handleAnswerChange(question, e.target.value)}
-                        style={{ width: '100%' }}
-                    >
-                        <Space direction="horizontal" style={{ width: '100%', gap: 16 }}>
-                            <div
-                                style={{
-                                    flex: 1,
-                                    padding: '16px 24px',
-                                    backgroundColor: currentAnswer === 'yes' ? '#eff6ff' : '#ffffff',
-                                    border: `1.5px solid ${currentAnswer === 'yes' ? '#3b82f6' : '#e2e8f0'}`,
-                                    borderRadius: '12px',
-                                    transition: 'all 0.2s ease-in-out',
-                                    cursor: 'pointer',
-                                    boxShadow: currentAnswer === 'yes' ? '0 2px 8px rgba(59, 130, 246, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}
-                                onClick={() => handleAnswerChange(question, 'yes')}
-                                className="quiz-option-card"
-                            >
-                                <Radio value="yes" style={{ fontSize: 16, margin: 0 }}>
-                                    <span style={{ fontWeight: currentAnswer === 'yes' ? '600' : '500', fontSize: '16px', color: currentAnswer === 'yes' ? '#1e3a8a' : '#334155', marginLeft: 6 }}>
-                                        ✓ Oui
-                                    </span>
-                                </Radio>
-                            </div>
-                            <div
-                                style={{
-                                    flex: 1,
-                                    padding: '16px 24px',
-                                    backgroundColor: currentAnswer === 'no' ? '#fef2f2' : '#ffffff',
-                                    border: `1.5px solid ${currentAnswer === 'no' ? '#ef4444' : '#e2e8f0'}`,
-                                    borderRadius: '12px',
-                                    transition: 'all 0.2s ease-in-out',
-                                    cursor: 'pointer',
-                                    boxShadow: currentAnswer === 'no' ? '0 2px 8px rgba(239, 68, 68, 0.1)' : '0 1px 2px rgba(0,0,0,0.01)',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}
-                                onClick={() => handleAnswerChange(question, 'no')}
-                                className="quiz-option-card"
-                            >
-                                <Radio value="no" style={{ fontSize: 16, margin: 0 }}>
-                                    <span style={{ fontWeight: currentAnswer === 'no' ? '600' : '500', fontSize: '16px', color: currentAnswer === 'no' ? '#991b1b' : '#334155', marginLeft: 6 }}>
-                                        ✗ Non
-                                    </span>
-                                </Radio>
-                            </div>
-                        </Space>
-                    </Radio.Group>
-                );
-            default:
-                return null;
+                    <div className="qt-actions is-center">
+                        <Button onClick={() => { onComplete?.(); navigate('/app/my-results'); }}>View my results</Button>
+                        <Button type="primary" onClick={() => onComplete?.()}>Done</Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (!started) {
+        const totalPoints = questions.reduce((sum, q) => sum + (q.points ?? 0), 0);
+        const isPreparing = !audioPreloaded && totalAudioClips > 0;
+        const limitedAudio = (quiz.audio_clips ?? []).some(c => c.has_audio && c.max_plays > 0);
+        const isResume = resumeLeft !== undefined;
+        const closes = fmtDateTime(quiz.end_date);
+        return (
+            <div className="qt qt-center">
+                {contextHolder}
+                <div className="qt-card qt-intro">
+                    <div className="qt-intro-band">
+                        <span className="qt-intro-icon"><FileTextOutlined /></span>
+                        <div className="qt-intro-head">
+                            <div className="qt-overline">{isResume ? 'Resume quiz' : 'Quiz'}</div>
+                            <h1 className="qt-intro-title">{quiz.title}</h1>
+                        </div>
+                    </div>
+                    {quiz.description && <p className="qt-intro-desc">{quiz.description}</p>}
+
+                    <dl className="qt-facts">
+                        <div><dt><QuestionCircleOutlined /> Questions</dt><dd>{total || quiz.total_questions}</dd></div>
+                        <div><dt><ClockCircleOutlined /> Time limit</dt><dd>{quiz.duration_minutes ? `${quiz.duration_minutes} min` : 'None'}</dd></div>
+                        <div><dt><TrophyOutlined /> Points</dt><dd>{formatNumber(totalPoints)}</dd></div>
+                        {totalAudioClips > 0 && <div><dt><SoundOutlined /> Audio</dt><dd>{plural(totalAudioClips, 'clip')}</dd></div>}
+                    </dl>
+
+                    {isResume && (
+                        <div className="qt-callout is-info">
+                            <ClockCircleOutlined />
+                            <span>
+                                You started this quiz earlier{typeof resumeLeft === 'number' ? ` — ${formatTime(resumeLeft)} left` : ''}.
+                                Your saved answers will be restored.
+                            </span>
+                        </div>
+                    )}
+
+                    {quiz.instructions && (
+                        <div className="qt-instructions">
+                            <div className="qt-section-label">Teacher's instructions</div>
+                            <p>{quiz.instructions}</p>
+                        </div>
+                    )}
+
+                    <div className="qt-rules">
+                        <div className="qt-section-label">Before you start</div>
+                        <ul>
+                            <li>The timer starts when you begin and keeps running if you leave.</li>
+                            <li>Answers save automatically. Move freely between questions and flag any you want to review.</li>
+                            <li>The quiz submits itself when time runs out{closes ? `, and it closes on ${closes}` : ''}.</li>
+                            {limitedAudio && <li>Some listening passages can only be played a limited number of times.</li>}
+                            <li>Use a stable internet connection.</li>
+                        </ul>
+                    </div>
+
+                    <div className="qt-actions">
+                        <Button onClick={() => onExit?.()}>Cancel</Button>
+                        <Button type="primary" onClick={startQuiz} loading={isPreparing || starting} disabled={isPreparing}>
+                            {isPreparing ? 'Preparing audio…' : isResume ? 'Resume quiz' : 'Start quiz'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /* ═══════════ RUNNING ═══════════ */
+    const currentQ = questions[current];
+    if (!currentQ) return (
+        <div className="qt qt-center">
+            <div className="qt-card qt-done">
+                <h1 className="qt-done-title">This quiz has no questions</h1>
+                <div className="qt-actions is-center"><Button onClick={() => onExit?.()}>Close</Button></div>
+            </div>
+        </div>
+    );
+
+    const isLast = current === total - 1;
+    const isFlagged = flagged.has(currentQ.id);
+    const timePct = totalTimeSeconds > 0 ? timeLeft / totalTimeSeconds : 1;
+    const timerTone = timeLeft <= 60 ? 'danger' : timeLeft <= 300 || timePct <= 0.2 ? 'warn' : 'normal';
+    const typeHint = currentQ.question_type === 'mcq_multiple' ? 'Select all that apply'
+        : currentQ.question_type === 'yes_no' ? 'Choose Oui or Non' : 'Choose one answer';
+    const currentAnswer = getAnswerForQuestion(currentQ);
+
+    const renderOptions = () => {
+        if (currentQ.question_type === 'yes_no') {
+            return (
+                <div className="qt-options is-binary" role="radiogroup" aria-label="Answer">
+                    {[{ v: 'yes', label: 'Oui' }, { v: 'no', label: 'Non' }].map((o, i) => {
+                        const sel = currentAnswer === o.v;
+                        return (
+                            <button key={o.v} type="button" role="radio" aria-checked={sel}
+                                className={`qt-option${sel ? ' is-selected' : ''}`} onClick={() => handleAnswerChange(currentQ, o.v)}>
+                                <span className="qt-option-key">{OPTION_KEYS[i]}</span>
+                                <span className="qt-option-text">{o.label}</span>
+                                <span className="qt-option-check">{sel && <CheckOutlined />}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            );
         }
+        const multiple = currentQ.question_type === 'mcq_multiple';
+        return (
+            <div className={`qt-options${multiple ? ' is-multiple' : ''}`} role={multiple ? 'group' : 'radiogroup'} aria-label="Answer options">
+                {(currentQ.options ?? []).map((o, i) => {
+                    const sel = multiple ? (currentAnswer as number[]).includes(o.id) : currentAnswer === o.id;
+                    return (
+                        <button key={o.id} type="button" role={multiple ? 'checkbox' : 'radio'} aria-checked={sel}
+                            className={`qt-option${sel ? ' is-selected' : ''}`}
+                            onClick={() => (multiple ? toggleMultiple(currentQ, o.id) : handleAnswerChange(currentQ, o.id))}>
+                            <span className="qt-option-key">{OPTION_KEYS[i] ?? i + 1}</span>
+                            <span className="qt-option-text">{o.option_text}</span>
+                            <span className="qt-option-check">{sel && <CheckOutlined />}</span>
+                        </button>
+                    );
+                })}
+            </div>
+        );
     };
 
-    if (loading) {
+    const renderAudio = () => {
+        if (!currentQ.audio_clip_id) return null;
+        const clip = quiz.audio_clips?.find(c => c.id === currentQ.audio_clip_id);
+        if (!clip?.has_audio) return null;
+        const plays = audioPlayCounts[clip.id] || 0;
+        const maxP = clip.max_plays || 0;
+        const isLimited = maxP > 0;
+        const remaining = isLimited ? Math.max(0, maxP - plays) : Infinity;
+        const isExhausted = isLimited && remaining <= 0;
+        const linked = questions.filter(q => q.audio_clip_id === clip.id);
         return (
-            <div style={{ padding: '32px 40px', backgroundColor: '#f8fafc', borderRadius: 16 }}>
-                {contextHolder}
-                <div style={{ textAlign: 'center', marginBottom: 32 }}>
-                    <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                        <Spin size="large" />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                        <Skeleton.Input active style={{ width: 140, height: 28, borderRadius: 8 }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center' }}>
-                        <Skeleton.Input active style={{ width: 300, height: 16, borderRadius: 6 }} />
-                    </div>
-                </div>
-                
-                <Row gutter={16} style={{ marginBottom: 24 }}>
-                    {[1, 2, 3].map(i => (
-                        <Col span={8} key={i}>
-                            <Card size="small" style={{ borderRadius: 12, border: '1px solid #f0f0f8', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '8px 0' }}>
-                                    <Skeleton.Avatar active size="small" shape="circle" />
-                                    <Skeleton.Input active style={{ width: '80%', height: 14, borderRadius: 4 }} />
-                                    <Skeleton.Input active style={{ width: '40%', height: 24, borderRadius: 6 }} />
-                                </div>
-                            </Card>
-                        </Col>
-                    ))}
-                </Row>
-                
-                <div style={{ background: '#fff', padding: 20, borderRadius: 12, border: '1px solid #f0f0f8', marginBottom: 24 }}>
-                    <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                        <Skeleton.Avatar active size="small" shape="square" />
-                        <Skeleton.Input active style={{ width: 160, height: 20, borderRadius: 6 }} />
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 36 }}>
-                        <Skeleton.Input active style={{ width: '90%', height: 12, borderRadius: 4 }} />
-                        <Skeleton.Input active style={{ width: '70%', height: 12, borderRadius: 4 }} />
-                        <Skeleton.Input active style={{ width: '85%', height: 12, borderRadius: 4 }} />
-                    </div>
-                </div>
-                
-                <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
-                    <Skeleton.Button active style={{ width: 100, height: 40, borderRadius: 8 }} />
-                    <Skeleton.Button active style={{ width: 140, height: 40, borderRadius: 8 }} />
-                </div>
-            </div>
+            <SecureAudioPlayer
+                key={clip.id}
+                blobUrl={audioBlobUrls[clip.id]}
+                unavailable={audioPreloaded && !audioBlobUrls[clip.id]}
+                isExhausted={isExhausted}
+                isLimited={isLimited}
+                remaining={remaining}
+                maxPlays={maxP}
+                durationSeconds={clip.duration_seconds}
+                linkedCount={linked.length}
+                currentAudioIdx={linked.findIndex(q => q.id === currentQ.id)}
+                onPlay={() => { if (!isExhausted) setAudioPlayCounts(prev => ({ ...prev, [clip.id]: (prev[clip.id] || 0) + 1 })); }}
+            />
         );
-    }
+    };
 
-    if (!quiz) {
-        return (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-                {contextHolder}
-                <Title level={3}>Quiz not found</Title>
-                <Button type="primary" onClick={() => navigate('/student-dashboard')}>Go Back</Button>
+    const navigator = (
+        <div className="qt-navigator">
+            <div className="qt-nav-summary">
+                <div><strong>{answered}</strong><span>Answered</span></div>
+                <div><strong>{total - answered}</strong><span>Left</span></div>
+                <div><strong>{flagged.size}</strong><span>Flagged</span></div>
             </div>
-        );
-    }
-
-    if (quizCompleted) {
-        return (
-            <div style={{ padding: '24px', textAlign: 'center' }}>
-                {contextHolder}
-                <CheckCircleOutlined style={{ fontSize: 64, color: '#52c41a', marginBottom: 16 }} />
-                <Title level={2}>Quiz Completed!</Title>
-                <Paragraph>
-                    Your quiz has been submitted successfully. You will be redirected to your dashboard shortly.
-                </Paragraph>
-                <Button type="primary" onClick={() => navigate('/student-dashboard')}>Go to Dashboard</Button>
+            <div className="qt-grid" role="list" aria-label="Questions">
+                {questions.map((q, i) => {
+                    const cls = [
+                        'qt-grid-item',
+                        answeredSet.has(q.id) ? 'is-answered' : visited.has(q.id) ? 'is-visited' : '',
+                        i === current ? 'is-current' : '',
+                        flagged.has(q.id) ? 'is-flagged' : '',
+                    ].filter(Boolean).join(' ');
+                    return (
+                        <button key={q.id} type="button" className={cls} onClick={() => goTo(i)} aria-current={i === current ? 'step' : undefined}
+                            aria-label={`Question ${i + 1}${answeredSet.has(q.id) ? ', answered' : ''}${flagged.has(q.id) ? ', flagged' : ''}`}>
+                            {i + 1}
+                            {q.audio_clip_id && <SoundOutlined className="qt-grid-audio" />}
+                            {flagged.has(q.id) && <FlagFilled className="qt-grid-flag" />}
+                        </button>
+                    );
+                })}
             </div>
-        );
-    }
-
-    if (!quizStarted) {
-        const totalPoints = Array.isArray(quiz.questions) ? quiz.questions.reduce((sum, q) => sum + (q.points ?? 0), 0) : 0;
-        const isPreparing = !audioPreloaded && totalAudioClips > 0;
-
-        return (
-            <div data-quiz-intro className="quiz-intro-shell">
-                {contextHolder}
-                <div className="quiz-intro-card">
-                    {/* ── Compact brand strip (fixed height) ── */}
-                    <div className="quiz-intro-strip">
-                        <div className="quiz-intro-strip-icon">
-                            <QuestionCircleOutlined />
-                        </div>
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                            <div className="quiz-intro-eyebrow">Take Quiz</div>
-                            <div className="quiz-intro-title">{quiz.title}</div>
-                            {quiz.description && (
-                                <div className="quiz-intro-subtitle">{quiz.description}</div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* ── Body: stats + instructions in a 2-column grid ── */}
-                    <div className="quiz-intro-body">
-                        {/* Left: 3 stat tiles stacked */}
-                        <div className="quiz-intro-stats">
-                            <div className="quiz-intro-stat">
-                                <div className="quiz-intro-stat-icon" style={{ background: '#eef2ff', color: '#4f46e5' }}>
-                                    <QuestionCircleOutlined />
-                                </div>
-                                <div className="quiz-intro-stat-meta">
-                                    <div className="quiz-intro-stat-label">Questions</div>
-                                    <div className="quiz-intro-stat-value">
-                                        {quiz.total_questions ?? (quiz.questions ? quiz.questions.length : 0)}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="quiz-intro-stat">
-                                <div className="quiz-intro-stat-icon" style={{ background: '#fdf4ff', color: '#c026d3' }}>
-                                    <ClockCircleOutlined />
-                                </div>
-                                <div className="quiz-intro-stat-meta">
-                                    <div className="quiz-intro-stat-label">Time Limit</div>
-                                    <div className="quiz-intro-stat-value">
-                                        {quiz.duration_minutes ?? '—'}
-                                        <span className="quiz-intro-stat-unit">min</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="quiz-intro-stat">
-                                <div className="quiz-intro-stat-icon" style={{ background: '#f0fdf4', color: '#16a34a' }}>
-                                    <CheckCircleOutlined />
-                                </div>
-                                <div className="quiz-intro-stat-meta">
-                                    <div className="quiz-intro-stat-label">Total Points</div>
-                                    <div className="quiz-intro-stat-value">{totalPoints}</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Right: instructions */}
-                        <div className="quiz-intro-info">
-                            <div className="quiz-intro-info-header">
-                                <div className="quiz-intro-info-icon">i</div>
-                                <span>Important instructions</span>
-                            </div>
-                            <ul className="quiz-intro-info-list">
-                                <li>Timer starts when you click <strong>Start Quiz</strong>.</li>
-                                <li>Use <strong>Next / Previous</strong> to navigate questions.</li>
-                                <li>Answers are saved automatically as you go.</li>
-                                <li>Auto-submits when time runs out.</li>
-                                <li>Use a stable internet connection.</li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    {/* ── Sticky action bar ── */}
-                    <div className="quiz-intro-actions" data-quiz-actions>
-                        {isPreparing && (
-                            <div className="quiz-intro-prepping">
-                                <Spin size="small" />
-                                Preparing securely encrypted quiz components…
-                            </div>
-                        )}
-                        <Button
-                            onClick={() => navigate('/student-dashboard')}
-                            className="quiz-intro-btn-secondary"
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="primary"
-                            onClick={startQuiz}
-                            disabled={isPreparing}
-                            loading={isPreparing}
-                            className="quiz-intro-btn-primary"
-                        >
-                            {isPreparing ? 'Preparing…' : 'Start Quiz'}
-                        </Button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    const currentQ = quiz.questions?.[currentQuestion];
-    const questionsLength = quiz.questions?.length ?? 0;
-    const progress = questionsLength ? Number((((currentQuestion + 1) / questionsLength) * 100).toFixed(2)) : 0;
-    const answeredQuestions = answeredSet.size;
-
-    // Guard against quizzes with no questions
-    if (!currentQ) {
-        return (
-            <div style={{ maxWidth: 800, margin: '0 auto', padding: '20px' }}>
-                {contextHolder}
-                <Alert message="No questions available for this quiz." type="warning" showIcon />
-                <div style={{ marginTop: 16 }}>
-                    <Button onClick={() => navigate('/student-dashboard')}>Back to Dashboard</Button>
-                </div>
-            </div>
-        );
-    }
+            <ul className="qt-legend">
+                <li><i className="is-answered" />Answered</li>
+                <li><i className="is-visited" />Seen</li>
+                <li><i />Not seen</li>
+                <li><FlagFilled className="qt-legend-flag" />Flagged</li>
+            </ul>
+            <Button type="primary" block onClick={() => { setNavOpen(false); setConfirmOpen(true); }}>Review &amp; submit</Button>
+        </div>
+    );
 
     return (
-        <div 
-            className="quiz-taking-container"
-            style={{ 
-                backgroundColor: '#f8fafc', 
-                minHeight: 'auto',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                msUserSelect: 'none',
-                paddingBottom: 20
-            }}
+        <div
+            className="qt qt-run"
             onCopy={e => e.preventDefault()}
             onCut={e => e.preventDefault()}
             onPaste={e => e.preventDefault()}
             onContextMenu={e => e.preventDefault()}
         >
             {contextHolder}
-            {/* Premium Sticky Header (Compacted) */}
-            <div
-                data-quiz-sticky-header
-                style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 100,
-                background: 'rgba(255, 255, 255, 0.9)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
-                boxShadow: '0 2px 10px -2px rgba(0,0,0,0.03)',
-                borderBottom: '1px solid rgba(226, 232, 240, 0.8)',
-                padding: '10px 0'
-            }}>
-                <div data-quiz-sticky-inner style={{ maxWidth: 1000, margin: '0 auto', padding: '0 56px 0 20px' }}>
-                    <Row justify="space-between" align="middle" gutter={[20, 10]}>
-                        <Col xs={24} sm={10} md={10}>
-                            <Title data-quiz-title level={5} style={{ margin: 0, color: '#0f172a', fontSize: '16px', fontWeight: 700 }}>
-                                {quiz.title}
-                            </Title>
-                            <Text data-quiz-meta style={{ color: '#64748b', fontSize: '12px', fontWeight: 500 }}>
-                                Q{currentQuestion + 1} of {questionsLength} • <span style={{ color: '#3b82f6' }}>{answeredQuestions} answered</span>
-                            </Text>
-                        </Col>
-                        
-                        <Col xs={12} sm={6} md={6} style={{ textAlign: 'center' }}>
-                            <div style={{
-                                backgroundColor: timeLeft < 60 ? '#fef2f2' : '#ffffff',
-                                padding: '4px 12px',
-                                borderRadius: '12px',
-                                border: `1.5px solid ${timeLeft < 60 ? '#f87171' : '#e2e8f0'}`,
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 6,
-                                boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
-                            }}>
-                                <ClockCircleOutlined style={{ fontSize: '15px', color: getTimeColor() }} />
-                                <div style={{
-                                    fontSize: '16px',
-                                    fontWeight: '700',
-                                    color: getTimeColor(),
-                                    fontFamily: '"SF Mono", "Roboto Mono", monospace',
-                                    letterSpacing: '0.5px'
-                                }}>
-                                    {formatTime(timeLeft)}
-                                </div>
-                            </div>
-                        </Col>
-                        
-                        <Col xs={12} sm={8} md={8}>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
-                                <div data-quiz-palette style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', maxWidth: 260 }}>
-                                    {quiz.questions.map((q, idx) => {
-                                        const isCurrent = idx === currentQuestion;
-                                        const isAnswered = answeredSet.has(q.id);
-                                        const isVisited = visitedQuestions.has(q.id);
-                                        let bg = isAnswered ? '#10b981' : (isCurrent ? '#4f46e5' : (isVisited ? '#f59e0b' : '#f1f5f9'));
-                                        let color = isAnswered || isCurrent || isVisited ? '#fff' : '#475569';
-                                        
-                                        const isAudioQ = !!q.audio_clip_id;
-                                        
-                                        return (
-                                            <Button
-                                                key={q.id}
-                                                size="small"
-                                                style={{
-                                                    width: 24,
-                                                    height: 24,
-                                                    padding: 0,
-                                                    backgroundColor: bg,
-                                                    color: color,
-                                                    border: isAudioQ ? '1.5px solid #06b6d4' : 'none',
-                                                    borderRadius: '6px',
-                                                    fontWeight: '600',
-                                                    fontSize: isAudioQ ? '10px' : '11px',
-                                                    minWidth: '24px',
-                                                    transform: isCurrent ? 'scale(1.05)' : 'none',
-                                                }}
-                                                onClick={() => setCurrentQuestion(idx)}
-                                            >
-                                                {isAudioQ ? '🎧' : idx + 1}
-                                            </Button>
-                                        );
-                                    })}
-                                </div>
-                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 2 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 8, height: 8, backgroundColor: '#4f46e5', borderRadius: '3px' }}></div>
-                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Cur</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 8, height: 8, backgroundColor: '#10b981', borderRadius: '3px' }}></div>
-                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Done</span>
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
-                                        <div style={{ width: 8, height: 8, backgroundColor: '#f59e0b', borderRadius: '3px' }}></div>
-                                        <span style={{ fontSize: '10px', color: '#64748b' }}>Seen</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </Col>
-                    </Row>
-                    <div style={{ marginTop: 8 }}>
-                        <Progress 
-                            percent={progress} 
-                            showInfo={true} 
-                            format={() => <span style={{ color: '#64748b', fontWeight: 600, fontSize: '12px' }}>{Math.round(progress)}%</span>}
-                            strokeColor={{ '0%': '#4f46e5', '100%': '#10b981' }} 
-                            trailColor="#e2e8f0"
-                            size="small" 
-                        />
-                    </div>
+            <header className="qt-top">
+                <div className="qt-top-info">
+                    <div className="qt-top-title" title={quiz.title}>{quiz.title}</div>
+                    <div className="qt-top-meta">Question {current + 1} of {total} · {answered} answered</div>
                 </div>
+                {!r.isMobile && saveState !== 'idle' && (
+                    <span className={`qt-save is-${saveState}`} aria-live="polite">
+                        {saveState === 'saving' ? <><LoadingOutlined /> Saving…</>
+                            : saveState === 'saved' ? <><CheckOutlined /> Saved</>
+                            : <><ExclamationCircleOutlined /> Not saved — retrying</>}
+                    </span>
+                )}
+                <div className={`qt-timer is-${timerTone}`} role="timer" aria-label={`Time left ${formatTime(timeLeft)}`}>
+                    <ClockCircleOutlined /> {formatTime(timeLeft)}
+                </div>
+                {isNarrow && (
+                    <Button className="qt-icon-btn" icon={<AppstoreOutlined />} onClick={() => setNavOpen(true)} aria-label="All questions" />
+                )}
+                <Button className="qt-exit" icon={<CloseOutlined />} onClick={requestExit} aria-label="Exit quiz">
+                    {!r.isMobile && 'Exit'}
+                </Button>
+            </header>
+            <div className="qt-progress" aria-hidden><span style={{ width: `${total ? (answered / total) * 100 : 0}%` }} /></div>
+
+            <div className="qt-body">
+                <div className="qt-main" ref={mainRef}>
+                    <article className="qt-question" key={currentQ.id}>
+                        <header className="qt-q-head">
+                            <span className="qt-q-no">Question {current + 1}</span>
+                            <span className="qt-q-pts">{formatNumber(currentQ.points ?? 0)} {currentQ.points === 1 ? 'pt' : 'pts'}</span>
+                            <Tooltip title={isFlagged ? 'Remove flag' : 'Flag this question to review before submitting'}>
+                                <Button size="small" className={`qt-flag${isFlagged ? ' is-on' : ''}`}
+                                    icon={isFlagged ? <FlagFilled /> : <FlagOutlined />} onClick={() => toggleFlag(currentQ.id)}>
+                                    {isFlagged ? 'Flagged' : 'Flag'}
+                                </Button>
+                            </Tooltip>
+                        </header>
+                        {renderAudio()}
+                        <p className="qt-q-text">{currentQ.question_text}</p>
+                        <div className="qt-q-hint">{typeHint}</div>
+                        {renderOptions()}
+                    </article>
+
+                    <footer className="qt-nav-bar">
+                        <Button icon={<LeftOutlined />} onClick={goPrev} disabled={current === 0}>Previous</Button>
+                        {!isNarrow && <span className="qt-kbd-hint">Use ← → to move, A–{OPTION_KEYS[Math.max(1, (currentQ.options?.length ?? 2) - 1)]} to answer</span>}
+                        {isLast
+                            ? <Button type="primary" onClick={() => setConfirmOpen(true)}>Review &amp; submit</Button>
+                            : <Button type="primary" onClick={goNext}>Next <RightOutlined /></Button>}
+                    </footer>
+                </div>
+                {!isNarrow && <aside className="qt-side" aria-label="Question overview">{navigator}</aside>}
             </div>
 
-            <div data-quiz-question-wrap style={{ maxWidth: 1000, margin: '16px auto 0', padding: '0 20px' }}>
-                {/* Premium Question Card (Compacted) */}
-                <div
-                    data-quiz-question-card
-                    style={{
-                        backgroundColor: '#ffffff',
-                        borderRadius: '20px',
-                        boxShadow: '0 4px 20px -5px rgba(0,0,0,0.05)',
-                        border: '1px solid #e2e8f0',
-                        padding: '24px 32px',
-                        position: 'relative',
-                        overflow: 'hidden'
-                    }}
-                >
-                    <div style={{ marginBottom: 20 }}>
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            marginBottom: 16,
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{
-                                    background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
-                                    color: '#4f46e5',
-                                    width: '36px',
-                                    height: '36px',
-                                    borderRadius: '12px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontWeight: '700',
-                                    fontSize: '16px',
-                                }}>
-                                    {currentQuestion + 1}
+            <Drawer
+                placement="bottom"
+                open={isNarrow && navOpen}
+                onClose={() => setNavOpen(false)}
+                title="Questions"
+                height="auto"
+                rootClassName="qt-drawer"
+                styles={{ body: { padding: 16 } }}
+            >
+                {navigator}
+            </Drawer>
+
+            {/* Submit confirmation */}
+            <Modal open={confirmOpen} onCancel={() => !submitting && setConfirmOpen(false)} footer={null} centered width={440}
+                closable={!submitting} maskClosable={!submitting} wrapClassName="qt-modal">
+                <div className="qt-confirm">
+                    <h2>Submit your quiz?</h2>
+                    <p>You answered <strong>{answered}</strong> of <strong>{total}</strong> questions. You can't change your answers after submitting.</p>
+                    {unanswered.length > 0 && (
+                        <div className="qt-callout is-warn">
+                            <ExclamationCircleOutlined />
+                            <div>
+                                <strong>{plural(unanswered.length, 'question')} not answered</strong> — they will be marked incorrect.
+                                <div className="qt-chip-row">
+                                    {unanswered.slice(0, 16).map(i => (
+                                        <button key={i} type="button" onClick={() => { setConfirmOpen(false); goTo(i); }}>{i + 1}</button>
+                                    ))}
+                                    {unanswered.length > 16 && <span>+{unanswered.length - 16}</span>}
                                 </div>
-                                <Title level={4} style={{ margin: 0, color: '#0f172a', fontWeight: 700 }}>
-                                    Question {currentQuestion + 1}
-                                </Title>
-                            </div>
-                            <div style={{
-                                backgroundColor: '#f0fdf4',
-                                padding: '4px 12px',
-                                borderRadius: '10px',
-                                border: '1px solid #bbf7d0',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 6
-                            }}>
-                                <CheckCircleOutlined style={{ color: '#16a34a', fontSize: '13px' }} />
-                                <Text strong style={{ color: '#15803d', fontSize: '13px' }}>
-                                    {formatNumber(currentQ.points ?? 0)} pts
-                                </Text>
                             </div>
                         </div>
-                        
-                        {/* Audio Player (for listening comprehension questions) */}
-                        {currentQ.audio_clip_id && (() => {
-                            const clip = quiz.audio_clips?.find(c => c.id === currentQ.audio_clip_id);
-                            if (!clip?.has_audio) return null;
-                            const clipId = clip.id;
-                            const plays = audioPlayCounts[clipId] || 0;
-                            const maxP = clip.max_plays || 0;
-                            const isLimited = maxP > 0;
-                            const remaining = isLimited ? Math.max(0, maxP - plays) : Infinity;
-                            const isExhausted = isLimited && remaining <= 0;
-                            const blobUrl = audioBlobUrls[clipId];
-
-                            // Count how many questions share this audio clip
-                            const linkedQs = quiz.questions.filter(q => q.audio_clip_id === clipId);
-                            const currentAudioIdx = linkedQs.findIndex(q => q.id === currentQ.id);
-
-                            return (
-                                <SecureAudioPlayer
-                                    clipId={clipId}
-                                    blobUrl={blobUrl}
-                                    isExhausted={isExhausted}
-                                    isLimited={isLimited}
-                                    remaining={remaining}
-                                    maxPlays={maxP}
-                                    durationSeconds={clip.duration_seconds}
-                                    linkedCount={linkedQs.length}
-                                    currentAudioIdx={currentAudioIdx}
-                                    onPlay={() => {
-                                        if (!isExhausted) {
-                                            setAudioPlayCounts(prev => ({
-                                                ...prev,
-                                                [clipId]: (prev[clipId] || 0) + 1
-                                            }));
-                                        }
-                                    }}
-                                />
-                            );
-                        })()}
-
-                        <div style={{ marginTop: 12, paddingLeft: 48 }}>
-                            <Paragraph style={{
-                                fontSize: '16px',
-                                lineHeight: 1.5,
-                                color: '#1e293b',
-                                margin: 0,
-                                fontWeight: '500'
-                            }}>
-                                {currentQ.question_text}
-                            </Paragraph>
-                        </div>
+                    )}
+                    {flagged.size > 0 && (
+                        <div className="qt-callout is-info"><FlagFilled /><span>{plural(flagged.size, 'question')} flagged for review.</span></div>
+                    )}
+                    <div className="qt-actions">
+                        <Button onClick={() => setConfirmOpen(false)} disabled={submitting}>Keep reviewing</Button>
+                        <Button type="primary" loading={submitting} onClick={() => submitQuiz(false)}>Submit now</Button>
                     </div>
+                </div>
+            </Modal>
 
-                    <div data-quiz-options style={{ marginBottom: 24, paddingLeft: 48 }}>
-                        {renderQuestion(currentQ)}
-                    </div>
-
-                    {/* Navigation buttons */}
-                    <div data-quiz-actions style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        paddingTop: 20,
-                        borderTop: '1px solid #f1f5f9'
-                    }}>
-                        <Button
-                            onClick={previousQuestion}
-                            disabled={currentQuestion === 0}
-                            style={{
-                                borderRadius: '10px',
-                                padding: '0 24px',
-                                height: '42px',
-                                fontWeight: '600',
-                                fontSize: '14px',
-                                border: '1.5px solid #e2e8f0',
-                                color: currentQuestion === 0 ? '#94a3b8' : '#475569',
-                                background: 'transparent'
-                            }}
-                        >
-                            ← Previous
+            {/* Leave confirmation */}
+            <Modal open={leaveOpen} onCancel={() => !leaving && setLeaveOpen(false)} footer={null} centered width={440} wrapClassName="qt-modal">
+                <div className="qt-confirm">
+                    <h2>Leave this quiz?</h2>
+                    <p>
+                        Your answers are saved. The timer keeps running while you're away — you can resume from
+                        My Quizzes until it reaches zero (<strong>{formatTime(timeLeft)}</strong> left).
+                    </p>
+                    <div className="qt-actions is-stacked">
+                        <Button type="primary" onClick={() => setLeaveOpen(false)} disabled={leaving}>Keep working</Button>
+                        <Button onClick={leaveQuiz} loading={leaving}>Leave and resume later</Button>
+                        <Button type="text" danger onClick={() => { setLeaveOpen(false); setConfirmOpen(true); }} disabled={leaving}>
+                            Submit now instead
                         </Button>
-                        
-                        <Space>
-                            {currentQuestion === questionsLength - 1 ? (
-                                <Button
-                                    type="primary"
-                                    onClick={() => setShowConfirmModal(true)}
-                                    disabled={submitting}
-                                    style={{
-                                        borderRadius: '10px',
-                                        padding: '0 24px',
-                                        height: '42px',
-                                        fontWeight: '600',
-                                        fontSize: '14px',
-                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                        border: 'none',
-                                        boxShadow: '0 4px 12px rgba(16, 185, 129, 0.2)'
-                                    }}
-                                >
-                                    Submit Quiz
-                                </Button>
-                            ) : (
-                                <Button
-                                    type="primary"
-                                    onClick={nextQuestion}
-                                    style={{
-                                        borderRadius: '10px',
-                                        padding: '0 24px',
-                                        height: '42px',
-                                        fontWeight: '600',
-                                        fontSize: '14px',
-                                        background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)',
-                                        border: 'none',
-                                        boxShadow: '0 4px 12px rgba(99, 102, 241, 0.2)'
-                                    }}
-                                >
-                                    Next →
-                                </Button>
-                            )}
-                        </Space>
                     </div>
                 </div>
-
-            {/* Quiz Results Display */}
-            {quizCompleted && quizResults && (
-                <Card 
-                    style={{ 
-                        marginTop: 24, 
-                        textAlign: 'center',
-                        border: '1px solid #d9d9d9'
-                    }}
-                >
-                    <div style={{ padding: '24px 0' }}>
-                        <CheckCircleOutlined 
-                            style={{ 
-                                fontSize: 64, 
-                                color: '#52c41a', 
-                                marginBottom: 16 
-                            }} 
-                        />
-                        <Title level={2} style={{ marginBottom: 24 }}>
-                            Quiz Completed!
-                        </Title>
-                        
-                        <Row gutter={[24, 24]} justify="center">
-                            <Col xs={24} sm={12} md={6}>
-                                <Statistic
-                                    title="Your Score"
-                                    value={quizResults.totalScore}
-                                    suffix={`/ ${quizResults.maxScore}`}
-                                    valueStyle={{ fontSize: 28 }}
-                                />
-                            </Col>
-                            <Col xs={24} sm={12} md={6}>
-                                <Statistic
-                                    title="Percentage"
-                                    value={formatNumber(quizResults.percentage)}
-                                    suffix="%"
-                                    valueStyle={{ 
-                                        color: quizResults.percentage >= 70 ? '#52c41a' : 
-                                               quizResults.percentage >= 50 ? '#fa8c16' : '#f5222d',
-                                        fontSize: 28
-                                    }}
-                                />
-                            </Col>
-                            <Col xs={24} sm={12} md={6}>
-                                <Statistic
-                                    title="Time Taken"
-                                    value={quizResults.time_taken_minutes}
-                                    suffix="min"
-                                    valueStyle={{ fontSize: 28 }}
-                                />
-                            </Col>
-                            <Col xs={24} sm={12} md={6}>
-                                <Statistic
-                                    title="Grade"
-                                    value={
-                                        quizResults.percentage >= 90 ? 'A+' :
-                                        quizResults.percentage >= 80 ? 'A' :
-                                        quizResults.percentage >= 70 ? 'B' :
-                                        quizResults.percentage >= 60 ? 'C' :
-                                        quizResults.percentage >= 50 ? 'D' : 'F'
-                                    }
-                                    valueStyle={{ 
-                                        color: quizResults.percentage >= 70 ? '#52c41a' : 
-                                               quizResults.percentage >= 50 ? '#fa8c16' : '#f5222d',
-                                        fontSize: 28,
-                                        fontWeight: 'bold'
-                                    }}
-                                />
-                            </Col>
-                        </Row>
-                        
-                        <div style={{ marginTop: 32 }}>
-                            <Alert
-                                message={
-                                    quizResults.percentage >= 70 ? 
-                                    "Excellent work! You've passed the quiz." :
-                                    quizResults.percentage >= 50 ?
-                                    "Good effort! You can review and improve." :
-                                    "Keep practicing! Review the material and try again."
-                                }
-                                type={
-                                    quizResults.percentage >= 70 ? 'success' :
-                                    quizResults.percentage >= 50 ? 'warning' : 'error'
-                                }
-                                showIcon
-                            />
-                        </div>
-                        
-                        <div style={{ marginTop: 24 }}>
-                            <Space>
-                                <Button 
-                                    type="primary" 
-                                    size="large"
-                                    onClick={() => navigate('/my-results')}
-                                >
-                                    View All Results
-                                </Button>
-                                <Button 
-                                    size="large"
-                                    onClick={() => navigate('/student-dashboard')}
-                                >
-                                    Back to Dashboard
-                                </Button>
-                            </Space>
-                        </div>
-                    </div>
-                </Card>
-            )}
-
-                {/* Premium Submit Confirmation Modal */}
-                <Modal
-                    open={showConfirmModal}
-                    onCancel={() => setShowConfirmModal(false)}
-                    footer={null}
-                    closable={false}
-                    width={400}
-                    centered
-                    styles={{
-                        content: { padding: 0, borderRadius: 24, overflow: 'hidden', border: '1px solid #f1f5f9', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.1)' }
-                    }}
-                >
-                    <div style={{ textAlign: 'center', padding: '32px 24px' }}>
-                        <div style={{
-                            width: 72,
-                            height: 72,
-                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                            borderRadius: '24px',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            margin: '0 auto 24px',
-                            boxShadow: '0 8px 20px rgba(16, 185, 129, 0.25)',
-                            transform: 'rotate(10deg)'
-                        }}>
-                            <div style={{ transform: 'rotate(-10deg)' }}>
-                                <CheckCircleOutlined style={{ fontSize: 36, color: '#fff' }} />
-                            </div>
-                        </div>
-                        
-                        <Title level={3} style={{ margin: '0 0 12px 0', color: '#0f172a', fontWeight: 800 }}>
-                            Ready to Submit?
-                        </Title>
-                        
-                        <div style={{ marginBottom: 32 }}>
-                            <Text style={{ fontSize: '15px', color: '#64748b' }}>
-                                You have answered <strong style={{ color: '#0f172a' }}>{answeredQuestions}</strong> out of <strong style={{ color: '#0f172a' }}>{questionsLength}</strong> questions.
-                            </Text>
-                            {answeredQuestions < questionsLength && (
-                                <div style={{ 
-                                    marginTop: 16, 
-                                    padding: '12px 16px', 
-                                    backgroundColor: '#fffbeb', 
-                                    border: '1px solid #fde68a',
-                                    borderRadius: '12px',
-                                    color: '#b45309',
-                                    fontWeight: 600,
-                                    fontSize: '13.5px',
-                                    textAlign: 'left',
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: 10
-                                }}>
-                                    <WarningOutlined style={{ fontSize: 18, marginTop: 2 }} />
-                                    <span>Unanswered questions will be marked incorrect.</span>
-                                </div>
-                            )}
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: 12 }}>
-                            <Button 
-                                size="large"
-                                onClick={() => setShowConfirmModal(false)}
-                                style={{
-                                    flex: 1,
-                                    height: '52px',
-                                    borderRadius: '14px',
-                                    fontWeight: 700,
-                                    fontSize: '15px',
-                                    border: '2px solid #e2e8f0',
-                                    color: '#475569',
-                                    background: 'transparent'
-                                }}
-                            >
-                                Review First
-                            </Button>
-                            <Button 
-                                type="primary" 
-                                size="large"
-                                onClick={() => submitQuiz(false)}
-                                loading={submitting}
-                                style={{
-                                    flex: 1,
-                                    height: '52px',
-                                    borderRadius: '14px',
-                                    fontWeight: 700,
-                                    fontSize: '15px',
-                                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                    border: 'none',
-                                    boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)'
-                                }}
-                            >
-                                Submit Now
-                            </Button>
-                        </div>
-                    </div>
-                </Modal>
-            </div>
+            </Modal>
         </div>
     );
 });

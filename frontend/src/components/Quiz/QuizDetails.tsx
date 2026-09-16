@@ -1,452 +1,203 @@
-import React, { useState, useEffect } from 'react';
-import { Typography, Row, Col, Tag, Empty, message, Tooltip, Button, Skeleton } from 'antd';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, Drawer, Skeleton, Switch } from 'antd';
 import {
-    ClockCircleOutlined,
-    TrophyOutlined,
-    CheckCircleOutlined,
-    BookOutlined,
-    MenuOutlined,
-    CalendarOutlined,
-    CloseOutlined
+    CheckOutlined, CloseOutlined, EditOutlined, InfoCircleOutlined, LoadingOutlined, SoundOutlined, TeamOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatLocal } from '../../utils/timezone';
+import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import { TYPE_META, allQuestions, draftFromApi, fmtNumber, liveStateOf, makeWhen, plural, STATE_META, totalPoints, wallToIso } from './quizModel';
+import type { Block, DraftQuestion, DraftQuiz, QuizRow } from './quizModel';
+import '../Teacher/Teacher.css';
+import './Quiz.css';
 
-const { Title, Text, Paragraph } = Typography;
+/* ══════════════════════════════════════════
+   QUIZ PREVIEW — the paper as students get it, with the answer key on top.
+══════════════════════════════════════════ */
 
-interface Option {
-    id: number;
-    option_text: string;
-    is_correct: boolean;
+interface Props {
+    quiz: QuizRow | null;
+    onClose: () => void;
+    onEdit: (row: QuizRow) => void;
+    onResults: (row: QuizRow) => void;
+    canEdit: (row: QuizRow) => boolean;
 }
 
-interface Question {
-    id: number;
-    question_text: string;
-    question_type: 'mcq_single' | 'mcq_multiple' | 'yes_no';
-    marks: number;
-    options?: Option[];
-    correct_answer?: string;
-    audio_clip_id?: number | null;
-}
+const LETTERS = 'ABCDEFGHIJ';
 
-interface AudioClip {
-    id: number;
-    duration_seconds: number;
-    has_audio: boolean;
-}
+/** Loads a clip only when the teacher asks to hear it. */
+export const ClipPlayer: React.FC<{ clipId: number }> = ({ clipId }) => {
+    const { apiCall } = useAuth();
+    const [url, setUrl] = useState<string | null>(null);
+    const [state, setState] = useState<'idle' | 'loading' | 'error'>('idle');
+    const urlRef = useRef<string | null>(null);
+    useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
 
-interface QuizDetailsData {
-    title: string;
-    description: string;
-    instructions: string;
-    duration_minutes: number;
-    total_marks: number;
-    auto_submit: boolean;
-    start_date?: string | null;
-    end_date?: string | null;
-    randomize_questions: boolean;
-    randomize_options: boolean;
-    questions: Question[];
-    batches: { name: string }[];
-    audio_clips: AudioClip[];
-}
+    const load = async () => {
+        setState('loading');
+        try {
+            const res = await apiCall(`/quizzes/audio/${clipId}/stream`);
+            if (!res.ok) throw new Error();
+            const next = URL.createObjectURL(await res.blob());
+            urlRef.current = next;
+            setUrl(next);
+            setState('idle');
+        } catch {
+            setState('error');
+        }
+    };
 
-interface QuizDetailsProps {
-    quizId: string;
-    onClose?: () => void;
-}
-
-const TeacherAudioPlayer: React.FC<{ clipId: number }> = ({ clipId }) => {
-    const { token } = useAuth();
-    const [audioSrc, setAudioSrc] = useState<string>('');
-
-    useEffect(() => {
-        if (!clipId || !token) return;
-        const fetchAudio = async () => {
-            const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-            try {
-                const response = await fetch(`${API_BASE_URL}/quizzes/audio/${clipId}/stream`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = URL.createObjectURL(blob);
-                    setAudioSrc(url);
-                }
-            } catch (error) {
-                console.error('Failed to fetch audio stream', error);
-            }
-        };
-        fetchAudio();
-        return () => {
-            if (audioSrc) URL.revokeObjectURL(audioSrc);
-        };
-    }, [clipId, token]);
-
-    return audioSrc ? (
-        <audio controls src={audioSrc} style={{ width: '100%', height: 40 }} />
-    ) : (
-        <div style={{ padding: 10, background: '#f8fafc', color: '#64748b', fontSize: 13, borderRadius: 8 }}>
-            Loading audio...
-        </div>
+    if (url) return <audio className="qz-clip-audio" controls controlsList="nodownload" src={url} autoPlay />;
+    return (
+        <Button size="small" icon={state === 'loading' ? <LoadingOutlined /> : <SoundOutlined />} onClick={load} disabled={state === 'loading'}>
+            {state === 'error' ? 'Audio unavailable — retry' : 'Play audio'}
+        </Button>
     );
 };
 
-const QuizDetails: React.FC<QuizDetailsProps> = ({ quizId, onClose }) => {
-    const { apiCall, user } = useAuth();
-    // Render scheduled quiz times in the user's saved profile timezone (with
-    // the offset stamped) so a quiz scheduled "04:17 GMT" by the teacher
-    // shows correctly to a Lagos student as "05:17 GMT+1", regardless of
-    // what timezone the browser or the VPS is on.
-    const tz = user?.timezone || 'UTC';
-    const fmtSchedule = (iso?: string | null) =>
-        iso ? formatLocal(iso, tz, {
-            month: 'short', day: 'numeric', year: 'numeric',
-            hour: '2-digit', minute: '2-digit', hour12: false,
-            weekday: undefined,
-        }) : null;
-    const [loading, setLoading] = useState(true);
-    const [quiz, setQuiz] = useState<QuizDetailsData | null>(null);
-
-    useEffect(() => {
-        if (!quizId) return;
-        const fetchQuiz = async () => {
-            setLoading(true);
-            try {
-                const response = await apiCall(`/quizzes/${quizId}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setQuiz(data);
-                } else {
-                    message.error('Failed to load quiz details');
-                }
-            } catch (err) {
-                console.error(err);
-                message.error('Failed to load quiz details');
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchQuiz();
-    }, [quizId, apiCall]);
-
-    if (loading) {
-        return (
-            <div style={{ background: '#fafafa', minHeight: '100%', position: 'relative' }}>
-                {/* Fixed Custom Close Button matching loaded state */}
-                <div style={{
-                    position: 'sticky', top: 0, zIndex: 10,
-                    background: 'rgba(250, 250, 250, 0.9)',
-                    backdropFilter: 'blur(8px)',
-                    padding: '16px 32px',
-                    display: 'flex', justifyContent: 'flex-end',
-                    borderBottom: '1px solid rgba(226, 232, 240, 0.5)'
-                }}>
-                    <Button 
-                        icon={<CloseOutlined />} 
-                        type="text" 
-                        onClick={onClose}
-                        style={{
-                            width: 40, height: 40, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#f1f5f9', color: '#64748b', fontSize: 16,
-                            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                            border: 'none',
-                        }}
-                    />
-                </div>
-                
-                {/* Skeleton mock layout matching loaded structure */}
-                <div>
-                    <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', padding: '48px 48px', position: 'relative', overflow: 'hidden' }}>
-                        <div style={{ position: 'relative', zIndex: 1, maxWidth: 900 }}>
-                            <Skeleton.Input active size="small" style={{ width: 120, height: 26, borderRadius: 16, marginBottom: 16 }} />
-                            <br />
-                            <Skeleton.Input active style={{ width: '60%', height: 40, borderRadius: 6 }} />
-                            <br />
-                            <Skeleton.Input active style={{ width: '80%', height: 20, borderRadius: 4, marginTop: 16 }} />
-                            
-                            <Row gutter={24} style={{ marginTop: 40 }}>
-                                <Col><Skeleton.Button active style={{ width: 150, height: 60, borderRadius: 12 }} /></Col>
-                                <Col><Skeleton.Button active style={{ width: 150, height: 60, borderRadius: 12 }} /></Col>
-                                <Col><Skeleton.Button active style={{ width: 150, height: 60, borderRadius: 12 }} /></Col>
-                            </Row>
-                        </div>
-                    </div>
-                    
-                    <div style={{ padding: '40px 48px' }}>
-                        <Row gutter={32}>
-                            <Col span={16}>
-                                <Skeleton active title={{ width: 200 }} paragraph={{ rows: 3 }} />
-                                <div style={{ marginTop: 32 }}>
-                                    <Skeleton active title={{ width: 250 }} paragraph={{ rows: 8 }} />
-                                </div>
-                            </Col>
-                            <Col span={8}>
-                                <Skeleton.Button active block style={{ height: 250, borderRadius: 16 }} />
-                            </Col>
-                        </Row>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (!quiz) {
-        return <Empty description="Quiz details unavailable" />;
-    }
-
-    return (
-        <div style={{ background: '#fafafa', minHeight: '100%', position: 'relative' }}>
-            {/* Custom Sticky Header with Close Button */}
-            <div style={{
-                position: 'sticky', top: 0, zIndex: 10,
-                background: 'rgba(250, 250, 250, 0.9)',
-                backdropFilter: 'blur(8px)',
-                padding: '16px 32px',
-                display: 'flex', justifyContent: 'flex-end',
-                borderBottom: '1px solid rgba(226, 232, 240, 0.5)'
-            }}>
-                <Tooltip title="Close">
-                    <Button 
-                        icon={<CloseOutlined />} 
-                        type="text" 
-                        onClick={onClose}
-                        style={{
-                            width: 40, height: 40, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            background: '#f1f5f9', color: '#64748b', fontSize: 16,
-                            transition: 'all 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                            border: 'none',
-                        }}
-                        onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#fee2e2';
-                            e.currentTarget.style.color = '#ef4444';
-                            e.currentTarget.style.transform = 'rotate(90deg)';
-                        }}
-                        onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#f1f5f9';
-                            e.currentTarget.style.color = '#64748b';
-                            e.currentTarget.style.transform = 'none';
-                        }}
-                    />
-                </Tooltip>
-            </div>
-
-            <div style={{ padding: '8px 32px 32px 32px' }}>
-                {/* Premium Header Section */}
-                <div style={{ 
-                    marginBottom: 32, 
-                    padding: '32px', 
-                    borderRadius: 24, 
-                    background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                    border: '1px solid #f1f5f9',
-                    boxShadow: '0 10px 30px -10px rgba(0,0,0,0.05)',
-                    position: 'relative',
-                    overflow: 'hidden'
-                }}>
-                    <div style={{ position: 'relative', zIndex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
-                            <div style={{ flex: 1, minWidth: 300 }}>
-                                <Title level={2} style={{ margin: 0, fontWeight: 800, color: '#0f172a', fontSize: 32, letterSpacing: '-0.5px' }}>
-                                    {quiz.title}
-                                </Title>
-                                {quiz.description && (
-                                    <Paragraph style={{ color: '#475569', fontSize: '15px', marginTop: 12, lineHeight: 1.6, whiteSpace: 'pre-wrap', maxWidth: 800 }}>
-                                        {quiz.description}
-                                    </Paragraph>
-                                )}
-                                <div style={{ marginTop: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                                    {quiz.batches?.map((b, i) => (
-                                        <Tag key={i} style={{ 
-                                            borderRadius: '20px', padding: '6px 16px', fontWeight: 600, fontSize: 13,
-                                            background: '#e0e7ff', color: '#4338ca', border: 'none'
-                                        }}>
-                                            {b.name}
-                                        </Tag>
-                                    ))}
-                                </div>
-                            </div>
-                            
-                            {/* Professional Availability Block */}
-                            {(quiz.start_date || quiz.end_date) && (
-                                <div style={{ 
-                                    background: '#fff', 
-                                    padding: '20px 24px', 
-                                    borderRadius: 16, 
-                                    boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
-                                    border: '1px solid #f1f5f9',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    gap: 16,
-                                    minWidth: 260
-                                }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#e0e7ff', color: '#4f46e5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <CalendarOutlined style={{ fontSize: 16 }} />
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Available From</div>
-                                            <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                                                {fmtSchedule(quiz.start_date) || 'Now'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div style={{ height: 1, background: '#f1f5f9', width: '100%' }} />
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#fee2e2', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                            <ClockCircleOutlined style={{ fontSize: 16 }} />
-                                        </div>
-                                        <div>
-                                            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 }}>Deadline</div>
-                                            <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
-                                                {fmtSchedule(quiz.end_date) || 'No Limit'}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Quick Stats Grid - Exactly 4 Items */}
-                <Row gutter={[16, 16]} style={{ marginBottom: 40 }}>
-                    <Col xs={12} sm={6}>
-                        <div style={{ background: '#fff', borderRadius: 16, padding: '20px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 12, background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                <BookOutlined />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Questions</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{quiz.questions?.length || 0}</div>
-                            </div>
-                        </div>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <div style={{ background: '#fff', borderRadius: 16, padding: '20px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 12, background: '#fef3c7', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                <ClockCircleOutlined />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Duration</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{quiz.duration_minutes} <span style={{ fontSize: 14, fontWeight: 600, color: '#64748b' }}>min</span></div>
-                            </div>
-                        </div>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <div style={{ background: '#fff', borderRadius: 16, padding: '20px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 12, background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                <TrophyOutlined />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Total Marks</div>
-                                <div style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{quiz.total_marks ?? '—'}</div>
-                            </div>
-                        </div>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <div style={{ background: '#fff', borderRadius: 16, padding: '20px', border: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                            <div style={{ width: 48, height: 48, borderRadius: 12, background: '#f3e8ff', color: '#9333ea', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-                                <MenuOutlined />
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>Randomize</div>
-                                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', lineHeight: 1.2, marginTop: 4 }}>
-                                    {quiz.randomize_questions ? 'Questions' : 'None'}
-                                    {quiz.randomize_questions && quiz.randomize_options ? ' & Options' : quiz.randomize_options ? 'Options' : ''}
-                                </div>
-                            </div>
-                        </div>
-                    </Col>
-                </Row>
-
-            {/* Questions List */}
-            <Title level={4} style={{ marginBottom: 20, color: '#1e293b' }}>Questions Overview</Title>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {quiz.questions?.map((q, idx) => (
-                    <div key={idx} style={{ background: '#fff', borderRadius: 16, padding: '24px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                            <div style={{ flex: 1, paddingRight: 16 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                                    <span style={{ background: '#e0e7ff', color: '#4338ca', fontWeight: 700, padding: '2px 10px', borderRadius: '12px', fontSize: 13 }}>
-                                        Question {idx + 1}
-                                    </span>
-                                    <span style={{ color: '#64748b', fontSize: 13, fontWeight: 500 }}>
-                                        {q.question_type === 'yes_no' ? 'True / False' : q.question_type === 'mcq_multiple' ? 'Multiple Choice (Multiple)' : 'Multiple Choice'}
-                                    </span>
-                                </div>
-                                <Text style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a', whiteSpace: 'pre-wrap' }}>
-                                    {q.question_text}
-                                </Text>
-                            </div>
-                            <div style={{ background: '#f8fafc', color: '#334155', fontWeight: 700, padding: '4px 12px', borderRadius: '8px', fontSize: 14, border: '1px solid #e2e8f0' }}>
-                                {q.marks} {q.marks === 1 ? 'pt' : 'pts'}
-                            </div>
-                        </div>
-
-                        {/* Audio Player if applicable */}
-                        {q.audio_clip_id && (
-                            <div style={{ marginBottom: 16, maxWidth: 400 }}>
-                                <TeacherAudioPlayer clipId={q.audio_clip_id} />
-                            </div>
-                        )}
-
-                        {/* Options */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
-                            {q.question_type === 'yes_no' ? (
-                                <div style={{ display: 'flex', gap: 16 }}>
-                                    {['yes', 'no'].map((ans) => {
-                                        const isCorrect = q.correct_answer === ans;
-                                        return (
-                                            <div key={ans} style={{
-                                                flex: 1, padding: '12px 16px', borderRadius: '10px',
-                                                border: `2px solid ${isCorrect ? '#22c55e' : '#f1f5f9'}`,
-                                                background: isCorrect ? '#f0fdf4' : '#fff',
-                                                display: 'flex', alignItems: 'center',
-                                            }}>
-                                                {isCorrect && <CheckCircleOutlined style={{ color: '#22c55e', marginRight: 8, fontSize: 16 }} />}
-                                                <span style={{ color: isCorrect ? '#166534' : '#64748b', fontWeight: isCorrect ? 600 : 500, fontSize: 15 }}>
-                                                    {ans === 'yes' ? 'Oui' : 'Non'}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            ) : (
-                                q.options?.map((opt, i) => {
-                                    const letter = String.fromCharCode(65 + i);
-                                    return (
-                                        <div key={i} style={{
-                                            display: 'flex', alignItems: 'center', gap: 12,
-                                            padding: '12px 16px', borderRadius: '10px',
-                                            border: `2px solid ${opt.is_correct ? '#22c55e' : '#f1f5f9'}`,
-                                            background: opt.is_correct ? '#f0fdf4' : '#fff',
-                                            transition: 'all 0.2s'
-                                        }}>
-                                            <div style={{
-                                                width: 28, height: 28, borderRadius: '6px',
-                                                background: opt.is_correct ? '#22c55e' : '#e2e8f0',
-                                                color: opt.is_correct ? '#fff' : '#64748b',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                fontWeight: 800, fontSize: 14, flexShrink: 0
-                                            }}>
-                                                {opt.is_correct ? <CheckCircleOutlined /> : letter}
-                                            </div>
-                                            <span style={{ color: opt.is_correct ? '#166534' : '#334155', fontWeight: opt.is_correct ? 600 : 400, fontSize: 15 }}>
-                                                {opt.option_text}
-                                            </span>
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    </div>
+const PaperQuestion: React.FC<{ q: DraftQuestion; n: number; answers: boolean }> = ({ q, n, answers }) => (
+    <li className="qz-paper-q">
+        <div className="qz-q-head is-plain">
+            <span className="qz-q-num">{n}</span>
+            <span className="qz-q-type">{TYPE_META[q.type].short}</span>
+            <span className="qz-q-pts">{fmtNumber(q.points)} {Number(q.points) === 1 ? 'pt' : 'pts'}</span>
+        </div>
+        <p className="qz-q-text">{q.text}</p>
+        {q.type === 'yes_no' ? (
+            <div className="qz-yn is-view">
+                {(['yes', 'no'] as const).map(v => (
+                    <span key={v} className={`qz-yn-opt${answers && q.answer === v ? ' is-correct' : ''}`}>{answers && q.answer === v && <CheckOutlined />}{v === 'yes' ? 'Yes' : 'No'}</span>
                 ))}
             </div>
-            </div>
-        </div>
+        ) : (
+            <ul className="qz-opts is-view">
+                {q.options.map((o, i) => (
+                    <li key={o.key} className={answers && o.correct ? 'is-correct' : undefined}>
+                        <span className="qz-opt-letter">{answers && o.correct ? <CheckOutlined /> : LETTERS[i]}</span><span>{o.text}</span>
+                    </li>
+                ))}
+                {q.type === 'mcq_multiple' && <li className="qz-opts-note">Students can select several answers.</li>}
+            </ul>
+        )}
+        {answers && q.explanation && <p className="qz-q-explain"><InfoCircleOutlined /> {q.explanation}</p>}
+    </li>
+);
+
+const QuizDetails: React.FC<Props> = ({ quiz, onClose, onEdit, onResults, canEdit }) => {
+    const { apiCall, user } = useAuth();
+    const r = useResponsive();
+    const tz = resolveTimezone(user?.timezone);
+    const when = useMemo(() => makeWhen(tz), [tz]);
+
+    const [draft, setDraft] = useState<DraftQuiz | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [answers, setAnswers] = useState(true);
+    const [attempt, setAttempt] = useState(0);
+    const [showTranscript, setShowTranscript] = useState<Set<string>>(new Set());
+
+    const id = quiz?.id ?? null;
+    useEffect(() => {
+        if (id === null) return;
+        let cancelled = false;
+        setLoading(true);
+        setError(null);
+        setDraft(null);
+        setShowTranscript(new Set());
+        apiCall(`/quizzes/${id}`)
+            .then(async res => {
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.error || 'The quiz could not be loaded.');
+                if (!cancelled) setDraft(draftFromApi(data, tz));
+            })
+            .catch(e => { if (!cancelled) setError(e?.message || 'The quiz could not be loaded.'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+        // tz is stable for the session
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, attempt, apiCall]);
+
+    const state = quiz ? liveStateOf(quiz, 0).state : 'draft';
+    const questions = draft ? allQuestions(draft.blocks) : [];
+    let n = 0;
+
+    const renderBlock = (b: Block) => {
+        if (b.kind === 'question') { n += 1; return <PaperQuestion key={b.key} q={b.question} n={n} answers={answers} />; }
+        const open = showTranscript.has(b.key);
+        const items = b.questions.map(q => { n += 1; return <PaperQuestion key={q.key} q={q} n={n} answers={answers} />; });
+        return (
+            <li key={b.key} className="qz-paper-listen">
+                <div className="qz-paper-listen-head">
+                    <span className="qz-listen-ic"><SoundOutlined /></span>
+                    <div className="qz-listen-id">
+                        <strong>Listening · {plural(b.questions.length, 'question')}</strong>
+                        <em>{[b.clip.durationSeconds ? `${Math.round(b.clip.durationSeconds)} s` : null, b.clip.maxPlays ? `max ${b.clip.maxPlays} ${b.clip.maxPlays === 1 ? 'play' : 'plays'}` : 'unlimited plays'].filter(Boolean).join(' · ')}</em>
+                    </div>
+                    {b.clip.id ? <ClipPlayer clipId={b.clip.id} /> : null}
+                </div>
+                {b.clip.transcript && (
+                    <div className="qz-paper-transcript">
+                        <button type="button" className="qz-link" onClick={() => setShowTranscript(s => { const next = new Set(s); if (next.has(b.key)) next.delete(b.key); else next.add(b.key); return next; })}>
+                            {open ? 'Hide transcript' : 'Show transcript'} <em>students don’t see it</em>
+                        </button>
+                        {open && <p>{b.clip.transcript}</p>}
+                    </div>
+                )}
+                <ol className="qz-paper-list is-nested">{items}</ol>
+            </li>
+        );
+    };
+
+    const windowText = draft && (draft.start || draft.end)
+        ? `${draft.start ? when.at(wallToIso(draft.start, tz)) : 'On publish'} → ${draft.end ? when.at(wallToIso(draft.end, tz)) : 'no end'}`
+        : 'As soon as it is published';
+
+    return (
+        <Drawer open={!!quiz} onClose={onClose} placement="right" width={r.isMobile ? '100%' : Math.min(860, r.width - 48)} destroyOnHidden
+            rootClassName="tc-drawer qz-drawer" closeIcon={<CloseOutlined />}
+            title={<span className="tc-dtitle"><strong>{quiz?.title}</strong><em>Preview & answer key</em></span>}
+            extra={quiz && (
+                <span className="qz-drawer-actions">
+                    {state !== 'draft' && <Button size="small" icon={<TeamOutlined />} onClick={() => onResults(quiz)}>{r.isMobile ? '' : 'Results'}</Button>}
+                    {canEdit(quiz) && <Button size="small" type="primary" icon={<EditOutlined />} onClick={() => onEdit(quiz)}>{r.isMobile ? '' : 'Edit'}</Button>}
+                </span>
+            )}>
+            {loading ? (
+                <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 10 }} /></div>
+            ) : error ? (
+                <div className="tc-alert" role="alert"><WarningOutlined /><span>{error}</span><Button size="small" onClick={() => setAttempt(a => a + 1)}>Retry</Button></div>
+            ) : draft && quiz && (
+                <>
+                    <section className="tc-card qz-paper-head">
+                        <div className="qz-paper-title">
+                            <span className={`qz-state is-${state}`}><i aria-hidden />{STATE_META[state].label}</span>
+                            {draft.description && <p>{draft.description}</p>}
+                        </div>
+                        <dl className="qz-facts is-wide">
+                            <div><dt>Questions</dt><dd>{questions.length}</dd></div>
+                            <div><dt>Points</dt><dd>{fmtNumber(totalPoints(draft.blocks))}</dd></div>
+                            <div><dt>Time limit</dt><dd>{draft.duration} min</dd></div>
+                            <div className="is-span"><dt>Available</dt><dd>{windowText} <em className="qz-muted">{timezoneLabel(user?.timezone)}</em></dd></div>
+                            <div className="is-span"><dt>Batches</dt><dd>{quiz.batches.join(', ') || '—'}</dd></div>
+                            <div className="is-span"><dt>Delivery</dt><dd>{[draft.shuffleQuestions ? 'Questions shuffled' : 'Fixed question order', draft.shuffleOptions ? 'options shuffled' : 'fixed option order'].join(' · ')}</dd></div>
+                        </dl>
+                        {draft.instructions && (
+                            <div className="qz-instructions"><strong>Instructions for students</strong><p>{draft.instructions}</p></div>
+                        )}
+                    </section>
+
+                    <section className="tc-card qz-paper">
+                        <header className="qz-panel-head">
+                            <h3>Questions <span className="tc-count">{questions.length}</span></h3>
+                            <label className="qz-inline-switch"><Switch size="small" checked={answers} onChange={setAnswers} /> Show answers</label>
+                        </header>
+                        {draft.blocks.length === 0
+                            ? <p className="tc-muted-line">This quiz has no questions yet.</p>
+                            : <ol className="qz-paper-list">{draft.blocks.map(renderBlock)}</ol>}
+                    </section>
+                </>
+            )}
+        </Drawer>
     );
 };
 

@@ -1,597 +1,530 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Row, Col, Typography, message, Select, Button, Space, Skeleton } from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, ConfigProvider, Segmented, Skeleton, Tooltip } from 'antd';
 import {
-  UserOutlined,
-  TeamOutlined,
-  BookOutlined,
-  DownloadOutlined,
-  RiseOutlined,
-  CalendarOutlined,
-  FileTextOutlined,
-  AppstoreOutlined,
+    ArrowRightOutlined, BookOutlined, CalendarOutlined, CheckCircleFilled, ClockCircleOutlined, CustomerServiceOutlined,
+    FileTextOutlined, PlusOutlined, ReloadOutlined, RiseOutlined, TeamOutlined, UserAddOutlined, UserOutlined,
+    VideoCameraOutlined, WarningOutlined,
 } from '@ant-design/icons';
-import { useAuth } from '../../contexts/AuthContext';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import { formatPlain, timezoneLabel } from '../../utils/timezone';
+import { countOf, daysBetween, statusOf } from './batchUtils';
+import type { Batch } from './batchUtils';
+import './AdminDashboard.css';
 
-// Replace Chart.js/react-chartjs-2 with Ant Design Plots
-import { Pie, Column } from '@ant-design/plots';
+/* ══════════════════════════════════════════
+   ADMIN DASHBOARD — what needs attention, what's next, how the school is doing.
+   Lightweight SVG/CSS charts (no chart library) so the page opens fast.
+══════════════════════════════════════════ */
 
-const { Text } = Typography;
-
-// Types
-interface User {
-  id: number;
-  email: string;
-  first_name: string;
-  last_name: string;
-  role: 'admin' | 'teacher' | 'student';
-  created_at: string;
-}
-
-interface Batch {
-  id: number;
-  name: string;
-  teacher_id: number;
-  teacher_first_name?: string;
-  teacher_last_name?: string;
-  start_date: string;
-  end_date: string;
-  student_count?: number;
-  french_level?: string;
-  created_at: string;
-}
-
+interface User { id: number; role: 'admin' | 'teacher' | 'student'; created_at: string; is_active?: boolean; }
 interface Quiz {
-  id: number;
-  title: string;
-  status: 'draft' | 'published' | 'archived' | string;
-  created_at: string;
-  updated_at?: string;
+    id: number; title: string; status: string; created_at: string; schedule_state?: string;
+    submitted_students?: number; total_students?: number; avg_score?: number | null; batch_names?: string | null;
 }
-
 interface ScheduleItem {
-  id: number;
-  title: string;
-  type: 'class' | 'assignment' | 'quiz' | 'exam' | 'meeting' | 'other' | string;
-  start_time: string;
-  end_time: string;
-  created_at: string;
+    id: number; title: string; type: string; start_time: string; end_time: string; status?: string;
+    batch_name?: string | null; teacher_first_name?: string; teacher_last_name?: string;
 }
+interface Meeting { id: number; title: string; status: string; started_at?: string | null; participant_count?: number | string; teacher_first_name?: string; teacher_last_name?: string; }
+interface DemoRequest { id: number; full_name: string; email: string; country?: string; interested_level?: string; current_level?: string; status: string; created_at: string; }
+interface DemoStats { total?: number | string; new_requests?: number | string; contacted?: number | string; demo_scheduled?: number | string; this_week?: number | string; this_month?: number | string; }
+interface Attendance { overall_attendance_rate?: number; total_present?: number; total_late?: number; total_absent?: number; total_sessions?: number; sessions_with_codes?: number; }
 
-/* ── Premium KPI Card ── */
-const KpiCard: React.FC<{
-  label: string; value: number | string; icon: React.ReactNode;
-  accent: string; gradient: string; sub?: string;
-}> = ({ label, value, icon, accent, gradient, sub }) => (
-  <div style={{
-    borderRadius: 14, padding: '14px 16px',
-    background: '#fff', border: '1px solid #f0f0f8',
-    boxShadow: '0 2px 16px rgba(99,102,241,0.06)',
-    display: 'flex', alignItems: 'center', gap: 12,
-    transition: 'all 0.2s ease',
-    cursor: 'default',
-    position: 'relative',
-    overflow: 'hidden',
-  }}
-    onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
-    onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 16px rgba(99,102,241,0.06)'; }}
-  >
-    <div style={{ position: 'absolute', right: -20, top: -20, width: 70, height: 70, borderRadius: '50%', background: gradient, opacity: 0.08, pointerEvents: 'none' }} />
-    <div style={{
-      width: 40, height: 40, borderRadius: 11,
-      background: gradient,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 18, color: '#fff', flexShrink: 0,
-      boxShadow: `0 4px 12px ${accent}40`,
-    }}>
-      {icon}
-    </div>
-    <div style={{ position: 'relative', zIndex: 1, minWidth: 0, flex: 1 }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1 }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sub}</div>}
-    </div>
-  </div>
-);
+interface Data {
+    users: User[] | null;
+    batches: Batch[] | null;
+    quizzes: Quiz[] | null;
+    schedules: ScheduleItem[] | null;
+    meetings: Meeting[] | null;
+    demos: { list: DemoRequest[]; stats: DemoStats } | null;
+    attendance: Attendance | null;
+}
+const EMPTY: Data = { users: null, batches: null, quizzes: null, schedules: null, meetings: null, demos: null, attendance: null };
+const n = (v: unknown) => Number(v) || 0;
+const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
-/* ── Chart Card Wrapper ── */
-const ChartCard: React.FC<{
-  title: string; icon: React.ReactNode; accentColor: string;
-  extra?: React.ReactNode; children: React.ReactNode;
-}> = ({ title, icon, accentColor, extra, children }) => (
-  <div style={{
-    background: '#fff', borderRadius: 18,
-    border: '1px solid #f0f0f8',
-    boxShadow: '0 2px 16px rgba(99,102,241,0.06)',
-    overflow: 'hidden',
-  }}>
-    <div style={{
-      padding: '16px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      borderBottom: '1px solid #f5f5fa',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
-          width: 32, height: 32, borderRadius: 10,
-          background: `${accentColor}14`, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          color: accentColor, fontSize: 15,
-        }}>
-          {icon}
+/* ── Small charts ── */
+const Donut: React.FC<{ parts: { label: string; value: number; color: string }[]; size?: number; center: React.ReactNode }> = ({ parts, size = 132, center }) => {
+    const total = parts.reduce((s, p) => s + p.value, 0);
+    const r = 52;
+    const c = 2 * Math.PI * r;
+    let offset = 0;
+    return (
+        <div className="ad-donut" style={{ width: size, height: size }}>
+            <svg viewBox="0 0 132 132" width={size} height={size} aria-hidden>
+                <circle cx="66" cy="66" r={r} fill="none" stroke="#f1f5f9" strokeWidth="14" />
+                {total > 0 && parts.map(p => {
+                    const len = (p.value / total) * c;
+                    const el = (
+                        <circle key={p.label} cx="66" cy="66" r={r} fill="none" stroke={p.color} strokeWidth="14"
+                            strokeDasharray={`${Math.max(0, len - 2)} ${c}`} strokeDashoffset={-offset} transform="rotate(-90 66 66)" />
+                    );
+                    offset += len;
+                    return el;
+                })}
+            </svg>
+            <div className="ad-donut-center">{center}</div>
         </div>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{title}</span>
-      </div>
-      {extra && <div>{extra}</div>}
-    </div>
-    <div style={{ padding: '20px 22px' }}>
-      {children}
-    </div>
-  </div>
+    );
+};
+
+const Ring: React.FC<{ value: number; tone: string }> = ({ value, tone }) => {
+    const r = 44;
+    const c = 2 * Math.PI * r;
+    const v = Math.max(0, Math.min(100, value));
+    return (
+        <div className={`ad-ring is-${tone}`}>
+            <svg viewBox="0 0 104 104" width="104" height="104" aria-hidden>
+                <circle cx="52" cy="52" r={r} fill="none" stroke="#f1f5f9" strokeWidth="10" />
+                <circle cx="52" cy="52" r={r} fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round"
+                    strokeDasharray={`${(v / 100) * c} ${c}`} transform="rotate(-90 52 52)" />
+            </svg>
+            <strong>{Math.round(v)}%</strong>
+        </div>
+    );
+};
+
+const Card: React.FC<{ title: string; icon: React.ReactNode; action?: React.ReactNode; className?: string; children: React.ReactNode }> = ({ title, icon, action, className = '', children }) => (
+    <section className={`ad-card ${className}`}>
+        <header className="ad-card-head">
+            <span className="ad-card-title"><span className="ad-card-ic">{icon}</span>{title}</span>
+            {action}
+        </header>
+        <div className="ad-card-body">{children}</div>
+    </section>
 );
 
-/* ── Dashboard Skeleton ── */
-const DashboardSkeleton: React.FC = () => (
-  <div>
-    {/* Header skeleton */}
-    <div style={{ marginBottom: 28 }}>
-      <Skeleton.Input active style={{ width: 260, height: 30, borderRadius: 8 }} />
-      <div style={{ marginTop: 8 }}>
-        <Skeleton.Input active style={{ width: 320, height: 14, borderRadius: 6 }} />
-      </div>
-    </div>
-
-    {/* KPI skeleton */}
-    <Row gutter={[16, 16]} style={{ marginBottom: 28 }}>
-      {[1, 2, 3, 4].map(i => (
-        <Col xs={24} sm={12} md={6} key={i}>
-          <div style={{
-            borderRadius: 18, padding: '22px 24px',
-            background: '#fff', border: '1px solid #f0f0f8',
-            boxShadow: '0 2px 16px rgba(99,102,241,0.06)',
-            display: 'flex', alignItems: 'center', gap: 16,
-          }}>
-            <Skeleton.Avatar active size={48} shape="square" style={{ borderRadius: 14 }} />
-            <div style={{ flex: 1 }}>
-              <Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 10 }} block />
-              <Skeleton.Input active style={{ width: 50, height: 28, borderRadius: 6 }} />
-            </div>
-          </div>
-        </Col>
-      ))}
-    </Row>
-
-    {/* Charts skeleton */}
-    <Row gutter={[16, 16]}>
-      {[1, 2].map(i => (
-        <Col xs={24} md={12} key={i}>
-          <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f0f0f8', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Skeleton.Avatar active size={32} shape="square" style={{ borderRadius: 10 }} />
-              <Skeleton.Input active style={{ width: 140, height: 16, borderRadius: 4 }} />
-            </div>
-            <div style={{ padding: '20px 22px' }}>
-              <Skeleton.Button active block style={{ height: 260, borderRadius: 12 }} />
-            </div>
-          </div>
-        </Col>
-      ))}
-    </Row>
-    <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-      {[1, 2].map(i => (
-        <Col xs={24} md={12} key={i}>
-          <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #f0f0f8', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Skeleton.Avatar active size={32} shape="square" style={{ borderRadius: 10 }} />
-              <Skeleton.Input active style={{ width: 160, height: 16, borderRadius: 4 }} />
-            </div>
-            <div style={{ padding: '20px 22px' }}>
-              <Skeleton.Button active block style={{ height: 260, borderRadius: 12 }} />
-            </div>
-          </div>
-        </Col>
-      ))}
-    </Row>
-  </div>
-);
+const Unavailable: React.FC<{ what: string }> = ({ what }) => <div className="ad-unavailable">{what} couldn’t be loaded right now.</div>;
 
 const AdminDashboard: React.FC = () => {
-  const [users, setUsers] = useState<User[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const { apiCall } = useAuth();
+    const { apiCall, user } = useAuth();
+    const navigate = useNavigate();
+    const [data, setData] = useState<Data>(EMPTY);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [months, setMonths] = useState<6 | 12>(6);
+    const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
 
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    totalTeachers: 0,
-    totalStudents: 0,
-    totalBatches: 0,
-  });
+    const load = useCallback(async () => {
+        const get = async <T,>(path: string, pick?: (d: any) => T): Promise<T | null> => {
+            try {
+                const res = await apiCall(path);
+                if (!res.ok) return null;
+                const d = await res.json();
+                return pick ? pick(d) : d;
+            } catch { return null; }
+        };
+        const arr = (d: any) => (Array.isArray(d) ? d : d?.batches || d?.data || []);
+        const [users, batches, quizzes, schedules, meetings, demos, attendance] = await Promise.all([
+            get<User[]>('/users', arr),
+            get<Batch[]>('/batches', arr),
+            get<Quiz[]>('/quizzes', arr),
+            get<ScheduleItem[]>('/schedules', arr),
+            get<Meeting[]>('/meetings', arr),
+            get('/demo-requests?limit=5', d => ({ list: (d?.data || []) as DemoRequest[], stats: (d?.statistics || {}) as DemoStats })),
+            get<Attendance>('/attendance/reports/overview'),
+        ]);
+        setData({ users, batches, quizzes, schedules, meetings, demos, attendance });
+        setUpdatedAt(Date.now());
+        setLoading(false);
+        setRefreshing(false);
+    }, [apiCall]);
 
-  // Controls
-  const [monthsRange, setMonthsRange] = useState<number>(6);
+    useEffect(() => { load(); }, [load]);
 
-  // Chart refs for export (AntV plots)
-  const rolePlotRef = useRef<any>(null);
-  const signupPlotRef = useRef<any>(null);
-  
-  const quizStatusPlotRef = useRef<any>(null);
-  const scheduleTypePlotRef = useRef<any>(null);
+    const tz = user?.timezone;
+    const fmt = (iso: string, opts: Intl.DateTimeFormatOptions) => formatPlain(iso, tz, opts);
+    const time = (iso: string) => fmt(iso, { hour: 'numeric', minute: '2-digit', hour12: true });
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    /* ═══════════ INSIGHTS ═══════════ */
+    const m = useMemo(() => {
+        const now = Date.now();
+        const users = data.users || [];
+        const batches = data.batches || [];
+        const quizzes = data.quizzes || [];
+        const schedules = data.schedules || [];
+        const students = users.filter(u => u.role === 'student');
+        const teachers = users.filter(u => u.role === 'teacher');
+        const within = (iso: string, days: number) => (now - new Date(iso).getTime()) / 86400_000 <= days;
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [usersRes, batchesRes, quizzesRes, schedulesRes] = await Promise.all([
-        apiCall('/users'),
-        apiCall('/batches'),
-        apiCall('/quizzes'),
-        apiCall('/schedules'),
-      ]);
+        // Growth by month
+        const monthKeys = Array.from({ length: months }, (_, i) => dayjs().subtract(months - 1 - i, 'month').startOf('month'));
+        const growth = monthKeys.map(k => {
+            const inMonth = users.filter(u => dayjs(u.created_at).isSame(k, 'month'));
+            return {
+                key: k.format('YYYY-MM'),
+                label: k.format('MMM'),
+                full: k.format('MMMM YYYY'),
+                students: inMonth.filter(u => u.role === 'student').length,
+                others: inMonth.filter(u => u.role !== 'student').length,
+            };
+        });
+        const periodStart = monthKeys[0];
+        const newInPeriod = users.filter(u => !dayjs(u.created_at).isBefore(periodStart)).length;
+        const prevStart = periodStart.subtract(months, 'month');
+        const newPrev = users.filter(u => !dayjs(u.created_at).isBefore(prevStart) && dayjs(u.created_at).isBefore(periodStart)).length;
 
-      // Users
-      if (usersRes.ok) {
-        const usersData: User[] = await usersRes.json();
-        setUsers(Array.isArray(usersData) ? usersData : []);
-        const teachers = usersData.filter(u => u.role === 'teacher').length;
-        const students = usersData.filter(u => u.role === 'student').length;
-        setStats(prev => ({ ...prev, totalUsers: usersData.length, totalTeachers: teachers, totalStudents: students }));
-      } else {
-        const err = await usersRes.json().catch(() => ({}));
-        message.error(err.error || err.message || 'Failed to fetch users');
-      }
+        // Batches
+        const st = batches.map(b => ({ b, s: statusOf(b, now) }));
+        const running = st.filter(x => x.s === 'running').map(x => x.b);
+        const upcoming = st.filter(x => x.s === 'upcoming').map(x => x.b);
+        const ended = st.filter(x => x.s === 'ended').map(x => x.b);
+        const empty = [...running, ...upcoming].filter(b => countOf(b) === 0);
+        const endingSoon = running.filter(b => daysBetween(now, b.end_date) <= 14);
+        const startingSoon = upcoming.filter(b => daysBetween(now, b.start_date) <= 7);
+        const topBatches = [...running, ...upcoming].sort((a, b) => countOf(b) - countOf(a)).slice(0, 5);
 
-      // Batches
-      if (batchesRes.ok) {
-        const batchesData: any = await batchesRes.json();
-        const list: Batch[] = Array.isArray(batchesData) ? batchesData : (batchesData.batches || []);
-        setBatches(list);
-        setStats(prev => ({ ...prev, totalBatches: list.length }));
-      } else {
-        const err = await batchesRes.json().catch(() => ({}));
-        message.error(err.error || err.message || 'Failed to fetch batches');
-      }
+        // Quizzes
+        const live = quizzes.filter(q => q.status === 'published' && (q.schedule_state || 'active') === 'active');
+        const drafts = quizzes.filter(q => q.status === 'draft');
+        const lowCompletion = live.filter(q => n(q.total_students) > 0 && n(q.submitted_students) / n(q.total_students) < 0.5);
+        const scored = quizzes.filter(q => q.avg_score != null && !Number.isNaN(Number(q.avg_score)));
+        const avgScore = scored.length ? scored.reduce((s, q) => s + Number(q.avg_score), 0) / scored.length : null;
+        const liveTotals = live.reduce((acc, q) => ({ sub: acc.sub + n(q.submitted_students), all: acc.all + n(q.total_students) }), { sub: 0, all: 0 });
 
-      // Quizzes
-      if (quizzesRes.ok) {
-        const quizData: Quiz[] = await quizzesRes.json();
-        setQuizzes(Array.isArray(quizData) ? quizData : []);
-      } else {
-        const err = await quizzesRes.json().catch(() => ({}));
-        message.error(err.error || err.message || 'Failed to fetch quizzes');
-      }
+        // Classes
+        const weekStart = dayjs().startOf('week');
+        const weekEnd = weekStart.add(7, 'day');
+        const classesThisWeek = schedules.filter(s => s.type === 'class' && s.status !== 'cancelled'
+            && !dayjs(s.start_time).isBefore(weekStart) && dayjs(s.start_time).isBefore(weekEnd)).length;
+        const next = schedules
+            .filter(s => s.status !== 'cancelled' && new Date(s.end_time).getTime() > now)
+            .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+            .slice(0, 6);
+        const liveMeetings = (data.meetings || []).filter(x => x.status === 'active');
 
-      // Schedules
-      if (schedulesRes.ok) {
-        const scheduleData: ScheduleItem[] = await schedulesRes.json();
-        setSchedules(Array.isArray(scheduleData) ? scheduleData : []);
-      } else {
-        const err = await schedulesRes.json().catch(() => ({}));
-        message.error(err.error || err.message || 'Failed to fetch schedules');
-      }
-    } catch (e) {
-      message.error('Failed to fetch data');
-    } finally {
-      setLoading(false);
+        return {
+            students, teachers,
+            activeStudents: students.filter(u => u.is_active !== false).length,
+            newStudents30: students.filter(u => within(u.created_at, 30)).length,
+            admins: users.filter(u => u.role === 'admin').length,
+            disabled: users.filter(u => u.is_active === false).length,
+            growth, newInPeriod, newPrev,
+            running, upcoming, ended, empty, endingSoon, startingSoon, topBatches,
+            enrolled: [...running, ...upcoming].reduce((s, b) => s + countOf(b), 0),
+            live, drafts, lowCompletion, avgScore, liveTotals,
+            quizCounts: {
+                published: quizzes.filter(q => q.status === 'published').length,
+                draft: drafts.length,
+                archived: quizzes.filter(q => q.status === 'archived').length,
+            },
+            classesThisWeek, next, liveMeetings,
+        };
+    }, [data, months]);
+
+    const demoNew = n(data.demos?.stats.new_requests);
+    const attendanceRate = data.attendance ? n(data.attendance.overall_attendance_rate) : null;
+
+    const attention = [
+        demoNew > 0 && { key: 'demo', tone: 'amber', icon: <CustomerServiceOutlined />, title: `${plural(demoNew, 'new demo request')}`, text: 'Waiting to be contacted', cta: 'Review', to: '/app/demo-requests' },
+        m.empty.length > 0 && { key: 'empty', tone: 'red', icon: <TeamOutlined />, title: `${plural(m.empty.length, 'batch', 'batches')} without students`, text: m.empty.slice(0, 2).map(b => b.name).join(', ') + (m.empty.length > 2 ? '…' : ''), cta: 'Enrol', to: '/app/batches' },
+        m.lowCompletion.length > 0 && { key: 'quiz', tone: 'amber', icon: <FileTextOutlined />, title: `${plural(m.lowCompletion.length, 'live quiz', 'live quizzes')} under 50% completion`, text: m.lowCompletion.slice(0, 2).map(q => q.title).join(', '), cta: 'Open', to: '/app/quiz-management' },
+        m.endingSoon.length > 0 && { key: 'ending', tone: 'blue', icon: <CalendarOutlined />, title: `${plural(m.endingSoon.length, 'batch', 'batches')} end within 14 days`, text: 'Plan the next level for these students', cta: 'View', to: '/app/batches' },
+        m.startingSoon.length > 0 && { key: 'starting', tone: 'indigo', icon: <ClockCircleOutlined />, title: `${plural(m.startingSoon.length, 'batch', 'batches')} start this week`, text: m.startingSoon.slice(0, 2).map(b => b.name).join(', '), cta: 'Check', to: '/app/batches' },
+        m.drafts.length > 0 && { key: 'drafts', tone: 'slate', icon: <FileTextOutlined />, title: `${plural(m.drafts.length, 'draft quiz', 'draft quizzes')}`, text: 'Not visible to students yet', cta: 'Finish', to: '/app/quiz-management' },
+    ].filter(Boolean) as { key: string; tone: string; icon: React.ReactNode; title: string; text: string; cta: string; to: string }[];
+
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const growthMax = Math.max(1, ...m.growth.map(g => g.students + g.others));
+    const growthDelta = m.newPrev ? Math.round(((m.newInPeriod - m.newPrev) / m.newPrev) * 100) : null;
+    const quizTotal = m.quizCounts.published + m.quizCounts.draft + m.quizCounts.archived;
+    const batchTotal = m.running.length + m.upcoming.length + m.ended.length;
+    const topMax = Math.max(1, ...m.topBatches.map(countOf));
+    const DEMO_STATUS: Record<string, string> = { new: 'New', contacted: 'Contacted', demo_scheduled: 'Scheduled', completed: 'Completed', cancelled: 'Cancelled' };
+
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) {
+        return (
+            <div className="ad" aria-busy="true">
+                <div className="ad-header"><div><Skeleton.Input active size="small" style={{ width: 140, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 260, height: 26 }} /></div></div></div>
+                <div className="ad-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="ad-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                <div className="ad-grid">
+                    <div className="ad-card ad-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
+                    <div className="ad-card ad-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
+                </div>
+            </div>
+        );
     }
-  };
 
-  // Derived datasets for charts (data originates from backend lists above)
-  const rolePieData = useMemo(() => {
-    const admins = users.filter(u => u.role === 'admin').length;
-    const teachers = users.filter(u => u.role === 'teacher').length;
-    const students = users.filter(u => u.role === 'student').length;
-    return [
-      { type: 'Admins', value: admins },
-      { type: 'Teachers', value: teachers },
-      { type: 'Students', value: students },
+    const kpis = [
+        { key: 'students', label: 'Students', value: data.users ? m.students.length : '—', sub: data.users ? `${m.activeStudents} active · +${m.newStudents30} this month` : 'Unavailable', icon: <UserOutlined />, tone: 'green', to: '/app/users' },
+        { key: 'batches', label: 'Running batches', value: data.batches ? m.running.length : '—', sub: data.batches ? `${m.enrolled} enrolments · ${m.upcoming.length} upcoming` : 'Unavailable', icon: <BookOutlined />, tone: 'indigo', to: '/app/batches' },
+        { key: 'classes', label: 'Classes this week', value: data.schedules ? m.classesThisWeek : '—', sub: data.schedules ? `${m.next.length ? `Next ${fmt(m.next[0].start_time, { weekday: 'short' })} ${time(m.next[0].start_time)}` : 'Nothing scheduled'}` : 'Unavailable', icon: <CalendarOutlined />, tone: 'blue', to: '/app/timetable' },
+        { key: 'attendance', label: 'Attendance rate', value: attendanceRate != null ? `${Math.round(attendanceRate)}%` : '—', sub: data.attendance ? `${n(data.attendance.total_present) + n(data.attendance.total_late)} check-ins recorded` : 'Unavailable', icon: <CheckCircleFilled />, tone: attendanceRate != null && attendanceRate < 70 ? 'amber' : 'teal', to: '/app/attendance' },
+        { key: 'demos', label: 'New demo requests', value: data.demos ? demoNew : '—', sub: data.demos ? `${n(data.demos.stats.this_week)} this week · ${n(data.demos.stats.demo_scheduled)} scheduled` : 'Unavailable', icon: <CustomerServiceOutlined />, tone: demoNew > 0 ? 'amber' : 'slate', to: '/app/demo-requests' },
     ];
-  }, [users]);
 
-  const monthlySignupData = useMemo(() => {
-    const months = Array.from({ length: monthsRange }, (_, i) => dayjs().subtract(monthsRange - 1 - i, 'month').startOf('month'));
-    const bucket = new Map<string, number>();
-    months.forEach(m => bucket.set(m.format('YYYY-MM'), 0));
-    users.forEach(u => {
-      const key = dayjs(u.created_at).startOf('month').format('YYYY-MM');
-      if (bucket.has(key)) bucket.set(key, (bucket.get(key) || 0) + 1);
-    });
-    return months.map(m => ({ month: m.format('MMM'), key: m.format('YYYY-MM'), signups: bucket.get(m.format('YYYY-MM')) || 0 }));
-  }, [users, monthsRange]);
-
-  const topBatchesData = useMemo(() => {
-    return [...batches]
-      .sort((a, b) => (b.student_count || 0) - (a.student_count || 0))
-      .slice(0, 5)
-      .map(b => ({ batch: b.name, students: b.student_count || 0 }));
-  }, [batches]);
-
-  const quizStatusData = useMemo(() => {
-    const statuses = ['draft', 'published', 'archived'];
-    const labels = ['Draft', 'Published', 'Archived'];
-    return statuses.map((s, idx) => ({ status: labels[idx], count: quizzes.filter(q => (q.status || '').toLowerCase() === s).length }));
-  }, [quizzes]);
-
-  const scheduleTypeData = useMemo(() => {
-    const types = ['class', 'assignment', 'quiz', 'exam', 'meeting', 'other'];
-    const labels = ['Class', 'Assignment', 'Quiz', 'Exam', 'Meeting', 'Other'];
-    return types.map((t, idx) => ({ type: labels[idx], value: schedules.filter(s => (s.type || '').toLowerCase() === t).length }));
-  }, [schedules]);
-
-  const downloadPlot = (ref: React.MutableRefObject<any>, filename: string) => {
-    const plot = ref.current;
-    if (!plot) return;
-    // Try AntV download helpers first
-    if (typeof plot.downloadImage === 'function') {
-      try {
-        plot.downloadImage(filename.replace(/\.[a-zA-Z0-9]+$/, ''));
-        return;
-      } catch {
-        // fallback below
-      }
-    }
-    const url = typeof plot.toDataURL === 'function' ? plot.toDataURL() : undefined;
-    if (!url) {
-      message.warning('Download not supported for this chart');
-      return;
-    }
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-  };
-
-  /* ── Loading state ── */
-  if (loading) return <DashboardSkeleton />;
-
-  return (
-    <div>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-          Admin Dashboard
-        </div>
-        <Text style={{ fontSize: 13, color: '#94a3b8' }}>
-          Platform overview · {users.length} users · {batches.length} batches · {quizzes.length} quizzes
-        </Text>
-      </div>
-
-      {/* KPI cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 28 }}>
-        <Col xs={24} sm={12} md={6}>
-          <KpiCard label="Total Users" value={stats.totalUsers}
-            icon={<UserOutlined />} accent="#6366f1"
-            gradient="linear-gradient(135deg, #6366f1, #818cf8)"
-            sub={`${stats.totalTeachers} teachers · ${stats.totalStudents} students`} />
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <KpiCard label="Teachers" value={stats.totalTeachers}
-            icon={<TeamOutlined />} accent="#0ea5e9"
-            gradient="linear-gradient(135deg, #0ea5e9, #38bdf8)" />
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <KpiCard label="Students" value={stats.totalStudents}
-            icon={<RiseOutlined />} accent="#22c55e"
-            gradient="linear-gradient(135deg, #22c55e, #4ade80)" />
-        </Col>
-        <Col xs={24} sm={12} md={6}>
-          <KpiCard label="Batches" value={stats.totalBatches}
-            icon={<BookOutlined />} accent="#f59e0b"
-            gradient="linear-gradient(135deg, #f59e0b, #fbbf24)" />
-        </Col>
-      </Row>
-
-      {/* Analytics Row 1 */}
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <ChartCard title="Users by Role" icon={<UserOutlined />} accentColor="#6366f1"
-            extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(rolePlotRef as any, 'users-by-role.png')}
-                style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', fontWeight: 600, fontSize: 12 }}>
-                Export
-              </Button>
-            }
-          >
-            <div style={{ height: 280 }}>
-              {users.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Text type="secondary">No user data available</Text>
-                </div>
-              ) : (
-                <Pie
-                  data={rolePieData}
-                  height={280}
-                  angleField="value"
-                  colorField="type"
-                  radius={1}
-                  innerRadius={0.6}
-                  legend={{ position: 'bottom' }}
-                  label={{ text: 'value', style: { fontSize: 12 } }}
-                  tooltip={{ items: [{ channel: 'x', field: 'type' }, { channel: 'y', field: 'value' }] }}
-                  onReady={(plot) => (rolePlotRef.current = plot)}
-                />
-              )}
-            </div>
-          </ChartCard>
-        </Col>
-
-        <Col xs={24} md={12}>
-          <ChartCard title="User Signups" icon={<RiseOutlined />} accentColor="#8b5cf6"
-            extra={
-              <Space size={8}>
-                <Select
-                  size="small"
-                  value={monthsRange}
-                  onChange={setMonthsRange}
-                  style={{ width: 130, borderRadius: 8 }}
-                  options={[
-                    { value: 3, label: 'Last 3 months' },
-                    { value: 6, label: 'Last 6 months' },
-                    { value: 12, label: 'Last 12 months' },
-                  ]}
-                />
-                <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(signupPlotRef as any, 'user-signups.png')}
-                  style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', fontWeight: 600, fontSize: 12 }}>
-                  Export
-                </Button>
-              </Space>
-            }
-          >
-            <div style={{ height: 280 }}>
-              {monthlySignupData.every((v) => v.signups === 0) ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Text type="secondary">No signup activity in the selected period</Text>
-                </div>
-              ) : (
-                <Column
-                  data={monthlySignupData}
-                  height={280}
-                  xField="month"
-                  yField="signups"
-                  columnStyle={{ radius: 6 }}
-                  color="#722ed1"
-                  yAxis={{ nice: true, tick: { formatter: (v: number) => `${v}` } }}
-                  onReady={(plot) => (signupPlotRef.current = plot)}
-                />
-              )}
-            </div>
-          </ChartCard>
-        </Col>
-      </Row>
-
-      {/* Analytics Row 2 */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={12}>
-          <ChartCard title="Top Batches by Students" icon={<TeamOutlined />} accentColor="#0ea5e9">
-            <div style={{ height: 280, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 14 }}>
-              {batches.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Text type="secondary">No batch data available</Text>
-                </div>
-              ) : (
-                topBatchesData.map((item, idx) => {
-                  const max = topBatchesData[0]?.students || 1;
-                  const pct = Math.max((item.students / max) * 100, 8);
-                  const colors = ['#6366f1', '#0ea5e9', '#22c55e', '#f59e0b', '#ec4899'];
-                  const color = colors[idx % colors.length];
-                  return (
-                    <div key={item.batch}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: '#334155', maxWidth: '75%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {item.batch}
-                        </span>
-                        <span style={{ fontSize: 13, fontWeight: 800, color }}>
-                          {item.students}
-                        </span>
-                      </div>
-                      <div style={{ width: '100%', height: 10, borderRadius: 6, background: '#f1f5f9', overflow: 'hidden' }}>
-                        <div style={{ width: `${pct}%`, height: '100%', borderRadius: 6, background: `linear-gradient(90deg, ${color}, ${color}cc)`, transition: 'width 0.6s ease' }} />
-                      </div>
+    return (
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            <div className="ad">
+                {/* ── Header ── */}
+                <header className="ad-header">
+                    <div>
+                        <div className="ad-overline">Admin console · {formatPlain(new Date(), tz, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+                        <h1 className="ad-title">{greeting}{user?.first_name ? `, ${user.first_name}` : ''}</h1>
+                        <p className="ad-subtitle">
+                            {attention.length ? `${plural(attention.length, 'thing needs', 'things need')} your attention today.` : 'Everything is on track today.'}
+                            {' '}Updated {formatPlain(updatedAt, tz, { hour: 'numeric', minute: '2-digit', hour12: true })} · {timezoneLabel(tz)}
+                        </p>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          </ChartCard>
-        </Col>
+                    <div className="ad-header-actions">
+                        <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={refreshing} />} aria-label="Refresh" onClick={() => { setRefreshing(true); load(); }} /></Tooltip>
+                        <Button icon={<UserAddOutlined />} onClick={() => navigate('/app/users')}>Add user</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/app/batches?new=1')}>New batch</Button>
+                    </div>
+                </header>
 
-        <Col xs={24} md={12}>
-          <ChartCard title="Quiz Status Distribution" icon={<FileTextOutlined />} accentColor="#f59e0b"
-            extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(quizStatusPlotRef as any, 'quiz-status.png')}
-                style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', fontWeight: 600, fontSize: 12 }}>
-                Export
-              </Button>
-            }
-          >
-            <div style={{ height: 280 }}>
-              {quizzes.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Text type="secondary">No quizzes found</Text>
-                </div>
-              ) : (
-                <Column
-                  data={quizStatusData}
-                  height={280}
-                  xField="status"
-                  yField="count"
-                  columnStyle={{ radius: 6 }}
-                  color={(d: any) => (d.status === 'Draft' ? '#faad14' : d.status === 'Published' ? '#52c41a' : '#8c8c8c')}
-                  yAxis={{ nice: true, tick: { formatter: (v: number) => `${v}` } }}
-                  onReady={(plot) => (quizStatusPlotRef.current = plot)}
-                />
-              )}
-            </div>
-          </ChartCard>
-        </Col>
-      </Row>
+                {/* ── KPIs ── */}
+                <section className="ad-kpis" aria-label="Key numbers">
+                    {kpis.map(k => (
+                        <button key={k.key} type="button" className={`ad-kpi ad-k-${k.tone}`} onClick={() => navigate(k.to)}>
+                            <span className="ad-kpi-top"><span className="ad-kpi-ic">{k.icon}</span><ArrowRightOutlined className="ad-kpi-go" /></span>
+                            <span className="ad-kpi-label">{k.label}</span>
+                            <strong className="ad-kpi-value">{k.value}</strong>
+                            <span className="ad-kpi-sub">{k.sub}</span>
+                        </button>
+                    ))}
+                </section>
 
-      {/* Analytics Row 3 */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={12}>
-          <ChartCard title="Schedule Types" icon={<CalendarOutlined />} accentColor="#ec4899"
-            extra={
-              <Button size="small" icon={<DownloadOutlined />} onClick={() => downloadPlot(scheduleTypePlotRef as any, 'schedule-types.png')}
-                style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', fontWeight: 600, fontSize: 12 }}>
-                Export
-              </Button>
-            }
-          >
-            <div style={{ height: 280 }}>
-              {schedules.length === 0 ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Text type="secondary">No schedules available</Text>
-                </div>
-              ) : (
-                <Pie
-                  data={scheduleTypeData}
-                  height={280}
-                  angleField="value"
-                  colorField="type"
-                  radius={1}
-                  innerRadius={0.6}
-                  legend={{ position: 'bottom' }}
-                  label={{ text: 'value', style: { fontSize: 12 } }}
-                  tooltip={{ items: [{ channel: 'x', field: 'type' }, { channel: 'y', field: 'value' }] }}
-                  onReady={(plot) => (scheduleTypePlotRef.current = plot)}
-                />
-              )}
-            </div>
-          </ChartCard>
-        </Col>
+                {/* ── Attention + next up ── */}
+                <div className="ad-grid">
+                    <Card title="Needs your attention" icon={<WarningOutlined />} className="ad-attention"
+                        action={attention.length > 0 && <span className="ad-badge">{attention.length}</span>}>
+                        {attention.length === 0 ? (
+                            <div className="ad-allclear">
+                                <span className="ad-allclear-ic"><CheckCircleFilled /></span>
+                                <strong>All clear</strong>
+                                <span>No pending requests, empty batches or struggling quizzes.</span>
+                            </div>
+                        ) : (
+                            <ul className="ad-alerts">
+                                {attention.map(a => (
+                                    <li key={a.key} className={`is-${a.tone}`}>
+                                        <span className="ad-alert-ic">{a.icon}</span>
+                                        <span className="ad-alert-text"><strong>{a.title}</strong><em>{a.text}</em></span>
+                                        <Button size="small" onClick={() => navigate(a.to)}>{a.cta}</Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </Card>
 
-        {/* Quick summary card */}
-        <Col xs={24} md={12}>
-          <ChartCard title="Platform Summary" icon={<AppstoreOutlined />} accentColor="#6366f1">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {[
-                { label: 'Active Quizzes', value: quizzes.filter(q => q.status === 'published').length, color: '#22c55e' },
-                { label: 'Draft Quizzes', value: quizzes.filter(q => q.status === 'draft').length, color: '#f59e0b' },
-                { label: 'Total Schedules', value: schedules.length, color: '#6366f1' },
-                { label: 'Avg Students/Batch', value: batches.length > 0 ? Math.round(batches.reduce((s, b) => s + (b.student_count || 0), 0) / batches.length) : 0, color: '#0ea5e9' },
-              ].map(item => (
-                <div key={item.label} style={{
-                  background: '#f8fafc', borderRadius: 14, padding: '18px 16px',
-                  border: '1px solid #f1f5f9', textAlign: 'center',
-                }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: item.color, lineHeight: 1 }}>{item.value}</div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#94a3b8', marginTop: 5, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.label}</div>
+                    <Card title="Coming up" icon={<ClockCircleOutlined />}
+                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/timetable')}>Timetable <ArrowRightOutlined /></button>}>
+                        {m.liveMeetings.length > 0 && (
+                            <div className="ad-live">
+                                <span className="ad-live-dot" />
+                                <div>
+                                    <strong>{m.liveMeetings.length === 1 ? m.liveMeetings[0].title : `${m.liveMeetings.length} live classes`}</strong>
+                                    <span>{m.liveMeetings.length === 1 ? `Live now · ${n(m.liveMeetings[0].participant_count)} joined` : 'Happening right now'}</span>
+                                </div>
+                                <Button size="small" icon={<VideoCameraOutlined />} onClick={() => navigate('/app/meetings')}>Open</Button>
+                            </div>
+                        )}
+                        {!data.schedules ? <Unavailable what="The schedule" /> : m.next.length === 0 ? (
+                            <div className="ad-empty-line">Nothing scheduled in the coming days.</div>
+                        ) : (
+                            <ul className="ad-agenda">
+                                {m.next.map(s => {
+                                    const isLive = new Date(s.start_time).getTime() <= Date.now();
+                                    const today = dayjs(s.start_time).isSame(dayjs(), 'day');
+                                    return (
+                                        <li key={s.id}>
+                                            <span className="ad-agenda-when">
+                                                <strong>{time(s.start_time)}</strong>
+                                                <em>{isLive ? 'Now' : today ? 'Today' : fmt(s.start_time, { weekday: 'short', day: 'numeric' })}</em>
+                                            </span>
+                                            <span className={`ad-agenda-bar is-${s.type}`} />
+                                            <span className="ad-agenda-text">
+                                                <strong>{s.title}</strong>
+                                                <em>{[s.batch_name, `${s.teacher_first_name || ''} ${s.teacher_last_name || ''}`.trim()].filter(Boolean).join(' · ') || s.type}</em>
+                                            </span>
+                                            {isLive && <span className="ad-pill is-live">Live</span>}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+                    </Card>
                 </div>
-              ))}
+
+                {/* ── Growth + people ── */}
+                <div className="ad-grid is-wide">
+                    <Card title="Sign-ups" icon={<RiseOutlined />}
+                        action={<Segmented size="small" value={months} onChange={v => setMonths(v as 6 | 12)} options={[{ value: 6, label: '6 months' }, { value: 12, label: '12 months' }]} />}>
+                        {!data.users ? <Unavailable what="Users" /> : (
+                            <>
+                                <div className="ad-growth-head">
+                                    <div><strong>{m.newInPeriod}</strong><span>new accounts in {months} months</span></div>
+                                    {growthDelta != null && (
+                                        <span className={`ad-delta ${growthDelta >= 0 ? 'is-up' : 'is-down'}`}>
+                                            {growthDelta >= 0 ? '▲' : '▼'} {Math.abs(growthDelta)}% vs previous {months} months
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="ad-bars" role="img" aria-label="New accounts per month">
+                                    {m.growth.map(g => {
+                                        const total = g.students + g.others;
+                                        return (
+                                            <Tooltip key={g.key} title={`${g.full}: ${g.students} students, ${g.others} staff`}>
+                                                <div className="ad-bar">
+                                                    <span className="ad-bar-val">{total || ''}</span>
+                                                    <div className="ad-bar-track">
+                                                        <div className="ad-bar-stack" style={{ height: `${(total / growthMax) * 100}%` }}>
+                                                            {g.others > 0 && <i className="is-staff" style={{ flexGrow: g.others }} />}
+                                                            {g.students > 0 && <i className="is-student" style={{ flexGrow: g.students }} />}
+                                                        </div>
+                                                    </div>
+                                                    <span className="ad-bar-label">{g.label}</span>
+                                                </div>
+                                            </Tooltip>
+                                        );
+                                    })}
+                                </div>
+                                <div className="ad-legend"><span><i className="is-student" />Students</span><span><i className="is-staff" />Teachers & admins</span></div>
+                            </>
+                        )}
+                    </Card>
+
+                    <Card title="People" icon={<TeamOutlined />}
+                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/users')}>Users <ArrowRightOutlined /></button>}>
+                        {!data.users ? <Unavailable what="Users" /> : (
+                            <div className="ad-people">
+                                <Donut
+                                    parts={[
+                                        { label: 'Students', value: m.students.length, color: '#10b981' },
+                                        { label: 'Teachers', value: m.teachers.length, color: '#3b82f6' },
+                                        { label: 'Admins', value: m.admins, color: '#8b5cf6' },
+                                    ]}
+                                    center={<><strong>{(data.users || []).length}</strong><span>users</span></>}
+                                />
+                                <ul className="ad-people-legend">
+                                    <li><i style={{ background: '#10b981' }} />Students<b>{m.students.length}</b></li>
+                                    <li><i style={{ background: '#3b82f6' }} />Teachers<b>{m.teachers.length}</b></li>
+                                    <li><i style={{ background: '#8b5cf6' }} />Admins<b>{m.admins}</b></li>
+                                    <li className="is-muted"><i style={{ background: '#cbd5e1' }} />Disabled accounts<b>{m.disabled}</b></li>
+                                    <li className="is-muted">Students per teacher<b>{m.teachers.length ? (m.students.length / m.teachers.length).toFixed(1) : '—'}</b></li>
+                                </ul>
+                            </div>
+                        )}
+                    </Card>
+                </div>
+
+                {/* ── Batches + quizzes + attendance ── */}
+                <div className="ad-grid is-three">
+                    <Card title="Batches" icon={<BookOutlined />}
+                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/batches')}>Manage <ArrowRightOutlined /></button>}>
+                        {!data.batches ? <Unavailable what="Batches" /> : batchTotal === 0 ? <div className="ad-empty-line">No batches yet.</div> : (
+                            <>
+                                <div className="ad-stack" aria-hidden>
+                                    {m.running.length > 0 && <i className="is-running" style={{ flexGrow: m.running.length }} />}
+                                    {m.upcoming.length > 0 && <i className="is-upcoming" style={{ flexGrow: m.upcoming.length }} />}
+                                    {m.ended.length > 0 && <i className="is-ended" style={{ flexGrow: m.ended.length }} />}
+                                </div>
+                                <div className="ad-stack-legend">
+                                    <span><i className="is-running" />Running <b>{m.running.length}</b></span>
+                                    <span><i className="is-upcoming" />Upcoming <b>{m.upcoming.length}</b></span>
+                                    <span><i className="is-ended" />Ended <b>{m.ended.length}</b></span>
+                                </div>
+                                <div className="ad-sub-title">Largest active batches</div>
+                                {m.topBatches.length === 0 ? <div className="ad-empty-line">No active batches.</div> : (
+                                    <ul className="ad-hbars">
+                                        {m.topBatches.map(b => (
+                                            <li key={b.id}>
+                                                <span className="ad-hbar-name"><b className="ad-lv">{b.french_level}</b>{b.name}</span>
+                                                <span className="ad-hbar-track"><i style={{ width: `${Math.max(4, (countOf(b) / topMax) * 100)}%` }} /></span>
+                                                <span className="ad-hbar-val">{countOf(b)}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </>
+                        )}
+                    </Card>
+
+                    <Card title="Quizzes" icon={<FileTextOutlined />}
+                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/quiz-management')}>Open <ArrowRightOutlined /></button>}>
+                        {!data.quizzes ? <Unavailable what="Quizzes" /> : quizTotal === 0 ? <div className="ad-empty-line">No quizzes yet.</div> : (
+                            <>
+                                <div className="ad-quiz-stats">
+                                    <div><strong>{m.live.length}</strong><span>Live now</span></div>
+                                    <div><strong>{m.liveTotals.all ? `${Math.round((m.liveTotals.sub / m.liveTotals.all) * 100)}%` : '—'}</strong><span>Completion (live)</span></div>
+                                    <div><strong>{m.avgScore != null ? `${Math.round(m.avgScore)}%` : '—'}</strong><span>Average score</span></div>
+                                </div>
+                                <div className="ad-stack" aria-hidden>
+                                    {m.quizCounts.published > 0 && <i className="is-published" style={{ flexGrow: m.quizCounts.published }} />}
+                                    {m.quizCounts.draft > 0 && <i className="is-draft" style={{ flexGrow: m.quizCounts.draft }} />}
+                                    {m.quizCounts.archived > 0 && <i className="is-archived" style={{ flexGrow: m.quizCounts.archived }} />}
+                                </div>
+                                <div className="ad-stack-legend">
+                                    <span><i className="is-published" />Published <b>{m.quizCounts.published}</b></span>
+                                    <span><i className="is-draft" />Draft <b>{m.quizCounts.draft}</b></span>
+                                    <span><i className="is-archived" />Archived <b>{m.quizCounts.archived}</b></span>
+                                </div>
+                                {m.live.length > 0 && (
+                                    <>
+                                        <div className="ad-sub-title">Live quizzes</div>
+                                        <ul className="ad-hbars">
+                                            {m.live.slice(0, 4).map(q => {
+                                                const pct = n(q.total_students) ? Math.round((n(q.submitted_students) / n(q.total_students)) * 100) : 0;
+                                                return (
+                                                    <li key={q.id}>
+                                                        <span className="ad-hbar-name">{q.title}</span>
+                                                        <span className={`ad-hbar-track${pct < 50 ? ' is-low' : ''}`}><i style={{ width: `${Math.max(4, pct)}%` }} /></span>
+                                                        <span className="ad-hbar-val">{pct}%</span>
+                                                    </li>
+                                                );
+                                            })}
+                                        </ul>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </Card>
+
+                    <Card title="Attendance" icon={<CheckCircleFilled />}
+                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/attendance')}>Details <ArrowRightOutlined /></button>}>
+                        {!data.attendance ? <Unavailable what="Attendance" /> : (
+                            <div className="ad-att">
+                                <Ring value={attendanceRate || 0} tone={(attendanceRate || 0) >= 80 ? 'good' : (attendanceRate || 0) >= 60 ? 'ok' : 'low'} />
+                                <ul className="ad-att-list">
+                                    <li><i className="is-present" />Present<b>{n(data.attendance.total_present)}</b></li>
+                                    <li><i className="is-late" />Late<b>{n(data.attendance.total_late)}</b></li>
+                                    <li><i className="is-absent" />Absent<b>{n(data.attendance.total_absent)}</b></li>
+                                    <li className="is-muted">Sessions started<b>{n(data.attendance.sessions_with_codes)} / {n(data.attendance.total_sessions)}</b></li>
+                                </ul>
+                            </div>
+                        )}
+                    </Card>
+                </div>
+
+                {/* ── Demo requests ── */}
+                <Card title="Latest demo requests" icon={<CustomerServiceOutlined />}
+                    action={<button type="button" className="ad-link" onClick={() => navigate('/app/demo-requests')}>All requests <ArrowRightOutlined /></button>}>
+                    {!data.demos ? <Unavailable what="Demo requests" /> : data.demos.list.length === 0 ? (
+                        <div className="ad-empty-line">No demo requests yet.</div>
+                    ) : (
+                        <ul className="ad-demos">
+                            {data.demos.list.map(d => (
+                                <li key={d.id}>
+                                    <span className="ad-demo-av">{(d.full_name || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+                                    <span className="ad-demo-text">
+                                        <strong>{d.full_name}</strong>
+                                        <em>{[d.country, d.interested_level || d.current_level].filter(Boolean).join(' · ') || d.email}</em>
+                                    </span>
+                                    <span className={`ad-pill is-${d.status}`}>{DEMO_STATUS[d.status] || d.status}</span>
+                                    <span className="ad-demo-date">{fmt(d.created_at, { month: 'short', day: 'numeric' })}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </Card>
             </div>
-          </ChartCard>
-        </Col>
-      </Row>
-    </div>
-  );
+        </ConfigProvider>
+    );
 };
 
 export default AdminDashboard;

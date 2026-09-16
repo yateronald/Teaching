@@ -1,934 +1,314 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Button, Checkbox, Input, InputNumber, Modal, Segmented, Select, Upload } from 'antd';
 import {
-    Modal, Button, Input, Select, Space, Typography, Tag,
-    Upload, InputNumber, Switch, Card, Alert, Spin, Radio, message, Tooltip, Popconfirm
-} from 'antd';
-import {
-    SoundOutlined, RobotOutlined, UploadOutlined,
-    PlusOutlined, DeleteOutlined, EditOutlined,
-    AudioOutlined, CheckCircleOutlined, InfoCircleOutlined
+    AudioOutlined, CheckCircleFilled, CloseOutlined, CloudUploadOutlined, DeleteOutlined, ExclamationCircleOutlined, LoadingOutlined,
+    SoundOutlined, ThunderboltOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { plural, questionFromGenerated, uid } from './quizModel';
+import type { DraftClip, DraftQuestion } from './quizModel';
+import '../Teacher/Teacher.css';
+import './Quiz.css';
 
-const { Title, Text } = Typography;
-const { TextArea } = Input;
+/* ══════════════════════════════════════════
+   LISTENING SECTION — the audio for a group of questions.
+   Generated voice or an uploaded recording, how often students may play it,
+   and (optionally) a first set of questions written from the transcript.
+══════════════════════════════════════════ */
 
-// Voice options (must match backend VOICE_OPTIONS)
-const VOICE_OPTIONS = [
-    { name: 'Kore', label: 'Kore (Female) — Clear, neutral', gender: 'female' },
-    { name: 'Puck', label: 'Puck (Male) — Upbeat, friendly', gender: 'male' },
-    { name: 'Charon', label: 'Charon (Male) — Deep, authoritative', gender: 'male' },
-    { name: 'Aoede', label: 'Aoede (Female) — Warm, expressive', gender: 'female' },
-    { name: 'Fenrir', label: 'Fenrir (Male) — Strong, clear', gender: 'male' },
-    { name: 'Leda', label: 'Leda (Female) — Soft, gentle', gender: 'female' },
-    { name: 'Orus', label: 'Orus (Male) — Rich, formal', gender: 'male' },
-    { name: 'Zephyr', label: 'Zephyr (Female) — Light, airy', gender: 'female' },
-];
+interface Props {
+    open: boolean;
+    quizTitle?: string;
+    /** The clip being edited, or null for a new section. */
+    clip: DraftClip | null;
+    onClose: () => void;
+    onSave: (clip: DraftClip, generated: DraftQuestion[]) => void;
+}
 
-interface AudioClipData {
-    tempId: string;
-    transcript: string;
-    voiceName: string;
+interface Audio {
     sourceType: 'tts' | 'upload';
-    kdriveFileId?: string;
+    kdriveFileId: string;
     fileName?: string;
     durationSeconds?: number;
-    maxPlays: number;
+    /** What the generated voice actually says — used to spot a transcript edited after generation. */
+    spoken?: { transcript: string; voice: string };
 }
 
-interface LinkedQuestion {
-    question_text: string;
-    question_type: 'mcq_single' | 'mcq_multiple' | 'yes_no';
-    marks: number;
-    correct_answer?: string;
-    explanation?: string;
-    options?: { option_text: string; is_correct: boolean }[];
-    audio_clip_temp_id: string;
-}
+// Must match the backend's VOICE_OPTIONS.
+const VOICES = [
+    { value: 'Kore', label: 'Kore', hint: 'Female · clear, neutral' },
+    { value: 'Aoede', label: 'Aoede', hint: 'Female · warm, expressive' },
+    { value: 'Leda', label: 'Leda', hint: 'Female · soft, gentle' },
+    { value: 'Zephyr', label: 'Zephyr', hint: 'Female · light, airy' },
+    { value: 'Puck', label: 'Puck', hint: 'Male · upbeat, friendly' },
+    { value: 'Charon', label: 'Charon', hint: 'Male · deep, authoritative' },
+    { value: 'Fenrir', label: 'Fenrir', hint: 'Male · strong, clear' },
+    { value: 'Orus', label: 'Orus', hint: 'Male · rich, formal' },
+];
+const MAX_UPLOAD_MB = 50;
+const ACCEPT = '.mp3,.wav,.ogg,.m4a,.webm';
+const TRANSCRIPT_MAX = 5000;
+/** "40 s", "1 min 05 s" */
+const fmtSpoken = (s: number) => (s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, '0')} s`);
 
-interface AudioQuestionModalProps {
-    visible: boolean;
-    onClose: () => void;
-    onAdd: (audioClip: AudioClipData, questions: LinkedQuestion[]) => void;
-    quizTitle?: string;
-    editData?: {
-        audioClip: AudioClipData;
-        questions: LinkedQuestion[];
-    } | null;
-}
+const readDuration = (file: File) => new Promise<number | undefined>(resolve => {
+    const url = URL.createObjectURL(file);
+    const el = document.createElement('audio');
+    const done = (v?: number) => { URL.revokeObjectURL(url); resolve(v && Number.isFinite(v) ? Math.round(v) : undefined); };
+    el.preload = 'metadata';
+    el.onloadedmetadata = () => done(el.duration);
+    el.onerror = () => done();
+    el.src = url;
+});
 
-const AudioQuestionModal: React.FC<AudioQuestionModalProps> = ({
-    visible, onClose, onAdd, quizTitle, editData
-}) => {
+const AudioQuestionModal: React.FC<Props> = ({ open, quizTitle, clip, onClose, onSave }) => {
     const { apiCall } = useAuth();
-    const [messageApi, contextHolder] = message.useMessage();
+    const editing = !!clip;
 
-    // Audio source mode
-    const [sourceMode, setSourceMode] = useState<'tts' | 'upload'>('tts');
-
-    // TTS fields
-    const [transcript, setTranscript] = useState('');
-    const [voiceName, setVoiceName] = useState('Kore');
-    const [generating, setGenerating] = useState(false);
-
-    // Generated/uploaded audio
-    const [audioData, setAudioData] = useState<AudioClipData | null>(null);
+    // State is seeded once per opening — the modal is mounted only while open.
+    const [source, setSource] = useState<'tts' | 'upload'>(clip?.sourceType ?? 'tts');
+    const [transcript, setTranscript] = useState(clip?.transcript && !clip.transcript.startsWith('[Uploaded') ? clip.transcript : '');
+    const [voice, setVoice] = useState(clip?.voiceName || 'Kore');
+    const [maxPlays, setMaxPlays] = useState(clip?.maxPlays ?? 0);
+    const [audio, setAudio] = useState<Audio | null>(clip?.kdriveFileId ? {
+        sourceType: clip.sourceType, kdriveFileId: clip.kdriveFileId, fileName: clip.fileName, durationSeconds: clip.durationSeconds,
+        spoken: clip.sourceType === 'tts' ? { transcript: clip.transcript, voice: clip.voiceName } : undefined,
+    } : null);
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [busy, setBusy] = useState<null | 'voice' | 'upload' | 'preview' | 'questions'>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [withAI, setWithAI] = useState(!editing);
+    const [aiCount, setAiCount] = useState(4);
+    const [aiPoints, setAiPoints] = useState(8);
+    const urlRef = useRef<string | null>(null);
 
-    // Upload
-    const [uploading, setUploading] = useState(false);
+    const showPreview = (url: string | null) => {
+        if (urlRef.current && urlRef.current !== url) URL.revokeObjectURL(urlRef.current);
+        urlRef.current = url;
+        setPreviewUrl(url);
+    };
+    useEffect(() => () => { if (urlRef.current) URL.revokeObjectURL(urlRef.current); }, []);
 
-    // Questions
-    const [questionMode, setQuestionMode] = useState<'manual' | 'ai'>('manual');
-    const [questions, setQuestions] = useState<LinkedQuestion[]>([]);
-    const [maxPlays, setMaxPlays] = useState(0); // 0 = unlimited
+    const text = transcript.trim();
+    // Read aloud at a teaching pace, French runs at roughly 150 words a minute.
+    const spokenSeconds = text ? Math.max(1, Math.round(text.split(/\s+/).length / 2.5)) : 0;
+    const stale = !!audio && audio.sourceType === 'tts' && !!audio.spoken && (audio.spoken.transcript.trim() !== text || audio.spoken.voice !== voice);
+    const aiPossible = text.length >= 20;
 
-    // AI question generation
-    const [aiQuestionCount, setAiQuestionCount] = useState(3);
-    const [aiPoints, setAiPoints] = useState(6);
-    const [generatingQuestions, setGeneratingQuestions] = useState(false);
-
-    // Manual question form
-    const [editingQuestion, setEditingQuestion] = useState<Partial<LinkedQuestion> | null>(null);
-    const [editingQuestionIndex, setEditingQuestionIndex] = useState<number>(-1); // -1 = new, >=0 = editing existing
-    const [manualOptions, setManualOptions] = useState<{ option_text: string; is_correct: boolean }[]>([
-        { option_text: '', is_correct: true },
-        { option_text: '', is_correct: false },
-        { option_text: '', is_correct: false },
-        { option_text: '', is_correct: false },
-    ]);
-
-    // Reset state when modal closes / pre-populate in edit mode
-    useEffect(() => {
-        if (!visible) {
-            setTranscript('');
-            setVoiceName('Kore');
-            setAudioData(null);
-            setPreviewUrl(null);
-            setQuestions([]);
-            setSourceMode('tts');
-            setEditingQuestion(null);
-            setEditingQuestionIndex(-1);
-            setMaxPlays(0);
-        } else if (editData) {
-            // Pre-populate for edit mode
-            const { audioClip, questions: editQuestions } = editData;
-            setTranscript(audioClip.transcript || '');
-            setVoiceName(editData.audioClip.voiceName || 'Kore');
-            setSourceMode(editData.audioClip.sourceType || 'tts');
-            setMaxPlays(editData.audioClip.maxPlays || 0);
-            setAudioData(editData.audioClip);
-            setQuestions(editQuestions.map(q => ({ ...q })));
-
-            // Fetch audio preview if we have a kDrive file ID
-            if (editData.audioClip.kdriveFileId) {
-                apiCall(`/quizzes/audio/preview/${editData.audioClip.kdriveFileId}`)
-                    .then(resp => {
-                        if (resp.ok) return resp.blob();
-                        return null;
-                    })
-                    .then(blob => {
-                        if (blob) {
-                            const url = URL.createObjectURL(blob);
-                            setPreviewUrl(url);
-                        }
-                    })
-                    .catch(() => {});
-            }
-        }
-    }, [visible, editData]);
-
-    // Cleanup audio on unmount
-    useEffect(() => {
-        return () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current = null;
-            }
-            if (previewUrl) URL.revokeObjectURL(previewUrl);
-        };
-    }, []);
-
-    const generateTempId = () => `audio_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // ---- TTS Generation ----
-    const handleGenerateAudio = async () => {
-        if (!transcript.trim()) {
-            messageApi.warning('Please enter a transcript first');
-            return;
-        }
-        setGenerating(true);
+    const generateVoice = async () => {
+        if (!text) return;
+        setBusy('voice');
+        setError(null);
         try {
-            const resp = await apiCall('/quizzes/audio/generate', {
-                method: 'POST',
-                body: JSON.stringify({
-                    transcript: transcript.trim(),
-                    voiceName,
-                    quizTitle: quizTitle || 'quiz'
-                })
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.error || 'Failed to generate audio');
-            }
-            const data = await resp.json();
-            const clip: AudioClipData = {
-                tempId: generateTempId(),
-                transcript: transcript.trim(),
-                voiceName,
-                sourceType: 'tts',
-                kdriveFileId: data.audio.kdriveFileId,
-                fileName: data.audio.fileName,
-                durationSeconds: data.audio.durationSeconds,
-                maxPlays
-            };
-            setAudioData(clip);
-
-            // Use inline base64 audio for instant preview (no extra fetch needed)
+            const res = await apiCall('/quizzes/audio/generate', { method: 'POST', body: JSON.stringify({ transcript: text, voiceName: voice, quizTitle: quizTitle || 'quiz' }) });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data?.audio?.kdriveFileId) throw new Error(data?.error || 'The audio could not be generated.');
+            setAudio({ sourceType: 'tts', kdriveFileId: String(data.audio.kdriveFileId), fileName: data.audio.fileName, durationSeconds: data.audio.durationSeconds, spoken: { transcript: text, voice } });
             if (data.audio.wavBase64) {
-                const byteChars = atob(data.audio.wavBase64);
-                const byteNums = new Uint8Array(byteChars.length);
-                for (let i = 0; i < byteChars.length; i++) {
-                    byteNums[i] = byteChars.charCodeAt(i);
-                }
-                const blob = new Blob([byteNums], { type: 'audio/wav' });
-                const url = URL.createObjectURL(blob);
-                if (previewUrl) URL.revokeObjectURL(previewUrl);
-                setPreviewUrl(url);
-            } else if (data.audio.kdriveFileId) {
-                // Fallback: fetch the audio blob separately
-                try {
-                    const audioResp = await apiCall(`/quizzes/audio/preview/${data.audio.kdriveFileId}`);
-                    if (audioResp.ok) {
-                        const blob = await audioResp.blob();
-                        const url = URL.createObjectURL(blob);
-                        if (previewUrl) URL.revokeObjectURL(previewUrl);
-                        setPreviewUrl(url);
-                    }
-                } catch {
-                    console.warn('Could not fetch audio preview');
-                }
+                const bytes = Uint8Array.from(atob(data.audio.wavBase64), c => c.charCodeAt(0));
+                showPreview(URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' })));
+            } else {
+                showPreview(null);
             }
-
-            messageApi.success('Audio generated successfully! 🎙️');
-        } catch (err: any) {
-            messageApi.error(err.message || 'Failed to generate audio');
+        } catch (e: any) {
+            setError(e?.message || 'The audio could not be generated.');
         } finally {
-            setGenerating(false);
+            setBusy(null);
         }
     };
 
-    // ---- File Upload ----
-    const handleFileUpload = async (file: File) => {
-        setUploading(true);
+    const upload = async (file: File) => {
+        if (file.size > MAX_UPLOAD_MB * 1024 * 1024) { setError(`That file is larger than ${MAX_UPLOAD_MB} MB.`); return; }
+        setBusy('upload');
+        setError(null);
         try {
-            const formData = new FormData();
-            formData.append('audio', file);
-            const resp = await apiCall('/quizzes/audio/upload', {
-                method: 'POST',
-                body: formData,
-                headers: {} // let browser set content-type for FormData
-            });
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.error || 'Failed to upload audio');
-            }
-            const data = await resp.json();
-            const clip: AudioClipData = {
-                tempId: generateTempId(),
-                transcript: transcript.trim() || `[Uploaded: ${file.name}]`,
-                voiceName: '',
-                sourceType: 'upload',
-                kdriveFileId: data.audio.kdriveFileId,
-                fileName: data.audio.fileName,
-                maxPlays
-            };
-            setAudioData(clip);
-            // Create preview from the file
-            const url = URL.createObjectURL(file);
-            setPreviewUrl(url);
-            messageApi.success('Audio uploaded successfully! 📁');
-        } catch (err: any) {
-            messageApi.error(err.message || 'Failed to upload audio');
+            const body = new FormData();
+            body.append('audio', file);
+            const [res, durationSeconds] = await Promise.all([apiCall('/quizzes/audio/upload', { method: 'POST', body }), readDuration(file)]);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data?.audio?.kdriveFileId) throw new Error(data?.error || 'The recording could not be uploaded.');
+            setAudio({ sourceType: 'upload', kdriveFileId: String(data.audio.kdriveFileId), fileName: data.audio.fileName || file.name, durationSeconds });
+            showPreview(URL.createObjectURL(file));
+        } catch (e: any) {
+            setError(e?.message || 'The recording could not be uploaded.');
         } finally {
-            setUploading(false);
+            setBusy(null);
         }
-        return false; // prevent default upload
     };
 
-    // ---- AI Question Generation ----
-    const handleGenerateQuestions = async () => {
-        if (!transcript.trim()) {
-            messageApi.warning('Please enter a transcript to generate questions from');
-            return;
-        }
-        if (!audioData) {
-            messageApi.warning('Please generate or upload audio first');
-            return;
-        }
-
-        setGeneratingQuestions(true);
+    const loadPreview = async () => {
+        if (!audio) return;
+        setBusy('preview');
         try {
-            const resp = await apiCall('/quizzes/ai-generate', {
-                method: 'POST',
-                body: JSON.stringify({
-                    totalQuestions: aiQuestionCount,
-                    singleChoiceCount: Math.ceil(aiQuestionCount * 0.6),
-                    multipleChoiceCount: 0,
-                    yesNoCount: aiQuestionCount - Math.ceil(aiQuestionCount * 0.6),
-                    totalPoints: aiPoints,
-                    userPrompt: `Create listening comprehension questions based on this French audio transcript. The questions should test the student's ability to understand the spoken content:\n\n"${transcript.trim()}"\n\nFocus on: key details, main ideas, vocabulary in context, and inference.`
-                })
-            });
-
-            if (!resp.ok) {
-                const err = await resp.json();
-                throw new Error(err.error || 'Failed to generate questions');
-            }
-
-            const data = await resp.json();
-            const generatedQuestions: LinkedQuestion[] = (data.questions || []).map((q: any) => ({
-                ...q,
-                audio_clip_temp_id: audioData.tempId
-            }));
-
-            setQuestions(generatedQuestions);
-            messageApi.success(`Generated ${generatedQuestions.length} comprehension questions! ✨`);
-        } catch (err: any) {
-            messageApi.error(err.message || 'Failed to generate questions');
+            const res = await apiCall(`/quizzes/audio/preview/${audio.kdriveFileId}`);
+            if (!res.ok) throw new Error();
+            showPreview(URL.createObjectURL(await res.blob()));
+        } catch {
+            setError('The audio could not be loaded for playback.');
         } finally {
-            setGeneratingQuestions(false);
+            setBusy(null);
         }
     };
 
-    // ---- Manual Question ----
-    const addManualQuestion = () => {
-        setEditingQuestionIndex(-1);
-        setEditingQuestion({
-            question_text: '',
-            question_type: 'mcq_single',
-            marks: 2,
-            correct_answer: undefined,
-            explanation: '',
-        });
-        setManualOptions([
-            { option_text: '', is_correct: true },
-            { option_text: '', is_correct: false },
-            { option_text: '', is_correct: false },
-            { option_text: '', is_correct: false },
-        ]);
-    };
+    const removeAudio = () => { setAudio(null); showPreview(null); };
 
-    const startEditQuestion = (idx: number) => {
-        const q = questions[idx];
-        setEditingQuestionIndex(idx);
-        setEditingQuestion({
-            question_text: q.question_text,
-            question_type: q.question_type,
-            marks: q.marks,
-            correct_answer: q.correct_answer,
-            explanation: q.explanation,
-        });
-        setManualOptions(
-            q.question_type !== 'yes_no' && q.options?.length
-                ? q.options.map(o => ({ ...o }))
-                : [
-                    { option_text: '', is_correct: true },
-                    { option_text: '', is_correct: false },
-                    { option_text: '', is_correct: false },
-                    { option_text: '', is_correct: false },
-                ]
-        );
-        setQuestionMode('manual');
-    };
-
-    const saveManualQuestion = () => {
-        if (!editingQuestion?.question_text?.trim()) {
-            messageApi.warning('Question text is required');
-            return;
-        }
-        if (!audioData) {
-            messageApi.warning('Please generate or upload audio first');
-            return;
-        }
-
-        const q: LinkedQuestion = {
-            question_text: editingQuestion.question_text!.trim(),
-            question_type: editingQuestion.question_type || 'mcq_single',
-            marks: editingQuestion.marks || 2,
-            explanation: editingQuestion.explanation || '',
-            audio_clip_temp_id: audioData.tempId,
-        };
-
-        if (q.question_type === 'yes_no') {
-            q.correct_answer = editingQuestion.correct_answer || 'yes';
-        } else {
-            q.options = manualOptions.filter(o => o.option_text.trim());
-            if (q.options.length < 2) {
-                messageApi.warning('At least 2 options are required');
+    const save = async () => {
+        if (!audio || stale) return;
+        setError(null);
+        let generated: DraftQuestion[] = [];
+        if (withAI && aiPossible) {
+            setBusy('questions');
+            try {
+                const single = Math.max(1, Math.ceil(aiCount * 0.6));
+                const res = await apiCall('/quizzes/ai-generate', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        totalQuestions: aiCount,
+                        singleChoiceCount: Math.min(aiCount, single),
+                        multipleChoiceCount: 0,
+                        yesNoCount: Math.max(0, aiCount - single),
+                        totalPoints: aiPoints,
+                        userPrompt: `Listening comprehension questions for a French audio recording. Students hear the audio but never see this transcript, so every question must be answerable from listening. Test key details, the main idea, vocabulary in context and simple inference.\n\nTranscript:\n"""${text.slice(0, 700)}"""`,
+                    }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data?.error || 'The questions could not be generated.');
+                generated = (Array.isArray(data?.questions) ? data.questions : []).map(questionFromGenerated);
+                if (!generated.length) throw new Error('The AI returned no usable questions.');
+            } catch (e: any) {
+                setError(`${e?.message || 'The questions could not be generated.'} Untick “Write questions with AI” to save the section and write them yourself.`);
+                setBusy(null);
                 return;
             }
+            setBusy(null);
         }
-
-        if (editingQuestionIndex >= 0) {
-            // Editing existing question
-            setQuestions(prev => prev.map((existing, i) => i === editingQuestionIndex ? q : existing));
-        } else {
-            // Adding new question
-            setQuestions(prev => [...prev, q]);
-        }
-        setEditingQuestion(null);
-        setEditingQuestionIndex(-1);
+        onSave({
+            key: clip?.key ?? uid('c'),
+            id: clip?.id,
+            transcript: text,
+            voiceName: audio.sourceType === 'tts' ? voice : '',
+            sourceType: audio.sourceType,
+            kdriveFileId: audio.kdriveFileId,
+            fileName: audio.fileName,
+            durationSeconds: audio.durationSeconds,
+            maxPlays,
+        }, generated);
     };
 
-    const deleteQuestion = (idx: number) => {
-        setQuestions(prev => prev.filter((_, i) => i !== idx));
-    };
-
-    const deleteAudioAndReset = () => {
-        setAudioData(null);
-        if (previewUrl) {
-            URL.revokeObjectURL(previewUrl);
-            setPreviewUrl(null);
-        }
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
-    };
-
-    // ---- Submit ----
-    const handleAddToQuiz = () => {
-        if (!audioData) {
-            messageApi.warning('Please generate or upload audio first');
-            return;
-        }
-        if (questions.length === 0) {
-            messageApi.warning('Please add at least one question');
-            return;
-        }
-
-        audioData.maxPlays = maxPlays;
-        onAdd(audioData, questions);
-        onClose();
-    };
+    const working = busy !== null && busy !== 'preview';
+    const saveLabel = withAI && aiPossible ? `Write ${plural(aiCount, 'question')} & ${editing ? 'save' : 'add'}` : editing ? 'Save section' : 'Add section';
 
     return (
-        <Modal
-            open={visible}
-            onCancel={onClose}
-            width={800}
-            footer={null}
-            destroyOnClose
-            closable={false}
-            styles={{
-                body: { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', maxHeight: '80vh' },
-                content: { padding: 0 }
-            }}
-        >
-            {contextHolder}
-
-            {/* Fixed Header */}
-            <div style={{
-                background: 'linear-gradient(135deg, #0891b2, #06b6d4, #22d3ee)',
-                padding: '20px 28px',
-                position: 'relative',
-                flexShrink: 0,
-            }}>
-                {/* Custom close button */}
-                <button
-                    onClick={onClose}
-                    style={{
-                        position: 'absolute',
-                        top: 14,
-                        right: 16,
-                        background: 'rgba(255,255,255,0.2)',
-                        border: 'none',
-                        borderRadius: '50%',
-                        width: 32,
-                        height: 32,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        color: 'white',
-                        fontSize: 16,
-                        fontWeight: 'bold',
-                        transition: 'background 0.2s',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.35)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.2)')}
-                >
-                    ✕
-                </button>
-                <Space align="center" size={16}>
-                    <div style={{
-                        backgroundColor: 'rgba(255,255,255,0.2)',
-                        borderRadius: '12px',
-                        padding: '10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                    }}>
-                        <SoundOutlined style={{ fontSize: 28, color: 'white' }} />
-                    </div>
+        <Modal open={open} onCancel={() => !working && onClose()} footer={null} closable={false} title={null} centered destroyOnHidden
+            width="min(720px, calc(100vw - 24px))" wrapClassName="tc-modal qz-modal" styles={{ body: { padding: 0 } }} maskClosable={!working}>
+            <div className="qz-mod">
+                <header className="qz-mod-head">
+                    <span className="qz-mod-ic is-audio"><SoundOutlined /></span>
                     <div>
-                        <Title level={4} style={{ color: 'white', margin: 0 }}>
-                            🎧 Listening Comprehension
-                        </Title>
-                        <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13 }}>
-                            Add audio and comprehension questions for your students
-                        </Text>
+                        <h2>{editing ? 'Edit listening section' : 'New listening section'}</h2>
+                        <p>Students hear the audio, then answer the questions in this section.</p>
                     </div>
-                </Space>
-            </div>
+                    <Button type="text" icon={<CloseOutlined />} onClick={onClose} disabled={working} aria-label="Close" />
+                </header>
 
-            {/* Scrollable Body */}
-            <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1 }}>
-                {/* Step 1: Audio Source */}
-                <Card
-                    size="small"
-                    title={<Space><AudioOutlined /> <Text strong>Step 1: Audio Source</Text></Space>}
-                    style={{ marginBottom: 20, borderRadius: 12, border: '1px solid #e8e8e8' }}
-                >
-                    <Radio.Group
-                        value={sourceMode}
-                        onChange={(e) => { setSourceMode(e.target.value); setAudioData(null); }}
-                        style={{ marginBottom: 16 }}
-                    >
-                        <Radio.Button value="tts">🎙️ Generate from Text (AI)</Radio.Button>
-                        <Radio.Button value="upload">📁 Upload Audio File</Radio.Button>
-                    </Radio.Group>
+                <div className="qz-mod-body">
+                    {/* 1 · Audio */}
+                    <section className="qz-step">
+                        <h3><span>1</span> Audio</h3>
+                        <Segmented block value={source} disabled={!!audio || working} onChange={v => setSource(v as 'tts' | 'upload')}
+                            options={[{ value: 'tts', label: 'Generate a voice' }, { value: 'upload', label: 'Upload a recording' }]} />
+                        {audio && <p className="qz-hint">Remove the current audio to switch source.</p>}
 
-                    {sourceMode === 'tts' ? (
-                        <>
-                            <div style={{ marginBottom: 12 }}>
-                                <Text strong style={{ display: 'block', marginBottom: 6 }}>French Transcript</Text>
-                                <TextArea
-                                    rows={4}
-                                    maxLength={5000}
-                                    showCount
-                                    placeholder="Enter the French text to be spoken aloud..."
-                                    value={transcript}
-                                    onChange={(e) => setTranscript(e.target.value)}
-                                />
+                        <div className="qz-field">
+                            <div className="qz-label-row">
+                                <label htmlFor="qz-transcript">
+                                    {source === 'tts' ? 'French text to read aloud' : 'Transcript'} {source === 'upload' && <em>optional — needed to write questions with AI</em>}
+                                </label>
+                                <span id="qz-transcript-count" className={`qz-count${transcript.length > TRANSCRIPT_MAX * 0.9 ? ' is-near' : ''}`}>
+                                    {source === 'tts' && spokenSeconds > 0 && <><span>≈ {fmtSpoken(spokenSeconds)} spoken</span>{' '}<i aria-hidden>·</i>{' '}</>}
+                                    <span>{transcript.length.toLocaleString('en-US')} / {TRANSCRIPT_MAX.toLocaleString('en-US')}</span>
+                                </span>
                             </div>
-                            <Space style={{ marginBottom: 12 }} wrap>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Voice</Text>
-                                    <Select
-                                        value={voiceName}
-                                        onChange={setVoiceName}
-                                        style={{ width: 260 }}
-                                        options={VOICE_OPTIONS.map(v => ({
-                                            value: v.name,
-                                            label: `${v.gender === 'female' ? '👩' : '👨'} ${v.label}`
-                                        }))}
-                                    />
-                                </div>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                                        Max Plays <Tooltip title="0 = unlimited"><InfoCircleOutlined /></Tooltip>
-                                    </Text>
-                                    <InputNumber min={0} max={10} value={maxPlays} onChange={v => setMaxPlays(v || 0)} />
-                                </div>
-                            </Space>
-                            <div>
-                                <Button
-                                    type="primary"
-                                    icon={<SoundOutlined />}
-                                    onClick={handleGenerateAudio}
-                                    loading={generating}
-                                    disabled={!transcript.trim()}
-                                    style={{
-                                        background: 'linear-gradient(135deg, #0891b2, #06b6d4)',
-                                        border: 'none',
-                                        borderRadius: 8,
-                                    }}
-                                >
-                                    {generating ? 'Generating Audio...' : '🎙️ Generate Audio'}
+                            <Input.TextArea id="qz-transcript" aria-describedby="qz-transcript-count" autoSize={{ minRows: 4, maxRows: 10 }} maxLength={TRANSCRIPT_MAX} value={transcript}
+                                placeholder={source === 'tts' ? 'Bonjour à tous ! Aujourd’hui, je vais vous parler de…' : 'Paste what is said in the recording'}
+                                onChange={e => setTranscript(e.target.value)} disabled={working} />
+                        </div>
+
+                        {source === 'tts' ? (
+                            <div className="qz-voice-row">
+                                <Select className="qz-voice" value={voice} onChange={setVoice} disabled={working} aria-label="Voice"
+                                    options={VOICES.map(v => ({ value: v.value, label: v.label, hint: v.hint }))}
+                                    optionRender={o => <span className="qz-batch-opt"><span>{o.data.label}</span><em>{o.data.hint}</em></span>} />
+                                <Button type={audio && !stale ? 'default' : 'primary'} icon={busy === 'voice' ? <LoadingOutlined /> : <AudioOutlined />}
+                                    disabled={!text || working} onClick={generateVoice}>
+                                    {busy === 'voice' ? 'Generating…' : audio ? 'Regenerate audio' : 'Generate audio'}
                                 </Button>
                             </div>
-                        </>
-                    ) : (
-                        <>
-                            {!audioData && (
-                                <Upload.Dragger
-                                    key={`upload-${Date.now()}-${audioData ? 'has' : 'none'}`}
-                                    accept=".mp3,.wav,.ogg,.m4a,.webm"
-                                    maxCount={1}
-                                    showUploadList={false}
-                                    beforeUpload={handleFileUpload}
-                                    disabled={uploading}
-                                    fileList={[]}
-                                >
-                                    {uploading ? (
-                                        <Spin tip="Uploading..." />
-                                    ) : (
-                                        <>
-                                            <p className="ant-upload-drag-icon"><UploadOutlined style={{ fontSize: 32, color: '#0891b2' }} /></p>
-                                            <p className="ant-upload-text">Click or drag an audio file here</p>
-                                            <p className="ant-upload-hint">Supports MP3, WAV, OGG, M4A, WebM (max 25MB)</p>
-                                        </>
-                                    )}
-                                </Upload.Dragger>
-                            )}
-                            <div style={{ marginTop: 12 }}>
-                                <Text strong style={{ display: 'block', marginBottom: 6 }}>Transcript (optional, for AI question generation)</Text>
-                                <TextArea
-                                    rows={3}
-                                    maxLength={5000}
-                                    placeholder="Optionally paste the transcript here to enable AI question generation..."
-                                    value={transcript}
-                                    onChange={(e) => setTranscript(e.target.value)}
-                                />
+                        ) : !audio && (
+                            <Upload.Dragger accept={ACCEPT} showUploadList={false} multiple={false} disabled={working}
+                                beforeUpload={file => { upload(file); return Upload.LIST_IGNORE; }}>
+                                <p className="ant-upload-drag-icon">{busy === 'upload' ? <LoadingOutlined /> : <CloudUploadOutlined />}</p>
+                                <p className="ant-upload-text">{busy === 'upload' ? 'Uploading…' : 'Drop a recording here, or click to choose'}</p>
+                                <p className="ant-upload-hint">MP3, WAV, OGG, M4A or WebM · up to {MAX_UPLOAD_MB} MB</p>
+                            </Upload.Dragger>
+                        )}
+
+                        {audio && (
+                            <div className={`qz-audio-card${stale ? ' is-stale' : ''}`}>
+                                <div className="qz-audio-card-top">
+                                    {stale ? <WarningOutlined /> : <CheckCircleFilled />}
+                                    <span>
+                                        <strong>{stale ? 'The text or voice changed' : 'Audio ready'}</strong>
+                                        <em>{stale ? 'Regenerate so students hear what the section says.' : [audio.sourceType === 'tts' ? `Voice: ${audio.spoken?.voice || voice}` : audio.fileName, audio.durationSeconds ? `${audio.durationSeconds} s` : null].filter(Boolean).join(' · ')}</em>
+                                    </span>
+                                    <Button type="text" size="small" className="is-danger" icon={<DeleteOutlined />} onClick={removeAudio} disabled={working}>Remove</Button>
+                                </div>
+                                {previewUrl ? (
+                                    <audio controls controlsList="nodownload" src={previewUrl} />
+                                ) : (
+                                    <Button size="small" icon={busy === 'preview' ? <LoadingOutlined /> : <SoundOutlined />} onClick={loadPreview} disabled={!!busy}>Play audio</Button>
+                                )}
                             </div>
-                            <Space style={{ marginTop: 12 }}>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                                        Max Plays <Tooltip title="0 = unlimited"><InfoCircleOutlined /></Tooltip>
-                                    </Text>
-                                    <InputNumber min={0} max={10} value={maxPlays} onChange={v => setMaxPlays(v || 0)} />
-                                </div>
-                            </Space>
-                        </>
-                    )}
+                        )}
+                    </section>
 
-                    {/* Audio Preview with Player + Delete */}
-                    {audioData && (
-                        <div style={{
-                            marginTop: 16,
-                            padding: '14px 16px',
-                            background: 'linear-gradient(135deg, #f0fdfa, #ecfdf5)',
-                            borderRadius: 10,
-                            border: '1px solid #a7f3d0'
-                        }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                                <Space>
-                                    <CheckCircleOutlined style={{ color: '#10b981', fontSize: 18 }} />
-                                    <Text strong style={{ color: '#065f46' }}>Audio Ready</Text>
-                                    {audioData.durationSeconds && (
-                                        <Tag color="cyan">{audioData.durationSeconds}s</Tag>
-                                    )}
-                                    <Tag color={audioData.sourceType === 'tts' ? 'purple' : 'blue'}>
-                                        {audioData.sourceType === 'tts' ? '🎙️ TTS' : '📁 Uploaded'}
-                                    </Tag>
-                                </Space>
-                                <Popconfirm
-                                    title="Delete this audio?"
-                                    description="This will remove the generated audio. You can generate a new one."
-                                    onConfirm={deleteAudioAndReset}
-                                    okText="Yes, delete"
-                                    cancelText="Cancel"
-                                    okButtonProps={{ danger: true }}
-                                >
-                                    <Button
-                                        danger
-                                        size="small"
-                                        icon={<DeleteOutlined />}
-                                        style={{ borderRadius: 6 }}
-                                    >
-                                        Delete & Retry
-                                    </Button>
-                                </Popconfirm>
+                    {/* 2 · Playback */}
+                    <section className="qz-step">
+                        <h3><span>2</span> How often can students play it?</h3>
+                        <Segmented value={maxPlays} onChange={v => setMaxPlays(Number(v))} disabled={working}
+                            options={[{ value: 0, label: 'Unlimited' }, { value: 1, label: 'Once' }, { value: 2, label: 'Twice' }, { value: 3, label: '3 times' }]} />
+                        <p className="qz-hint">Exam conditions (TCF, DELF) usually allow one or two plays.</p>
+                    </section>
+
+                    {/* 3 · Questions */}
+                    <section className="qz-step">
+                        <h3><span>3</span> Questions</h3>
+                        <Checkbox checked={withAI && aiPossible} disabled={!aiPossible || working} onChange={e => setWithAI(e.target.checked)}>
+                            {editing ? 'Also write more questions with AI from the transcript' : 'Write questions with AI from the transcript'}
+                        </Checkbox>
+                        {!aiPossible ? (
+                            <p className="qz-hint">{source === 'upload' ? 'Add a transcript of at least a sentence to use AI.' : 'Write at least a sentence of text to use AI.'} {editing ? '' : 'Otherwise you add the questions yourself after saving.'}</p>
+                        ) : withAI ? (
+                            <div className="qz-ai-grid is-tight">
+                                <label className="qz-ai-split-item"><span>Questions</span><InputNumber min={1} max={10} value={aiCount} onChange={v => setAiCount(Math.min(10, Math.max(1, Number(v) || 1)))} disabled={working} /></label>
+                                <label className="qz-ai-split-item"><span>Total points</span><InputNumber min={1} max={50} value={aiPoints} onChange={v => setAiPoints(Math.min(50, Math.max(1, Number(v) || 1)))} disabled={working} /></label>
                             </div>
-                            {/* Audio Player */}
-                            <audio
-                                controls
-                                controlsList="nodownload"
-                                style={{ width: '100%', height: 40 }}
-                                src={previewUrl || undefined}
-                                ref={(el) => { audioRef.current = el; }}
-                            />
-                        </div>
-                    )}
-                </Card>
+                        ) : (
+                            <p className="qz-hint">{editing ? 'Existing questions stay as they are.' : 'You will write the first question right after adding the section.'}</p>
+                        )}
+                        {withAI && aiPossible && <p className="qz-hint">Generated questions appear in the section so you can review and edit them.</p>}
+                    </section>
 
-                {/* Step 2: Questions */}
-                <Card
-                    size="small"
-                    title={
-                        <Space>
-                            <RobotOutlined />
-                            <Text strong>Step 2: Comprehension Questions ({questions.length})</Text>
-                        </Space>
-                    }
-                    style={{ marginBottom: 20, borderRadius: 12, border: '1px solid #e8e8e8' }}
-                >
-                    {/* Question mode toggle */}
-                    <Space style={{ marginBottom: 16 }} wrap>
-                        <Button
-                            type={questionMode === 'ai' ? 'primary' : 'default'}
-                            icon={<RobotOutlined />}
-                            onClick={() => setQuestionMode('ai')}
-                            style={questionMode === 'ai' ? {
-                                background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-                                border: 'none', borderRadius: 8,
-                            } : { borderRadius: 8 }}
-                        >
-                            Generate with AI ✨
-                        </Button>
-                        <Button
-                            type={questionMode === 'manual' ? 'primary' : 'default'}
-                            icon={<PlusOutlined />}
-                            onClick={() => { setQuestionMode('manual'); addManualQuestion(); }}
-                            style={questionMode === 'manual' ? {
-                                background: 'linear-gradient(135deg, #0891b2, #06b6d4)',
-                                border: 'none', borderRadius: 8,
-                            } : { borderRadius: 8 }}
-                        >
-                            Add Manually
-                        </Button>
-                    </Space>
+                    {error && <div className="tc-alert" role="alert"><ExclamationCircleOutlined /><span>{error}</span></div>}
+                </div>
 
-                    {/* AI Question Controls */}
-                    {questionMode === 'ai' && (
-                        <div style={{
-                            padding: 16, background: '#faf5ff', borderRadius: 10,
-                            border: '1px solid #e9d5ff', marginBottom: 16
-                        }}>
-                            <Space wrap>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Questions</Text>
-                                    <InputNumber min={1} max={10} value={aiQuestionCount} onChange={v => setAiQuestionCount(v || 3)} />
-                                </div>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Total Points</Text>
-                                    <InputNumber min={1} max={50} value={aiPoints} onChange={v => setAiPoints(v || 6)} />
-                                </div>
-                                <Button
-                                    type="primary"
-                                    icon={<RobotOutlined />}
-                                    loading={generatingQuestions}
-                                    onClick={handleGenerateQuestions}
-                                    disabled={!audioData || !transcript.trim()}
-                                    style={{
-                                        background: 'linear-gradient(135deg, #7c3aed, #8b5cf6)',
-                                        border: 'none', borderRadius: 8, marginTop: 18
-                                    }}
-                                >
-                                    Generate Questions
-                                </Button>
-                            </Space>
-                            {!transcript.trim() && (
-                                <Alert
-                                    message="A transcript is required for AI question generation"
-                                    type="info"
-                                    showIcon
-                                    style={{ marginTop: 12 }}
-                                />
-                            )}
-                        </div>
-                    )}
-
-                    {/* Manual Question Form */}
-                    {editingQuestion && (
-                        <div style={{
-                            padding: 16, background: '#f0fdfa', borderRadius: 10,
-                            border: '1px solid #a7f3d0', marginBottom: 16
-                        }}>
-                            <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                                {editingQuestionIndex >= 0 ? `Edit Question ${editingQuestionIndex + 1}` : 'New Question'}
-                            </Text>
-                            <Input
-                                placeholder="Question text..."
-                                value={editingQuestion.question_text}
-                                onChange={(e) => setEditingQuestion(prev => ({ ...prev!, question_text: e.target.value }))}
-                                style={{ marginBottom: 8 }}
-                            />
-                            <Space style={{ marginBottom: 8 }} wrap>
-                                <Select
-                                    value={editingQuestion.question_type}
-                                    onChange={(v) => setEditingQuestion(prev => ({ ...prev!, question_type: v }))}
-                                    style={{ width: 160 }}
-                                    options={[
-                                        { value: 'mcq_single', label: 'Single Choice' },
-                                        { value: 'mcq_multiple', label: 'Multiple Choice' },
-                                        { value: 'yes_no', label: 'True / False' },
-                                    ]}
-                                />
-                                <InputNumber
-                                    min={1}
-                                    max={10}
-                                    value={editingQuestion.marks}
-                                    onChange={(v) => setEditingQuestion(prev => ({ ...prev!, marks: v || 1 }))}
-                                    addonAfter="pts"
-                                />
-                            </Space>
-
-                            {editingQuestion.question_type === 'yes_no' ? (
-                                <div style={{ marginBottom: 8 }}>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Correct Answer</Text>
-                                    <Radio.Group
-                                        value={editingQuestion.correct_answer || 'yes'}
-                                        onChange={(e) => setEditingQuestion(prev => ({ ...prev!, correct_answer: e.target.value }))}
-                                    >
-                                        <Radio value="yes">Yes / True</Radio>
-                                        <Radio value="no">No / False</Radio>
-                                    </Radio.Group>
-                                </div>
-                            ) : (
-                                <div style={{ marginBottom: 8 }}>
-                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>Options</Text>
-                                    {manualOptions.map((opt, idx) => (
-                                        <Space key={idx} style={{ display: 'flex', marginBottom: 4 }}>
-                                            <Input
-                                                placeholder={`Option ${String.fromCharCode(65 + idx)}`}
-                                                value={opt.option_text}
-                                                onChange={(e) => {
-                                                    const newOpts = [...manualOptions];
-                                                    newOpts[idx] = { ...newOpts[idx], option_text: e.target.value };
-                                                    setManualOptions(newOpts);
-                                                }}
-                                                style={{ width: 300 }}
-                                            />
-                                            <Switch
-                                                checked={opt.is_correct}
-                                                onChange={(val) => {
-                                                    const newOpts = [...manualOptions];
-                                                    if (editingQuestion.question_type === 'mcq_single') {
-                                                        newOpts.forEach(o => o.is_correct = false);
-                                                    }
-                                                    newOpts[idx] = { ...newOpts[idx], is_correct: val };
-                                                    setManualOptions(newOpts);
-                                                }}
-                                                checkedChildren="✓"
-                                                unCheckedChildren="✗"
-                                                style={{ backgroundColor: opt.is_correct ? '#10b981' : undefined }}
-                                            />
-                                        </Space>
-                                    ))}
-                                    {manualOptions.length < 6 && (
-                                        <Button
-                                            size="small"
-                                            icon={<PlusOutlined />}
-                                            onClick={() => setManualOptions(prev => [...prev, { option_text: '', is_correct: false }])}
-                                            style={{ marginTop: 4 }}
-                                        >
-                                            Add Option
-                                        </Button>
-                                    )}
-                                </div>
-                            )}
-
-                            <Space>
-                                <Button type="primary" onClick={saveManualQuestion} style={{ borderRadius: 8 }}>
-                                    {editingQuestionIndex >= 0 ? 'Save Changes' : 'Add Question'}
-                                </Button>
-                                <Button onClick={() => { setEditingQuestion(null); setEditingQuestionIndex(-1); }} style={{ borderRadius: 8 }}>
-                                    Cancel
-                                </Button>
-                            </Space>
-                        </div>
-                    )}
-
-                    {/* Question List */}
-                    {questions.length > 0 && (
-                        <div style={{ marginTop: 8 }}>
-                            {questions.map((q, idx) => (
-                                <div
-                                    key={idx}
-                                    style={{
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'flex-start',
-                                        padding: '10px 14px',
-                                        background: '#f9fafb',
-                                        borderRadius: 8,
-                                        marginBottom: 6,
-                                        border: '1px solid #e5e7eb'
-                                    }}
-                                >
-                                    <div style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                                        <Space size={6} style={{ marginBottom: 4 }}>
-                                            <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>Q{idx + 1}</Tag>
-                                            <Tag color="green" style={{ margin: 0, fontSize: 11 }}>
-                                                {q.question_type === 'mcq_single' ? 'Single' : q.question_type === 'mcq_multiple' ? 'Multiple' : 'T/F'}
-                                            </Tag>
-                                            <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>{q.marks} pts</Tag>
-                                        </Space>
-                                        <div style={{
-                                            fontSize: 13,
-                                            color: '#374151',
-                                            wordBreak: 'break-word',
-                                            lineHeight: 1.4,
-                                        }}>
-                                            {q.question_text}
-                                        </div>
-                                    </div>
-                                    <Space size={4} style={{ flexShrink: 0 }}>
-                                        <Button
-                                            size="small"
-                                            icon={<EditOutlined />}
-                                            onClick={() => startEditQuestion(idx)}
-                                            style={{ borderRadius: 6 }}
-                                        />
-                                        <Button
-                                            danger
-                                            size="small"
-                                            icon={<DeleteOutlined />}
-                                            onClick={() => deleteQuestion(idx)}
-                                            style={{ borderRadius: 6 }}
-                                        />
-                                    </Space>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {questions.length === 0 && !editingQuestion && (
-                        <div style={{ textAlign: 'center', padding: 20, color: '#9ca3af' }}>
-                            <SoundOutlined style={{ fontSize: 32, marginBottom: 8 }} />
-                            <br />
-                            <Text type="secondary">No questions added yet. Use AI or add manually.</Text>
-                        </div>
-                    )}
-
-                    {/* Add another manual question button */}
-                    {!editingQuestion && questions.length > 0 && (
-                        <Button
-                            icon={<PlusOutlined />}
-                            onClick={addManualQuestion}
-                            style={{ marginTop: 8, borderRadius: 8 }}
-                            block
-                            type="dashed"
-                        >
-                            Add Another Question
-                        </Button>
-                    )}
-                </Card>
-            </div>
-
-            {/* Fixed Footer */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 12,
-                padding: '14px 28px',
-                borderTop: '1px solid #e8e8e8',
-                background: '#fff',
-                flexShrink: 0,
-                boxShadow: '0 -2px 8px rgba(0,0,0,0.04)',
-            }}>
-                <Button onClick={onClose} style={{ borderRadius: 8, height: 38 }}>
-                    Cancel
-                </Button>
-                <Button
-                    type="primary"
-                    onClick={handleAddToQuiz}
-                    disabled={!audioData || questions.length === 0}
-                    style={{
-                        background: !audioData || questions.length === 0 ? undefined :
-                            'linear-gradient(135deg, #0891b2, #06b6d4)',
-                        border: 'none',
-                        borderRadius: 8,
-                        fontWeight: 600,
-                        height: 38,
-                    }}
-                >
-                    🎧 Add to Quiz ({questions.length} questions)
-                </Button>
+                <footer className="qz-mod-foot">
+                    <Button onClick={onClose} disabled={working}>Cancel</Button>
+                    <Button type="primary" icon={withAI && aiPossible ? <ThunderboltOutlined /> : undefined} loading={busy === 'questions'}
+                        disabled={!audio || stale || (working && busy !== 'questions')} onClick={save}>
+                        {busy === 'questions' ? 'Writing questions…' : saveLabel}
+                    </Button>
+                </footer>
             </div>
         </Modal>
     );

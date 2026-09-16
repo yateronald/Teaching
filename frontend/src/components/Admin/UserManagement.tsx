@@ -1,39 +1,25 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    Table,
-    Button,
-    Modal,
-    Form,
-    Input,
-    Select,
-    message,
-    Space,
-    Typography,
-        Card,
-    Divider,
-    Switch,
-    Dropdown,
-    Skeleton,
-    DatePicker,
-        } from 'antd';
+    Button, Checkbox, ConfigProvider, DatePicker, Drawer, Dropdown, Form, Input, Modal, Segmented, Select, Skeleton, Switch, Table, Tooltip, message,
+} from 'antd';
+import type { MenuProps } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import {
-    PlusOutlined,
-    EditOutlined,
-    DeleteOutlined,
-    UserOutlined,
-    KeyOutlined,
-    CheckCircleOutlined,
-    StopOutlined,
-    MoreOutlined,
-    EyeOutlined
+    CalendarOutlined, CheckCircleFilled, CheckCircleOutlined, CloseOutlined, CrownOutlined, DeleteOutlined, DownloadOutlined,
+    EditOutlined, ExclamationCircleFilled, KeyOutlined, LockOutlined, MailOutlined, MoreOutlined, PlusOutlined, ReadOutlined,
+    ReloadOutlined, RightOutlined, SafetyOutlined, SearchOutlined, SolutionOutlined, StopOutlined, TeamOutlined, UserAddOutlined,
+    UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import type { ColumnsType } from 'antd/es/table';
-import type { MenuProps } from 'antd';
+import useResponsive from '../../hooks/useResponsive';
+import { headerHeight } from '../Layout/layoutMetrics';
+import { formatPlain } from '../../utils/timezone';
+import './UserManagement.css';
 
-const { Title } = Typography;
-const { Option } = Select;
+type Role = 'admin' | 'teacher' | 'student';
+type RoleTab = 'all' | Role;
+type StatusKey = 'active' | 'disabled' | 'attention' | 'new';
 
 interface User {
     id: number;
@@ -41,1069 +27,849 @@ interface User {
     email: string;
     first_name: string;
     last_name: string;
-    role: 'admin' | 'teacher' | 'student';
+    role: Role;
     created_at: string;
     is_active?: boolean;
     failed_login_attempts?: number;
 }
 
+const ROLES: Role[] = ['student', 'teacher', 'admin'];
+const ROLE_META: Record<Role, { label: string; plural: string; icon: React.ReactNode; desc: string }> = {
+    student: { label: 'Student', plural: 'Students', icon: <ReadOutlined />, desc: 'Joins classes, quizzes and exam practice.' },
+    teacher: { label: 'Teacher', plural: 'Teachers', icon: <SolutionOutlined />, desc: 'Runs batches, live classes and grading.' },
+    admin: { label: 'Admin', plural: 'Admins', icon: <CrownOutlined />, desc: 'Full access to the admin console.' },
+};
+const ATTENTION = 3; // failed sign-ins before a user is flagged
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+const fullName = (u: User) => `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username || u.email;
+const initialsOf = (u: User) => ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase() || (u.email?.[0] || '?').toUpperCase();
+const daysSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 86400_000;
+const agoText = (iso: string) => {
+    const d = daysSince(iso);
+    if (!Number.isFinite(d)) return '';
+    if (d < 1) return 'Today';
+    if (d < 2) return 'Yesterday';
+    if (d < 30) return `${Math.floor(d)} days ago`;
+    if (d < 365) { const m = Math.floor(d / 30); return `${m} ${m === 1 ? 'month' : 'months'} ago`; }
+    const y = Math.floor(d / 365);
+    return `${y} ${y === 1 ? 'year' : 'years'} ago`;
+};
+const slug = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '');
+const suggestUsername = (first?: string, last?: string, email?: string) =>
+    [slug(first || ''), slug(last || '')].filter(Boolean).join('.') || slug((email || '').split('@')[0]);
+
+/* ── Small pieces ── */
+const Avatar: React.FC<{ u: User; large?: boolean }> = ({ u, large }) => (
+    <span className={`um-avatar is-${u.role}${large ? ' is-lg' : ''}`} aria-hidden>{initialsOf(u)}</span>
+);
+const RolePill: React.FC<{ role: Role }> = ({ role }) => (
+    <span className={`um-role is-${role}`}><i />{ROLE_META[role]?.label || role}</span>
+);
+const StatusCell: React.FC<{ u: User }> = ({ u }) => {
+    const failed = u.failed_login_attempts || 0;
+    return (
+        <span className="um-status">
+            <span className={`um-state${u.is_active ? ' is-on' : ''}`}><i />{u.is_active ? 'Active' : 'Disabled'}</span>
+            {failed > 0 && (
+                <Tooltip title={`${failed} failed sign-in ${failed === 1 ? 'attempt' : 'attempts'}`}>
+                    <span className={`um-fail${failed >= ATTENTION ? ' is-high' : ''}`}><WarningOutlined /> {failed}</span>
+                </Tooltip>
+            )}
+        </span>
+    );
+};
+
+const RolePicker: React.FC<{ value?: Role; onChange?: (r: Role) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => (
+    <div className="um-roles" role="radiogroup" aria-label="Role">
+        {ROLES.map(k => (
+            <button key={k} type="button" role="radio" aria-checked={value === k} disabled={disabled}
+                className={`um-role-card is-${k}${value === k ? ' is-selected' : ''}`} onClick={() => onChange?.(k)}>
+                <span className="um-role-card-ic">{ROLE_META[k].icon}</span>
+                <strong>{ROLE_META[k].label}</strong>
+                <span>{ROLE_META[k].desc}</span>
+                <CheckCircleFilled className="um-role-check" />
+            </button>
+        ))}
+    </div>
+);
+
 const UserManagement: React.FC = () => {
-    const [users, setUsers] = useState<User[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [submitLoading, setSubmitLoading] = useState(false);
-    const [modalVisible, setModalVisible] = useState(false);
-    const [passwordModalVisible, setPasswordModalVisible] = useState(false);
-    const [passwordResetLoading, setPasswordResetLoading] = useState(false);
-    const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
-    const [searchText, setSearchText] = useState('');
-    const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-    const [statusFilter, setStatusFilter] = useState<string | null>(null);
-    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
-    const [form] = Form.useForm();
-    const [passwordForm] = Form.useForm();
     const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
+    const r = useResponsive();
+    const [msg, msgHolder] = message.useMessage();
+    const [modal, modalHolder] = Modal.useModal();
+    const [form] = Form.useForm();
 
-    // Watch the is_active field to update Switch color reactively
-    const isActiveValue = Form.useWatch('is_active', form);
+    const [users, setUsers] = useState<User[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
 
-    // When editing own admin account, freeze Account Status control
-    const isOwnAdminEdit = !!editingUser && editingUser.role === 'admin' && user?.id === editingUser.id;
+    const [roleTab, setRoleTab] = useState<RoleTab>('all');
+    const [search, setSearch] = useState('');
+    const [statusKey, setStatusKey] = useState<StatusKey | null>(null);
+    const [range, setRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
+    const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
+    const [bulkBusy, setBulkBusy] = useState(false);
+    const [cardLimit, setCardLimit] = useState(20);
 
-    // Check if user is authenticated and has admin privileges
-    if (!isAuthenticated) {
-        return (
-            <Card>
-                <div style={{ textAlign: 'center', padding: '50px' }}>
-                    <Title level={3}>Authentication Required</Title>
-                    <p>Please log in to access user management.</p>
-                </div>
-            </Card>
-        );
-    }
+    const [editorOpen, setEditorOpen] = useState(false);
+    const [editing, setEditing] = useState<User | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [formError, setFormError] = useState<string | null>(null);
+    const usernameTouched = useRef(false);
 
-    if (!isAdmin) {
-        return (
-            <Card>
-                <div style={{ textAlign: 'center', padding: '50px' }}>
-                    <Title level={3}>Access Denied</Title>
-                    <p>You need admin privileges to access user management.</p>
-                    <p>Current role: {user?.role || 'Unknown'}</p>
-                </div>
-            </Card>
-        );
-    }
+    const [resetTarget, setResetTarget] = useState<User | null>(null);
+    const [resetMustChange, setResetMustChange] = useState(true);
+    const [resetting, setResetting] = useState(false);
+    const [resetDone, setResetDone] = useState(false);
 
-    useEffect(() => {
-        fetchUsers();
-    }, []);
+    const [profileId, setProfileId] = useState<number | null>(null);
+    const profile = users.find(u => u.id === profileId) || null;
 
-    const fetchUsers = async () => {
-        setLoading(true);
+    const isSelf = (u: User) => u.id === user?.id;
+    const ownAdminEdit = !!editing && editing.role === 'admin' && isSelf(editing);
+    const fmtDate = (iso: string) => formatPlain(iso, user?.timezone, { month: 'short', day: 'numeric', year: 'numeric' });
+
+    const handleAuthError = (e: any) => {
+        if (e?.message?.includes('Authentication token is invalid or expired.')) {
+            msg.error('Your session expired. Please sign in again.');
+            logout();
+            return true;
+        }
+        return false;
+    };
+
+    /* ═══════════ DATA ═══════════ */
+    const fetchUsers = useCallback(async () => {
         try {
-            const response = await apiCall('/users');
-            if (response.ok) {
-                const data = await response.json();
-                setUsers(data || []);
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.error || errorData.message || 'Failed to fetch users');
+            const res = await apiCall('/users');
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                throw new Error(d.error || d.message || `The server answered ${res.status}.`);
             }
-        } catch (error: any) {
-            console.error('Fetch users error:', error);
-            if (error.message && error.message.includes('Authentication token is invalid or expired.')) {
-                message.error('Session expired. Please log in again.');
-                logout();
-            } else {
-                message.error('Error fetching users');
-            }
+            const data = await res.json();
+            setUsers(Array.isArray(data) ? data : []);
+            setLoadError(null);
+        } catch (e: any) {
+            if (!handleAuthError(e)) setLoadError(e?.message || 'Could not load users.');
         } finally {
             setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [apiCall]);
+
+    useEffect(() => {
+        if (isAuthenticated && isAdmin) fetchUsers();
+        else setLoading(false);
+    }, [isAuthenticated, isAdmin, fetchUsers]);
+
+    const stats = useMemo(() => {
+        const by = (k: Role) => users.filter(u => u.role === k).length;
+        return {
+            total: users.length,
+            student: by('student'),
+            teacher: by('teacher'),
+            admin: by('admin'),
+            active: users.filter(u => u.is_active).length,
+            disabled: users.filter(u => !u.is_active).length,
+            attention: users.filter(u => (u.failed_login_attempts || 0) >= ATTENTION).length,
+            fresh: users.filter(u => daysSince(u.created_at) <= 30).length,
+        };
+    }, [users]);
+
+    const filtered = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        return users.filter(u => {
+            if (roleTab !== 'all' && u.role !== roleTab) return false;
+            if (q && !`${fullName(u)} ${u.email} ${u.username}`.toLowerCase().includes(q)) return false;
+            if (statusKey === 'active' && !u.is_active) return false;
+            if (statusKey === 'disabled' && u.is_active) return false;
+            if (statusKey === 'attention' && (u.failed_login_attempts || 0) < ATTENTION) return false;
+            if (statusKey === 'new' && daysSince(u.created_at) > 30) return false;
+            if (range) {
+                const d = dayjs(u.created_at);
+                if (d.isBefore(range[0], 'day') || d.isAfter(range[1], 'day')) return false;
+            }
+            return true;
+        });
+    }, [users, search, roleTab, statusKey, range]);
+
+    const hasFilters = !!(search || statusKey || range || roleTab !== 'all');
+    const clearFilters = () => { setSearch(''); setStatusKey(null); setRange(null); setRoleTab('all'); };
+
+    // Keep the selection limited to rows that are still visible.
+    useEffect(() => {
+        setSelectedIds(ids => ids.filter(id => filtered.some(u => u.id === id)));
+        setCardLimit(20);
+    }, [filtered]);
+
+    /* ═══════════ EDITOR ═══════════ */
+    const openCreate = () => {
+        setEditing(null);
+        setFormError(null);
+        usernameTouched.current = false;
+        form.resetFields();
+        form.setFieldsValue({ role: roleTab !== 'all' ? roleTab : 'student', is_active: true });
+        setEditorOpen(true);
+    };
+
+    const openEdit = (u: User) => {
+        setEditing(u);
+        setFormError(null);
+        usernameTouched.current = true;
+        form.resetFields();
+        form.setFieldsValue({
+            username: u.username,
+            email: u.email,
+            first_name: u.first_name,
+            last_name: u.last_name,
+            role: u.role,
+            is_active: u.is_active ?? true,
+        });
+        setEditorOpen(true);
+    };
+
+    const closeEditor = () => {
+        if (saving) return;
+        setEditorOpen(false);
+        setEditing(null);
+        setFormError(null);
+    };
+
+    const onValuesChange = (changed: Record<string, unknown>, all: Record<string, string>) => {
+        if ('username' in changed) { usernameTouched.current = !!changed.username; return; }
+        if (!editing && !usernameTouched.current && ('first_name' in changed || 'last_name' in changed || 'email' in changed)) {
+            form.setFieldsValue({ username: suggestUsername(all.first_name, all.last_name, all.email) });
         }
     };
 
     const handleSubmit = async (values: any) => {
-        setSubmitLoading(true);
+        setSaving(true);
+        setFormError(null);
         try {
-            const endpoint = editingUser ? `/users/${editingUser.id}` : '/users';
-            const method = editingUser ? 'PUT' : 'POST';
-            
-            const payload = { ...values };
-            const isEditingSelfAdmin = !!editingUser && editingUser.role === 'admin' && user?.id === editingUser.id;
-            if (isEditingSelfAdmin) {
-                // Do not allow changing Account Status or Role for own admin account
-                delete (payload as any).is_active;
-                delete (payload as any).role;
-            }
-            if (!editingUser) {
-                // Remove password field; backend will auto-generate 10-char password and email it
-                delete (payload as any).password;
-            }
-            
-            const response = await apiCall(endpoint, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
+            const payload: Record<string, unknown> = {
+                first_name: String(values.first_name || '').trim(),
+                last_name: String(values.last_name || '').trim(),
+                email: String(values.email || '').trim(),
+                role: values.role,
+                is_active: !!values.is_active,
+            };
+            if (!editing) payload.username = String(values.username || '').trim();
+            if (ownAdminEdit) { delete payload.is_active; delete payload.role; }
+
+            const res = await apiCall(editing ? `/users/${editing.id}` : '/users', {
+                method: editing ? 'PUT' : 'POST',
+                headers: JSON_HEADERS,
                 body: JSON.stringify(payload),
             });
-
-            if (response.ok) {
-                message.success(`User ${editingUser ? 'updated' : 'created'} successfully`);
-                setModalVisible(false);
-                form.resetFields();
-                setEditingUser(null);
-                fetchUsers();
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.error || errorData.message || 'Operation failed');
-            }
-        } catch (error: any) {
-            console.error('User update error:', error);
-            if (error.message && error.message.includes('Authentication token is invalid or expired.')) {
-                message.error('Session expired. Please log in again.');
-                logout();
-            } else {
-                message.error('Error while saving user');
-            }
-        } finally {
-            setSubmitLoading(false);
-        }
-    };
-
-    const handleDelete = async (userId: number) => {
-        // Prevent self-deletion for logged-in admin
-        if (isAdmin && user?.id === userId) {
-            message.warning('You cannot delete your own admin account.');
-            return;
-        }
-        try {
-            const response = await apiCall(`/users/${userId}`, {
-                method: 'DELETE',
-            });
-
-            if (response.ok) {
-                message.success('User deleted successfully');
-                fetchUsers();
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.error || errorData.message || 'Failed to delete user');
-            }
-        } catch (error: any) {
-            console.error('User delete error:', error);
-            if (error.message && error.message.includes('Authentication token is invalid or expired.')) {
-                message.error('Session expired. Please log in again.');
-                logout();
-            } else {
-                message.error('Error deleting user');
-            }
-        }
-    };
-
-    const handleEdit = (user: User) => {
-        setEditingUser(user);
-        form.setFieldsValue({
-            username: user.username,
-            email: user.email,
-            first_name: user.first_name,
-            last_name: user.last_name,
-            role: user.role,
-            is_active: user.is_active ?? true, // Use actual value, default to true only if undefined
-        });
-        setModalVisible(true);
-    };
-
-    const handleAdd = () => {
-        setEditingUser(null);
-        form.resetFields();
-        // Set default values for new user
-        form.setFieldsValue({
-            is_active: true // Default to active for new users
-        });
-        setModalVisible(true);
-    };
-
-    const handleResetPassword = (user: User) => {
-        setResetPasswordUser(user);
-        passwordForm.resetFields();
-        setPasswordModalVisible(true);
-    };
-
-    const handleToggleStatus = async (targetUser: User) => {
-        // Prevent self-deactivation for logged-in admin
-        if (isAdmin && targetUser?.role === 'admin' && user?.id === targetUser.id) {
-            // If attempting to deactivate own admin account
-            if (targetUser.is_active) {
-                message.warning('You cannot deactivate your own admin account.');
-                return;
-            }
-        }
-        try {
-            const newStatus = !targetUser.is_active;
-            const response = await apiCall(`/users/${targetUser.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_active: newStatus }),
-            });
-
-            if (response.ok) {
-                message.success(`User ${newStatus ? 'activated' : 'deactivated'} successfully`);
-                fetchUsers(); // Refresh the list
-            } else {
-                const errorData = await response.json();
-                message.error(errorData.error || 'Failed to update user status');
-            }
-        } catch (error) {
-            console.error('Toggle status error:', error);
-            message.error('Error updating user status');
-        }
-    };
-
-    const handlePasswordReset = async (_values: any) => {
-        if (!resetPasswordUser) return;
-        
-        setPasswordResetLoading(true);
-        try {
-            const payload: any = { mustChange: true };
-            const response = await apiCall(`/users/${resetPasswordUser.id}/reset-password`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-            });
-            const data = await response.json();
-            if (!response.ok) {
-                const errorData = data || {};
-                message.error(errorData.error || errorData.message || 'Failed to reset password');
-                return;
-            }
-            message.success('Password reset. A temporary password has been emailed to the user.');
-            setPasswordModalVisible(false);
-            passwordForm.resetFields();
-            setResetPasswordUser(null);
-            fetchUsers();
-        } catch (error: any) {
-            console.error('Password reset error:', error);
-            if (error?.response) {
-                try {
-                    const errorData = await error.response.json();
-                    message.error(errorData.error || 'Error resetting password');
-                } catch (e) {
-                    message.error('Error resetting password');
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const err: string = data.error || data.message || 'Could not save this user.';
+                if (/already exists/i.test(err)) {
+                    const text = 'This email or username is already used by another account.';
+                    form.setFields([{ name: 'email', errors: [text] }, ...(!editing ? [{ name: 'username', errors: [text] }] : [])]);
+                } else if (err === 'Validation failed' && Array.isArray(data.details)) {
+                    setFormError(`Please check: ${data.details.map((d: any) => String(d.path || d.param).replace('_', ' ')).join(', ')}.`);
+                } else {
+                    setFormError(err);
                 }
-            } else {
-                message.error('Error resetting password');
+                return;
             }
+            msg.success(editing
+                ? `${payload.first_name}'s profile was updated`
+                : `${payload.first_name} was added — a welcome email with a temporary password is on its way`);
+            setEditorOpen(false);
+            setEditing(null);
+            fetchUsers();
+        } catch (e: any) {
+            if (!handleAuthError(e)) setFormError("We couldn't reach the server. Try again.");
         } finally {
-            setPasswordResetLoading(false);
+            setSaving(false);
         }
     };
 
-    const getRoleStyle = (role: string) => {
-        switch (role) {
-            case 'admin': return { bg: '#fef2f2', color: '#dc2626', border: '#fecaca' };
-            case 'teacher': return { bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' };
-            case 'student': return { bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' };
-            default: return { bg: '#f8fafc', color: '#64748b', border: '#e2e8f0' };
+    /* ═══════════ ACTIONS ═══════════ */
+    const setActive = async (u: User, active: boolean) => {
+        try {
+            const res = await apiCall(`/users/${u.id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ is_active: active }) });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                msg.error(d.error || 'Could not update the account status');
+                return;
+            }
+            msg.success(`${fullName(u)} ${active ? 'can sign in again' : 'can no longer sign in'}`);
+            fetchUsers();
+        } catch (e) {
+            if (!handleAuthError(e)) msg.error('Could not update the account status');
         }
     };
 
-    const getInitials = (first: string, last: string) => {
-        return `${(first || '')[0] || ''}${(last || '')[0] || ''}`.toUpperCase();
+    const confirmToggle = (u: User) => {
+        if (isSelf(u) && u.is_active) { msg.warning('You cannot disable your own admin account.'); return; }
+        const disabling = !!u.is_active;
+        modal.confirm({
+            title: disabling ? `Disable ${fullName(u)}?` : `Enable ${fullName(u)}?`,
+            content: disabling
+                ? "They will be signed out and won't be able to sign in until you enable the account again."
+                : 'They will be able to sign in again. Failed sign-in attempts are reset.',
+            okText: disabling ? 'Disable account' : 'Enable account',
+            okButtonProps: disabling ? { danger: true } : undefined,
+            centered: true,
+            onOk: () => setActive(u, !disabling),
+        });
     };
 
-    const getAvatarColor = (role: string) => {
-        switch (role) {
-            case 'admin': return 'linear-gradient(135deg, #ef4444, #f87171)';
-            case 'teacher': return 'linear-gradient(135deg, #3b82f6, #60a5fa)';
-            case 'student': return 'linear-gradient(135deg, #10b981, #34d399)';
-            default: return 'linear-gradient(135deg, #6366f1, #818cf8)';
+    const confirmDelete = (u: User) => {
+        if (isSelf(u)) { msg.warning('You cannot delete your own admin account.'); return; }
+        modal.confirm({
+            title: `Delete ${fullName(u)}?`,
+            icon: <ExclamationCircleFilled style={{ color: '#dc2626' }} />,
+            content: 'This permanently removes the account. It cannot be undone — disable the account instead if you may need it later.',
+            okText: 'Delete permanently',
+            okButtonProps: { danger: true },
+            centered: true,
+            onOk: async () => {
+                try {
+                    const res = await apiCall(`/users/${u.id}`, { method: 'DELETE' });
+                    if (!res.ok) {
+                        const d = await res.json().catch(() => ({}));
+                        msg.error(d.error || d.message || 'Could not delete the user');
+                        return;
+                    }
+                    msg.success(`${fullName(u)} was deleted`);
+                    if (profileId === u.id) setProfileId(null);
+                    fetchUsers();
+                } catch (e) {
+                    if (!handleAuthError(e)) msg.error('Could not delete the user');
+                }
+            },
+        });
+    };
+
+    const openReset = (u: User) => { setResetTarget(u); setResetMustChange(true); setResetDone(false); };
+    const closeReset = () => { if (!resetting) { setResetTarget(null); setResetDone(false); } };
+    const doReset = async () => {
+        if (!resetTarget) return;
+        setResetting(true);
+        try {
+            const res = await apiCall(`/users/${resetTarget.id}/reset-password`, {
+                method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ mustChange: resetMustChange }),
+            });
+            if (!res.ok) {
+                const d = await res.json().catch(() => ({}));
+                msg.error(d.error || d.message || 'Could not reset the password');
+                return;
+            }
+            setResetDone(true);
+            fetchUsers();
+        } catch (e) {
+            if (!handleAuthError(e)) msg.error('Could not reset the password');
+        } finally {
+            setResetting(false);
         }
     };
+
+    const bulkSetActive = async (active: boolean) => {
+        const targets = users.filter(u => selectedIds.includes(u.id) && !isSelf(u) && !!u.is_active !== active);
+        if (!targets.length) { msg.info(`The selected users are already ${active ? 'active' : 'disabled'}.`); return; }
+        setBulkBusy(true);
+        const results = await Promise.allSettled(targets.map(u =>
+            apiCall(`/users/${u.id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ is_active: active }) })
+                .then(res => { if (!res.ok) throw new Error(String(res.status)); })));
+        const ok = results.filter(x => x.status === 'fulfilled').length;
+        setBulkBusy(false);
+        setSelectedIds([]);
+        fetchUsers();
+        if (ok === targets.length) msg.success(`${ok} ${ok === 1 ? 'account' : 'accounts'} ${active ? 'enabled' : 'disabled'}`);
+        else msg.warning(`${ok} of ${targets.length} accounts updated — the others could not be changed.`);
+    };
+    const confirmBulkDisable = () => {
+        modal.confirm({
+            title: `Disable ${selectedIds.length} ${selectedIds.length === 1 ? 'account' : 'accounts'}?`,
+            content: "They won't be able to sign in until you enable them again. Your own account is never included.",
+            okText: 'Disable accounts',
+            okButtonProps: { danger: true },
+            centered: true,
+            onOk: () => bulkSetActive(false),
+        });
+    };
+
+    const exportCsv = () => {
+        const rows: (string | number)[][] = [
+            ['ID', 'First name', 'Last name', 'Username', 'Email', 'Role', 'Status', 'Failed sign-ins', 'Joined'],
+            ...filtered.map(u => [u.id, u.first_name, u.last_name, u.username, u.email, u.role, u.is_active ? 'Active' : 'Disabled',
+                u.failed_login_attempts || 0, dayjs(u.created_at).format('YYYY-MM-DD')]),
+        ];
+        const csv = rows.map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `users-${dayjs().format('YYYY-MM-DD')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const actionsMenu = (u: User): MenuProps['items'] => [
+        { key: 'edit', icon: <EditOutlined />, label: 'Edit profile', onClick: () => openEdit(u) },
+        { key: 'reset', icon: <KeyOutlined />, label: 'Reset password', onClick: () => openReset(u) },
+        { type: 'divider' },
+        {
+            key: 'toggle',
+            icon: u.is_active ? <StopOutlined /> : <CheckCircleOutlined />,
+            label: u.is_active ? 'Disable account' : 'Enable account',
+            disabled: isSelf(u),
+            onClick: () => confirmToggle(u),
+        },
+        { key: 'delete', icon: <DeleteOutlined />, label: 'Delete user', danger: true, disabled: isSelf(u), onClick: () => confirmDelete(u) },
+    ];
+
+    /* ═══════════ ACCESS GUARDS ═══════════ */
+    if (!isAuthenticated || !isAdmin) {
+        return (
+            <div className="um">
+                <div className="um-denied">
+                    <span className="um-denied-ic"><LockOutlined /></span>
+                    <h2>{isAuthenticated ? 'Admins only' : 'Please sign in'}</h2>
+                    <p>{isAuthenticated
+                        ? `User management is available to administrators. You are signed in as ${user?.role || 'a user'}.`
+                        : 'Sign in with an administrator account to manage users.'}</p>
+                </div>
+            </div>
+        );
+    }
+
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) {
+        return (
+            <div className="um" aria-busy="true">
+                <div className="um-header">
+                    <div>
+                        <Skeleton.Input active size="small" style={{ width: 110, height: 12 }} />
+                        <div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 200, height: 24 }} /></div>
+                    </div>
+                </div>
+                <div className="um-overview">
+                    <div className="um-summary"><Skeleton active title={{ width: '30%' }} paragraph={{ rows: 2 }} /></div>
+                    <div className="um-tiles">
+                        {[0, 1, 2, 3].map(i => <div key={i} className="um-tile"><Skeleton.Avatar active shape="square" size={38} /><Skeleton.Input active size="small" style={{ width: 80 }} /></div>)}
+                    </div>
+                </div>
+                <div className="um-panel um-pad"><Skeleton active title={false} paragraph={{ rows: 9 }} /></div>
+            </div>
+        );
+    }
+
+    const pct = (n: number) => (stats.total ? Math.round((n / stats.total) * 100) : 0);
+    const tiles: { key: StatusKey; label: string; value: number; hint: string; icon: React.ReactNode; tone: string }[] = [
+        { key: 'active', label: 'Active', value: stats.active, hint: 'Can sign in', icon: <CheckCircleOutlined />, tone: 'green' },
+        { key: 'disabled', label: 'Disabled', value: stats.disabled, hint: "Can't sign in", icon: <StopOutlined />, tone: 'slate' },
+        { key: 'attention', label: 'Needs attention', value: stats.attention, hint: `${ATTENTION}+ failed sign-ins`, icon: <WarningOutlined />, tone: 'amber' },
+        { key: 'new', label: 'New', value: stats.fresh, hint: 'Joined in 30 days', icon: <CalendarOutlined />, tone: 'indigo' },
+    ];
 
     const columns: ColumnsType<User> = [
         {
-            title: 'Name',
-            key: 'name',
-            width: 220,
-            fixed: 'left',
-            render: (_, record) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{
-                        width: 34, height: 34, borderRadius: 10,
-                        background: getAvatarColor(record.role),
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0,
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                    }}>
-                        {getInitials(record.first_name, record.last_name)}
-                    </div>
-                    <div>
-                        <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, lineHeight: 1.3 }}>
-                            {`${record.first_name} ${record.last_name}`}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                            ID: {record.id}
-                        </div>
+            title: 'User',
+            key: 'user',
+            sorter: (a, b) => fullName(a).localeCompare(fullName(b)),
+            render: (_, u) => (
+                <div className="um-user">
+                    <Avatar u={u} />
+                    <div className="um-user-text">
+                        <div className="um-user-name">{fullName(u)}{isSelf(u) && <span className="um-you">You</span>}</div>
+                        <div className="um-user-email">{u.email}</div>
                     </div>
                 </div>
-            ),
-        },
-        {
-            title: 'Email',
-            dataIndex: 'email',
-            key: 'email',
-            width: 240,
-            ellipsis: true,
-            render: (email: string) => (
-                <span style={{ color: '#64748b', fontSize: 12.5 }}>
-                    {email}
-                </span>
             ),
         },
         {
             title: 'Role',
             dataIndex: 'role',
-            key: 'role',
-            width: 110,
-            render: (role: string) => {
-                const s = getRoleStyle(role);
-                return (
-                    <span style={{
-                        display: 'inline-block',
-                        padding: '3px 12px',
-                        borderRadius: 20,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                        background: s.bg,
-                        color: s.color,
-                        border: `1px solid ${s.border}`,
-                    }}>
-                        {role}
-                    </span>
-                );
-            },
+            width: 130,
+            sorter: (a, b) => a.role.localeCompare(b.role),
+            render: (role: Role) => <RolePill role={role} />,
         },
         {
             title: 'Status',
-            dataIndex: 'is_active',
             key: 'status',
-            width: 100,
-            render: (isActive: boolean) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <div style={{
-                        width: 7, height: 7, borderRadius: '50%',
-                        background: isActive ? '#22c55e' : '#ef4444',
-                        boxShadow: isActive ? '0 0 6px #22c55e80' : '0 0 6px #ef444480',
-                    }} />
-                    <span style={{
-                        fontSize: 12, fontWeight: 600,
-                        color: isActive ? '#16a34a' : '#dc2626',
-                    }}>
-                        {isActive ? 'Active' : 'Disabled'}
-                    </span>
+            width: 170,
+            sorter: (a, b) => Number(!!b.is_active) - Number(!!a.is_active),
+            render: (_, u) => <StatusCell u={u} />,
+        },
+        {
+            title: 'Username',
+            dataIndex: 'username',
+            width: 180,
+            responsive: ['xl'],
+            ellipsis: true,
+            render: (v: string) => <span className="um-handle">@{v}</span>,
+        },
+        {
+            title: 'Joined',
+            dataIndex: 'created_at',
+            width: 150,
+            defaultSortOrder: 'descend',
+            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            render: (iso: string) => <div className="um-joined"><span>{fmtDate(iso)}</span><em>{agoText(iso)}</em></div>,
+        },
+        {
+            title: <span className="sr-only">Actions</span>,
+            key: 'actions',
+            width: 92,
+            align: 'right',
+            render: (_, u) => (
+                <div className="um-row-actions" onClick={e => e.stopPropagation()}>
+                    <Tooltip title="Edit profile">
+                        <Button type="text" className="um-icon-btn" icon={<EditOutlined />} onClick={() => openEdit(u)} aria-label={`Edit ${fullName(u)}`} />
+                    </Tooltip>
+                    <Dropdown menu={{ items: actionsMenu(u) }} trigger={['click']} placement="bottomRight">
+                        <Button type="text" className="um-icon-btn" icon={<MoreOutlined />} aria-label={`More actions for ${fullName(u)}`} />
+                    </Dropdown>
                 </div>
             ),
-        },
-        {
-            title: 'Failed Logins',
-            dataIndex: 'failed_login_attempts',
-            key: 'failed_login_attempts',
-            width: 110,
-            align: 'center',
-            render: (attempts: number) => {
-                const val = attempts || 0;
-                const color = val >= 5 ? '#dc2626' : val >= 3 ? '#f59e0b' : '#94a3b8';
-                return (
-                    <span style={{
-                        display: 'inline-block',
-                        padding: '2px 10px',
-                        borderRadius: 8,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: color,
-                        background: val >= 3 ? (val >= 5 ? '#fef2f2' : '#fffbeb') : '#f8fafc',
-                    }}>
-                        {val}
-                    </span>
-                );
-            },
-        },
-        {
-            title: 'Created At',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            width: 130,
-            render: (date: string) => (
-                <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}>
-                    {new Date(date).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                    })}
-                </span>
-            ),
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            width: 100,
-            fixed: 'right',
-            align: 'center',
-            render: (_, record) => {
-                const isOwnAdmin = record.role === 'admin' && user?.id === record.id;
-                const menuItems: MenuProps['items'] = [
-                    {
-                        key: 'edit',
-                        icon: <EditOutlined style={{ color: '#6366f1' }} />,
-                        label: <span style={{ color: '#1e293b' }}>Edit User</span>,
-                        onClick: () => handleEdit(record),
-                    },
-                    {
-                        key: 'reset-password',
-                        icon: <KeyOutlined style={{ color: '#8b5cf6' }} />,
-                        label: <span style={{ color: '#1e293b' }}>Reset Password</span>,
-                        onClick: () => handleResetPassword(record),
-                    },
-                    {
-                        type: 'divider',
-                    },
-                    {
-                        key: 'toggle-status',
-                        icon: record.is_active ? 
-                            <StopOutlined style={{ color: '#ef4444' }} /> : 
-                            <CheckCircleOutlined style={{ color: '#22c55e' }} />,
-                        label: (
-                            <span style={{ color: record.is_active ? '#ef4444' : '#22c55e' }}>
-                                {record.is_active ? 'Deactivate User' : 'Activate User'}
-                            </span>
-                        ),
-                        disabled: isOwnAdmin,
-                        onClick: () => {
-                            if (isOwnAdmin) {
-                                message.warning('You cannot deactivate your own admin account.');
-                                return;
-                            }
-                            Modal.confirm({
-                                title: `${record.is_active ? 'Deactivate' : 'Activate'} User`,
-                                content: `Are you sure you want to ${record.is_active ? 'deactivate' : 'activate'} ${record.first_name} ${record.last_name}?`,
-                                okText: 'Yes',
-                                cancelText: 'No',
-                                okButtonProps: {
-                                    style: {
-                                        backgroundColor: record.is_active ? '#ef4444' : '#22c55e',
-                                        borderColor: record.is_active ? '#ef4444' : '#22c55e'
-                                    }
-                                },
-                                onOk: () => handleToggleStatus(record),
-                            });
-                        },
-                    },
-                    {
-                        type: 'divider',
-                    },
-                    {
-                        key: 'delete',
-                        icon: <DeleteOutlined style={{ color: '#ef4444' }} />,
-                        label: <span style={{ color: '#ef4444' }}>Delete User</span>,
-                        disabled: isOwnAdmin,
-                        onClick: () => {
-                            if (isOwnAdmin) {
-                                message.warning('You cannot delete your own admin account.');
-                                return;
-                            }
-                            Modal.confirm({
-                                title: 'Delete User',
-                                content: `Are you sure you want to delete ${record.first_name} ${record.last_name}? This action cannot be undone.`,
-                                okText: 'Yes, Delete',
-                                cancelText: 'Cancel',
-                                okType: 'danger',
-                                onOk: () => handleDelete(record.id),
-                            });
-                        },
-                    },
-                ];
-
-                return (
-                    <Space size="small">
-                        <Button
-                            type="text"
-                            size="small"
-                            icon={<EyeOutlined />}
-                            onClick={() => handleEdit(record)}
-                            title="Quick Edit"
-                            style={{
-                                borderRadius: 8,
-                                height: 30, width: 30,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                color: '#6366f1',
-                                background: '#eef2ff',
-                                border: 'none',
-                            }}
-                        />
-                        <Dropdown
-                            menu={{ items: menuItems }}
-                            trigger={['click']}
-                            placement="bottomRight"
-                        >
-                            <Button
-                                type="text"
-                                size="small"
-                                icon={<MoreOutlined />}
-                                style={{ 
-                                    border: '1px solid #e2e8f0',
-                                    borderRadius: 8,
-                                    height: 30, width: 30,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    backgroundColor: '#f8fafc',
-                                    transition: 'all 0.2s ease'
-                                }}
-                                title="More Actions"
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#eef2ff';
-                                    e.currentTarget.style.borderColor = '#c7d2fe';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.backgroundColor = '#f8fafc';
-                                    e.currentTarget.style.borderColor = '#e2e8f0';
-                                }}
-                            />
-                        </Dropdown>
-                    </Space>
-                );
-            },
         },
     ];
 
-    // Derived Statistics for Dashboard
-    const totalUsers = users.length;
-    const adminCount = users.filter(u => u.role === 'admin').length;
-    const teacherCount = users.filter(u => u.role === 'teacher').length;
-    const studentCount = users.filter(u => u.role === 'student').length;
-    const inactiveCount = users.filter(u => !u.is_active).length;
-
-    // Computed Filtered List
-    const filteredUsers = useMemo(() => {
-        return users.filter(u => {
-            const matchesSearch = (u.first_name + ' ' + u.last_name).toLowerCase().includes(searchText.toLowerCase()) || 
-                                  (u.email || '').toLowerCase().includes(searchText.toLowerCase());
-            const matchesRole = selectedRoles.length === 0 || selectedRoles.includes(u.role);
-            
-            let matchesStatus = true;
-            if (statusFilter === 'active') matchesStatus = u.is_active === true;
-            else if (statusFilter === 'disabled') matchesStatus = u.is_active === false;
-
-            let matchesDate = true;
-            if (dateRangeFilter && dateRangeFilter.length === 2 && u.created_at) {
-                const start = dayjs(u.created_at);
-                if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) matchesDate = false;
-            }
-
-            return matchesSearch && matchesRole && matchesStatus && matchesDate;
-        });
-    }, [users, searchText, selectedRoles, statusFilter, dateRangeFilter]);
-
-    // ============================================================
-    // Full-page Skeleton
-    // ============================================================
-    if (loading && users.length === 0) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
-                {/* Header skeleton */}
-                <div style={{ flexShrink: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                        <div>
-                            <Skeleton.Input active style={{ width: 220, height: 26, borderRadius: 8 }} />
-                            <div style={{ marginTop: 8 }}>
-                                <Skeleton.Input active style={{ width: 360, height: 14, borderRadius: 6 }} />
-                            </div>
-                        </div>
-                        <Skeleton.Button active style={{ width: 140, height: 40, borderRadius: 10 }} />
-                    </div>
-
-                    {/* KPI skeleton */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px', marginBottom: 20 }}>
-                        {[1, 2, 3, 4, 5].map(i => (
-                            <div key={i} style={{ borderRadius: 14, padding: '14px 16px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <Skeleton.Avatar active size={40} shape="square" style={{ borderRadius: 10 }} />
-                                <div style={{ flex: 1 }}>
-                                    <Skeleton.Input active style={{ width: '60%', height: 10, borderRadius: 4, marginBottom: 8 }} block />
-                                    <Skeleton.Input active style={{ width: 36, height: 22, borderRadius: 6 }} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Table skeleton */}
-                <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                        <Skeleton.Avatar active size={30} shape="square" style={{ borderRadius: 9 }} />
-                        <Skeleton.Input active style={{ width: 120, height: 16, borderRadius: 4 }} />
-                    </div>
-                    {/* Table header skeleton */}
-                    <div style={{ padding: '12px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', gap: 24 }}>
-                        {[140, 200, 80, 80, 80, 100, 80].map((w, i) => (
-                            <Skeleton.Input key={i} active style={{ width: w, height: 12, borderRadius: 4 }} />
-                        ))}
-                    </div>
-                    {/* Table rows skeleton */}
-                    <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px' }}>
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '14px 0', borderBottom: '1px solid #f8f9fb' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 140 }}>
-                                    <Skeleton.Avatar active size={34} shape="square" style={{ borderRadius: 10 }} />
-                                    <div>
-                                        <Skeleton.Input active style={{ width: 90, height: 12, borderRadius: 4, marginBottom: 4 }} />
-                                        <Skeleton.Input active style={{ width: 40, height: 9, borderRadius: 4 }} />
-                                    </div>
-                                </div>
-                                <Skeleton.Input active style={{ width: 180, height: 12, borderRadius: 4 }} />
-                                <Skeleton.Input active style={{ width: 60, height: 20, borderRadius: 12 }} />
-                                <Skeleton.Input active style={{ width: 55, height: 12, borderRadius: 4 }} />
-                                <Skeleton.Input active style={{ width: 25, height: 14, borderRadius: 6 }} />
-                                <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 4 }} />
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
-                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const empty = (
+        <div className="um-empty">
+            <span className="um-empty-ic"><TeamOutlined /></span>
+            <strong>{users.length ? 'No users match these filters' : 'No users yet'}</strong>
+            <span>{users.length ? 'Try another search or clear the filters.' : 'Add your first teacher or student to get started.'}</span>
+            {users.length ? <Button onClick={clearFilters}>Clear filters</Button> : <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add user</Button>}
+        </div>
+    );
+    const useCards = r.width < 768;
+    const facts = profile ? [
+        { label: 'Username', value: <span className="um-handle">@{profile.username}</span> },
+        { label: 'Email', value: profile.email },
+        { label: 'User ID', value: `#${profile.id}` },
+        { label: 'Joined', value: `${fmtDate(profile.created_at)} · ${agoText(profile.created_at)}` },
+        { label: 'Failed sign-ins', value: String(profile.failed_login_attempts || 0) },
+    ] : [];
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
-            {/* Fixed Header Area */}
-            <div style={{ flexShrink: 0 }}>
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            <div className="um">
+                {msgHolder}
+                {modalHolder}
+
+                {/* ── Header ── */}
+                <header className="um-header">
                     <div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-                            User Management
-                        </div>
-                        <Typography.Text style={{ fontSize: 13, color: '#94a3b8' }}>
-                            Manage administrators, teachers, and students across the platform
-                        </Typography.Text>
+                        <div className="um-overline">Admin console · People</div>
+                        <h1 className="um-title">Users</h1>
+                        <p className="um-subtitle">Manage accounts, roles and sign-in access for everyone on the platform.</p>
                     </div>
-                    <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={handleAdd}
-                        style={{ borderRadius: 10, fontWeight: 600, height: 40, background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
-                    >
-                        Add New User
-                    </Button>
-                </div>
-
-                {/* KPI Dashboard */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '14px', marginBottom: 20 }}>
-                    {[
-                        { label: 'Total Users', value: totalUsers, icon: <UserOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
-                        { label: 'Admins', value: adminCount, icon: <KeyOutlined />, gradient: 'linear-gradient(135deg, #ef4444, #f87171)', accent: '#ef4444' },
-                        { label: 'Teachers', value: teacherCount, icon: <EditOutlined />, gradient: 'linear-gradient(135deg, #3b82f6, #60a5fa)', accent: '#3b82f6' },
-                        { label: 'Students', value: studentCount, icon: <UserOutlined />, gradient: 'linear-gradient(135deg, #10b981, #34d399)', accent: '#10b981' },
-                        { label: 'Disabled', value: inactiveCount, icon: <StopOutlined />, gradient: 'linear-gradient(135deg, #f59e0b, #fbbf24)', accent: '#f59e0b' },
-                    ].map((kpi, i) => (
-                        <div key={i} style={{
-                            borderRadius: 14, padding: '14px 16px',
-                            background: '#fff', border: '1px solid #f0f0f8',
-                            boxShadow: '0 2px 12px rgba(99,102,241,0.04)',
-                            display: 'flex', alignItems: 'center', gap: 12,
-                            transition: 'all 0.2s ease', cursor: 'default',
-                        }}
-                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(99,102,241,0.12)'; }}
-                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(99,102,241,0.04)'; }}
-                        >
-                            <div style={{
-                                width: 40, height: 40, borderRadius: 10,
-                                background: kpi.gradient,
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 16, color: '#fff', flexShrink: 0,
-                                boxShadow: `0 4px 12px ${kpi.accent}40`,
-                            }}>
-                                {kpi.icon}
-                            </div>
-                            <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
-                                <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Table Container — fills remaining height */}
-            <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5fa', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', fontSize: 14 }}>
-                                <UserOutlined />
-                            </div>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>User Directory</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', padding: '2px 10px', borderRadius: 12 }}>{filteredUsers.length} of {totalUsers} users</span>
-                        </div>
+                    <div className="um-header-actions">
+                        <Tooltip title="Refresh"><Button icon={<ReloadOutlined />} onClick={() => { setLoading(true); fetchUsers(); }} aria-label="Refresh" /></Tooltip>
+                        <Button icon={<DownloadOutlined />} onClick={exportCsv} disabled={!filtered.length}>{r.isMobile ? 'CSV' : 'Export CSV'}</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Add user</Button>
                     </div>
-                    {/* Advanced Filter Bar */}
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                        <Input.Search 
-                            placeholder="Search by student or teacher name, or email..." 
-                            allowClear 
-                            onChange={e => setSearchText(e.target.value)} 
-                            style={{ flex: '1 1 240px', minWidth: 180 }} 
-                        />
-                        <Select
-                            mode="multiple"
-                            placeholder="Filter by Role"
-                            allowClear
-                            style={{ flex: '0 1 200px', minWidth: 160 }}
-                            onChange={setSelectedRoles}
-                            options={[
-                                { label: 'Administrator', value: 'admin' },
-                                { label: 'Teacher', value: 'teacher' },
-                                { label: 'Student', value: 'student' }
-                            ]}
-                        />
-                        <Select
-                            placeholder="Status"
-                            allowClear
-                            value={statusFilter}
-                            onChange={setStatusFilter}
-                            style={{ flex: '0 1 140px', minWidth: 120 }}
-                            options={[
-                                { label: 'Active', value: 'active' },
-                                { label: 'Disabled', value: 'disabled' },
-                            ]}
-                        />
-                        <DatePicker.RangePicker 
-                            onChange={setDateRangeFilter} 
-                            allowClear 
-                            style={{ flex: '1 1 220px', minWidth: 200 }} 
-                        />
+                </header>
+
+                {loadError && (
+                    <div className="um-alert" role="alert">
+                        <ExclamationCircleFilled />
+                        <div><strong>Couldn't load users</strong><span>{loadError}</span></div>
+                        <Button size="small" onClick={() => { setLoading(true); fetchUsers(); }}>Retry</Button>
                     </div>
-                </div>
-                <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-                    <Table
-                        columns={columns}
-                        dataSource={filteredUsers}
-                        rowKey="id"
-                        loading={loading}
-                        scroll={{ x: 1000 }}
-                        size="middle"
-                        pagination={{
-                            pageSize: 15,
-                            showSizeChanger: true,
-                            showQuickJumper: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} users`,
-                            pageSizeOptions: ['10', '15', '25', '50'],
-                            style: { padding: '12px 20px', margin: 0 },
-                        }}
-                    />
-                </div>
-            </div>
-
-            <Modal
-                title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ 
-                            width: 40, height: 40, borderRadius: 10, 
-                            background: editingUser ? '#eff6ff' : '#ecfdf5', 
-                            color: editingUser ? '#2563eb' : '#10b981', 
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 
-                        }}>
-                            {editingUser ? <EditOutlined /> : <PlusOutlined />}
-                        </div>
-                        <span style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>
-                            {editingUser ? 'Edit User Profile' : 'Create New User'}
-                        </span>
-                    </div>
-                }
-                open={modalVisible}
-                onCancel={() => {
-                    if (!submitLoading) {
-                        setModalVisible(false);
-                        form.resetFields();
-                        setEditingUser(null);
-                    }
-                }}
-                footer={null}
-                width={650}
-                maskClosable={!submitLoading}
-                closable={!submitLoading}
-                styles={{ 
-                    header: { paddingBottom: 16, borderBottom: '1px solid #f1f5f9', marginBottom: 24, margin: '-4px -24px 24px', padding: '24px 32px 16px' }, 
-                    body: { padding: '0 8px' }, 
-                    content: { borderRadius: 20, overflow: 'hidden', padding: '24px 24px 32px' } 
-                }}
-            >
-                <Form
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleSubmit}
-                    requiredMark={(label, info) => (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ fontWeight: 600, color: '#475569', fontSize: 13 }}>{label}</span>
-                            {info.required && <span style={{ color: '#ef4444' }}>*</span>}
-                        </div>
-                    )}
-                >
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <Form.Item
-                            name="first_name"
-                            label="First Name"
-                            rules={[{ required: true, message: 'Please input first name!' }]}
-                        >
-                            <Input size="large" placeholder="Enter first name" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
-                        </Form.Item>
-
-                        <Form.Item
-                            name="last_name"
-                            label="Last Name"
-                            rules={[{ required: true, message: 'Please input last name!' }]}
-                        >
-                            <Input size="large" placeholder="Enter last name" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
-                        </Form.Item>
-                    </div>
-
-                    <Form.Item
-                        name="username"
-                        label="Username"
-                        rules={[
-                            { required: !editingUser, message: 'Please input username!' },
-                            { min: 3, message: 'Username must be at least 3 characters!' }
-                        ]}
-                    >
-                        <Input 
-                            size="large"
-                            placeholder="Enter username" 
-                            disabled={!!editingUser}
-                            prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
-                            style={{ borderRadius: 8, borderColor: '#e2e8f0' }}
-                        />
-                    </Form.Item>
-
-                    <Form.Item
-                        name="email"
-                        label="Email"
-                        rules={[
-                            { required: true, message: 'Please input email!' },
-                            { type: 'email', message: 'Please enter a valid email!' }
-                        ]}
-                    >
-                        <Input size="large" placeholder="Enter email" style={{ borderRadius: 8, borderColor: '#e2e8f0' }} />
-                    </Form.Item>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <Form.Item
-                            name="role"
-                            label="Role"
-                            rules={[{ required: true, message: 'Please select a role!' }]}
-                        >
-                            <Select size="large" placeholder="Select role" disabled={isOwnAdminEdit}>
-                                <Option value="admin">
-                                    <Space>
-                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444' }} />
-                                        <span style={{ fontWeight: 600 }}>Admin</span>
-                                    </Space>
-                                </Option>
-                                <Option value="teacher">
-                                    <Space>
-                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
-                                        <span style={{ fontWeight: 600 }}>Teacher</span>
-                                    </Space>
-                                </Option>
-                                <Option value="student">
-                                    <Space>
-                                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
-                                        <span style={{ fontWeight: 600 }}>Student</span>
-                                    </Space>
-                                </Option>
-                            </Select>
-                        </Form.Item>
-
-                        <Form.Item
-                            name="is_active"
-                            label="Account Status"
-                            valuePropName="checked"
-                            initialValue={true}
-                        >
-                            <Switch 
-                                checkedChildren="Active" 
-                                unCheckedChildren="Disabled"
-                                disabled={isOwnAdminEdit}
-                                style={{ backgroundColor: isActiveValue ? '#10b981' : '#f43f5e', height: 26, width: 70 }}
-                            />
-                        </Form.Item>
-                    </div>
-
-                    {!editingUser && (
-                        <div style={{ 
-                            background: '#f8fafc', border: '1px dashed #cbd5e1', 
-                            borderRadius: '12px', padding: '16px', marginTop: 8, marginBottom: 24 
-                        }}>
-                            <div style={{ display: 'flex', gap: 12 }}>
-                                <div style={{ fontSize: 18, color: '#64748b' }}>
-                                    <KeyOutlined />
-                                </div>
-                                <div style={{ fontSize: 13, color: '#475569', lineHeight: 1.5 }}>
-                                    <span style={{ fontWeight: 700, display: 'block', marginBottom: 2, color: '#1e293b' }}>Auto-Generated Password</span>
-                                    A secure 10-character password will be generated automatically and emailed to the user.
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {editingUser && (
-                        <div style={{ 
-                            background: '#fff7ed', border: '1px solid #fed7aa', 
-                            borderRadius: '12px', padding: '16px', marginTop: 8, marginBottom: 24 
-                        }}>
-                            <div style={{ display: 'flex', gap: 12 }}>
-                                <div style={{ fontSize: 18, color: '#f97316' }}>
-                                    <KeyOutlined />
-                                </div>
-                                <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.5 }}>
-                                    To change this user's password, please use the <strong>"Reset Password"</strong> action from their row menu in the main table.
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div style={{ marginTop: 32, display: 'flex', gap: 12, justifyContent: 'flex-end', paddingTop: 20, borderTop: '1px solid #f1f5f9' }}>
-                        <Button 
-                            size="large"
-                            onClick={() => {
-                                setModalVisible(false);
-                                form.resetFields();
-                                setEditingUser(null);
-                            }}
-                            disabled={submitLoading}
-                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 24px' }}
-                        >
-                            Cancel
-                        </Button>
-                        <Button 
-                            size="large"
-                            type="primary" 
-                            htmlType="submit"
-                            loading={submitLoading}
-                            style={{ borderRadius: 10, fontWeight: 600, padding: '0 32px', background: '#6366f1', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}
-                        >
-                            {editingUser ? 'Save Changes' : 'Create User'}
-                        </Button>
-                    </div>
-                </Form>
-            </Modal>
-
-            {/* Password Reset Modal */}
-            <Modal
-                title={`Reset Password for ${resetPasswordUser?.first_name} ${resetPasswordUser?.last_name}`}
-                open={passwordModalVisible}
-                onCancel={() => {
-                    if (!passwordResetLoading) {
-                        setPasswordModalVisible(false);
-                        passwordForm.resetFields();
-                        setResetPasswordUser(null);
-                    }
-                }}
-                footer={null}
-                width={500}
-                closable={!passwordResetLoading}
-                maskClosable={!passwordResetLoading}
-            >
-                {passwordResetLoading ? (
-                    <div style={{ 
-                        textAlign: 'center', 
-                        padding: '60px 20px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '20px'
-                    }}>
-                        <div style={{
-                            width: '60px',
-                            height: '60px',
-                            border: '4px solid #f0f0f0',
-                            borderTop: '4px solid #1890ff',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite'
-                        }} />
-                        <div style={{ 
-                            fontSize: '16px', 
-                            color: '#666',
-                            fontWeight: '500'
-                        }}>
-                            Resetting password...
-                        </div>
-                        <div style={{ 
-                            fontSize: '14px', 
-                            color: '#999'
-                        }}>
-                            Please wait while we process your request
-                        </div>
-                        <style>
-                            {`
-                                @keyframes spin {
-                                    0% { transform: rotate(0deg); }
-                                    100% { transform: rotate(360deg); }
-                                }
-                            `}
-                        </style>
-                    </div>
-                ) : (
-                    <>
-                        <div style={{ 
-                            background: '#fff7e6', 
-                            border: '1px solid #ffd591', 
-                            borderRadius: '6px', 
-                            padding: '12px', 
-                            marginBottom: '20px' 
-                        }}>
-                            <Space>
-                                <KeyOutlined style={{ color: '#fa8c16' }} />
-                                <span style={{ color: '#d46b08' }}>
-                                    This will reset the user's password. They may be required to change it on next login.
-                                </span>
-                            </Space>
-                        </div>
-
-                        <Form
-                            form={passwordForm}
-                            layout="vertical"
-                            onFinish={handlePasswordReset}
-                        >
-                            <Divider />
-                            <Form.Item style={{ marginBottom: 0 }}>
-                                <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                                    <Button onClick={() => {
-                                        setPasswordModalVisible(false);
-                                        passwordForm.resetFields();
-                                        setResetPasswordUser(null);
-                                    }}>
-                                        Cancel
-                                    </Button>
-                                    <Button 
-                                        type="primary" 
-                                        danger 
-                                        htmlType="submit"
-                                        loading={passwordResetLoading}
-                                    >
-                                        Reset Password
-                                    </Button>
-                                </Space>
-                            </Form.Item>
-                        </Form>
-                    </>
                 )}
-            </Modal>
-        </div>
+
+                {/* ── Overview ── */}
+                <section className="um-overview" aria-label="Overview">
+                    <div className="um-summary">
+                        <div className="um-summary-top">
+                            <div>
+                                <span className="um-summary-label">Total users</span>
+                                <strong className="um-summary-value">{stats.total}</strong>
+                            </div>
+                            <span className="um-summary-sub">{stats.active} active · {stats.disabled} disabled</span>
+                        </div>
+                        <div className="um-dist" aria-hidden>
+                            {ROLES.map(k => (stats[k] ? <span key={k} className={`is-${k}`} style={{ flexGrow: stats[k] }} /> : null))}
+                        </div>
+                        <div className="um-legend">
+                            {ROLES.map(k => (
+                                <button key={k} type="button" className={`um-legend-item is-${k}${roleTab === k ? ' is-active' : ''}`}
+                                    onClick={() => setRoleTab(roleTab === k ? 'all' : k)} aria-pressed={roleTab === k}>
+                                    <i />{ROLE_META[k].plural}<b>{stats[k]}</b><em>{pct(stats[k])}%</em>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="um-tiles">
+                        {tiles.map(t => (
+                            <button key={t.key} type="button" className={`um-tile um-k-${t.tone}${statusKey === t.key ? ' is-active' : ''}`}
+                                onClick={() => setStatusKey(statusKey === t.key ? null : t.key)} aria-pressed={statusKey === t.key}>
+                                <span className="um-tile-ic">{t.icon}</span>
+                                <span className="um-tile-text"><span>{t.label}</span><strong>{t.value}</strong></span>
+                                <em>{t.hint}</em>
+                            </button>
+                        ))}
+                    </div>
+                </section>
+
+                {/* ── Directory ── */}
+                <section className="um-panel" aria-label="User directory">
+                    <div className="um-toolbar">
+                        {selectedIds.length > 0 ? (
+                            <div className="um-bulk">
+                                <span><b>{selectedIds.length}</b> selected</span>
+                                <Button size="small" icon={<CheckCircleOutlined />} loading={bulkBusy} onClick={() => bulkSetActive(true)}>Enable</Button>
+                                <Button size="small" danger icon={<StopOutlined />} disabled={bulkBusy} onClick={confirmBulkDisable}>Disable</Button>
+                                <Button size="small" type="text" onClick={() => setSelectedIds([])}>Clear</Button>
+                            </div>
+                        ) : (
+                            <Segmented className="um-tabs" value={roleTab} onChange={v => setRoleTab(v as RoleTab)}
+                                options={[
+                                    { value: 'all', label: <span className="um-seg">All <b>{stats.total}</b></span> },
+                                    ...ROLES.map(k => ({ value: k, label: <span className="um-seg">{ROLE_META[k].plural} <b>{stats[k]}</b></span> })),
+                                ]} />
+                        )}
+                        <Input className="um-search" prefix={<SearchOutlined />} allowClear placeholder="Search name, email or username"
+                            value={search} onChange={e => setSearch(e.target.value)} />
+                    </div>
+                    <div className="um-filters">
+                        <Select className="um-filter" value={statusKey} onChange={v => setStatusKey(v ?? null)} allowClear placeholder="Any status"
+                            options={tiles.map(t => ({ value: t.key, label: t.label }))} />
+                        <DatePicker.RangePicker className="um-range" value={range} allowClear format="MMM D, YYYY" placeholder={['Joined from', 'To']}
+                            onChange={v => setRange(v && v[0] && v[1] ? [v[0], v[1]] : null)} />
+                        {hasFilters && <Button type="link" size="small" onClick={clearFilters}>Clear filters</Button>}
+                        <span className="um-count">{filtered.length === users.length ? `${users.length} users` : `${filtered.length} of ${users.length} users`}</span>
+                    </div>
+
+                    {useCards ? (
+                        filtered.length === 0 ? empty : (
+                            <div className="um-cards">
+                                {filtered.slice(0, cardLimit).map(u => (
+                                    <button key={u.id} type="button" className="um-card" onClick={() => setProfileId(u.id)}>
+                                        <Avatar u={u} />
+                                        <span className="um-card-main">
+                                            <span className="um-user-name">{fullName(u)}{isSelf(u) && <span className="um-you">You</span>}</span>
+                                            <span className="um-user-email">{u.email}</span>
+                                            <span className="um-card-meta"><RolePill role={u.role} /><StatusCell u={u} /></span>
+                                        </span>
+                                        <RightOutlined className="um-card-chev" />
+                                    </button>
+                                ))}
+                                {filtered.length > cardLimit && (
+                                    <div className="um-more"><Button onClick={() => setCardLimit(n => n + 20)}>Show {Math.min(20, filtered.length - cardLimit)} more</Button></div>
+                                )}
+                            </div>
+                        )
+                    ) : (
+                        <Table<User>
+                            className="um-table"
+                            columns={columns}
+                            dataSource={filtered}
+                            rowKey="id"
+                            size="middle"
+                            sticky={{ offsetHeader: headerHeight(r.isMobile) }}
+                            scroll={{ x: 820 }}
+                            locale={{ emptyText: empty }}
+                            rowSelection={{
+                                selectedRowKeys: selectedIds,
+                                onChange: keys => setSelectedIds(keys),
+                                getCheckboxProps: u => ({ disabled: isSelf(u), 'aria-label': `Select ${fullName(u)}` }),
+                            }}
+                            onRow={u => ({
+                                onClick: e => {
+                                    if ((e.target as HTMLElement).closest('.ant-table-selection-column, .um-row-actions')) return;
+                                    setProfileId(u.id);
+                                },
+                                className: 'um-row',
+                            })}
+                            pagination={{
+                                defaultPageSize: 20,
+                                showSizeChanger: true,
+                                pageSizeOptions: ['10', '20', '50', '100'],
+                                showTotal: (total, [a, b]) => `${a}–${b} of ${total}`,
+                                hideOnSinglePage: false,
+                            }}
+                        />
+                    )}
+                </section>
+
+                {/* ── Profile drawer ── */}
+                <Drawer open={!!profile} onClose={() => setProfileId(null)} width={r.isMobile ? '100%' : 420} closable={false} title={null} className="um-drawer">
+                    {profile && (
+                        <div className="um-profile">
+                            <div className={`um-profile-head is-${profile.role}`}>
+                                <button type="button" className="um-drawer-close" onClick={() => setProfileId(null)} aria-label="Close"><CloseOutlined /></button>
+                                <Avatar u={profile} large />
+                                <h3>{fullName(profile)}{isSelf(profile) && <span className="um-you">You</span>}</h3>
+                                <p>{profile.email}</p>
+                                <div className="um-profile-tags"><RolePill role={profile.role} /><StatusCell u={profile} /></div>
+                            </div>
+                            <div className="um-profile-actions">
+                                <Button type="primary" icon={<EditOutlined />} onClick={() => openEdit(profile)}>Edit profile</Button>
+                                <Button icon={<KeyOutlined />} onClick={() => openReset(profile)}>Reset password</Button>
+                            </div>
+                            {(profile.failed_login_attempts || 0) >= ATTENTION && (
+                                <div className="um-callout is-warn">
+                                    <WarningOutlined />
+                                    <div>
+                                        <strong>{profile.failed_login_attempts} failed sign-in attempts</strong>
+                                        <span>They may have forgotten their password. Resetting it emails them a new temporary one.</span>
+                                    </div>
+                                </div>
+                            )}
+                            <dl className="um-facts">
+                                {facts.map(f => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}
+                            </dl>
+                            <div className="um-zone">
+                                <h4>Account access</h4>
+                                <div className="um-zone-row">
+                                    <div>
+                                        <strong>{profile.is_active ? 'Disable account' : 'Enable account'}</strong>
+                                        <span>{profile.is_active ? 'Stops them from signing in. You can undo this anytime.' : 'Lets them sign in again and clears failed attempts.'}</span>
+                                    </div>
+                                    <Button danger={!!profile.is_active} disabled={isSelf(profile)} onClick={() => confirmToggle(profile)}>
+                                        {profile.is_active ? 'Disable' : 'Enable'}
+                                    </Button>
+                                </div>
+                                <div className="um-zone-row">
+                                    <div>
+                                        <strong>Delete user</strong>
+                                        <span>Permanently removes the account. This cannot be undone.</span>
+                                    </div>
+                                    <Button danger type="text" icon={<DeleteOutlined />} disabled={isSelf(profile)} onClick={() => confirmDelete(profile)}>Delete</Button>
+                                </div>
+                                {isSelf(profile) && <p className="um-zone-note"><LockOutlined /> This is your own account — it can't be disabled or deleted here.</p>}
+                            </div>
+                        </div>
+                    )}
+                </Drawer>
+
+                {/* ── Create / edit ── */}
+                <Modal open={editorOpen} onCancel={closeEditor} footer={null} width={620} centered forceRender
+                    maskClosable={!saving} closable={!saving} className="um-modal">
+                    <div className="um-md">
+                        <header className="um-md-head">
+                            <span className="um-md-icon">{editing ? <EditOutlined /> : <UserAddOutlined />}</span>
+                            <div>
+                                <h3>{editing ? `Edit ${fullName(editing)}` : 'Add a user'}</h3>
+                                <p>{editing ? 'Update profile details, role and access.' : 'They receive a welcome email with a temporary password.'}</p>
+                            </div>
+                        </header>
+
+                        <Form form={form} layout="vertical" requiredMark={false} onFinish={handleSubmit} onValuesChange={onValuesChange} className="um-md-body">
+                            <section className="um-md-section">
+                                <div className="um-md-label">Role</div>
+                                <Form.Item name="role" rules={[{ required: true, message: 'Choose a role' }]} className="um-md-roles">
+                                    <RolePicker disabled={ownAdminEdit} />
+                                </Form.Item>
+                                {ownAdminEdit && <p className="um-md-note"><LockOutlined /> You can't change your own role or disable your own account.</p>}
+                            </section>
+
+                            <section className="um-md-section">
+                                <div className="um-md-label">Profile</div>
+                                <div className="um-md-grid">
+                                    <Form.Item name="first_name" label="First name" rules={[{ required: true, whitespace: true, message: 'Enter a first name' }]}>
+                                        <Input placeholder="e.g. Marie" autoComplete="off" maxLength={60} />
+                                    </Form.Item>
+                                    <Form.Item name="last_name" label="Last name" rules={[{ required: true, whitespace: true, message: 'Enter a last name' }]}>
+                                        <Input placeholder="e.g. Dupont" autoComplete="off" maxLength={60} />
+                                    </Form.Item>
+                                </div>
+                                <Form.Item name="email" label="Email address"
+                                    rules={[{ required: true, message: 'Enter an email address' }, { type: 'email', message: 'Enter a valid email address' }]}>
+                                    <Input prefix={<MailOutlined />} placeholder="name@example.com" autoComplete="off" inputMode="email" />
+                                </Form.Item>
+                                <Form.Item name="username" label="Username"
+                                    extra={editing ? "Usernames can't be changed." : 'Suggested from the name — you can change it.'}
+                                    rules={editing ? [] : [
+                                        { required: true, message: 'Enter a username' },
+                                        { min: 3, message: 'At least 3 characters' },
+                                        { pattern: /^[a-zA-Z0-9._-]+$/, message: 'Use letters, numbers, dots, dashes or underscores' },
+                                    ]}>
+                                    <Input prefix={<UserOutlined />} placeholder="marie.dupont" disabled={!!editing} autoComplete="off" maxLength={40} />
+                                </Form.Item>
+                            </section>
+
+                            <section className="um-md-section">
+                                <div className="um-md-label">Access</div>
+                                <div className="um-switch-row">
+                                    <div>
+                                        <strong>Account active</strong>
+                                        <span>Disabled users can't sign in. You can re-enable them anytime.</span>
+                                    </div>
+                                    <Form.Item name="is_active" valuePropName="checked" noStyle>
+                                        <Switch disabled={ownAdminEdit} aria-label="Account active" />
+                                    </Form.Item>
+                                </div>
+                                {editing ? (
+                                    <div className="um-callout">
+                                        <KeyOutlined />
+                                        <div>
+                                            <strong>Password</strong>
+                                            <span>Passwords aren't edited here. Reset it to email them a new temporary one.</span>
+                                        </div>
+                                        <Button size="small" onClick={() => { const u = editing; closeEditor(); openReset(u); }}>Reset password</Button>
+                                    </div>
+                                ) : (
+                                    <div className="um-callout is-info">
+                                        <SafetyOutlined />
+                                        <div>
+                                            <strong>Temporary password</strong>
+                                            <span>A secure 10-character password is generated and emailed to them. They must change it at their first sign-in.</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </section>
+
+                            {formError && (
+                                <div className="um-alert" role="alert">
+                                    <ExclamationCircleFilled />
+                                    <div><strong>Couldn't save</strong><span>{formError}</span></div>
+                                </div>
+                            )}
+                        </Form>
+
+                        <footer className="um-md-foot">
+                            <Button onClick={closeEditor} disabled={saving}>Cancel</Button>
+                            <Button type="primary" loading={saving} onClick={() => form.submit()} icon={editing ? undefined : <UserAddOutlined />}>
+                                {editing ? 'Save changes' : 'Create user'}
+                            </Button>
+                        </footer>
+                    </div>
+                </Modal>
+
+                {/* ── Reset password ── */}
+                <Modal open={!!resetTarget} onCancel={closeReset} footer={null} width={440} centered
+                    maskClosable={!resetting} closable={!resetting} className="um-modal">
+                    {resetTarget && (
+                        <div className="um-confirm">
+                            {resetDone ? (
+                                <>
+                                    <span className="um-confirm-ic is-success"><CheckCircleFilled /></span>
+                                    <h3>Temporary password sent</h3>
+                                    <p>
+                                        A new password was emailed to <strong>{resetTarget.email}</strong>.
+                                        {resetMustChange && ' They will choose their own password when they sign in.'}
+                                    </p>
+                                    <div className="um-confirm-actions"><Button type="primary" onClick={closeReset}>Done</Button></div>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="um-confirm-ic"><KeyOutlined /></span>
+                                    <h3>Reset {fullName(resetTarget)}'s password?</h3>
+                                    <p>A new temporary password is generated and emailed to <strong>{resetTarget.email}</strong>. Their current password stops working right away.</p>
+                                    <Checkbox className="um-check" checked={resetMustChange} onChange={e => setResetMustChange(e.target.checked)}>
+                                        Ask them to choose a new password at next sign-in
+                                    </Checkbox>
+                                    <div className="um-confirm-actions">
+                                        <Button onClick={closeReset} disabled={resetting}>Cancel</Button>
+                                        <Button type="primary" icon={<MailOutlined />} loading={resetting} onClick={doReset}>Reset and email</Button>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )}
+                </Modal>
+            </div>
+        </ConfigProvider>
     );
 };
 

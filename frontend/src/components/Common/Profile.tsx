@@ -1,37 +1,20 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, Form, Input, Modal, Skeleton, Tooltip, message } from 'antd';
 import {
-    Form,
-    Input,
-    Button,
-    message,
-    Typography,
-    Row,
-    Col,
-    Modal,
-    Skeleton,
-} from 'antd';
-import {
-    UserOutlined,
-    EditOutlined,
-    SaveOutlined,
-    MailOutlined,
-    CalendarOutlined,
-    LockOutlined,
-    CloseOutlined,
-    IdcardOutlined,
-    SafetyOutlined,
-    CheckCircleFilled,
-    CameraOutlined,
-    LoadingOutlined,
-    DeleteOutlined,
-    GlobalOutlined,
+    CalendarOutlined, CameraOutlined, CheckCircleFilled, ClockCircleOutlined, DeleteOutlined, ExclamationCircleOutlined,
+    GlobalOutlined, IdcardOutlined, LoadingOutlined, LockOutlined, MailOutlined, SafetyCertificateOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
 import TimezoneSelect from './TimezoneSelect';
-import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import '../Teacher/Teacher.css';
+import './Profile.css';
 
-const { Text } = Typography;
+/* ══════════════════════════════════════════
+   PROFILE & SETTINGS — shared by every role.
+   Personal details are edited in place with a save bar; security actions open dialogs.
+══════════════════════════════════════════ */
 
 interface UserProfile {
     id: number;
@@ -44,815 +27,392 @@ interface UserProfile {
     timezone?: string;
     profile_photo_kdrive_file_id?: string | null;
 }
+type Editable = Pick<UserProfile, 'first_name' | 'last_name' | 'username' | 'email' | 'timezone'>;
 
-const formatDateSafe = (value?: string | null) => {
-    if (!value) return '-';
-    const candidates = [value, value.replace(' ', 'T')];
-    for (const v of candidates) {
-        const d = new Date(v);
-        if (!isNaN(d.getTime())) {
-            return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-        }
-    }
-    return '-';
+const ROLE: Record<UserProfile['role'], string> = { admin: 'Administrator', teacher: 'Teacher', student: 'Student' };
+const PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+
+const fmtJoined = (v?: string | null) => {
+    if (!v) return '—';
+    const d = new Date(v.includes('T') ? v : v.replace(' ', 'T'));
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 };
+const initialsOf = (p: UserProfile | null) => {
+    if (!p) return '?';
+    const s = `${p.first_name?.[0] || ''}${p.last_name?.[0] || ''}`.trim() || p.username?.[0] || '?';
+    return s.toUpperCase();
+};
+const sameValues = (a: Partial<Editable>, b: Partial<Editable>) =>
+    (['first_name', 'last_name', 'username', 'email', 'timezone'] as const).every(k => (a[k] ?? '') === (b[k] ?? ''));
 
-// Render a timezone with its current offset, e.g. "America/Toronto · GMT-4".
-const timezoneDisplay = (tz?: string | null): string => {
-    const safe = tz || 'UTC';
+/** A live "10:42 AM" in a zone, updated each minute. */
+const useClock = (tz: string) => {
+    const [now, setNow] = useState(() => new Date());
+    useEffect(() => {
+        const id = window.setInterval(() => setNow(new Date()), 30_000);
+        return () => window.clearInterval(id);
+    }, []);
     try {
-        const parts = new Intl.DateTimeFormat('en-US', {
-            timeZone: safe, timeZoneName: 'shortOffset',
-        }).formatToParts(new Date());
-        const tzPart = parts.find(p => p.type === 'timeZoneName');
-        return tzPart ? `${safe} · ${tzPart.value}` : safe;
+        return {
+            time: new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).format(now),
+            day: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' }).format(now),
+        };
     } catch {
-        return safe;
+        return { time: '—', day: '' };
     }
 };
 
-const ROLE_CONFIG: Record<string, { label: string; bg: string; color: string; dot: string; gradient: string }> = {
-    admin:   { label: 'Administrator', bg: '#fef3c7', color: '#b45309', dot: '#f59e0b', gradient: 'linear-gradient(135deg, #f59e0b, #d97706)' },
-    teacher: { label: 'Teacher',       bg: '#eef2ff', color: '#4338ca', dot: '#6366f1', gradient: 'linear-gradient(135deg, #6366f1, #4f46e5)' },
-    student: { label: 'Student',       bg: '#dcfce7', color: '#15803d', dot: '#22c55e', gradient: 'linear-gradient(135deg, #22c55e, #16a34a)' },
+/** 0–4 with a label; guidance only — the server requires 6+ characters. */
+const passwordStrength = (pw: string) => {
+    if (!pw) return { score: 0, label: '' };
+    let score = 0;
+    if (pw.length >= 8) score++;
+    if (pw.length >= 12) score++;
+    if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+    if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++;
+    if (pw.length < 6) score = 0;
+    return { score, label: ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][score] };
 };
-
-/* ── Small field display row ──
- * Uses a flex layout that adapts to compact screens by stacking.
- */
-const InfoRow = ({ icon, label, value, mono = false, compact = false }: { icon: React.ReactNode; label: string; value: string; mono?: boolean; compact?: boolean }) => (
-    <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? 12 : 14,
-        padding: compact ? '12px 0' : '14px 0',
-        borderBottom: '1px solid #f0f0f8',
-    }}>
-        <div style={{
-            width: compact ? 32 : 36,
-            height: compact ? 32 : 36,
-            borderRadius: 10,
-            background: '#f4f3ff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#6366f1',
-            fontSize: compact ? 13 : 15,
-            flexShrink: 0,
-        }}>
-            {icon}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-                fontSize: compact ? 10 : 11,
-                fontWeight: 600,
-                color: '#94a3b8',
-                textTransform: 'uppercase',
-                letterSpacing: 0.6,
-                marginBottom: 2,
-            }}>{label}</div>
-            <div style={{
-                fontSize: compact ? 13 : 14,
-                fontWeight: 600,
-                color: '#1a1d2e',
-                fontFamily: mono ? 'monospace' : undefined,
-                wordBreak: 'break-word',
-                lineHeight: 1.35,
-            }}>{value || '—'}</div>
-        </div>
-    </div>
-);
-
-/* ── Security action row ──
- * On compact screens stacks the action button below the title to give
- * it room to breathe — on desktop keeps the button on the right.
- */
-const SecurityRow = ({ icon, title, subtitle, actionLabel, onAction, danger = false, compact = false }: {
-    icon: React.ReactNode; title: string; subtitle: string; actionLabel: string; onAction: () => void; danger?: boolean; compact?: boolean;
-}) => (
-    <div style={{
-        display: 'flex',
-        alignItems: compact ? 'flex-start' : 'center',
-        gap: compact ? 12 : 16,
-        padding: compact ? '14px 0' : '16px 0',
-        borderBottom: '1px solid #f0f0f8',
-        flexWrap: compact ? 'wrap' : 'nowrap',
-    }}>
-        <div style={{
-            width: compact ? 36 : 40,
-            height: compact ? 36 : 40,
-            borderRadius: 12,
-            background: danger ? '#fff1f2' : '#f4f3ff',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: danger ? '#ef4444' : '#6366f1',
-            fontSize: compact ? 16 : 18,
-            flexShrink: 0,
-        }}>
-            {icon}
-        </div>
-        <div style={{ flex: compact ? '1 1 calc(100% - 48px)' : 1, minWidth: 0 }}>
-            <div style={{ fontSize: compact ? 13 : 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 2 }}>{title}</div>
-            <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8', lineHeight: 1.4 }}>{subtitle}</div>
-        </div>
-        <Button
-            onClick={onAction}
-            block={compact}
-            style={{
-                borderRadius: 10, fontWeight: 600,
-                fontSize: compact ? 12.5 : 13,
-                height: compact ? 38 : 36,
-                borderColor: danger ? '#fecaca' : '#e0e7ff',
-                color: danger ? '#ef4444' : '#6366f1',
-                background: danger ? '#fff1f2' : '#f4f3ff',
-                paddingInline: compact ? 14 : 18,
-                marginLeft: compact ? 48 : 0,
-                marginTop: compact ? 2 : 0,
-                width: compact ? 'calc(100% - 48px)' : 'auto',
-            }}
-        >
-            {actionLabel}
-        </Button>
-    </div>
-);
 
 const Profile: React.FC = () => {
-    const { apiCall, updateProfile, changePassword, isAdmin, token, refreshUser } = useAuth();
-    const responsive = useResponsive();
-    // Compact = phone-width (<768): stacks fields, full-width buttons,
-    // smaller card padding, larger touch targets.
-    const compact = responsive.isMobile;
+    const { apiCall, updateProfile, changePassword, isAdmin, refreshUser } = useAuth();
+    const [msg, msgHolder] = message.useMessage();
+    const [form] = Form.useForm<Editable>();
+    const [pwForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
+
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
-    const [editing, setEditing] = useState(false);
-    const [passwordModalVisible, setPasswordModalVisible] = useState(false);
-    const [form] = Form.useForm<UserProfile>();
-    const [passwordForm] = Form.useForm<{ currentPassword: string; newPassword: string; confirmPassword: string }>();
-    const [emailModalOpen, setEmailModalOpen] = useState(false);
-    const [pwLoading, setPwLoading] = useState(false);
+    const [pwOpen, setPwOpen] = useState(false);
+    const [pwSaving, setPwSaving] = useState(false);
+    const [emailOpen, setEmailOpen] = useState(false);
 
-    // Profile-photo state
-    const [photoUploading, setPhotoUploading] = useState(false);
-    const [photoVersion, setPhotoVersion] = useState(0); // bumped on upload to bust the <img> cache
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+    const [photoBusy, setPhotoBusy] = useState(false);
+    const photoUrlRef = useRef<string | null>(null);
+    const fileRef = useRef<HTMLInputElement>(null);
 
-    const displayName = useMemo(() => {
-        if (!profile) return '';
-        const fn = profile.first_name?.trim() || '';
-        const ln = profile.last_name?.trim() || '';
-        return `${fn} ${ln}`.trim() || profile.username || 'User';
-    }, [profile]);
+    const values = Form.useWatch([], form) as Partial<Editable> | undefined;
+    const newPassword = Form.useWatch('newPassword', pwForm) || '';
 
-    const hasPhoto = !!profile?.profile_photo_kdrive_file_id;
-    const photoSrc = useMemo(() => {
-        if (!hasPhoto || !profile) return '';
-        // Build absolute URL; the <img> tag can't send Authorization headers,
-        // so we pass the JWT as a query token (the auth middleware accepts it).
-        const apiBase = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:5000/api';
-        const t = token ? `&token=${encodeURIComponent(token)}` : '';
-        // photoVersion forces React/browser to refetch after upload/remove.
-        return `${apiBase}/auth/profile-photo/${profile.id}?v=${photoVersion}${t}`;
-    }, [hasPhoto, profile, photoVersion, token]);
-
-    useEffect(() => { fetchProfile(); }, []);
-
-    const fetchProfile = async () => {
-        setLoading(true);
+    const load = useCallback(async () => {
         try {
-            const response = await apiCall('/auth/profile');
-            if (response.ok) {
-                const data = await response.json();
-                const p: UserProfile = data.user;
-                setProfile(p);
-                form.setFieldsValue(p);
-            } else { message.error('Failed to fetch profile'); }
-        } catch { message.error('Error fetching profile'); }
-        finally { setLoading(false); }
-    };
+            const res = await apiCall('/auth/profile');
+            if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+            const data = await res.json();
+            const p: UserProfile = data.user;
+            setProfile(p);
+            form.setFieldsValue({ first_name: p.first_name, last_name: p.last_name, username: p.username, email: p.email, timezone: p.timezone });
+            setLoadError(null);
+        } catch (e: any) {
+            setLoadError(e?.message || 'Your profile could not be loaded.');
+        } finally {
+            setLoading(false);
+        }
+    }, [apiCall, form]);
 
-    const handleUpdateProfile = async (values: Partial<UserProfile>) => {
+    useEffect(() => { load(); }, [load]);
+
+    // The photo is fetched with the Authorization header — it used to travel as ?token=… in the image URL,
+    // which leaks the session token into server logs and browser history.
+    const photoId = profile?.profile_photo_kdrive_file_id ? `${profile.id}:${profile.profile_photo_kdrive_file_id}` : null;
+    useEffect(() => {
+        let cancelled = false;
+        const replace = (url: string | null) => {
+            if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
+            photoUrlRef.current = url;
+            setPhotoUrl(url);
+        };
+        if (!photoId || !profile) { replace(null); return; }
+        apiCall(`/auth/profile-photo/${profile.id}?v=${encodeURIComponent(photoId)}`)
+            .then(async res => { if (!res.ok) throw new Error(); const blob = await res.blob(); if (!cancelled) replace(URL.createObjectURL(blob)); })
+            .catch(() => { if (!cancelled) replace(null); });
+        return () => { cancelled = true; };
+        // photoId captures everything that changes the image
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [photoId]);
+    useEffect(() => () => { if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current); }, []);
+
+    const saved: Partial<Editable> = useMemo(() => profile
+        ? { first_name: profile.first_name, last_name: profile.last_name, username: profile.username, email: profile.email, timezone: profile.timezone }
+        : {}, [profile]);
+    const dirty = !!profile && !!values && !sameValues(values, saved);
+
+    const tz = resolveTimezone(values?.timezone ?? profile?.timezone);
+    const clock = useClock(tz);
+
+    const save = async () => {
+        let v: Editable;
+        try { v = await form.validateFields(); } catch { return; }
         setSaving(true);
         try {
-            const payload: Partial<UserProfile> = {
-                first_name: values.first_name,
-                last_name: values.last_name,
-                username: values.username,
-                timezone: values.timezone,
-                ...(isAdmin ? { email: values.email } : {}),
-            };
-            const result = await updateProfile(payload);
-            if (result.success) { await fetchProfile(); setEditing(false); }
-            else if (result.error) message.error(result.error);
-        } catch { message.error('Error updating profile'); }
-        finally { setSaving(false); }
-    };
-
-    const handleChangePassword = async (values: { currentPassword: string; newPassword: string }) => {
-        setPwLoading(true);
-        try {
-            const result = await changePassword(values.currentPassword, values.newPassword);
-            if (result.success) { setPasswordModalVisible(false); passwordForm.resetFields(); }
-            else if (result.error) message.error(result.error);
-        } catch { message.error('Error changing password'); }
-        finally { setPwLoading(false); }
-    };
-
-    /* ── Profile photo: trigger picker ── */
-    const triggerPhotoPicker = () => {
-        if (photoUploading) return;
-        fileInputRef.current?.click();
-    };
-
-    /* ── Profile photo: validate + upload ── */
-    const handlePhotoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        // Reset the input so picking the same file again still triggers `change`.
-        if (e.target) e.target.value = '';
-        if (!file) return;
-
-        // Client-side validation (server validates again).
-        const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
-        if (!ALLOWED.includes(file.type)) {
-            message.error('Please select a JPG, PNG, WEBP, or GIF image');
-            return;
-        }
-        if (file.size > 5 * 1024 * 1024) {
-            message.error('Image must be 5MB or less');
-            return;
-        }
-
-        const formData = new FormData();
-        formData.append('photo', file);
-
-        setPhotoUploading(true);
-        try {
-            const response = await apiCall('/auth/profile-photo', {
-                method: 'POST',
-                body: formData,
+            const result = await updateProfile({
+                first_name: v.first_name?.trim(),
+                last_name: v.last_name?.trim(),
+                username: v.username?.trim(),
+                timezone: v.timezone,
+                ...(isAdmin ? { email: v.email?.trim() } : {}),
             });
-            if (response.ok) {
-                message.success('Profile photo updated');
-                setPhotoVersion(v => v + 1);
-                await Promise.all([fetchProfile(), refreshUser()]);
-            } else {
-                let errMsg = 'Failed to upload photo';
-                try { const data = await response.json(); errMsg = data.error || errMsg; } catch {}
-                message.error(errMsg);
-            }
-        } catch (err) {
-            console.error('Photo upload error:', err);
-            message.error('Network error while uploading photo');
+            if (result.success) await load();       // updateProfile shows its own message
         } finally {
-            setPhotoUploading(false);
+            setSaving(false);
         }
     };
+    const discard = () => form.setFieldsValue(saved);
 
-    /* ── Profile photo: remove ── */
-    const handleRemovePhoto = async () => {
-        if (photoUploading) return;
-        setPhotoUploading(true);
+    const pickPhoto = () => { if (!photoBusy) fileRef.current?.click(); };
+    const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        if (!PHOTO_TYPES.includes(file.type)) { msg.error('Choose a JPG, PNG, WEBP or GIF image.'); return; }
+        if (file.size > 5 * 1024 * 1024) { msg.error('The image must be 5 MB or smaller.'); return; }
+        const body = new FormData();
+        body.append('photo', file);
+        setPhotoBusy(true);
         try {
-            const response = await apiCall('/auth/profile-photo', { method: 'DELETE' });
-            if (response.ok) {
-                message.success('Profile photo removed');
-                setPhotoVersion(v => v + 1);
-                await Promise.all([fetchProfile(), refreshUser()]);
-            } else {
-                message.error('Failed to remove photo');
-            }
-        } catch (err) {
-            console.error('Photo remove error:', err);
-            message.error('Network error while removing photo');
+            const res = await apiCall('/auth/profile-photo', { method: 'POST', body });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'The photo could not be uploaded.');
+            msg.success('Photo updated');
+            await Promise.all([load(), refreshUser()]);
+        } catch (err: any) {
+            msg.error(err?.message || 'The photo could not be uploaded.');
         } finally {
-            setPhotoUploading(false);
+            setPhotoBusy(false);
+        }
+    };
+    const removePhoto = async () => {
+        setPhotoBusy(true);
+        try {
+            const res = await apiCall('/auth/profile-photo', { method: 'DELETE' });
+            if (!res.ok) throw new Error();
+            msg.success('Photo removed');
+            await Promise.all([load(), refreshUser()]);
+        } catch {
+            msg.error('The photo could not be removed.');
+        } finally {
+            setPhotoBusy(false);
         }
     };
 
-    const roleConfig = ROLE_CONFIG[profile?.role || ''] || ROLE_CONFIG.student;
+    const submitPassword = async () => {
+        let v: { currentPassword: string; newPassword: string };
+        try { v = await pwForm.validateFields(); } catch { return; }
+        setPwSaving(true);
+        try {
+            const result = await changePassword(v.currentPassword, v.newPassword);   // shows its own message
+            if (result.success) { setPwOpen(false); pwForm.resetFields(); }
+        } finally {
+            setPwSaving(false);
+        }
+    };
 
-    /* ── Loading skeleton ── */
-    if (loading) return (
-        <div style={{ maxWidth: 960, margin: '0 auto' }}>
-            <div style={{
-                display: 'flex',
-                gap: compact ? 16 : 24,
-                flexDirection: compact ? 'column' : 'row',
-            }}>
-                <div style={{ width: compact ? '100%' : 300, flexShrink: 0 }}>
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: compact ? 22 : 32,
-                        textAlign: 'center',
-                    }}>
-                        <Skeleton.Avatar active size={compact ? 80 : 96} style={{ marginBottom: 16 }} />
-                        <Skeleton.Input active style={{ width: 160, height: 20, borderRadius: 8, marginBottom: 10 }} />
-                        <Skeleton.Input active style={{ width: 80, height: 16, borderRadius: 20, marginBottom: 20 }} />
-                        <Skeleton active paragraph={{ rows: 2 }} title={false} />
-                    </div>
-                </div>
-                <div style={{ flex: 1 }}>
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: compact ? 18 : 28,
-                        marginBottom: compact ? 16 : 20,
-                    }}>
-                        <Skeleton active paragraph={{ rows: 5 }} />
-                    </div>
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: compact ? 18 : 28,
-                    }}>
-                        <Skeleton active paragraph={{ rows: 3 }} />
-                    </div>
+    /* ═══════════ LOADING / ERROR ═══════════ */
+    if (loading) {
+        return (
+            <div className="tc pf" aria-busy="true">
+                <div className="tc-header"><div><Skeleton.Input active size="small" style={{ width: 90, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 220, height: 26 }} /></div></div></div>
+                <div className="pf-grid">
+                    <div className="tc-card tc-pad"><Skeleton active avatar={{ size: 88 }} paragraph={{ rows: 5 }} /></div>
+                    <div className="pf-main"><div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 6 }} /></div><div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 3 }} /></div></div>
                 </div>
             </div>
-        </div>
-    );
+        );
+    }
+    if (!profile) {
+        return (
+            <div className="tc pf">
+                <div className="tc-alert" role="alert"><WarningOutlined /><span><strong>Your profile couldn't be loaded.</strong> {loadError}</span><Button size="small" onClick={() => { setLoading(true); load(); }}>Retry</Button></div>
+            </div>
+        );
+    }
+
+    const name = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.username;
+    const checks = [
+        { done: !!photoUrl, label: 'Add a profile photo', action: pickPhoto },
+        { done: !!(profile.first_name?.trim() && profile.last_name?.trim()), label: 'Fill in your first and last name', action: () => document.getElementById('pf-first')?.focus() },
+        { done: !!profile.timezone && profile.timezone !== 'UTC', label: 'Choose your time zone', action: () => document.getElementById('pf-timezone')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) },
+    ];
+    const completion = Math.round((checks.filter(c => c.done).length / checks.length) * 100);
+    const strength = passwordStrength(newPassword);
 
     return (
-        <div style={{
-            maxWidth: 960,
-            margin: '0 auto',
-            paddingInline: compact ? 0 : undefined,
-        }}>
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            {msgHolder}
+            <div className={`tc pf${dirty ? ' has-savebar' : ''}`}>
+                <header className="tc-header">
+                    <div>
+                        <div className="tc-overline">Account</div>
+                        <h1 className="tc-title">Profile & settings</h1>
+                        <p className="tc-subtitle">Your details, the time zone every schedule is shown in, and how you sign in.</p>
+                    </div>
+                </header>
 
-            {/* Page header */}
-            <div style={{ marginBottom: compact ? 18 : 28 }}>
-                <div style={{
-                    fontSize: compact ? 18 : 22,
-                    fontWeight: 800,
-                    color: '#1a1d2e',
-                    letterSpacing: 0.2,
-                    fontFamily: 'Manrope, Inter, sans-serif',
-                }}>My Profile</div>
-                <div style={{
-                    fontSize: compact ? 12 : 13,
-                    color: '#94a3b8',
-                    marginTop: 4,
-                    lineHeight: 1.4,
-                }}>Manage your personal information and account settings</div>
+                <div className="pf-grid">
+                    {/* ── Identity ── */}
+                    <aside className="tc-card pf-id">
+                        <div className={`pf-cover is-${profile.role}`} aria-hidden />
+                        <input ref={fileRef} type="file" accept={PHOTO_TYPES.join(',')} hidden onChange={uploadPhoto} />
+                        <div className="pf-avatar-wrap">
+                            <button type="button" className="pf-avatar" onClick={pickPhoto} disabled={photoBusy} aria-label={photoUrl ? 'Change profile photo' : 'Add a profile photo'}>
+                                {photoUrl ? <img src={photoUrl} alt="" /> : <span>{initialsOf(profile)}</span>}
+                                <span className="pf-avatar-overlay">{photoBusy ? <LoadingOutlined /> : <CameraOutlined />}</span>
+                            </button>
+                        </div>
+                        <div className="pf-id-body">
+                            <h2>{name}</h2>
+                            <span className={`pf-role is-${profile.role}`}><i aria-hidden />{ROLE[profile.role]}</span>
+                            <div className="pf-photo-actions">
+                                <Button size="small" icon={<CameraOutlined />} onClick={pickPhoto} disabled={photoBusy}>{photoUrl ? 'Change photo' : 'Add photo'}</Button>
+                                {photoUrl && <Tooltip title="Remove photo"><Button size="small" icon={<DeleteOutlined />} className="pf-danger" onClick={removePhoto} disabled={photoBusy} aria-label="Remove photo" /></Tooltip>}
+                            </div>
+                            <p className="pf-hint">JPG, PNG, WEBP or GIF · up to 5 MB</p>
+
+                            <dl className="pf-facts">
+                                <div><dt><MailOutlined /> Email</dt><dd title={profile.email}>{profile.email}</dd></div>
+                                <div><dt><UserOutlined /> Username</dt><dd>@{profile.username}</dd></div>
+                                <div><dt><CalendarOutlined /> Member since</dt><dd>{fmtJoined(profile.created_at)}</dd></div>
+                                <div><dt><ClockCircleOutlined /> Your time</dt><dd>{clock.time} <em>{timezoneLabel(profile.timezone)}</em></dd></div>
+                            </dl>
+
+                            <div className="pf-complete">
+                                <div className="pf-complete-head"><span>Profile</span><b>{completion}%</b></div>
+                                <span className="tc-kpi-meter pf-meter"><i style={{ width: `${completion}%` }} /></span>
+                                <ul>
+                                    {checks.map(c => (
+                                        <li key={c.label} className={c.done ? 'is-done' : ''}>
+                                            {c.done ? <CheckCircleFilled /> : <ExclamationCircleOutlined />}
+                                            {c.done ? <span>{c.label}</span> : <button type="button" onClick={c.action}>{c.label}</button>}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <div className="pf-main">
+                        <Form form={form} layout="vertical" requiredMark={false} onFinish={save}>
+                            {/* ── Personal information ── */}
+                            <section className="tc-card pf-section">
+                                <header className="pf-section-head">
+                                    <span className="pf-section-ic"><IdcardOutlined /></span>
+                                    <div><h3>Personal information</h3><p>How your name appears to {profile.role === 'student' ? 'your teachers' : 'students and colleagues'}.</p></div>
+                                </header>
+                                <div className="pf-fields">
+                                    <Form.Item name="first_name" label="First name" rules={[{ required: true, whitespace: true, message: 'Enter your first name' }]}>
+                                        <Input id="pf-first" maxLength={60} autoComplete="given-name" />
+                                    </Form.Item>
+                                    <Form.Item name="last_name" label="Last name" rules={[{ required: true, whitespace: true, message: 'Enter your last name' }]}>
+                                        <Input maxLength={60} autoComplete="family-name" />
+                                    </Form.Item>
+                                    <Form.Item name="username" label="Username" rules={[{ required: true, whitespace: true, message: 'Enter a username' }, { min: 3, message: 'At least 3 characters' }]}>
+                                        <Input prefix={<span className="pf-at">@</span>} maxLength={40} autoComplete="username" />
+                                    </Form.Item>
+                                    {isAdmin ? (
+                                        <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email', message: 'Enter a valid email address' }]}>
+                                            <Input maxLength={120} autoComplete="email" />
+                                        </Form.Item>
+                                    ) : (
+                                        <div className="pf-readonly">
+                                            <span className="pf-readonly-label">Email</span>
+                                            <div className="pf-readonly-value"><span title={profile.email}>{profile.email}</span><Button type="link" size="small" onClick={() => setEmailOpen(true)}>Change</Button></div>
+                                        </div>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* ── Time zone ── */}
+                            <section className="tc-card pf-section" id="pf-timezone">
+                                <header className="pf-section-head">
+                                    <span className="pf-section-ic is-teal"><GlobalOutlined /></span>
+                                    <div><h3>Time zone</h3><p>Classes, quiz windows and deadlines are shown in this zone everywhere in the platform.</p></div>
+                                </header>
+                                <div className="pf-tz">
+                                    <Form.Item name="timezone" label="Your time zone" className="pf-tz-field">
+                                        <TimezoneSelect size="large" />
+                                    </Form.Item>
+                                    <div className="pf-clock" aria-live="polite">
+                                        <span className="pf-clock-label">Local time there now</span>
+                                        <strong>{clock.time}</strong>
+                                        <em>{clock.day} · {timezoneLabel(values?.timezone ?? profile.timezone)}</em>
+                                    </div>
+                                </div>
+                            </section>
+                        </Form>
+
+                        {/* ── Security ── */}
+                        <section className="tc-card pf-section">
+                            <header className="pf-section-head">
+                                <span className="pf-section-ic is-amber"><SafetyCertificateOutlined /></span>
+                                <div><h3>Sign-in & security</h3><p>Keep your account protected.</p></div>
+                            </header>
+                            <ul className="pf-security">
+                                <li>
+                                    <span className="pf-security-ic"><LockOutlined /></span>
+                                    <div><strong>Password</strong><em>Use a long password you don't use anywhere else.</em></div>
+                                    <Button onClick={() => setPwOpen(true)}>Change password</Button>
+                                </li>
+                                <li>
+                                    <span className="pf-security-ic"><MailOutlined /></span>
+                                    <div><strong>Email address</strong><em>{profile.email} — used to sign in and for notifications.</em></div>
+                                    <Button onClick={() => setEmailOpen(true)}>Change email</Button>
+                                </li>
+                            </ul>
+                        </section>
+                    </div>
+                </div>
+
+                {/* ── Save bar ── */}
+                {dirty && (
+                    <div className="pf-savebar" role="region" aria-label="Unsaved changes">
+                        <span><i aria-hidden /> You have unsaved changes</span>
+                        <div>
+                            <Button onClick={discard} disabled={saving}>Discard</Button>
+                            <Button type="primary" onClick={save} loading={saving}>Save changes</Button>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            <Row gutter={[compact ? 16 : 24, compact ? 16 : 24]}>
-
-                {/* ── LEFT: Avatar card ── */}
-                <Col xs={24} md={9}>
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        overflow: 'hidden',
-                        height: '100%',
-                    }}>
-                        {/* gradient banner */}
-                        <div style={{ height: 80, background: roleConfig.gradient, position: 'relative' }}>
-                            {/* Hidden file input — re-used via ref */}
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp,image/gif"
-                                style={{ display: 'none' }}
-                                onChange={handlePhotoSelected}
-                            />
-
-                            {/* Avatar wrapper (clickable) */}
-                            <div
-                                role="button"
-                                tabIndex={0}
-                                aria-label={hasPhoto ? 'Change profile photo' : 'Upload profile photo'}
-                                onClick={triggerPhotoPicker}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') triggerPhotoPicker(); }}
-                                style={{
-                                    position: 'absolute', bottom: -44, left: '50%', transform: 'translateX(-50%)',
-                                    width: 88, height: 88, borderRadius: '50%',
-                                    background: hasPhoto ? '#f4f3ff' : 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                                    border: '4px solid #fff',
-                                    boxShadow: '0 4px 20px rgba(99,102,241,0.3)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: '#fff',
-                                    cursor: photoUploading ? 'wait' : 'pointer',
-                                    overflow: 'hidden',
-                                    outline: 'none',
-                                }}
-                            >
-                                {hasPhoto ? (
-                                    <img
-                                        src={photoSrc}
-                                        alt="Profile"
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                                    />
-                                ) : (
-                                    <UserOutlined style={{ fontSize: 38, color: '#fff' }} />
-                                )}
-
-                                {/* Loading overlay */}
-                                {photoUploading && (
-                                    <div style={{
-                                        position: 'absolute', inset: 0, borderRadius: '50%',
-                                        background: 'rgba(15,23,42,0.55)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    }}>
-                                        <LoadingOutlined style={{ color: '#fff', fontSize: 24 }} spin />
-                                    </div>
-                                )}
-
-                                {/* Camera overlay button */}
-                                <button
-                                    type="button"
-                                    aria-label="Change profile photo"
-                                    onClick={(e) => { e.stopPropagation(); triggerPhotoPicker(); }}
-                                    disabled={photoUploading}
-                                    style={{
-                                        position: 'absolute', bottom: 2, right: 2,
-                                        width: 28, height: 28, borderRadius: '50%',
-                                        background: '#fff',
-                                        border: '2px solid #fff',
-                                        boxShadow: '0 2px 8px rgba(15,23,42,0.18)',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        color: '#6366f1',
-                                        cursor: photoUploading ? 'not-allowed' : 'pointer',
-                                        padding: 0,
-                                    }}
-                                >
-                                    <CameraOutlined style={{ fontSize: 13 }} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* identity */}
-                        <div style={{
-                            textAlign: 'center',
-                            paddingTop: compact ? 50 : 56,
-                            paddingBottom: compact ? 22 : 28,
-                            paddingInline: compact ? 18 : 24,
-                        }}>
-                            <div style={{
-                                fontSize: compact ? 16 : 18,
-                                fontWeight: 800,
-                                color: '#1a1d2e',
-                                marginBottom: 6,
-                                fontFamily: 'Manrope, Inter, sans-serif',
-                                wordBreak: 'break-word',
-                            }}>{displayName}</div>
-
-                            {/* Remove photo link (only when one exists) */}
-                            {hasPhoto && (
-                                <div style={{ marginTop: -2, marginBottom: 10 }}>
-                                    <Button
-                                        type="link"
-                                        size="small"
-                                        icon={<DeleteOutlined />}
-                                        onClick={handleRemovePhoto}
-                                        disabled={photoUploading}
-                                        style={{ color: '#ef4444', fontSize: 12, fontWeight: 600, padding: 0, height: 'auto' }}
-                                    >
-                                        Remove photo
-                                    </Button>
-                                </div>
-                            )}
-
-                            {/* Role pill */}
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: roleConfig.bg, borderRadius: 20, padding: '4px 14px', marginBottom: 20 }}>
-                                <div style={{ width: 7, height: 7, borderRadius: '50%', background: roleConfig.dot }} />
-                                <span style={{ fontSize: 12, fontWeight: 700, color: roleConfig.color }}>{roleConfig.label}</span>
-                            </div>
-
-                            {/* Quick info */}
-                            <div style={{ background: '#f8f7ff', borderRadius: 14, padding: 16, textAlign: 'left' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                                    <MailOutlined style={{ color: '#6366f1', fontSize: 14 }} />
-                                    <Text style={{ fontSize: 13, color: '#4b5563', wordBreak: 'break-all' }}>{profile?.email}</Text>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                    <CalendarOutlined style={{ color: '#6366f1', fontSize: 14 }} />
-                                    <Text style={{ fontSize: 13, color: '#4b5563' }}>Joined {formatDateSafe(profile?.created_at)}</Text>
-                                </div>
-                            </div>
-
-                            {/* Active badge */}
-                            <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                                <CheckCircleFilled style={{ color: '#22c55e', fontSize: 14 }} />
-                                <Text style={{ fontSize: 12, color: '#22c55e', fontWeight: 600 }}>Account Active</Text>
-                            </div>
-                        </div>
-                    </div>
-                </Col>
-
-                {/* ── RIGHT: Info + Security ── */}
-                <Col xs={24} md={15}>
-
-                    {/* Personal Information card */}
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: compact ? 18 : 28,
-                        marginBottom: compact ? 16 : 20,
-                    }}>
-                        {/* Card header */}
-                        <div style={{
-                            display: 'flex',
-                            alignItems: compact ? 'flex-start' : 'center',
-                            justifyContent: 'space-between',
-                            gap: compact ? 12 : 0,
-                            marginBottom: compact ? 16 : 20,
-                            flexWrap: compact ? 'wrap' : 'nowrap',
-                        }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: compact ? '1 1 auto' : 'unset' }}>
-                                <div style={{
-                                    width: compact ? 32 : 36,
-                                    height: compact ? 32 : 36,
-                                    borderRadius: 10,
-                                    background: '#eef2ff',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    color: '#6366f1',
-                                    fontSize: compact ? 14 : 16,
-                                    flexShrink: 0,
-                                }}>
-                                    <IdcardOutlined />
-                                </div>
-                                <div style={{ minWidth: 0 }}>
-                                    <div style={{
-                                        fontSize: compact ? 14 : 15,
-                                        fontWeight: 700,
-                                        color: '#1a1d2e',
-                                        fontFamily: 'Manrope, Inter, sans-serif',
-                                    }}>Personal Information</div>
-                                    <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8' }}>Your account details</div>
-                                </div>
-                            </div>
-
-                            {/* Edit/Save/Cancel */}
-                            {editing ? (
-                                <div style={{
-                                    display: 'flex',
-                                    gap: 8,
-                                    width: compact ? '100%' : 'auto',
-                                }}>
-                                    <Button
-                                        icon={<CloseOutlined />}
-                                        onClick={() => { setEditing(false); form.setFieldsValue(profile!); }}
-                                        block={compact}
-                                        style={{ borderRadius: 10, height: compact ? 38 : 36, borderColor: '#e2e8f0', color: '#64748b' }}
-                                    >Cancel</Button>
-                                    <Button
-                                        type="primary" icon={<SaveOutlined />}
-                                        onClick={() => form.submit()}
-                                        loading={saving}
-                                        block={compact}
-                                        style={{ borderRadius: 10, height: compact ? 38 : 36, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}
-                                    >Save Changes</Button>
-                                </div>
-                            ) : (
-                                <Button
-                                    icon={<EditOutlined />}
-                                    onClick={() => setEditing(true)}
-                                    block={compact}
-                                    style={{
-                                        borderRadius: 10,
-                                        height: compact ? 38 : 36,
-                                        borderColor: '#e0e7ff',
-                                        color: '#6366f1',
-                                        background: '#f4f3ff',
-                                        fontWeight: 600,
-                                    }}
-                                >Edit Profile</Button>
-                            )}
-                        </div>
-
-                        {/* View or Edit */}
-                        {editing ? (
-                            <Form form={form} layout="vertical" onFinish={handleUpdateProfile} initialValues={profile!}>
-                                <Row gutter={compact ? 12 : 16}>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>First Name</span>} name="first_name"
-                                            rules={[{ required: true, message: 'Required' }]}>
-                                            <Input prefix={<UserOutlined style={{ color: '#94a3b8' }} />} style={{ borderRadius: 10, height: 40 }} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Last Name</span>} name="last_name"
-                                            rules={[{ required: true, message: 'Required' }]}>
-                                            <Input prefix={<UserOutlined style={{ color: '#94a3b8' }} />} style={{ borderRadius: 10, height: 40 }} />
-                                        </Form.Item>
-                                    </Col>
-                                </Row>
-                                <Row gutter={compact ? 12 : 16}>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Username</span>} name="username"
-                                            rules={[{ required: true, message: 'Required' }, { min: 3, message: 'Min 3 characters' }]}>
-                                            <Input prefix={<span style={{ color: '#94a3b8' }}>@</span>} style={{ borderRadius: 10, height: 40 }} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Email</span>} name="email"
-                                            rules={[{ type: 'email', message: 'Invalid email' }]}>
-                                            <Input prefix={<MailOutlined style={{ color: '#94a3b8' }} />} disabled={!isAdmin} style={{ borderRadius: 10, height: 40 }} />
-                                        </Form.Item>
-                                    </Col>
-                                </Row>
-                                <Row gutter={compact ? 12 : 16}>
-                                    <Col span={24}>
-                                        <Form.Item
-                                            label={
-                                                <span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>
-                                                    Timezone
-                                                    <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: 8, display: compact ? 'block' : 'inline', marginTop: compact ? 2 : 0 }}>
-                                                        — All scheduled quizzes and classes will be shown in this timezone.
-                                                    </span>
-                                                </span>
-                                            }
-                                            name="timezone"
-                                        >
-                                            <TimezoneSelect size="large" />
-                                        </Form.Item>
-                                    </Col>
-                                </Row>
-                            </Form>
-                        ) : (
-                            <div>
-                                <Row gutter={compact ? 12 : 24}>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<UserOutlined />} label="First Name" value={profile?.first_name || ''} compact={compact} />
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<UserOutlined />} label="Last Name" value={profile?.last_name || ''} compact={compact} />
-                                    </Col>
-                                </Row>
-                                <Row gutter={compact ? 12 : 24}>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<span style={{ fontWeight: 700 }}>@</span>} label="Username" value={profile?.username || ''} mono compact={compact} />
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<MailOutlined />} label="Email" value={profile?.email || ''} compact={compact} />
-                                    </Col>
-                                </Row>
-                                <Row gutter={compact ? 12 : 24}>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<IdcardOutlined />} label="Role" value={roleConfig.label} compact={compact} />
-                                    </Col>
-                                    <Col xs={24} sm={12}>
-                                        <InfoRow icon={<CalendarOutlined />} label="Member Since" value={formatDateSafe(profile?.created_at)} compact={compact} />
-                                    </Col>
-                                </Row>
-                                <Row gutter={compact ? 12 : 24}>
-                                    <Col span={24}>
-                                        <InfoRow
-                                            icon={<GlobalOutlined />}
-                                            label="Timezone"
-                                            value={timezoneDisplay(profile?.timezone)}
-                                            compact={compact}
-                                        />
-                                    </Col>
-                                </Row>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Security card */}
-                    <div style={{
-                        borderRadius: compact ? 16 : 20,
-                        background: '#fff',
-                        border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 16px rgba(99,102,241,0.07)',
-                        padding: compact ? 18 : 28,
-                    }}>
-                        <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 10,
-                            marginBottom: compact ? 6 : 8,
-                        }}>
-                            <div style={{
-                                width: compact ? 32 : 36,
-                                height: compact ? 32 : 36,
-                                borderRadius: 10,
-                                background: '#fef3c7',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: '#f59e0b',
-                                fontSize: compact ? 14 : 16,
-                                flexShrink: 0,
-                            }}>
-                                <SafetyOutlined />
-                            </div>
-                            <div style={{ minWidth: 0 }}>
-                                <div style={{
-                                    fontSize: compact ? 14 : 15,
-                                    fontWeight: 700,
-                                    color: '#1a1d2e',
-                                    fontFamily: 'Manrope, Inter, sans-serif',
-                                }}>Security Settings</div>
-                                <div style={{ fontSize: compact ? 11.5 : 12, color: '#94a3b8' }}>Manage your password and login details</div>
-                            </div>
-                        </div>
-
-                        <SecurityRow
-                            icon={<LockOutlined />}
-                            title="Password"
-                            subtitle="Use a strong password that you don't use elsewhere"
-                            actionLabel="Change Password"
-                            onAction={() => setPasswordModalVisible(true)}
-                            compact={compact}
-                        />
-                        <SecurityRow
-                            icon={<MailOutlined />}
-                            title="Email Address"
-                            subtitle="Update your email address for account notifications"
-                            actionLabel="Change Email"
-                            onAction={() => setEmailModalOpen(true)}
-                            compact={compact}
-                        />
-                    </div>
-                </Col>
-            </Row>
-
-            {/* ── Change Password Modal ── */}
-            <Modal
-                title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 16 }}>
-                            <LockOutlined />
-                        </div>
-                        <div>
-                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15, fontFamily: 'Manrope, Inter, sans-serif' }}>Change Password</div>
-                            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>Choose a strong, unique password</div>
-                        </div>
-                    </div>
-                }
-                open={passwordModalVisible}
-                onCancel={() => { setPasswordModalVisible(false); passwordForm.resetFields(); }}
-                footer={null}
-                width={compact ? '94vw' : 440}
-                centered={compact}
-                styles={{ body: { padding: compact ? '8px 0 4px' : undefined } }}
-            >
-                <Form
-                    form={passwordForm}
-                    layout="vertical"
-                    style={{ marginTop: 16 }}
-                    onFinish={(vals) => handleChangePassword({ currentPassword: vals.currentPassword, newPassword: vals.newPassword })}
-                >
-                    <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Current Password</span>}
-                        name="currentPassword" rules={[{ required: true, message: 'Required' }]}>
-                        <Input.Password style={{ borderRadius: 10, height: 42 }} />
+            {/* ── Change password ── */}
+            <Modal open={pwOpen} onCancel={() => { if (!pwSaving) { setPwOpen(false); pwForm.resetFields(); } }} footer={null} title={null} closable={false}
+                width="min(460px, calc(100vw - 24px))" wrapClassName="tc-modal pf-modal" styles={{ body: { padding: 0 } }} destroyOnHidden centered>
+                <header className="tc-up-head">
+                    <span className="tc-up-ic"><LockOutlined /></span>
+                    <div><h2>Change password</h2><p>You stay signed in on this device.</p></div>
+                </header>
+                <Form form={pwForm} layout="vertical" requiredMark={false} className="pf-pw" onFinish={submitPassword}>
+                    <Form.Item name="currentPassword" label="Current password" rules={[{ required: true, message: 'Enter your current password' }]}>
+                        <Input.Password autoComplete="current-password" autoFocus />
                     </Form.Item>
-                    <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>New Password</span>}
-                        name="newPassword" rules={[{ required: true, message: 'Required' }, { min: 6, message: 'Min 6 characters' }]}>
-                        <Input.Password style={{ borderRadius: 10, height: 42 }} />
+                    <Form.Item name="newPassword" label="New password" rules={[
+                        { required: true, message: 'Enter a new password' },
+                        { min: 6, message: 'At least 6 characters' },
+                        ({ getFieldValue }) => ({ validator: (_, v) => (v && v === getFieldValue('currentPassword') ? Promise.reject(new Error('Choose a password different from the current one')) : Promise.resolve()) }),
+                    ]} extra={newPassword ? (
+                        <span className={`pf-strength is-${strength.score}`}>
+                            <span className="pf-strength-bars">{[1, 2, 3, 4].map(i => <i key={i} className={strength.score >= i ? 'is-on' : ''} />)}</span>
+                            {strength.label}{strength.score < 3 && ' — longer, with mixed case, numbers and symbols, is stronger'}
+                        </span>
+                    ) : 'At least 6 characters. 12 or more with a mix of characters is best.'}>
+                        <Input.Password autoComplete="new-password" />
                     </Form.Item>
-                    <Form.Item label={<span style={{ fontWeight: 600, color: '#4b5563', fontSize: 13 }}>Confirm Password</span>}
-                        name="confirmPassword"
-                        dependencies={['newPassword']}
-                        rules={[
-                            { required: true, message: 'Required' },
-                            ({ getFieldValue }) => ({
-                                validator(_, value) {
-                                    if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                                    return Promise.reject(new Error('Passwords do not match'));
-                                },
-                            }),
-                        ]}
-                    >
-                        <Input.Password style={{ borderRadius: 10, height: 42 }} />
+                    <Form.Item name="confirmPassword" label="Confirm new password" dependencies={['newPassword']} rules={[
+                        { required: true, message: 'Repeat the new password' },
+                        ({ getFieldValue }) => ({ validator: (_, v) => (!v || v === getFieldValue('newPassword') ? Promise.resolve() : Promise.reject(new Error('The passwords don’t match'))) }),
+                    ]}>
+                        <Input.Password autoComplete="new-password" />
                     </Form.Item>
-
-                    <div style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        gap: 8,
-                        marginTop: 8,
-                        flexDirection: compact ? 'column-reverse' : 'row',
-                    }}>
-                        <Button onClick={() => { setPasswordModalVisible(false); passwordForm.resetFields(); }}
-                            block={compact}
-                            style={{ borderRadius: 10, height: compact ? 42 : 40, borderColor: '#e2e8f0', color: '#64748b' }}>
-                            Cancel
-                        </Button>
-                        <Button type="primary" htmlType="submit" loading={pwLoading}
-                            block={compact}
-                            style={{ borderRadius: 10, height: compact ? 42 : 40, background: 'linear-gradient(135deg, #4f46e5, #6366f1)', border: 'none', fontWeight: 700 }}>
-                            Update Password
-                        </Button>
+                    <div className="pf-pw-foot">
+                        <Button onClick={() => { setPwOpen(false); pwForm.resetFields(); }} disabled={pwSaving}>Cancel</Button>
+                        <Button type="primary" htmlType="submit" loading={pwSaving}>Update password</Button>
                     </div>
                 </Form>
             </Modal>
 
-            <ChangeEmailModal
-                open={emailModalOpen}
-                onClose={() => setEmailModalOpen(false)}
-                onSuccess={() => fetchProfile()}
-                currentEmail={profile?.email || ''}
-            />
-        </div>
+            <ChangeEmailModal open={emailOpen} onClose={() => setEmailOpen(false)} onSuccess={() => load()} currentEmail={profile.email} />
+        </ConfigProvider>
     );
 };
 

@@ -390,36 +390,41 @@ router.get('/students/teacher/:teacherId', authenticateToken, teacherOrAdmin, as
             [teacherId]
         );
 
-        // Get detailed quiz scores for each student
-        const studentsWithScores = await Promise.all(students.map(async (student) => {
-            const quizScoresRaw = await req.db.all(
-                `SELECT 
+        // Every student's scores in one query (was one query per student-batch row).
+        // DISTINCT on the submission id: a quiz shared by two of the teacher's batches
+        // used to return the same submission twice and inflate the counts.
+        const studentIds = [...new Set(students.map(s => s.id))];
+        const scoreRows = studentIds.length ? await req.db.all(
+            `SELECT DISTINCT qs.id, qs.student_id,
                     q.title as quiz_title,
                     qs.total_score as score,
                     qs.max_score,
                     qs.submitted_at
-                 FROM quiz_submissions qs
-                 JOIN quizzes q ON qs.quiz_id = q.id
-                 JOIN quiz_batches qb ON q.id = qb.quiz_id
-                 JOIN batches b ON qb.batch_id = b.id
-                 WHERE qs.student_id = ? AND b.teacher_id = ? AND qs.status IN ('submitted','auto_submitted','graded')
-                 ORDER BY qs.submitted_at DESC`,
-                [student.id, teacherId]
-            );
+             FROM quiz_submissions qs
+             JOIN quizzes q ON qs.quiz_id = q.id
+             JOIN quiz_batches qb ON q.id = qb.quiz_id
+             JOIN batches b ON qb.batch_id = b.id
+             WHERE qs.student_id = ANY($1::int[]) AND b.teacher_id = $2
+               AND qs.status IN ('submitted','auto_submitted','graded')
+             ORDER BY qs.submitted_at DESC`,
+            [studentIds, teacherId]
+        ) : [];
 
-            const quizScores = (quizScoresRaw || []).map(s => ({
-                ...s,
-                // Coerce numeric fields that may arrive as strings from Postgres
-                score: s.score != null ? Number(s.score) : null,
-                max_score: s.max_score != null ? Number(s.max_score) : null,
-            }));
+        const scoresBy = new Map();
+        for (const r of scoreRows) {
+            if (!scoresBy.has(r.student_id)) scoresBy.set(r.student_id, []);
+            scoresBy.get(r.student_id).push({
+                quiz_title: r.quiz_title,
+                score: r.score != null ? Number(r.score) : null,
+                max_score: r.max_score != null ? Number(r.max_score) : null,
+                submitted_at: r.submitted_at,
+            });
+        }
 
-            return {
-                ...student,
-                // Ensure average_score is numeric
-                average_score: Number(student.average_score || 0),
-                quiz_scores: quizScores
-            };
+        const studentsWithScores = students.map(student => ({
+            ...student,
+            average_score: Number(student.average_score || 0),
+            quiz_scores: scoresBy.get(student.id) || [],
         }));
 
         res.json(studentsWithScores);

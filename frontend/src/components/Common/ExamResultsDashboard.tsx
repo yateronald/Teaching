@@ -1,939 +1,562 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, Input, Segmented, Skeleton, Tooltip } from 'antd';
 import {
-  Card, Table, Button, Tabs, Input, Tag, Space, Row, Col,
-  Typography, Statistic, Avatar, Empty, Spin, message
-} from 'antd';
-import {
-  SearchOutlined, TeamOutlined, UserOutlined, ArrowLeftOutlined,
-  CalendarOutlined, TrophyOutlined, BarChartOutlined,
-  CheckCircleOutlined, DoubleRightOutlined
+    ArrowDownOutlined, ArrowLeftOutlined, ArrowUpOutlined, AudioOutlined, CalendarOutlined, EditOutlined, ReloadOutlined, RightOutlined,
+    SearchOutlined, SoundOutlined, TeamOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip as ChartTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell
-} from 'recharts';
+import { resolveTimezone } from '../../utils/timezone';
+import '../Teacher/Teacher.css';
+import './ExamResults.css';
 
-const { Title, Text } = Typography;
+/* ══════════════════════════════════════════
+   TCF RESULTS — how students do in the three exam simulations:
+   CO (compréhension orale, scored in %) · EE (expression écrite, /20) · EO (expression orale, /20).
+   Used by teachers (their batches) and admins (everyone, with a way back to exam management).
+══════════════════════════════════════════ */
 
-interface ExamResultsDashboardProps {
-  mode: 'teacher' | 'admin';
-  onBack?: () => void;
-}
+interface Props { mode: 'teacher' | 'admin'; onBack?: () => void }
 
-// Interfaces matching backend payload
-interface Batch {
-  id: number;
-  name: string;
-  french_level: string;
-  start_date: string;
-  end_date: string;
-  teacher_first_name?: string;
-  teacher_last_name?: string;
-  student_count: number;
-}
-
-interface Student {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  username: string;
-  timezone?: string;
-  batches: { id: number; name: string; french_level: string }[];
-}
-
-interface COAttempt {
-  id: number;
-  series_id: number;
-  series_name: string;
-  completed_at: string;
-  time_spent_seconds: number;
-  total_questions: number;
-  correct_count: number;
-  total_points: number;
-  earned_points: number;
-  score_percentage: number;
-  cefr_level: string;
-}
-
-interface EEAttempt {
-  id: number;
-  combinaison_id: number;
-  combinaison_name: string;
-  submitted_at: string;
-  time_used_seconds: number;
-  average_score: number;
-  overall_level: string;
-  task1_score: number;
-  task2_score: number;
-  task3_score: number;
-  task1_level: string;
-  task2_level: string;
-  task3_level: string;
-  month_name: string;
-  year: number;
-}
-
-interface EOAttempt {
-  id: number;
-  partie_id: number;
-  partie_name: string | null;
-  completed_at: string;
-  started_at: string;
-  duration_seconds: number;
-  overall_score: number;
-  tache1_score: number;
-  tache2_score: number;
-  tache3_score: number;
-  month_name: string | null;
-  year: number | null;
-}
-
-interface StudentDetail {
-  student: Student;
-  co: COAttempt[];
-  ee: EEAttempt[];
-  eo: EOAttempt[];
-}
-
-interface BatchStudentMetric {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  username: string;
-  co: { attemptsCount: number; avgScore: number | null; bestScore: number | null; latestAttempt: string | null };
-  ee: { attemptsCount: number; avgScore: number | null; bestScore: number | null; latestAttempt: string | null };
-  eo: { attemptsCount: number; avgScore: number | null; bestScore: number | null; latestAttempt: string | null };
-}
-
+type Skill = 'co' | 'ee' | 'eo';
+interface Batch { id: number; name: string; french_level: string; start_date: string; end_date: string; teacher_first_name?: string; teacher_last_name?: string; student_count: number }
+interface StudentListItem { id: number; first_name: string; last_name: string; email: string; username: string; batches: { id: number; name: string; french_level: string }[] }
+interface SkillStats { attemptsCount: number; avgScore: number | null; bestScore: number | null; latestAttempt: string | null }
+interface BatchStudent { id: number; first_name: string; last_name: string; email: string; username: string; co: SkillStats; ee: SkillStats; eo: SkillStats }
 interface BatchDetail {
-  batch: Batch;
-  students: BatchStudentMetric[];
-  analytics: {
-    co: { avgScore: number; totalAttempts: number; levelDistribution: Record<string, number> };
-    ee: { avgScore: number; totalAttempts: number; levelDistribution: Record<string, number> };
-    eo: { avgScore: number; totalAttempts: number; levelDistribution: Record<string, number> };
-  };
+    batch: Batch;
+    students: BatchStudent[];
+    analytics: Record<Skill, { avgScore: number; totalAttempts: number; levelDistribution: Record<string, number> }>;
 }
+interface COAttempt { id: number; series_name: string; completed_at: string; time_spent_seconds: number; total_questions: number; correct_count: number; total_points: number; earned_points: number; score_percentage: number; cefr_level: string | null }
+interface EEAttempt { id: number; combinaison_name: string; submitted_at: string; time_used_seconds: number; average_score: number; overall_level: string | null; task1_score: number; task2_score: number; task3_score: number; task1_level: string; task2_level: string; task3_level: string; month_name: string; year: number }
+interface EOAttempt { id: number; partie_name: string | null; completed_at: string; duration_seconds: number; overall_score: number; tache1_score: number; tache2_score: number; tache3_score: number; month_name: string | null; year: number | null }
+interface StudentDetail { student: { id: number; first_name: string; last_name: string; email: string; username: string; timezone?: string }; co: COAttempt[]; ee: EEAttempt[]; eo: EOAttempt[] }
 
-const CEFR_COLORS: Record<string, string> = {
-  A1: '#10b981', A2: '#059669', B1: '#3b82f6', B2: '#1d4ed8', C1: '#f59e0b', C2: '#ef4444',
+type View = { kind: 'list' } | { kind: 'batch'; id: number } | { kind: 'student'; id: number; fromBatch: number | null };
+
+const SKILLS: Record<Skill, { short: string; label: string; unit: '%' | '/20'; icon: React.ReactNode }> = {
+    co: { short: 'CO', label: 'Compréhension orale', unit: '%', icon: <SoundOutlined /> },
+    ee: { short: 'EE', label: 'Expression écrite', unit: '/20', icon: <EditOutlined /> },
+    eo: { short: 'EO', label: 'Expression orale', unit: '/20', icon: <AudioOutlined /> },
+};
+const SKILL_KEYS: Skill[] = ['co', 'ee', 'eo'];
+const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+const num = (v: unknown): number | null => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+/** Everything on one 0–100 scale for comparisons: CO is already a percentage, EE/EO are out of 20. */
+const pctOf = (skill: Skill, v: unknown) => { const n = num(v); return n === null ? null : skill === 'co' ? n : (n / 20) * 100; };
+const fmtScore = (skill: Skill, v: unknown) => {
+    const n = num(v);
+    if (n === null) return '—';
+    return skill === 'co' ? `${Math.round(n)}%` : `${Math.round(n * 10) / 10}/20`;
+};
+const tone = (pct: number | null) => (pct === null ? 'is-none' : pct >= 70 ? 'is-good' : pct >= 50 ? 'is-warn' : 'is-bad');
+const nameOf = (s: { first_name?: string; last_name?: string; username?: string; email?: string }) => `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.username || s.email || 'Student';
+const initialsOf = (s: { first_name?: string; last_name?: string }) => `${s.first_name?.[0] || ''}${s.last_name?.[0] || ''}`.toUpperCase() || '?';
+/** Plain calendar dates (batch start/end) — formatted as stored, never shifted by a time zone. */
+const fmtDay = (v?: string | null) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v || ''));
+    return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+};
+const fmtDuration = (s: unknown) => {
+    const n = num(s);
+    if (n === null || n <= 0) return '—';
+    const m = Math.floor(n / 60);
+    return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : m ? `${m} min ${Math.round(n % 60)} s` : `${Math.round(n)} s`;
 };
 
-const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
-const ExamResultsDashboard: React.FC<ExamResultsDashboardProps> = ({ mode, onBack }) => {
-  const { apiCall } = useAuth();
-  const [activeTab, setActiveTab] = useState<'batches' | 'students'>('batches');
-  const [loadingList, setLoadingList] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-  
-  // Theme Color Configurations
-  const headerGradient = mode === 'teacher'
-    ? 'linear-gradient(135deg, #881337 0%, #be123c 100%)' // burgundy/crimson
-    : 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)'; // indigo/navy
-
-  // Lists
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Selected Detail
-  const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
-  const [batchDetail, setBatchDetail] = useState<BatchDetail | null>(null);
-
-  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null);
-  const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
-
-  // Load lists
-  useEffect(() => {
-    fetchLists();
-  }, [activeTab]);
-
-  const fetchLists = async () => {
-    setLoadingList(true);
-    try {
-      if (activeTab === 'batches') {
-        const resp = await apiCall('/tcf-results/batches');
-        if (resp.ok) {
-          const data = await resp.json();
-          setBatches(data);
-        } else {
-          message.error('Failed to load batches');
-        }
-      } else {
-        const resp = await apiCall('/tcf-results/students');
-        if (resp.ok) {
-          const data = await resp.json();
-          setStudents(data);
-        } else {
-          message.error('Failed to load students');
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      message.error('Connection error');
-    } finally {
-      setLoadingList(false);
-    }
-  };
-
-  // Load Batch Detail
-  const fetchBatchDetail = async (batchId: number) => {
-    setLoadingDetail(true);
-    try {
-      const resp = await apiCall(`/tcf-results/batch/${batchId}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setBatchDetail(data);
-        setSelectedBatchId(batchId);
-      } else {
-        message.error('Failed to load batch details');
-      }
-    } catch (err) {
-      console.error(err);
-      message.error('Connection error');
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
-
-  // Load Student Detail
-  const fetchStudentDetail = async (studentId: number) => {
-    setLoadingDetail(true);
-    try {
-      const resp = await apiCall(`/tcf-results/student/${studentId}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        setStudentDetail(data);
-        setSelectedStudentId(studentId);
-      } else {
-        message.error('Failed to load student details');
-      }
-    } catch (err) {
-      console.error(err);
-      message.error('Connection error');
-    } finally {
-      setLoadingDetail(false);
-    }
-  };
-
-  // Filtered lists for rendering
-  const filteredBatches = batches.filter(b => 
-    b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (b.french_level || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredStudents = students.filter(s => 
-    `${s.first_name} ${s.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    s.username.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  // Return logic
-  const handleBackToList = () => {
-    setSelectedBatchId(null);
-    setBatchDetail(null);
-    setSelectedStudentId(null);
-    setStudentDetail(null);
-    fetchLists();
-  };
-
-  // Back from student detail to batch detail (when navigated from batch table)
-  const handleBackFromStudentToBatch = () => {
-    setSelectedStudentId(null);
-    setStudentDetail(null);
-    // selectedBatchId and batchDetail are still set, so the batch detail will render
-  };
-
-  // Render Batch Detail Analytics
-  const renderBatchDetail = () => {
-    if (!batchDetail) return null;
-
-    const { batch, students: batchStudents, analytics } = batchDetail;
-
-    // Data for performance comparison chart
-    // Normalizing all scores to percentages: CO is already %, EE/EO are out of 20
-    const chartData = batchStudents.map(s => ({
-      name: `${s.first_name} ${s.last_name.charAt(0)}.`,
-      'Compréhension Orale (%)': s.co.bestScore || 0,
-      'Expression Écrite (%)': s.ee.bestScore ? Math.round((s.ee.bestScore / 20) * 100) : 0,
-      'Expression Orale (%)': s.eo.bestScore ? Math.round((s.eo.bestScore / 20) * 100) : 0,
-    }));
-
-    // Data for CEFR pie charts
-    const makePieData = (dist: Record<string, number>) => {
-      return Object.entries(dist).map(([level, count]) => ({
-        name: level,
-        value: count,
-      }));
-    };
-
-    const coPieData = makePieData(analytics.co.levelDistribution);
-    const eePieData = makePieData(analytics.ee.levelDistribution);
-    const eoPieData = makePieData(analytics.eo.levelDistribution);
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        {/* Detail Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={handleBackToList} style={{ borderRadius: 10 }} />
-            <div>
-              <Title level={3} style={{ margin: 0 }}>Batch Insights: {batch.name}</Title>
-              <Text type="secondary">
-                Level: <Tag color="blue">{batch.french_level}</Tag> | Teacher: {batch.teacher_first_name} {batch.teacher_last_name}
-              </Text>
-            </div>
-          </div>
-        </div>
-
-        {/* Overview KPI Cards */}
-        <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} lg={6}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Class Average (CO)"
-                value={analytics.co.avgScore}
-                suffix="%"
-                valueStyle={{ color: '#6366f1', fontWeight: 800 }}
-                prefix={<BarChartOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{analytics.co.totalAttempts} total attempts</Text>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Class Average (EE)"
-                value={analytics.ee.avgScore}
-                suffix="/ 20"
-                valueStyle={{ color: '#10b981', fontWeight: 800 }}
-                prefix={<TrophyOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{analytics.ee.totalAttempts} total attempts</Text>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Class Average (EO)"
-                value={analytics.eo.avgScore}
-                suffix="/ 20"
-                valueStyle={{ color: '#f59e0b', fontWeight: 800 }}
-                prefix={<CheckCircleOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{analytics.eo.totalAttempts} total attempts</Text>
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={6}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Total Enrolled Students"
-                value={batchStudents.length}
-                valueStyle={{ color: '#1f2937', fontWeight: 800 }}
-                prefix={<TeamOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>In {batch.name}</Text>
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Graphs Section */}
-        <Row gutter={[16, 16]}>
-          {/* Comparison Bar Chart */}
-          <Col xs={24} lg={16}>
-            <Card title="Student Performance Comparison (Best Attempt %)" bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              {chartData.length === 0 ? (
-                <Empty description="No attempt data available for this batch" />
-              ) : (
-                <div style={{ width: '100%', height: 350 }}>
-                  <ResponsiveContainer>
-                    <BarChart data={chartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" />
-                      <YAxis domain={[0, 100]} />
-                      <ChartTooltip />
-                      <Legend />
-                      <Bar dataKey="Compréhension Orale (%)" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Expression Écrite (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="Expression Orale (%)" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </Card>
-          </Col>
-
-          {/* CEFR Level distribution */}
-          <Col xs={24} lg={8}>
-            <Card title="CEFR Level Distributions" bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)', height: '100%' }}>
-              <Tabs
-                items={[
-                  {
-                    key: 'co',
-                    label: 'CO',
-                    children: coPieData.length ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: 260 }}>
-                        <ResponsiveContainer width="100%" height={180}>
-                          <PieChart>
-                            <Pie data={coPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} fill="#8884d8" label>
-                              {coPieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={CEFR_COLORS[entry.name] || CHART_COLORS[index % CHART_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <ChartTooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <Space wrap size={[8, 8]} style={{ marginTop: 8 }}>
-                          {coPieData.map(d => (
-                            <Tag key={d.name} color="default" style={{ borderLeft: `4px solid ${CEFR_COLORS[d.name]}`, fontWeight: 600 }}>
-                              {d.name}: {d.value}
-                            </Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No CO attempts yet" />
-                  },
-                  {
-                    key: 'ee',
-                    label: 'EE',
-                    children: eePieData.length ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: 260 }}>
-                        <ResponsiveContainer width="100%" height={180}>
-                          <PieChart>
-                            <Pie data={eePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} fill="#8884d8" label>
-                              {eePieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={CEFR_COLORS[entry.name] || CHART_COLORS[index % CHART_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <ChartTooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <Space wrap size={[8, 8]} style={{ marginTop: 8 }}>
-                          {eePieData.map(d => (
-                            <Tag key={d.name} color="default" style={{ borderLeft: `4px solid ${CEFR_COLORS[d.name]}`, fontWeight: 600 }}>
-                              {d.name}: {d.value}
-                            </Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No EE attempts yet" />
-                  },
-                  {
-                    key: 'eo',
-                    label: 'EO',
-                    children: eoPieData.length ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', height: 260 }}>
-                        <ResponsiveContainer width="100%" height={180}>
-                          <PieChart>
-                            <Pie data={eoPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} fill="#8884d8" label>
-                              {eoPieData.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={CEFR_COLORS[entry.name] || CHART_COLORS[index % CHART_COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <ChartTooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        <Space wrap size={[8, 8]} style={{ marginTop: 8 }}>
-                          {eoPieData.map(d => (
-                            <Tag key={d.name} color="default" style={{ borderLeft: `4px solid ${CEFR_COLORS[d.name]}`, fontWeight: 600 }}>
-                              {d.name}: {d.value}
-                            </Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No EO attempts yet" />
-                  }
-                ]}
-              />
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Student Table */}
-        <Card title="Student Performance Directory" bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-          <Table
-            dataSource={batchStudents}
-            rowKey="id"
-            pagination={{ pageSize: 10 }}
-            columns={[
-              {
-                title: 'Student Name',
-                key: 'name',
-                render: (_, r) => (
-                  <Space>
-                    <Avatar style={{ backgroundColor: '#f3e8ff', color: '#7c3aed' }}>
-                      {r.first_name.charAt(0)}{r.last_name.charAt(0)}
-                    </Avatar>
-                    <div>
-                      <div style={{ fontWeight: 600, color: '#1f2937' }}>{r.first_name} {r.last_name}</div>
-                      <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.email}</div>
-                    </div>
-                  </Space>
-                ),
-              },
-              {
-                title: 'Compréhension Orale',
-                key: 'co',
-                render: (_, r) => (
-                  <div>
-                    {r.co.attemptsCount > 0 ? (
-                      <Space direction="vertical" size={0}>
-                        <Text strong style={{ color: '#4f46e5' }}>Avg: {r.co.avgScore}%</Text>
-                        <Text type="secondary" style={{ fontSize: 11 }}>Best: {r.co.bestScore}% ({r.co.attemptsCount} attempts)</Text>
-                      </Space>
-                    ) : <Text type="secondary" style={{ fontStyle: 'italic' }}>No attempts</Text>}
-                  </div>
-                )
-              },
-              {
-                title: 'Expression Écrite',
-                key: 'ee',
-                render: (_, r) => (
-                  <div>
-                    {r.ee.attemptsCount > 0 ? (
-                      <Space direction="vertical" size={0}>
-                        <Text strong style={{ color: '#059669' }}>Avg: {r.ee.avgScore}/20</Text>
-                        <Text type="secondary" style={{ fontSize: 11 }}>Best: {r.ee.bestScore}/20 ({r.ee.attemptsCount} attempts)</Text>
-                      </Space>
-                    ) : <Text type="secondary" style={{ fontStyle: 'italic' }}>No attempts</Text>}
-                  </div>
-                )
-              },
-              {
-                title: 'Expression Orale',
-                key: 'eo',
-                render: (_, r) => (
-                  <div>
-                    {r.eo.attemptsCount > 0 ? (
-                      <Space direction="vertical" size={0}>
-                        <Text strong style={{ color: '#d97706' }}>Avg: {r.eo.avgScore}/20</Text>
-                        <Text type="secondary" style={{ fontSize: 11 }}>Best: {r.eo.bestScore}/20 ({r.eo.attemptsCount} attempts)</Text>
-                      </Space>
-                    ) : <Text type="secondary" style={{ fontStyle: 'italic' }}>No attempts</Text>}
-                  </div>
-                )
-              },
-              {
-                title: 'Action',
-                key: 'action',
-                align: 'right',
-                render: (_, r) => (
-                  <Button
-                    type="link"
-                    icon={<DoubleRightOutlined />}
-                    onClick={() => fetchStudentDetail(r.id)}
-                  >
-                    View Student
-                  </Button>
-                )
-              }
-            ]}
-          />
-        </Card>
-      </div>
-    );
-  };
-
-  // Render Student Detail Analytics
-  const renderStudentDetail = () => {
-    if (!studentDetail) return null;
-
-    const { student, co, ee, eo } = studentDetail;
-
-    // Combine progression data
-    // Format dates to simple Locale string
-    const formatDate = (dStr: string) => {
-      const d = new Date(dStr);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    };
-
-    // Progression requires sorted attempts
-    const coProg = [...co].reverse().map(a => ({
-      date: formatDate(a.completed_at),
-      type: 'CO',
-      score: a.score_percentage,
-    }));
-
-    const eeProg = [...ee].reverse().map(a => ({
-      date: formatDate(a.submitted_at),
-      type: 'EE',
-      score: a.average_score ? Math.round((a.average_score / 20) * 100) : 0,
-    }));
-
-    const eoProg = [...eo].reverse().map(a => ({
-      date: formatDate(a.completed_at),
-      type: 'EO',
-      score: a.overall_score ? Math.round((a.overall_score / 20) * 100) : 0,
-    }));
-
-    // Merge progressions by date
-    const mergedMap: Record<string, { date: string; CO?: number; EE?: number; EO?: number }> = {};
-    const addPoints = (arr: { date: string; type: string; score: number }[]) => {
-      arr.forEach(pt => {
-        if (!mergedMap[pt.date]) mergedMap[pt.date] = { date: pt.date };
-        mergedMap[pt.date][pt.type as 'CO' | 'EE' | 'EO'] = pt.score;
-      });
-    };
-    addPoints(coProg);
-    addPoints(eeProg);
-    addPoints(eoProg);
-
-    const progressionData = Object.values(mergedMap).sort((a, b) => {
-      const da = new Date(a.date);
-      const db = new Date(b.date);
-      return da.getTime() - db.getTime();
-    });
-
-    const coBest = co.length ? Math.max(...co.map(a => a.score_percentage)) : 0;
-    const eeBest = ee.length ? Math.max(...ee.map(a => a.average_score)) : 0;
-    const eoBest = eo.length ? Math.max(...eo.map(a => a.overall_score)) : 0;
-
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={selectedBatchId ? handleBackFromStudentToBatch : handleBackToList} style={{ borderRadius: 10 }} />
-            <div>
-              <Title level={3} style={{ margin: 0 }}>Student Report: {student.first_name} {student.last_name}</Title>
-              <Text type="secondary">
-                Email: {student.email} | Timezone: {student.timezone || 'UTC'}
-              </Text>
-            </div>
-          </div>
-        </div>
-
-        {/* Student KPIs */}
-        <Row gutter={[16, 16]}>
-          <Col xs={24} sm={8}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Compréhension Orale (Best)"
-                value={coBest}
-                suffix="%"
-                valueStyle={{ color: '#4f46e5', fontWeight: 800 }}
-                prefix={<BarChartOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{co.length} attempts taken</Text>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Expression Écrite (Best)"
-                value={eeBest}
-                suffix="/ 20"
-                valueStyle={{ color: '#059669', fontWeight: 800 }}
-                prefix={<TrophyOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{ee.length} attempts taken</Text>
-            </Card>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-              <Statistic
-                title="Expression Orale (Best)"
-                value={eoBest}
-                suffix="/ 20"
-                valueStyle={{ color: '#d97706', fontWeight: 800 }}
-                prefix={<CheckCircleOutlined />}
-              />
-              <Text type="secondary" style={{ fontSize: 12 }}>{eo.length} attempts taken</Text>
-            </Card>
-          </Col>
-        </Row>
-
-        {/* Score progression chart */}
-        <Card title="Score Progression Over Time (%)" bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-          {progressionData.length === 0 ? (
-            <Empty description="No attempt history yet to plot progression" />
-          ) : (
-            <div style={{ width: '100%', height: 300 }}>
-              <ResponsiveContainer>
-                <LineChart data={progressionData}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="date" />
-                  <YAxis domain={[0, 100]} />
-                  <ChartTooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="CO" stroke="#6366f1" strokeWidth={3} activeDot={{ r: 8 }} connectNulls />
-                  <Line type="monotone" dataKey="EE" stroke="#10b981" strokeWidth={3} activeDot={{ r: 8 }} connectNulls />
-                  <Line type="monotone" dataKey="EO" stroke="#f59e0b" strokeWidth={3} activeDot={{ r: 8 }} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-        </Card>
-
-        {/* Detailed Attempts Breakdown */}
-        <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.03)' }}>
-          <Tabs
-            defaultActiveKey="co"
-            items={[
-              {
-                key: 'co',
-                label: (<span><BarChartOutlined /> Compréhension Orale ({co.length})</span>),
-                children: (
-                  <Table
-                    dataSource={co}
-                    rowKey="id"
-                    pagination={{ pageSize: 5 }}
-                    columns={[
-                      { title: 'Series Name', dataIndex: 'series_name', key: 'series_name', render: (text) => <Text strong>{text}</Text> },
-                      { title: 'Score %', dataIndex: 'score_percentage', key: 'score_percentage', render: (val) => <Text strong style={{ color: '#4f46e5' }}>{val}%</Text> },
-                      { title: 'Points', key: 'points', render: (_, r) => `${r.earned_points} / ${r.total_points}` },
-                      { title: 'CEFR Level', dataIndex: 'cefr_level', key: 'cefr_level', render: (val) => <Tag color={val ? 'blue' : 'default'}>{val || 'N/A'}</Tag> },
-                      { title: 'Completed At', dataIndex: 'completed_at', key: 'completed_at', render: (d) => new Date(d).toLocaleString() },
-                      { title: 'Time Spent', dataIndex: 'time_spent_seconds', key: 'time_spent_seconds', render: (s) => `${Math.floor(s / 60)}m ${s % 60}s` }
-                    ]}
-                  />
-                )
-              },
-              {
-                key: 'ee',
-                label: (<span><TrophyOutlined /> Expression Écrite ({ee.length})</span>),
-                children: (
-                  <Table
-                    dataSource={ee}
-                    rowKey="id"
-                    pagination={{ pageSize: 5 }}
-                    columns={[
-                      { title: 'Combinaison', dataIndex: 'combinaison_name', key: 'combinaison_name', render: (_, r) => `${r.combinaison_name} (${r.month_name} ${r.year})` },
-                      { title: 'Average Score', dataIndex: 'average_score', key: 'average_score', render: (val) => <Text strong style={{ color: '#059669' }}>{val} / 20</Text> },
-                      { title: 'Overall Level', dataIndex: 'overall_level', key: 'overall_level', render: (val) => <Tag color="green">{val}</Tag> },
-                      { title: 'Task 1 Score', key: 't1', render: (_, r) => `${r.task1_score}/20 (${r.task1_level})` },
-                      { title: 'Task 2 Score', key: 't2', render: (_, r) => `${r.task2_score}/20 (${r.task2_level})` },
-                      { title: 'Task 3 Score', key: 't3', render: (_, r) => `${r.task3_score}/20 (${r.task3_level})` },
-                      { title: 'Submitted At', dataIndex: 'submitted_at', key: 'submitted_at', render: (d) => new Date(d).toLocaleString() }
-                    ]}
-                  />
-                )
-              },
-              {
-                key: 'eo',
-                label: (<span><CheckCircleOutlined /> Expression Orale ({eo.length})</span>),
-                children: (
-                  <Table
-                    dataSource={eo}
-                    rowKey="id"
-                    pagination={{ pageSize: 5 }}
-                    columns={[
-                      { title: 'Partie', dataIndex: 'partie_name', key: 'partie_name', render: (_, r) => r.partie_name ? `${r.partie_name} (${r.month_name} ${r.year})` : <Text italic>Free Practice</Text> },
-                      { title: 'Overall Score', dataIndex: 'overall_score', key: 'overall_score', render: (val) => <Text strong style={{ color: '#d97706' }}>{val} / 20</Text> },
-                      { title: 'Task 1 Score', dataIndex: 'tache1_score', key: 't1_score', render: (val) => `${val || 0} / 20` },
-                      { title: 'Task 2 Score', dataIndex: 'tache2_score', key: 't2_score', render: (val) => `${val || 0} / 20` },
-                      { title: 'Task 3 Score', dataIndex: 'tache3_score', key: 't3_score', render: (val) => `${val || 0} / 20` },
-                      { title: 'Completed At', dataIndex: 'completed_at', key: 'completed_at', render: (d) => new Date(d).toLocaleString() },
-                      { title: 'Duration', dataIndex: 'duration_seconds', key: 'duration_seconds', render: (s) => `${Math.floor(s / 60)}m ${s % 60}s` }
-                    ]}
-                  />
-                )
-              }
-            ]}
-          />
-        </Card>
-      </div>
-    );
-  };
-
-  // Main list views
-  const renderBatchesList = () => {
-    return (
-      <Row gutter={[16, 16]}>
-        {filteredBatches.length === 0 ? (
-          <Col span={24}>
-            <Empty description="No batches found" />
-          </Col>
-        ) : (
-          filteredBatches.map(b => (
-            <Col xs={24} sm={12} lg={8} key={b.id}>
-              <Card
-                hoverable
-                style={{ borderRadius: 12, border: '1px solid #e2e8f0', cursor: 'pointer' }}
-                onClick={() => fetchBatchDetail(b.id)}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <Text strong style={{ fontSize: 16 }}>{b.name}</Text>
-                  <Tag color="purple">{b.french_level}</Tag>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, color: '#64748b' }}>
-                  <div><TeamOutlined /> {b.student_count} Enrolled Student{b.student_count !== 1 ? 's' : ''}</div>
-                  {b.teacher_first_name && (
-                    <div><UserOutlined /> Teacher: {b.teacher_first_name} {b.teacher_last_name}</div>
-                  )}
-                  <div><CalendarOutlined /> Started: {new Date(b.start_date).toLocaleDateString()}</div>
-                </div>
-              </Card>
-            </Col>
-          ))
-        )}
-      </Row>
-    );
-  };
-
-  const renderStudentsList = () => {
-    return (
-      <Row gutter={[16, 16]}>
-        {filteredStudents.length === 0 ? (
-          <Col span={24}>
-            <Empty description="No students found" />
-          </Col>
-        ) : (
-          filteredStudents.map(s => (
-            <Col xs={24} sm={12} lg={8} key={s.id}>
-              <Card
-                hoverable
-                style={{ borderRadius: 12, border: '1px solid #e2e8f0', cursor: 'pointer' }}
-                onClick={() => fetchStudentDetail(s.id)}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                  <Avatar style={{ backgroundColor: '#eff6ff', color: '#2563eb' }}>
-                    {s.first_name.charAt(0)}{s.last_name.charAt(0)}
-                  </Avatar>
-                  <div>
-                    <Text strong style={{ fontSize: 15 }}>{s.first_name} {s.last_name}</Text>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{s.email}</div>
-                  </div>
-                </div>
-                <div style={{ fontSize: 12, color: '#64748b' }}>
-                  {s.batches.length > 0 ? (
-                    <div>
-                      Batches: {s.batches.map(b => (
-                        <Tag key={b.id} color="blue" style={{ marginRight: 4, marginTop: 4 }}>
-                          {b.name}
-                        </Tag>
-                      ))}
-                    </div>
-                  ) : <span style={{ fontStyle: 'italic' }}>No assigned batches</span>}
-                </div>
-              </Card>
-            </Col>
-          ))
-        )}
-      </Row>
-    );
-  };
-
-  if (loadingDetail) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  // Student detail takes priority — user may have drilled in from a batch
-  if (selectedStudentId) {
-    return renderStudentDetail();
-  }
-
-  if (selectedBatchId) {
-    return renderBatchDetail();
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      {/* Banner */}
-      <div
-        style={{
-          background: headerGradient,
-          borderRadius: 16,
-          padding: '24px 32px',
-          color: '#fff',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 16
-        }}
-      >
-        <div>
-          <Title level={3} style={{ color: '#fff', margin: 0 }}>📊 Exam Preparation Dashboard</Title>
-          <Text style={{ color: 'rgba(255,255,255,0.7)' }}>
-            Track, analyze, and compare student results for TCF CO, EE, and EO.
-          </Text>
-        </div>
-        {onBack && (
-          <Button icon={<ArrowLeftOutlined />} onClick={onBack} style={{ borderRadius: 10 }}>
-            Back to Management
-          </Button>
-        )}
-      </div>
-
-      {/* Selector and Search */}
-      <Card bordered={false} style={{ borderRadius: 12, boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-          <RadioGroupToggle active={activeTab} onChange={setActiveTab} />
-          
-          <Input
-            placeholder={activeTab === 'batches' ? 'Search batches...' : 'Search students...'}
-            prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ maxWidth: 300, borderRadius: 8 }}
-            allowClear
-          />
-        </div>
-      </Card>
-
-      {/* Main List */}
-      {loadingList ? (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 200 }}>
-          <Spin size="large" />
-        </div>
-      ) : activeTab === 'batches' ? (
-        renderBatchesList()
-      ) : (
-        renderStudentsList()
-      )}
-    </div>
-  );
+/** Width of an element, kept in sync with resizes — charts draw at real pixel size. */
+const useWidth = <T extends HTMLElement>() => {
+    const ref = useRef<T>(null);
+    const [width, setWidth] = useState(0);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) return;
+        setWidth(el.clientWidth);
+        const ro = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+        ro.observe(el);
+        return () => ro.disconnect();
+    }, []);
+    return [ref, width] as const;
 };
 
-// Internal Toggle Component to avoid using deprecated antd constructs
-const RadioGroupToggle: React.FC<{ active: 'batches' | 'students'; onChange: (v: 'batches' | 'students') => void }> = ({ active, onChange }) => {
-  return (
-    <div style={{ display: 'flex', background: '#f1f5f9', borderRadius: 8, padding: 4 }}>
-      <button
-        onClick={() => onChange('batches')}
-        style={{
-          border: 'none',
-          padding: '6px 16px',
-          borderRadius: 6,
-          cursor: 'pointer',
-          fontWeight: 600,
-          fontSize: 13,
-          backgroundColor: active === 'batches' ? '#fff' : 'transparent',
-          color: active === 'batches' ? '#1e1b4b' : '#64748b',
-          boxShadow: active === 'batches' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 0.2s'
-        }}
-      >
-        <Space><TeamOutlined /> Batches</Space>
-      </button>
-      <button
-        onClick={() => onChange('students')}
-        style={{
-          border: 'none',
-          padding: '6px 16px',
-          borderRadius: 6,
-          cursor: 'pointer',
-          fontWeight: 600,
-          fontSize: 13,
-          backgroundColor: active === 'students' ? '#fff' : 'transparent',
-          color: active === 'students' ? '#1e1b4b' : '#64748b',
-          boxShadow: active === 'students' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-          transition: 'all 0.2s'
-        }}
-      >
-        <Space><UserOutlined /> Students</Space>
-      </button>
-    </div>
-  );
+/* ─────────────── Progress chart: every attempt on a real time axis ─────────────── */
+interface Point { skill: Skill; t: number; pct: number; label: string }
+const ProgressChart: React.FC<{ points: Point[]; tz: string }> = ({ points, tz }) => {
+    const [ref, width] = useWidth<HTMLDivElement>();
+    const [hidden, setHidden] = useState<Set<Skill>>(new Set());
+    const [hover, setHover] = useState<Point | null>(null);
+    const H = 220;
+    const pad = { l: 36, r: 12, t: 12, b: 26 };
+    const shown = points.filter(p => !hidden.has(p.skill));
+    const times = points.map(p => p.t);
+    const t0 = Math.min(...times);
+    const t1 = Math.max(...times);
+    const span = t1 - t0 || 86_400_000;
+    const innerW = Math.max(10, width - pad.l - pad.r);
+    const x = (t: number) => pad.l + (t1 === t0 ? innerW / 2 : ((t - t0) / span) * innerW);
+    const y = (pct: number) => pad.t + (1 - Math.min(100, Math.max(0, pct)) / 100) * (H - pad.t - pad.b);
+    const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric' });
+    const ticks = t1 === t0 ? [t0] : [t0, t0 + span / 2, t1];
+
+    return (
+        <div className="xr-chart">
+            <div className="xr-legend" role="group" aria-label="Show skills">
+                {SKILL_KEYS.map(k => {
+                    const n = points.filter(p => p.skill === k).length;
+                    return (
+                        <button key={k} type="button" className={`xr-legend-item is-${k}${hidden.has(k) ? ' is-off' : ''}`} aria-pressed={!hidden.has(k)} disabled={!n}
+                            onClick={() => setHidden(s => { const next = new Set(s); if (next.has(k)) next.delete(k); else next.add(k); return next; })}>
+                            <i aria-hidden />{SKILLS[k].short}<em>{n}</em>
+                        </button>
+                    );
+                })}
+            </div>
+            <div ref={ref} className="xr-chart-area" onMouseLeave={() => setHover(null)}>
+                {width > 0 && (
+                    <svg width={width} height={H} role="img" aria-label="Scores over time, as a percentage">
+                        {[0, 50, 70, 100].map(g => (
+                            <g key={g}>
+                                <line x1={pad.l} x2={width - pad.r} y1={y(g)} y2={y(g)} className={`xr-gridline${g === 50 || g === 70 ? ' is-mark' : ''}`} />
+                                <text x={pad.l - 8} y={y(g) + 4} textAnchor="end" className="xr-axis">{g}</text>
+                            </g>
+                        ))}
+                        {ticks.map((t, i) => (
+                            <text key={i} x={x(t)} y={H - 6} textAnchor={i === 0 && ticks.length > 1 ? 'start' : i === ticks.length - 1 && ticks.length > 1 ? 'end' : 'middle'} className="xr-axis">{day.format(new Date(t))}</text>
+                        ))}
+                        {SKILL_KEYS.filter(k => !hidden.has(k)).map(k => {
+                            const series = shown.filter(p => p.skill === k).sort((a, b) => a.t - b.t);
+                            if (!series.length) return null;
+                            return (
+                                <g key={k} className={`xr-series is-${k}`}>
+                                    {series.length > 1 && <polyline points={series.map(p => `${x(p.t)},${y(p.pct)}`).join(' ')} />}
+                                    {series.map((p, i) => (
+                                        <circle key={i} cx={x(p.t)} cy={y(p.pct)} r={hover === p ? 6 : 4}
+                                            onMouseEnter={() => setHover(p)} onFocus={() => setHover(p)} tabIndex={0} aria-label={`${SKILLS[k].short} ${p.label}`} />
+                                    ))}
+                                </g>
+                            );
+                        })}
+                    </svg>
+                )}
+                {hover && (
+                    <div className="xr-tip" style={{ left: Math.min(Math.max(x(hover.t), 90), width - 90), top: Math.max(0, y(hover.pct) - 62) }}>
+                        <strong>{SKILLS[hover.skill].label}</strong>
+                        <span>{hover.label}</span>
+                        <em>{new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(hover.t))}</em>
+                    </div>
+                )}
+            </div>
+            <p className="xr-note">All three on one scale: CO in %, EE and EO converted from /20. Dotted lines mark 50% and 70%.</p>
+        </div>
+    );
+};
+
+/* ─────────────── Component ─────────────── */
+const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
+    const { apiCall, user } = useAuth();
+    const tz = resolveTimezone(user?.timezone);
+    const when = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), [tz]);
+    const whenDay = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' }), [tz]);
+    const at = (iso?: string | null) => { const t = iso ? Date.parse(iso) : NaN; return Number.isNaN(t) ? '—' : when.format(new Date(t)); };
+    const atDay = (iso?: string | null) => { const t = iso ? Date.parse(iso) : NaN; return Number.isNaN(t) ? '—' : whenDay.format(new Date(t)); };
+
+    const [view, setView] = useState<View>({ kind: 'list' });
+    const [tab, setTab] = useState<'batches' | 'students'>('batches');
+    const [search, setSearch] = useState('');
+
+    const [batches, setBatches] = useState<Batch[] | null>(null);
+    const [students, setStudents] = useState<StudentListItem[] | null>(null);
+    const [batchCache, setBatchCache] = useState<Record<number, BatchDetail>>({});
+    const [studentCache, setStudentCache] = useState<Record<number, StudentDetail>>({});
+    const [error, setError] = useState<string | null>(null);
+    const [busy, setBusy] = useState(false);
+
+    const [sortBy, setSortBy] = useState<'name' | Skill | 'inactive'>('name');
+    const [attemptSkill, setAttemptSkill] = useState<Skill>('co');
+
+    const fetchJson = useCallback(async (url: string) => {
+        const res = await apiCall(url);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || `The server answered ${res.status}.`);
+        return data;
+    }, [apiCall]);
+
+    const run = useCallback(async (task: () => Promise<void>) => {
+        setBusy(true);
+        setError(null);
+        try { await task(); } catch (e: any) { setError(e?.message || 'The results could not be loaded.'); } finally { setBusy(false); }
+    }, []);
+
+    const loadList = useCallback((which: 'batches' | 'students', force = false) => run(async () => {
+        if (which === 'batches' && (force || !batches)) setBatches(await fetchJson('/tcf-results/batches'));
+        if (which === 'students' && (force || !students)) setStudents(await fetchJson('/tcf-results/students'));
+    }), [run, fetchJson, batches, students]);
+
+    const openBatch = (id: number, force = false) => {
+        setView({ kind: 'batch', id });
+        setSortBy('name');
+        if (force || !batchCache[id]) run(async () => { const data = await fetchJson(`/tcf-results/batch/${id}`); setBatchCache(c => ({ ...c, [id]: data })); });
+        else setError(null);
+    };
+    const openStudent = (id: number, fromBatch: number | null, force = false) => {
+        setView({ kind: 'student', id, fromBatch });
+        if (force || !studentCache[id]) run(async () => {
+            const data = await fetchJson(`/tcf-results/student/${id}`);
+            setStudentCache(c => ({ ...c, [id]: data }));
+            setAttemptSkill((['co', 'ee', 'eo'] as Skill[]).find(k => (data?.[k] || []).length) || 'co');
+        });
+        else setError(null);
+    };
+
+    // Lists load when their tab is first shown (batches on mount) and stay cached; Refresh reloads.
+    useEffect(() => { if (view.kind === 'list') loadList(tab); }, [tab, view.kind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const refresh = () => {
+        if (view.kind === 'list') loadList(tab, true);
+        else if (view.kind === 'batch') openBatch(view.id, true);
+        else openStudent(view.id, view.fromBatch, true);
+    };
+    const scrollTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    /* ── Header (shared by every view) ── */
+    const header = (title: React.ReactNode, subtitle: React.ReactNode, back?: { label: string; onClick: () => void }) => (
+        <header className="tc-header xr-header">
+            <div className="xr-header-main">
+                {back && <Button className="xr-back" icon={<ArrowLeftOutlined />} onClick={() => { back.onClick(); scrollTop(); }} aria-label={back.label}>{back.label}</Button>}
+                <div>
+                    <div className="tc-overline">{mode === 'admin' ? 'Exam preparation' : 'Teacher space'}</div>
+                    <h1 className="tc-title">{title}</h1>
+                    <p className="tc-subtitle">{subtitle}</p>
+                </div>
+            </div>
+            <div className="tc-actions">
+                {mode === 'admin' && onBack && view.kind === 'list' && <Button icon={<ArrowLeftOutlined />} onClick={onBack}>Exam management</Button>}
+                <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={busy} />} onClick={refresh} aria-label="Refresh" /></Tooltip>
+            </div>
+        </header>
+    );
+    const errorBar = error && (
+        <div className="tc-alert" role="alert"><WarningOutlined /><span><strong>Couldn't load the results.</strong> {error}</span><Button size="small" onClick={refresh}>Retry</Button></div>
+    );
+
+    /* ═══════════ LIST ═══════════ */
+    const renderList = () => {
+        const q = search.trim().toLowerCase();
+        const batchList = (batches || []).filter(b => !q || `${b.name} ${b.french_level} ${b.teacher_first_name || ''} ${b.teacher_last_name || ''}`.toLowerCase().includes(q));
+        const studentList = (students || []).filter(s => !q || `${nameOf(s)} ${s.email} ${s.username} ${s.batches.map(b => b.name).join(' ')}`.toLowerCase().includes(q));
+        const loadingList = tab === 'batches' ? !batches : !students;
+        return (
+            <>
+                {header('TCF results', 'Compréhension orale, expression écrite and expression orale — how each batch and student is progressing.')}
+                {errorBar}
+                <section className="tc-card xr-list">
+                    <div className="xr-toolbar">
+                        <Segmented value={tab} onChange={v => { setTab(v as 'batches' | 'students'); setSearch(''); }} options={[
+                            { value: 'batches', label: <span className="xr-seg"><TeamOutlined /> Batches{batches ? <em>{batches.length}</em> : null}</span> },
+                            { value: 'students', label: <span className="xr-seg"><UserOutlined /> Students{students ? <em>{students.length}</em> : null}</span> },
+                        ]} />
+                        <Input className="xr-search" allowClear prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} value={search} onChange={e => setSearch(e.target.value)}
+                            placeholder={tab === 'batches' ? 'Search batches' : 'Search students or batches'} aria-label="Search" />
+                    </div>
+
+                    {loadingList ? (
+                        <div className="xr-cards">{[0, 1, 2].map(i => <div key={i} className="xr-card"><Skeleton active title={{ width: '60%' }} paragraph={{ rows: 3 }} /></div>)}</div>
+                    ) : tab === 'batches' ? (
+                        batchList.length === 0 ? (
+                            <div className="xr-empty"><TeamOutlined /><strong>{batches?.length ? 'No batches match' : 'No batches yet'}</strong><span>{batches?.length ? 'Try another search.' : mode === 'teacher' ? 'Batches assigned to you appear here.' : 'Create batches to follow their exam results.'}</span></div>
+                        ) : (
+                            <div className="xr-cards">
+                                {batchList.map(b => (
+                                    <button key={b.id} type="button" className="xr-card is-batch" onClick={() => { openBatch(b.id); scrollTop(); }}>
+                                        <span className="xr-card-top">
+                                            <span className="xr-level">{b.french_level || '—'}</span>
+                                            <span className="xr-card-title">{b.name}</span>
+                                        </span>
+                                        <span className="xr-card-meta">
+                                            <span><TeamOutlined /> {b.student_count} {b.student_count === 1 ? 'student' : 'students'}</span>
+                                            <span><CalendarOutlined /> {fmtDay(b.start_date)} – {fmtDay(b.end_date)}</span>
+                                            {mode === 'admin' && (b.teacher_first_name || b.teacher_last_name) && <span><UserOutlined /> {`${b.teacher_first_name || ''} ${b.teacher_last_name || ''}`.trim()}</span>}
+                                        </span>
+                                        <span className="xr-card-go">View results <RightOutlined /></span>
+                                    </button>
+                                ))}
+                            </div>
+                        )
+                    ) : studentList.length === 0 ? (
+                        <div className="xr-empty"><UserOutlined /><strong>{students?.length ? 'No students match' : 'No students yet'}</strong><span>{students?.length ? 'Try another search.' : 'Students enrolled in your batches appear here.'}</span></div>
+                    ) : (
+                        <ul className="xr-people">
+                            {studentList.map(s => (
+                                <li key={s.id}>
+                                    <button type="button" className="xr-person" onClick={() => { openStudent(s.id, null); scrollTop(); }}>
+                                        <span className="xr-av">{initialsOf(s)}</span>
+                                        <span className="xr-person-id"><strong>{nameOf(s)}</strong><em>{s.email}</em></span>
+                                        <span className="xr-chips">
+                                            {s.batches.length ? s.batches.slice(0, 3).map(b => <span key={b.id} className="xr-chip">{b.name}<b>{b.french_level}</b></span>) : <span className="xr-muted">No batch</span>}
+                                            {s.batches.length > 3 && <span className="xr-chip">+{s.batches.length - 3}</span>}
+                                        </span>
+                                        <RightOutlined className="xr-go" />
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </section>
+            </>
+        );
+    };
+
+    /* ═══════════ BATCH ═══════════ */
+    const renderBatch = (id: number) => {
+        const detail = batchCache[id];
+        const known = detail?.batch ?? batches?.find(b => b.id === id);
+        const back = { label: 'All batches', onClick: () => setView({ kind: 'list' }) };
+        if (!detail) {
+            return (
+                <>
+                    {header(known?.name || 'Batch results', 'Loading the latest attempts…', back)}
+                    {errorBar}
+                    <div className="xr-kpis">{[0, 1, 2, 3].map(i => <div key={i} className="xr-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                    <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 8 }} /></div>
+                </>
+            );
+        }
+        const { batch, students: roster, analytics } = detail;
+        const active = roster.filter(s => SKILL_KEYS.some(k => s[k].attemptsCount > 0)).length;
+        const lastActivity = (s: BatchStudent) => Math.max(0, ...SKILL_KEYS.map(k => Date.parse(s[k].latestAttempt || '') || 0));
+        const sorted = [...roster].sort((a, b) => {
+            if (sortBy === 'name') return nameOf(a).localeCompare(nameOf(b));
+            if (sortBy === 'inactive') return lastActivity(a) - lastActivity(b);
+            return (pctOf(sortBy, b[sortBy].avgScore) ?? -1) - (pctOf(sortBy, a[sortBy].avgScore) ?? -1);
+        });
+
+        return (
+            <>
+                {header(batch.name, <>{batch.french_level && <span className="xr-level is-inline">{batch.french_level}</span>} {roster.length} {roster.length === 1 ? 'student' : 'students'} · {fmtDay(batch.start_date)} – {fmtDay(batch.end_date)}{mode === 'admin' && batch.teacher_first_name ? ` · ${batch.teacher_first_name} ${batch.teacher_last_name || ''}` : ''}</>, back)}
+                {errorBar}
+
+                <section className="xr-kpis" aria-label="Class averages">
+                    {SKILL_KEYS.map(k => {
+                        const a = analytics[k];
+                        const pct = a.totalAttempts ? pctOf(k, a.avgScore) : null;
+                        return (
+                            <div key={k} className={`xr-kpi is-${k}`}>
+                                <span className="xr-kpi-label"><span className="xr-kpi-ic">{SKILLS[k].icon}</span>{SKILLS[k].label}</span>
+                                <strong className={tone(pct)}>{a.totalAttempts ? fmtScore(k, a.avgScore) : '—'}</strong>
+                                <span className="xr-meter"><i style={{ width: `${pct ?? 0}%` }} /></span>
+                                <em>{a.totalAttempts ? `Class average · ${a.totalAttempts} ${a.totalAttempts === 1 ? 'attempt' : 'attempts'}` : 'No attempts yet'}</em>
+                            </div>
+                        );
+                    })}
+                    <div className="xr-kpi is-part">
+                        <span className="xr-kpi-label"><span className="xr-kpi-ic"><TeamOutlined /></span>Participation</span>
+                        <strong>{active}<small> / {roster.length}</small></strong>
+                        <span className="xr-meter"><i style={{ width: `${roster.length ? (active / roster.length) * 100 : 0}%` }} /></span>
+                        <em>{roster.length - active ? `${roster.length - active} haven't tried any simulation` : 'Everyone has practised'}</em>
+                    </div>
+                </section>
+
+                <div className="xr-grid">
+                    {/* Student × skill table */}
+                    <section className="tc-card xr-table-card">
+                        <header className="tc-card-head">
+                            <span className="tc-card-title">Students</span>
+                            <Segmented size="small" value={sortBy} onChange={v => setSortBy(v as typeof sortBy)} options={[
+                                { value: 'name', label: 'Name' }, { value: 'co', label: 'CO' }, { value: 'ee', label: 'EE' }, { value: 'eo', label: 'EO' }, { value: 'inactive', label: 'Least active' },
+                            ]} />
+                        </header>
+                        {roster.length === 0 ? <p className="tc-muted-line">No students are enrolled in this batch.</p> : (
+                            <div className="xr-table" role="table" aria-label="Scores by student">
+                                <div className="xr-trow is-head" role="row">
+                                    <span role="columnheader">Student</span>
+                                    {SKILL_KEYS.map(k => <span key={k} role="columnheader">{SKILLS[k].short} <em>avg · best</em></span>)}
+                                    <span role="columnheader">Last activity</span>
+                                </div>
+                                {sorted.map(s => {
+                                    const last = lastActivity(s);
+                                    return (
+                                        <button key={s.id} type="button" className="xr-trow" role="row" onClick={() => { openStudent(s.id, batch.id); scrollTop(); }}>
+                                            <span className="xr-person-cell" role="cell">
+                                                <span className="xr-av is-sm">{initialsOf(s)}</span>
+                                                <span className="xr-person-id"><strong>{nameOf(s)}</strong><em>{s.email}</em></span>
+                                            </span>
+                                            {SKILL_KEYS.map(k => {
+                                                const st = s[k];
+                                                const avgPct = pctOf(k, st.avgScore);
+                                                return (
+                                                    <span key={k} className="xr-skill-cell" data-skill={SKILLS[k].short} role="cell">
+                                                        {st.attemptsCount ? (
+                                                            <>
+                                                                <span className="xr-skill-top"><b className={`xr-score ${tone(avgPct)}`}>{fmtScore(k, st.avgScore)}</b><em>best {fmtScore(k, st.bestScore)}</em></span>
+                                                                <span className="xr-meter is-sm"><i className={tone(pctOf(k, st.bestScore))} style={{ width: `${pctOf(k, st.bestScore) ?? 0}%` }} /></span>
+                                                                <em className="xr-attempts">{st.attemptsCount} {st.attemptsCount === 1 ? 'attempt' : 'attempts'}</em>
+                                                            </>
+                                                        ) : <span className="xr-muted">Not attempted</span>}
+                                                    </span>
+                                                );
+                                            })}
+                                            <span className="xr-last" role="cell">{last ? atDay(new Date(last).toISOString()) : <span className="xr-muted">Never</span>}<RightOutlined /></span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </section>
+
+                    {/* CEFR levels */}
+                    <section className="tc-card">
+                        <header className="tc-card-head"><span className="tc-card-title">CEFR levels reached</span></header>
+                        <div className="tc-card-body">
+                            {SKILL_KEYS.map(k => {
+                                const dist = analytics[k].levelDistribution || {};
+                                const total = Object.values(dist).reduce((sum, n) => sum + Number(n || 0), 0);
+                                return (
+                                    <div key={k} className="xr-cefr">
+                                        <div className="xr-cefr-head"><strong>{SKILLS[k].label}</strong><em>{total ? `${total} ${total === 1 ? 'attempt' : 'attempts'}` : 'No attempts'}</em></div>
+                                        <div className="xr-stack" aria-label={CEFR.map(l => `${l}: ${dist[l] || 0}`).join(', ')}>
+                                            {total ? CEFR.filter(l => dist[l]).map(l => (
+                                                <Tooltip key={l} title={`${l}: ${dist[l]} (${Math.round((dist[l] / total) * 100)}%)`}><i className={`is-${l.toLowerCase()}`} style={{ flexGrow: dist[l] }}>{(dist[l] / total) >= 0.12 ? l : ''}</i></Tooltip>
+                                            )) : <i className="is-empty" style={{ flexGrow: 1 }} />}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <div className="xr-cefr-legend">{CEFR.map(l => <span key={l}><i className={`is-${l.toLowerCase()}`} />{l}</span>)}</div>
+                            <p className="xr-note">EO levels are estimated from the score out of 20.</p>
+                        </div>
+                    </section>
+                </div>
+            </>
+        );
+    };
+
+    /* ═══════════ STUDENT ═══════════ */
+    const renderStudent = (id: number, fromBatch: number | null) => {
+        const detail = studentCache[id];
+        const listed = students?.find(s => s.id === id) ?? batchCache[fromBatch ?? -1]?.students.find(s => s.id === id);
+        const back = fromBatch !== null
+            ? { label: batchCache[fromBatch]?.batch.name || 'Batch', onClick: () => setView({ kind: 'batch', id: fromBatch }) }
+            : { label: 'All students', onClick: () => { setView({ kind: 'list' }); setTab('students'); } };
+        if (!detail) {
+            return (
+                <>
+                    {header(listed ? nameOf(listed) : 'Student results', 'Loading attempts…', back)}
+                    {errorBar}
+                    <div className="xr-kpis is-three">{[0, 1, 2].map(i => <div key={i} className="xr-kpi"><Skeleton active title={false} paragraph={{ rows: 3 }} /></div>)}</div>
+                    <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 8 }} /></div>
+                </>
+            );
+        }
+        const { student, co, ee, eo } = detail;
+        const byskill = { co, ee, eo } as const;
+        const scoreOf = (k: Skill, a: any) => (k === 'co' ? a.score_percentage : k === 'ee' ? a.average_score : a.overall_score);
+        const dateOf = (k: Skill, a: any) => (k === 'ee' ? a.submitted_at : a.completed_at);
+        const points: Point[] = SKILL_KEYS.flatMap(k => (byskill[k] as any[]).map(a => ({
+            skill: k, t: Date.parse(dateOf(k, a)), pct: pctOf(k, scoreOf(k, a)) ?? 0, label: fmtScore(k, scoreOf(k, a)),
+        }))).filter(p => !Number.isNaN(p.t));
+        const batchesOf = students?.find(s => s.id === id)?.batches ?? [];
+
+        const summary = (k: Skill) => {
+            const list = byskill[k] as any[];   // newest first from the API
+            const scores = list.map(a => num(scoreOf(k, a))).filter((n): n is number => n !== null);
+            const best = scores.length ? Math.max(...scores) : null;
+            const avg = scores.length ? scores.reduce((s, n) => s + n, 0) / scores.length : null;
+            const trend = scores.length >= 2 ? scores[0] - scores[1] : null;
+            const level = k === 'co' ? list[0]?.cefr_level : k === 'ee' ? list[0]?.overall_level : null;
+            return { count: list.length, best, avg, trend, level, latest: list[0] ? dateOf(k, list[0]) : null };
+        };
+
+        return (
+            <>
+                {header(nameOf(student), <>{student.email}{batchesOf.length ? ` · ${batchesOf.map(b => b.name).join(', ')}` : ''}</>, back)}
+                {errorBar}
+
+                <section className="xr-kpis is-three" aria-label="Best scores">
+                    {SKILL_KEYS.map(k => {
+                        const s = summary(k);
+                        const bestPct = pctOf(k, s.best);
+                        const trendUnit = k === 'co' ? '%' : '';
+                        return (
+                            <div key={k} className={`xr-kpi is-${k}`}>
+                                <span className="xr-kpi-label"><span className="xr-kpi-ic">{SKILLS[k].icon}</span>{SKILLS[k].label}</span>
+                                <span className="xr-kpi-row">
+                                    <strong className={tone(bestPct)}>{fmtScore(k, s.best)}</strong>
+                                    {s.level && <span className="xr-level is-inline">{s.level}</span>}
+                                    {s.trend !== null && Math.abs(s.trend) >= (k === 'co' ? 1 : 0.1) && (
+                                        <Tooltip title="Latest attempt compared with the one before">
+                                            <span className={`xr-trend ${s.trend > 0 ? 'is-up' : 'is-down'}`}>{s.trend > 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}{Math.abs(Math.round(s.trend * (k === 'co' ? 1 : 10)) / (k === 'co' ? 1 : 10))}{trendUnit}</span>
+                                        </Tooltip>
+                                    )}
+                                </span>
+                                <span className="xr-meter"><i style={{ width: `${bestPct ?? 0}%` }} /></span>
+                                <em>{s.count ? `Best of ${s.count} · average ${fmtScore(k, s.avg)} · last ${atDay(s.latest)}` : 'No attempts yet'}</em>
+                            </div>
+                        );
+                    })}
+                </section>
+
+                <section className="tc-card">
+                    <header className="tc-card-head"><span className="tc-card-title">Progress over time</span></header>
+                    <div className="tc-card-body">
+                        {points.length ? <ProgressChart points={points} tz={tz} /> : <p className="tc-muted-line">No completed simulations yet — the chart fills in as the student practises.</p>}
+                    </div>
+                </section>
+
+                <section className="tc-card xr-attempts-card">
+                    <header className="tc-card-head">
+                        <span className="tc-card-title">Attempts</span>
+                        <Segmented size="small" value={attemptSkill} onChange={v => setAttemptSkill(v as Skill)} options={SKILL_KEYS.map(k => ({ value: k, label: `${SKILLS[k].short} · ${byskill[k].length}` }))} />
+                    </header>
+                    {byskill[attemptSkill].length === 0 ? (
+                        <p className="tc-muted-line">No {SKILLS[attemptSkill].label.toLowerCase()} attempts yet.</p>
+                    ) : (
+                        <ul className="xr-attempts">
+                            {attemptSkill === 'co' && co.map(a => {
+                                const pct = num(a.score_percentage);
+                                return (
+                                    <li key={a.id} className="xr-attempt">
+                                        <span className="xr-attempt-main"><strong>{a.series_name}</strong><em>{at(a.completed_at)} · {fmtDuration(a.time_spent_seconds)}</em></span>
+                                        <span className="xr-attempt-facts"><span>{a.correct_count}/{a.total_questions} correct</span><span>{a.earned_points}/{a.total_points} pts</span></span>
+                                        {a.cefr_level ? <span className="xr-level is-inline">{a.cefr_level}</span> : <span />}
+                                        <b className={`xr-score is-big ${tone(pct)}`}>{fmtScore('co', pct)}</b>
+                                    </li>
+                                );
+                            })}
+                            {attemptSkill === 'ee' && ee.map(a => (
+                                <li key={a.id} className="xr-attempt">
+                                    <span className="xr-attempt-main"><strong>{a.combinaison_name}</strong><em>{[a.month_name, a.year].filter(Boolean).join(' ')} · {at(a.submitted_at)} · {fmtDuration(a.time_used_seconds)}</em></span>
+                                    <span className="xr-attempt-facts">
+                                        {[1, 2, 3].map(i => <span key={i}>T{i} {fmtScore('ee', (a as any)[`task${i}_score`])}{(a as any)[`task${i}_level`] ? ` · ${(a as any)[`task${i}_level`]}` : ''}</span>)}
+                                    </span>
+                                    {a.overall_level ? <span className="xr-level is-inline">{a.overall_level}</span> : <span />}
+                                    <b className={`xr-score is-big ${tone(pctOf('ee', a.average_score))}`}>{fmtScore('ee', a.average_score)}</b>
+                                </li>
+                            ))}
+                            {attemptSkill === 'eo' && eo.map(a => (
+                                <li key={a.id} className="xr-attempt">
+                                    <span className="xr-attempt-main"><strong>{a.partie_name || 'Free practice'}</strong><em>{[a.month_name, a.year].filter(Boolean).join(' ')}{a.month_name ? ' · ' : ''}{at(a.completed_at)} · {fmtDuration(a.duration_seconds)}</em></span>
+                                    <span className="xr-attempt-facts">
+                                        {[1, 2, 3].map(i => <span key={i}>T{i} {fmtScore('eo', (a as any)[`tache${i}_score`])}</span>)}
+                                    </span>
+                                    <span />
+                                    <b className={`xr-score is-big ${tone(pctOf('eo', a.overall_score))}`}>{fmtScore('eo', a.overall_score)}</b>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </section>
+            </>
+        );
+    };
+
+    return (
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            <div className={`tc xr is-${mode}`}>
+                {view.kind === 'list' ? renderList() : view.kind === 'batch' ? renderBatch(view.id) : renderStudent(view.id, view.fromBatch)}
+            </div>
+        </ConfigProvider>
+    );
 };
 
 export default ExamResultsDashboard;

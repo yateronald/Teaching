@@ -1,334 +1,204 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Statistic, Typography, Space, Divider, List, Tag, Empty, message, Select, DatePicker, Slider, Button, Tooltip, Skeleton } from 'antd';
-import { PieChart, BarChart, LineChart, ScatterChart } from '@mui/x-charts';
-import dayjs from 'dayjs';
-import type { Dayjs } from 'dayjs';
-import { useAuth } from '../../contexts/AuthContext';
-import { TeamOutlined, CheckCircleOutlined, FieldTimeOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import isBetween from 'dayjs/plugin/isBetween';
+import React, { useMemo } from 'react';
+import { Button } from 'antd';
+import { BarChartOutlined, ClockCircleOutlined, RiseOutlined, TeamOutlined, TrophyOutlined, WarningOutlined } from '@ant-design/icons';
+import { PASS_MARK, fmtMinutes, fmtPct, gradeFromPercent, initials, isFinished, makeWhen, plural, summarize, toneOfScore } from './quizModel';
+import type { QuizRow, ResultRow } from './quizModel';
 
-dayjs.extend(isBetween);
+/* ══════════════════════════════════════════
+   RESULTS OVERVIEW — how the class did on one quiz.
+   Every figure comes from the same deduplicated student list as the Students tab.
+══════════════════════════════════════════ */
 
-const { Title, Text } = Typography;
-
-interface QuizInsightsProps { quizId?: string; }
-
-interface Quiz { id: number; title: string; passing_score?: number; batch_names?: string; }
-interface StudentRow {
-  student_id: number; name: string; email: string; percentage: number | null; score: number | null; max_score: number | null;
-  submitted_at: string | null; time_taken_minutes: number | null; status?: string; batch_id?: number; batch_name?: string;
+interface Props {
+    quiz: QuizRow;
+    rows: ResultRow[];
+    tz: string;
+    onOpenStudent: (row: ResultRow) => void;
+    onShow: (tab: 'students' | 'questions') => void;
 }
 
-const bins = [0,10,20,30,40,50,60,70,80,90,100];
+const BAND_TONE: Record<string, string> = { A: 'is-a', B: 'is-b', C: 'is-c', D: 'is-d', F: 'is-f' };
 
-// Helper function to format numbers - show whole numbers without decimals, keep up to 2 decimal places for others
-const formatNumber = (num: number): string => {
-  if (Number.isInteger(num)) {
-    return num.toString();
-  }
-  return num.toFixed(2).replace(/\.?0+$/, '');
+/** Cumulative submissions over time against the class size. */
+const Timeline: React.FC<{ rows: ResultRow[]; total: number; tz: string }> = ({ rows, total, tz }) => {
+    const when = makeWhen(tz);
+    const times = rows.filter(r => isFinished(r.status) && r.submittedAt).map(r => Date.parse(r.submittedAt as string)).filter(Number.isFinite).sort((a, b) => a - b);
+    if (times.length < 2) return <p className="tc-muted-line">The curve appears after the second submission.</p>;
+    const W = 600;
+    const H = 140;
+    const t0 = times[0];
+    const t1 = times[times.length - 1] === t0 ? t0 + 1 : times[times.length - 1];
+    const top = Math.max(total, times.length, 1);
+    const x = (t: number) => ((t - t0) / (t1 - t0)) * W;
+    const y = (n: number) => H - (n / top) * (H - 6);
+    let d = `M0,${H}`;
+    times.forEach((t, i) => { d += ` L${x(t).toFixed(1)},${y(i).toFixed(1)} L${x(t).toFixed(1)},${y(i + 1).toFixed(1)}`; });
+    const area = `${d} L${W},${y(times.length).toFixed(1)} L${W},${H} Z`;
+    return (
+        <div className="qz-timeline">
+            <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden>
+                <line x1="0" x2={W} y1={y(total)} y2={y(total)} className="qz-timeline-goal" />
+                <path d={area} className="qz-timeline-area" />
+                <path d={`${d} L${W},${y(times.length).toFixed(1)}`} className="qz-timeline-line" />
+            </svg>
+            <div className="qz-timeline-axis"><span>{when.at(new Date(t0).toISOString())}</span><span>{when.at(new Date(t1).toISOString())}</span></div>
+            <p className="qz-hint">Dashed line: every student submitted ({total}).</p>
+        </div>
+    );
 };
 
-const QuizInsights: React.FC<QuizInsightsProps> = ({ quizId }) => {
-  const { apiCall } = useAuth();
-  const [quiz, setQuiz] = useState<Quiz | null>(null);
-  const [students, setStudents] = useState<StudentRow[]>([]);
-  const [loading, setLoading] = useState(true);
+const QuizInsights: React.FC<Props> = ({ quiz, rows, tz, onOpenStudent, onShow }) => {
+    const s = useMemo(() => summarize(rows), [rows]);
+    const byBatch = useMemo(() => {
+        const map = new Map<string, ResultRow[]>();
+        rows.forEach(r => r.batches.forEach(b => { if (!map.has(b)) map.set(b, []); map.get(b)!.push(r); }));
+        return [...map.entries()].map(([name, list]) => ({ name, ...summarize(list) })).sort((a, b) => a.name.localeCompare(b.name));
+    }, [rows]);
 
-  // UI filter states
-  const [selectedBatches, setSelectedBatches] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
-  const [passMarkLocal, setPassMarkLocal] = useState<number>(60);
-
-  useEffect(() => { if (quizId) load(); }, [quizId]);
-
-  useEffect(() => { setPassMarkLocal(quiz?.passing_score ?? 60); }, [quiz]);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const q = await apiCall(`/quizzes/${quizId}`);
-      if (q.ok) { const data = await q.json(); setQuiz(data?.quiz ?? data); }
-      const r = await apiCall(`/quizzes/${quizId}/results`);
-      if (r.ok) {
-        const data = await r.json();
-        const flat: StudentRow[] = (data?.batch_results||[]).flatMap((b:any)=>
-          (b.students||[]).map((s:any)=>({
-            student_id: s.id, name: s.name, email: s.email,
-            percentage: s.percentage ? parseFloat(s.percentage) : null, 
-            score: s.score ? parseFloat(s.score) : null, 
-            max_score: s.max_score ? parseFloat(s.max_score) : null,
-            submitted_at: s.submitted_at ?? null, time_taken_minutes: s.time_taken_minutes ?? null,
-            status: s.status, batch_id: b.batch_id, batch_name: b.batch_name
-          }))
+    if (!rows.length) {
+        return (
+            <div className="qz-empty">
+                <span className="qz-empty-art"><TeamOutlined /></span>
+                <strong>No students assigned</strong>
+                <span>The batches on this quiz have no students enrolled yet.</span>
+            </div>
         );
-        setStudents(flat);
-      } else {
-        const err = await r.json().catch(()=>({}));
-        message.error(err.error || 'Failed to load results');
-      }
-    } catch {
-      message.error('Failed to load quiz insights');
-    } finally { setLoading(false); }
-  };
+    }
 
-  const batches = useMemo(() => {
-    const setNames = new Set<string>();
-    students.forEach(s => { if (s.batch_name) setNames.add(s.batch_name); });
-    return Array.from(setNames);
-  }, [students]);
+    const ranked = [...s.scored].sort((a, b) => b.percentage - a.percentage);
+    const top = ranked.slice(0, 5);
+    const support = ranked.filter(r => r.percentage < PASS_MARK).reverse().slice(0, 5);
+    const bandMax = Math.max(1, ...s.bands.map(b => b.count));
 
-  const filteredStudents = useMemo(() => {
-    return students.filter(s => {
-      let ok = true;
-      if (selectedBatches.length) ok = ok && selectedBatches.includes(s.batch_name || '');
-      if (dateRange) {
-        const ts = s.submitted_at ? dayjs(s.submitted_at) : null;
-        ok = ok && (!!ts && ts.isBetween(dateRange[0].startOf('day'), dateRange[1].endOf('day'), null, '[]'));
-      }
-      return ok;
-    });
-  }, [students, selectedBatches, dateRange]);
-
-  const metrics = useMemo(() => {
-    const total = filteredStudents.length; const submitted = filteredStudents.filter(s=>s.submitted_at).length;
-    const completion = total ? Math.round((submitted/total)*100) : 0;
-    const withPerc = filteredStudents.filter(s=>typeof s.percentage === 'number') as (StudentRow & { percentage: number })[];
-    const avgRaw = withPerc.length ? withPerc.reduce((a,c)=>a+c.percentage,0)/withPerc.length : 0;
-    const avg = parseFloat(formatNumber(avgRaw));
-    const pass = withPerc.filter(s=>s.percentage>=passMarkLocal).length; const fail = withPerc.length - pass;
-    const top5 = [...withPerc].sort((a,b)=>b.percentage-a.percentage).slice(0,5);
-    const bottom5 = [...withPerc].sort((a,b)=>a.percentage-b.percentage).slice(0,5);
-    // histogram
-    const hist = bins.slice(0,-1).map((_,i)=>({ bin:`${bins[i]}-${bins[i+1]}`, count: withPerc.filter(s=>{
-      const p = s.percentage; return p>=bins[i] && p<=(i===bins.length-2? bins[i+1] : bins[i+1]-0.0001);
-    }).length }));
-    // completion over time
-    const timeline = filteredStudents.filter(s=>s.submitted_at).sort((a,b)=>dayjs(a.submitted_at!).valueOf()-dayjs(b.submitted_at!).valueOf());
-    const series = timeline.map((s,i)=>({ x: dayjs(s.submitted_at!).format('MM-DD HH:mm'), y: Math.round(((i+1)/submitted)*100) }));
-    // scatter time vs score
-    const scatter = withPerc.filter(s=>s.time_taken_minutes!=null).map(s=>({ x: s.time_taken_minutes as number, y: s.percentage as number }));
-    // per-batch avg
-    const byBatch: Record<string,{avg:number; count:number}> = {};
-    withPerc.forEach(s=>{ const k=s.batch_name||'Batch'; const p=s.percentage; if(!byBatch[k]) byBatch[k]={avg:0,count:0}; byBatch[k].avg+=p; byBatch[k].count++; });
-    const batchData = Object.entries(byBatch).map(([k,v])=>({ batch:k, avg: parseFloat(formatNumber(v.avg/v.count)) }));
-    return { total, submitted, completion, avg, pass, fail, top5, bottom5, hist, series, scatter, batchData };
-  }, [filteredStudents, passMarkLocal]);
-
-  const hasScores = useMemo(()=> filteredStudents.some(s=>typeof s.percentage === 'number'), [filteredStudents]);
-
-  const resetFilters = () => {
-    setSelectedBatches([]);
-    setDateRange(null);
-    setPassMarkLocal(quiz?.passing_score ?? 60);
-  };
-
-  if (loading) {
     return (
-      <div style={{ padding: '32px' }}>
-        <Skeleton active title={{ width: 300 }} paragraph={{ rows: 1 }} />
-        <Card style={{ marginTop: '32px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
-            <Skeleton active paragraph={{ rows: 2 }} />
-        </Card>
-        <Row gutter={[16,16]} style={{ marginTop: '24px' }}>
-          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-          <Col xs={12} md={6}><Skeleton.Button active block style={{ height: '100px', borderRadius: '16px' }} /></Col>
-        </Row>
-        <Card style={{ marginTop: '24px', borderRadius: '16px', border: '1px solid #f0f0f0' }}>
-            <Skeleton active paragraph={{ rows: 6 }} />
-        </Card>
-      </div>
+        <div className="qz-insights">
+            <section className="qz-kpis" aria-label="Key figures">
+                <div className="qz-kpi">
+                    <span className="qz-kpi-label"><TeamOutlined /> Submitted</span>
+                    <strong>{s.finished}<small> / {s.assigned}</small></strong>
+                    <span className="qz-meter"><i style={{ width: `${s.completion}%` }} /></span>
+                    <em>{[s.inProgress && `${s.inProgress} in progress`, s.notStarted && `${s.notStarted} not started`].filter(Boolean).join(' · ') || 'Everyone has submitted'}</em>
+                </div>
+                <div className={`qz-kpi ${toneOfScore(s.average)}`}>
+                    <span className="qz-kpi-label"><TrophyOutlined /> Class average</span>
+                    <strong>{fmtPct(s.average)}{s.average !== null && <span className="qz-grade">{gradeFromPercent(s.average)}</span>}</strong>
+                    <em>{s.median !== null ? `Median ${fmtPct(s.median)} · range ${fmtPct(s.lowest)}–${fmtPct(s.best)}` : 'No scores yet'}</em>
+                </div>
+                <div className={`qz-kpi ${s.passRate === null ? '' : s.passRate >= 70 ? 'is-good' : s.passRate >= 50 ? 'is-warn' : 'is-bad'}`}>
+                    <span className="qz-kpi-label"><RiseOutlined /> Pass rate</span>
+                    <strong>{fmtPct(s.passRate)}</strong>
+                    <em>{s.scored.length ? `${s.passed} of ${s.scored.length} scored ${PASS_MARK}% or more` : `Pass mark ${PASS_MARK}%`}</em>
+                </div>
+                <div className="qz-kpi">
+                    <span className="qz-kpi-label"><ClockCircleOutlined /> Median time</span>
+                    <strong>{fmtMinutes(s.medianMinutes)}</strong>
+                    <em>Time limit {quiz.duration_minutes} min</em>
+                </div>
+            </section>
+
+            {s.finished === 0 ? (
+                <div className="qz-empty is-compact">
+                    <strong>No submissions yet</strong>
+                    <span>{s.inProgress ? `${plural(s.inProgress, 'student is', 'students are')} taking the quiz right now.` : 'Scores and charts appear here as students submit.'}</span>
+                </div>
+            ) : (
+                <div className="qz-grid">
+                    <section className="tc-card">
+                        <header className="tc-card-head"><span className="tc-card-title"><span className="tc-card-ic"><BarChartOutlined /></span>Score distribution</span></header>
+                        <div className="tc-card-body">
+                            <ul className="qz-bands">
+                                {s.bands.map(b => (
+                                    <li key={b.label} className={BAND_TONE[b.label]}>
+                                        <span className="qz-band-label"><b>{b.label}</b>{b.range}%</span>
+                                        <span className="qz-band-track"><i style={{ width: `${(b.count / bandMax) * 100}%` }} /></span>
+                                        <span className="qz-band-val">{b.count}<em>{s.scored.length ? fmtPct((b.count / s.scored.length) * 100) : ''}</em></span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </section>
+
+                    <section className="tc-card">
+                        <header className="tc-card-head"><span className="tc-card-title"><span className="tc-card-ic is-green"><RiseOutlined /></span>Submissions over time</span></header>
+                        <div className="tc-card-body">
+                            <div className="qz-progress" aria-label={`${s.finished} submitted, ${s.inProgress} in progress, ${s.notStarted} not started`}>
+                                {s.finished > 0 && <i className="is-done" style={{ flexGrow: s.finished }} />}
+                                {s.inProgress > 0 && <i className="is-doing" style={{ flexGrow: s.inProgress }} />}
+                                {s.notStarted > 0 && <i className="is-todo" style={{ flexGrow: s.notStarted }} />}
+                            </div>
+                            <div className="qz-legend">
+                                <span><i className="is-done" />Submitted <b>{s.finished}</b></span>
+                                <span><i className="is-doing" />In progress <b>{s.inProgress}</b></span>
+                                <span><i className="is-todo" />Not started <b>{s.notStarted}</b></span>
+                            </div>
+                            <Timeline rows={rows} total={s.assigned} tz={tz} />
+                        </div>
+                    </section>
+
+                    {byBatch.length > 1 && (
+                        <section className="tc-card">
+                            <header className="tc-card-head"><span className="tc-card-title"><span className="tc-card-ic"><TeamOutlined /></span>By batch</span></header>
+                            <div className="tc-card-body">
+                                <ul className="tc-bars">
+                                    {byBatch.map(b => (
+                                        <li key={b.name}>
+                                            <div className="tc-bars-top"><strong>{b.name}</strong><em>{fmtPct(b.average)} avg · {b.finished}/{b.assigned} submitted</em></div>
+                                            <div className="tc-bars-track"><i style={{ width: `${b.average ?? 0}%`, ['--b' as string]: b.average === null ? '#cbd5e1' : b.average >= 70 ? '#059669' : b.average >= PASS_MARK ? '#d97706' : '#dc2626' }} /></div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </section>
+                    )}
+
+                    <section className="tc-card">
+                        <header className="tc-card-head">
+                            <span className="tc-card-title"><span className="tc-card-ic is-green"><TrophyOutlined /></span>Top scores</span>
+                            <button type="button" className="tc-link" onClick={() => onShow('students')}>All students</button>
+                        </header>
+                        <div className="tc-card-body is-flush">
+                            <ul className="tc-people">
+                                {top.map((row, i) => (
+                                    <li key={row.studentId}>
+                                        <button type="button" className="tc-person" onClick={() => onOpenStudent(row)}>
+                                            <span className={`tc-rank is-${i + 1}`}>{i + 1}</span>
+                                            <span className="tc-av is-sm">{initials(row.name)}</span>
+                                            <span className="tc-cell"><strong>{row.name}</strong><em>{fmtMinutes(row.minutes)}</em></span>
+                                            <span className={`tc-score ${toneOfScore(row.percentage)}`}>{fmtPct(row.percentage)}</span>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    </section>
+
+                    <section className="tc-card">
+                        <header className="tc-card-head">
+                            <span className="tc-card-title"><span className="tc-card-ic is-amber"><WarningOutlined /></span>Below the pass mark</span>
+                            <Button size="small" type="link" onClick={() => onShow('questions')}>Which questions?</Button>
+                        </header>
+                        <div className="tc-card-body is-flush">
+                            {support.length === 0 ? (
+                                <p className="tc-muted-line">Every scored student reached {PASS_MARK}%.</p>
+                            ) : (
+                                <ul className="tc-people">
+                                    {support.map(row => (
+                                        <li key={row.studentId}>
+                                            <button type="button" className="tc-person" onClick={() => onOpenStudent(row)}>
+                                                <span className="tc-av is-sm">{initials(row.name)}</span>
+                                                <span className="tc-cell"><strong>{row.name}</strong><em>{row.batches.join(', ')}</em></span>
+                                                <span className={`tc-score ${toneOfScore(row.percentage)}`}>{fmtPct(row.percentage)}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                    </section>
+                </div>
+            )}
+        </div>
     );
-  }
-  if (!quiz) return (
-      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <Empty description={<Text type="secondary">Quiz details not found.</Text>} />
-      </div>
-  );
-
-  return (
-    <div style={{ margin: '0 auto', backgroundColor: '#fcfcfc', minHeight: '100%' }}>
-      {/* Edge-to-Edge Hero Header Section */}
-      <div style={{ 
-          padding: '40px 32px 32px', 
-          background: 'linear-gradient(135deg, #1e3a8a 0%, #2563eb 100%)',
-          boxShadow: '0 10px 30px rgba(37, 99, 235, 0.15)',
-          position: 'relative',
-          overflow: 'hidden'
-      }}>
-          {/* Decorative background circle */}
-          <div style={{
-              position: 'absolute', right: '-10%', top: '-20%', width: '300px', height: '300px',
-              borderRadius: '50%', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 70%)',
-              pointerEvents: 'none'
-          }} />
-
-          <Title level={2} style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: 700, letterSpacing: '-0.5px' }}>
-              {quiz.title}
-          </Title>
-          <Text style={{ fontSize: '16px', display: 'block', marginTop: '12px', color: 'rgba(255, 255, 255, 0.85)', maxWidth: '80%' }}>
-              Global insights and visual analytics overview spanning all student submissions.
-          </Text>
-      </div>
-
-      <div style={{ padding: '32px' }}>
-        <Space direction="vertical" style={{ width:'100%' }} size="large">
-
-      {/* Filters */}
-      <Card size="small" bodyStyle={{ paddingBottom: 8 }}>
-        <Row gutter={[12,12]} align="middle">
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Text type="secondary">Filter by batch</Text>
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="All batches"
-                options={batches.map(b=>({ label: b, value: b }))}
-                value={selectedBatches}
-                onChange={setSelectedBatches}
-              />
-            </Space>
-          </Col>
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Text type="secondary">Submitted between</Text>
-              <DatePicker.RangePicker
-                style={{ width: '100%' }}
-                value={dateRange}
-                onChange={(v)=> setDateRange(v as [Dayjs, Dayjs] | null)}
-                allowEmpty={[true, true]}
-              />
-            </Space>
-          </Col>
-          <Col xs={24} md={8}>
-            <Space direction="vertical" style={{ width: '100%' }} size={4}>
-              <Space align="center" style={{ display:'flex', justifyContent:'space-between', width:'100%' }}>
-                <Text type="secondary">Pass mark: {passMarkLocal}%</Text>
-                <Tooltip title="Adjust threshold used for pass/fail visuals in this view.">
-                  <InfoCircleOutlined />
-                </Tooltip>
-              </Space>
-              <Slider min={0} max={100} value={passMarkLocal} onChange={(v)=> setPassMarkLocal(v as number)} />
-            </Space>
-          </Col>
-          <Col span={24}>
-            <Space>
-              <Button icon={<ReloadOutlined />} onClick={resetFilters}>Reset filters</Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* KPIs */}
-      <Row gutter={[16,16]}>
-        <Col xs={12} md={6}><Card><Statistic title="Total Students" value={metrics.total} prefix={<TeamOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Submissions" value={metrics.submitted} suffix={`(${metrics.completion}%)`} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Average Score" value={metrics.avg} suffix="%" /></Card></Col>
-        <Col xs={12} md={6}><Card><Statistic title="Pass Mark" value={passMarkLocal} suffix="%" /></Card></Col>
-      </Row>
-
-      <Row gutter={[16,16]}>
-        <Col xs={24} lg={12}>
-          <Card title={
-            <Space>
-              <span>Pass vs Fail</span>
-              <Tag color="blue">threshold {passMarkLocal}%</Tag>
-            </Space>
-          }>
-            {hasScores ? (
-              <PieChart height={280} series={[{ data:[{id:0,value:metrics.pass,label:'Pass',color:'#52c41a'},{id:1,value:metrics.fail,label:'Fail',color:'#ff4d4f'}] }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Score Distribution (Percentage)">
-            {hasScores ? (
-              <BarChart height={280} xAxis={[{ scaleType:'band', data: metrics.hist.map(h=>h.bin) }]} series={[{ data: metrics.hist.map(h=>h.count), color:'#1677ff' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No scores to display" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16,16]}>
-        <Col xs={24} lg={12}>
-          <Card title="Completion Over Time" extra={<Tag icon={<FieldTimeOutlined />} color="default">% complete</Tag>}>
-            {metrics.series.length ? (
-              <LineChart height={280} xAxis={[{ data: metrics.series.map(p=>p.x), scaleType:'point' }]} series={[{ data: metrics.series.map(p=>p.y), label:'Completion %', color:'#13c2c2' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No submissions in selected range" />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Time Taken vs Score">
-            {metrics.scatter.length ? (
-              <ScatterChart height={280} xAxis={[{ label:'Minutes' }]} yAxis={[{ label:'%' }]} series={[{ data: metrics.scatter, color:'#722ed1' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No time vs score data" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Row gutter={[16,16]}>
-        <Col xs={24} lg={12}>
-          <Card title="Average Score by Batch">
-            {metrics.batchData.length ? (
-              <BarChart height={280} xAxis={[{ scaleType:'band', data: metrics.batchData.map(b=>b.batch) }]} series={[{ data: metrics.batchData.map(b=>b.avg), color:'#fa8c16' }]} />
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No batch data to display" />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} lg={12}>
-          <Card title="Top & Bottom Performers">
-            {hasScores ? (
-              <Row gutter={12}>
-                <Col span={12}>
-                  <Text strong>Top 5</Text>
-                  <List size="small" dataSource={metrics.top5} renderItem={(s, idx)=> (
-                    <List.Item>
-                      <Space>
-                        <Tag color="green">#{idx+1}</Tag>
-                        <Tag color="green">{formatNumber(s.percentage)}%</Tag>
-                        <span>{s.name}</span>
-                      </Space>
-                    </List.Item>
-                  )} />
-                </Col>
-                <Col span={12}>
-                  <Text strong>Bottom 5</Text>
-                  <List size="small" dataSource={metrics.bottom5} renderItem={(s, idx)=> (
-                    <List.Item>
-                      <Space>
-                        <Tag color="red">#{idx+1}</Tag>
-                        <Tag color="red">{formatNumber(s.percentage)}%</Tag>
-                        <span>{s.name}</span>
-                      </Space>
-                    </List.Item>
-                  )} />
-                </Col>
-              </Row>
-            ) : (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No performers to display" />
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      <Divider style={{ margin: 0 }} />
-      <Text type="secondary">Charts reflect applied filters. Hover to explore values. Data is live from quiz submissions.</Text>
-      </Space>
-      </div>
-    </div>
-  );
 };
 
 export default QuizInsights;

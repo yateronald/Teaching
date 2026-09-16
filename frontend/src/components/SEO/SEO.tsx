@@ -69,7 +69,10 @@ const SEO: React.FC<SEOProps> = ({
   const finalDescription = description ?? defaults.description;
   const finalKeywords = keywords ?? defaults.keywords;
   const finalImage = image ?? DEFAULT_OG_IMAGE;
-  const canonical = `${SITE_URL}${path}${path.includes('?') ? '&' : path === '/' ? '' : ''}`;
+  // Canonical must be a clean, parameter-free URL (query variants like
+  // ?lang=fr are declared via hreflang alternates instead).
+  const canonical = `${SITE_URL}${path.split('?')[0]}`;
+  const frUrl = `${SITE_URL}${path}${path.includes('?') ? '&' : '?'}lang=fr`;
   const robots = noindex
     ? 'noindex, nofollow'
     : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
@@ -92,13 +95,12 @@ const SEO: React.FC<SEOProps> = ({
       <meta name="robots" content={robots} />
       <link rel="canonical" href={canonical} />
 
-      {/* hreflang per-language */}
+      {/* hreflang per-language — en/fr plus Canadian variants (primary
+          audience: Canada immigration candidates) */}
       <link rel="alternate" hrefLang="en" href={`${SITE_URL}${path}`} />
-      <link
-        rel="alternate"
-        hrefLang="fr"
-        href={`${SITE_URL}${path}${path.includes('?') ? '&' : '?'}lang=fr`}
-      />
+      <link rel="alternate" hrefLang="en-CA" href={`${SITE_URL}${path}`} />
+      <link rel="alternate" hrefLang="fr" href={frUrl} />
+      <link rel="alternate" hrefLang="fr-CA" href={frUrl} />
       <link rel="alternate" hrefLang="x-default" href={`${SITE_URL}${path}`} />
 
       {/* Open Graph */}
@@ -109,15 +111,18 @@ const SEO: React.FC<SEOProps> = ({
       <meta property="og:image" content={finalImage} />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
+      <meta property="og:image:alt" content="Learn French with Natives — TEF, TCF, DELF, DALF preparation with native teachers" />
       <meta property="og:locale" content={ogLocale} />
       <meta property="og:locale:alternate" content={ogLocaleAlt} />
       <meta property="og:site_name" content="Learn French with Natives" />
 
       {/* Twitter */}
       <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:site" content="@learnfrenchnatives" />
       <meta name="twitter:title" content={finalTitle} />
       <meta name="twitter:description" content={finalDescription} />
       <meta name="twitter:image" content={finalImage} />
+      <meta name="twitter:image:alt" content="Learn French with Natives — French exam preparation platform" />
     </Helmet>
   );
 };

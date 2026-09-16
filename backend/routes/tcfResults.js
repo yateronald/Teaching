@@ -81,16 +81,23 @@ router.get('/students', async (req, res) => {
     sql += ' ORDER BY first_name ASC, last_name ASC';
     const students = await req.db.all(sql, params);
 
-    // Fetch batches for each student
+    // Every student's batches in one query (it used to be one query per student).
+    const ids = students.map(s => s.id);
+    const batchRows = ids.length ? await req.db.all(`
+      SELECT bs.student_id, b.id, b.name, b.french_level
+      FROM batch_students bs
+      JOIN batches b ON b.id = bs.batch_id
+      WHERE bs.student_id = ANY($1::int[])
+      ORDER BY b.name
+    `, [ids]) : [];
+    const batchesByStudent = new Map();
+    for (const row of batchRows) {
+      const key = Number(row.student_id);
+      if (!batchesByStudent.has(key)) batchesByStudent.set(key, []);
+      batchesByStudent.get(key).push({ id: row.id, name: row.name, french_level: row.french_level });
+    }
     for (const student of students) {
-      const studentBatches = await req.db.all(`
-        SELECT b.id, b.name, b.french_level
-        FROM batches b
-        JOIN batch_students bs ON b.id = bs.batch_id
-        WHERE bs.student_id = ?
-        ORDER BY b.name
-      `, [student.id]);
-      student.batches = studentBatches;
+      student.batches = batchesByStudent.get(Number(student.id)) || [];
     }
 
     res.json(students);

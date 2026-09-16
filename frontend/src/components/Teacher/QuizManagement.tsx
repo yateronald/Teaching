@@ -1,623 +1,526 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button, ConfigProvider, Dropdown, Input, Modal, Pagination, Select, Skeleton, Tooltip, message } from 'antd';
+import type { MenuProps } from 'antd';
 import {
-    Table, Button, Modal, message, Space, Typography, Progress,
-    Dropdown, Row, Col, Input, Select, Skeleton, DatePicker
-} from 'antd';
-import {
-    PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined,
-    BarChartOutlined, MoreOutlined, SearchOutlined, ClockCircleOutlined,
-    CheckCircleOutlined, BookOutlined, TrophyOutlined, EyeOutlined
+    BarChartOutlined, CheckCircleOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, EyeOutlined,
+    FileTextOutlined, FormOutlined, MoreOutlined, PlusOutlined, ReloadOutlined, SearchOutlined, SendOutlined, StopOutlined,
+    TeamOutlined, ThunderboltOutlined, TrophyOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import QuizBuilder from '../Quiz/QuizBuilder';
-import QuizResults from '../Quiz/QuizResults';
-import QuizInsights from '../Quiz/QuizInsights';
-import QuizDetails from '../Quiz/QuizDetails';
+import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
 import ErrorBoundary from '../ErrorBoundary';
-import type { ColumnsType } from 'antd/es/table';
-import dayjs from 'dayjs';
-import duration from 'dayjs/plugin/duration';
+import { headerHeight } from '../Layout/layoutMetrics';
+import QuizBuilder from '../Quiz/QuizBuilder';
+import type { BuilderResult } from '../Quiz/QuizBuilder';
+import QuizDetails from '../Quiz/QuizDetails';
+import QuizResults from '../Quiz/QuizResults';
+import type { ResultsTab } from '../Quiz/QuizResults';
+import {
+    PASS_MARK, STATE_META, fmtPct, fmtSpan, liveStateOf, makeWhen, normalizeQuizRow, plural, toneOfScore,
+} from '../Quiz/quizModel';
+import type { LiveState, QuizRow } from '../Quiz/quizModel';
+import './Teacher.css';
+import '../Quiz/Quiz.css';
 
-dayjs.extend(duration);
+/* ══════════════════════════════════════════
+   QUIZZES — every quiz this teacher owns, what state it is in right now,
+   and the way into building, previewing and grading it.
+══════════════════════════════════════════ */
 
-const { Title, Text } = Typography;
+type Tab = 'all' | LiveState;
+type SortKey = 'recent' | 'closing' | 'title' | 'score' | 'completion';
+interface BuilderState { quizId: number | null; duplicateOf: number | null; withAI: boolean; context: QuizRow | null }
 
-interface Quiz {
-    id: number;
-    title: string;
-    description: string;
-    batch_id: number;
-    batch_name?: string;
-    total_questions: number;
-    duration_minutes: number;
-    status: 'draft' | 'published';
-    start_date?: string;
-    end_date?: string;
-    created_at: string;
-    batch_names?: string;
-    french_levels?: string;
-    submitted_students?: number;
-    total_students?: number;
-    avg_score?: number;
-    total_marks?: number;
-    // Server-authoritative scheduling fields. Computed against PG NOW() so
-    // the value doesn't depend on the viewer's browser clock — the source of
-    // a previous "teacher sees Active but student already auto-submitted" bug.
-    schedule_state?: 'inactive' | 'scheduled' | 'active' | 'ended';
-    seconds_until_end?: number | null;
-}
+const PAGE_SIZE = 15;
+const DAY = 86_400;
 
-interface Batch { id: number; name: string; }
-
-function fmt(n: number | string | null | undefined): string {
-    if (n == null || n === '') return '0';
-    const v = typeof n === 'string' ? parseFloat(n) : n;
-    if (isNaN(v)) return '0';
-    return Number.isInteger(v) ? v.toString() : v.toFixed(1).replace(/\.0$/, '');
-}
-
-// Derive the visible status from the server-authoritative `schedule_state`.
-// Falls back to client-side dayjs comparison ONLY when the server didn't
-// provide the field (older API or dev mock).
-function getStatusInfo(quiz: Quiz) {
-    const ss = quiz.schedule_state;
-    if (ss === 'inactive' || quiz.status !== 'published') return { color: '#94a3b8', bg: '#f1f5f9', text: 'Draft' };
-    if (ss === 'scheduled') return { color: '#f59e0b', bg: '#fef3c7', text: 'Scheduled' };
-    if (ss === 'ended')    return { color: '#ef4444', bg: '#fee2e2', text: 'Ended' };
-    if (ss === 'active')   return { color: '#22c55e', bg: '#dcfce7', text: 'Active' };
-    // Fallback: client-side check (only if server didn't return schedule_state)
-    const now = dayjs();
-    if (quiz.start_date && now.isBefore(dayjs(quiz.start_date))) return { color: '#f59e0b', bg: '#fef3c7', text: 'Scheduled' };
-    if (quiz.end_date && now.isAfter(dayjs(quiz.end_date))) return { color: '#ef4444', bg: '#fee2e2', text: 'Ended' };
-    return { color: '#22c55e', bg: '#dcfce7', text: 'Active' };
-}
-
-// Time-left countdown: prefer server's `seconds_until_end` (computed against
-// PG NOW()) over client clock math. Re-renders in real time as seconds pass.
-function fmtRemaining(quiz: Quiz): string {
-    if (quiz.seconds_until_end != null) {
-        const total = Math.max(0, quiz.seconds_until_end);
-        if (total <= 0) return 'Ended';
-        const days = Math.floor(total / 86400);
-        if (days > 30) return `${Math.floor(days / 30)}mo ${days % 30}d`;
-        if (days >= 1) return `${days}d ${Math.floor((total % 86400) / 3600)}h`;
-        const hours = Math.floor(total / 3600);
-        if (hours >= 1) return `${hours}h ${Math.floor((total % 3600) / 60)}m`;
-        const mins = Math.floor(total / 60);
-        return `${mins}m`;
-    }
-    // Fallback: client-side
-    if (!quiz.end_date) return '—';
-    const diff = dayjs(quiz.end_date).diff(dayjs());
-    if (diff <= 0) return 'Ended';
-    const d = dayjs.duration(diff);
-    const days = d.days();
-    if (days > 30) return `${Math.floor(days / 30)}mo ${days % 30}d`;
-    if (days >= 1) return `${days}d ${d.hours()}h`;
-    if (d.hours() >= 1) return `${d.hours()}h ${d.minutes()}m`;
-    return `${d.minutes()}m`;
-}
-
-/* ── Shared KPI card (same style as Batches/Demo) ── */
-const KpiCard: React.FC<{ label: string; value: number | string; icon: React.ReactNode; accent: string }> = ({ label, value, icon, accent }) => (
-    <div style={{
-        borderRadius: 16, padding: '20px 24px',
-        background: '#fff', border: '1px solid #f0f0f8',
-        boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-        display: 'flex', alignItems: 'center', gap: 16,
-    }}>
-        <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: accent + '18',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 20, color: accent, flexShrink: 0,
-        }}>
-            {icon}
-        </div>
-        <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>
-                {label}
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}
-            </div>
-        </div>
-    </div>
-);
-
-/* ── Loading skeleton ── */
-const QuizSkeleton: React.FC = () => (
-    <div style={{ paddingBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-            <div>
-                <Skeleton.Input active style={{ width: 220, height: 28, borderRadius: 8 }} />
-                <div style={{ marginTop: 6 }}>
-                    <Skeleton.Input active style={{ width: 200, height: 14, borderRadius: 6 }} />
-                </div>
-            </div>
-            <Skeleton.Button active style={{ width: 130, height: 44, borderRadius: 12 }} />
-        </div>
-
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            {[1, 2, 3, 4].map(i => (
-                <Col xs={24} sm={12} md={6} key={i}>
-                    <div style={{
-                        borderRadius: 16, padding: '20px 24px',
-                        background: '#fff', border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-                        display: 'flex', alignItems: 'center', gap: 16,
-                    }}>
-                        <Skeleton.Avatar active size={44} shape="square" style={{ borderRadius: 12 }} />
-                        <div style={{ flex: 1 }}>
-                            <Skeleton.Input active style={{ width: 80, height: 11, borderRadius: 4, marginBottom: 8 }} block />
-                            <Skeleton.Input active style={{ width: 40, height: 26, borderRadius: 6 }} />
-                        </div>
-                    </div>
-                </Col>
-            ))}
-        </Row>
-
-        <div style={{
-            background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8',
-            boxShadow: '0 2px 12px rgba(99,102,241,0.07)', overflow: 'hidden',
-        }}>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f8', display: 'flex', gap: 12 }}>
-                <Skeleton.Input active style={{ width: 220, height: 34, borderRadius: 8 }} />
-                <Skeleton.Input active style={{ width: 140, height: 34, borderRadius: 8 }} />
-                <Skeleton.Input active style={{ width: 160, height: 34, borderRadius: 8 }} />
-            </div>
-            {[1, 2, 3, 4, 5, 6].map(i => (
-                <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 20,
-                    padding: '14px 20px', borderBottom: '1px solid #f8f8fc',
-                }}>
-                    <div style={{ flex: 3 }}>
-                        <Skeleton.Input active style={{ width: '80%', height: 14, borderRadius: 5, marginBottom: 6 }} block />
-                        <Skeleton.Input active style={{ width: '50%', height: 11, borderRadius: 5 }} block />
-                    </div>
-                    <Skeleton.Input active style={{ width: 40, height: 14, borderRadius: 5 }} />
-                    <Skeleton.Input active style={{ width: 50, height: 14, borderRadius: 5 }} />
-                    <Skeleton.Input active style={{ width: 50, height: 14, borderRadius: 5 }} />
-                    <Skeleton.Input active style={{ width: 80, height: 14, borderRadius: 5 }} />
-                    <Skeleton.Input active style={{ width: 55, height: 14, borderRadius: 5 }} />
-                    <Skeleton.Input active style={{ width: 60, height: 22, borderRadius: 20 }} />
-                    <Skeleton.Button active size="small" style={{ width: 28, height: 28, borderRadius: 6 }} />
-                </div>
-            ))}
-        </div>
-    </div>
-);
+const TAB_ORDER: Tab[] = ['all', 'live', 'scheduled', 'draft', 'ended'];
+const TAB_LABEL: Record<Tab, string> = { all: 'All', live: 'Live', scheduled: 'Scheduled', draft: 'Drafts', ended: 'Ended' };
 
 const QuizManagement: React.FC = () => {
-    const [quizzes, setQuizzes] = useState<Quiz[]>([]);
-    const [batches, setBatches] = useState<Batch[]>([]);
+    const { apiCall, user } = useAuth();
+    const r = useResponsive();
+    const [msg, msgHolder] = message.useMessage();
+    const [modal, modalHolder] = Modal.useModal();
+    const tz = resolveTimezone(user?.timezone);
+    const when = useMemo(() => makeWhen(tz), [tz]);
+
+    const [rows, setRows] = useState<QuizRow[]>([]);
+    const [fetchedAt, setFetchedAt] = useState(() => Date.now());
+    const [now, setNow] = useState(() => Date.now());
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const [tab, setTab] = useState<Tab>('all');
     const [search, setSearch] = useState('');
-    const [statusFilter, setStatusFilter] = useState<string>('all');
-    const [batchFilter, setBatchFilter] = useState<number | null>(null);
-    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
+    const [batch, setBatch] = useState<string | null>(null);
+    const [sort, setSort] = useState<SortKey>('recent');
+    const [page, setPage] = useState(1);
 
-    const [builderVisible, setBuilderVisible] = useState(false);
-    const [resultsVisible, setResultsVisible] = useState(false);
-    const [insightsVisible, setInsightsVisible] = useState(false);
-    const [detailsVisible, setDetailsVisible] = useState(false);
-    const [selectedQuizId, setSelectedQuizId] = useState<number | null>(null);
+    const [builder, setBuilder] = useState<BuilderState | null>(null);
+    const [preview, setPreview] = useState<QuizRow | null>(null);
+    const [results, setResults] = useState<{ row: QuizRow; tab: ResultsTab } | null>(null);
+    const [busyId, setBusyId] = useState<number | null>(null);
 
-    const { apiCall } = useAuth();
-
-    const fetchQuizzes = useCallback(async () => {
-        setLoading(true);
+    const load = useCallback(async () => {
         try {
-            const resp = await apiCall('/quizzes');
-            if (resp.ok) {
-                const data = await resp.json();
-                const raw = Array.isArray(data) ? data : (data.quizzes || []);
-                setQuizzes(raw.map((q: any) => ({
-                    ...q,
-                    total_questions: Number(q.total_questions ?? 0),
-                    duration_minutes: Number(q.duration_minutes ?? 0),
-                    total_marks: q.total_marks != null ? Number(q.total_marks) : undefined,
-                    submitted_students: Number(q.submitted_students ?? 0),
-                    total_students: Number(q.total_students ?? 0),
-                    avg_score: Number(q.avg_score ?? 0),
-                })));
-            }
-        } catch { message.error('Failed to load quizzes'); }
-        finally { setLoading(false); }
+            const res = await apiCall('/quizzes');
+            if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `The server answered ${res.status}.`);
+            const data = await res.json();
+            setRows((Array.isArray(data) ? data : data?.quizzes || []).map(normalizeQuizRow));
+            const t = Date.now();
+            setFetchedAt(t);
+            setNow(t);
+            setError(null);
+        } catch (e: any) {
+            setError(e?.message || 'Could not load your quizzes.');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
     }, [apiCall]);
 
-    useEffect(() => { fetchQuizzes(); }, [fetchQuizzes]);
+    useEffect(() => { load(); }, [load]);
+    // Countdowns tick without refetching; the list itself refreshes when a quiz changes state.
     useEffect(() => {
-        (async () => {
-            try {
-                const resp = await apiCall('/batches');
-                if (resp.ok) setBatches(await resp.json());
-            } catch {}
-        })();
-    }, [apiCall]);
+        const id = window.setInterval(() => setNow(Date.now()), 30_000);
+        return () => window.clearInterval(id);
+    }, []);
 
-    const handleDelete = async (id: number) => {
-        try {
-            const resp = await apiCall(`/quizzes/${id}`, { method: 'DELETE' });
-            if (resp.ok) { message.success('Quiz deleted'); fetchQuizzes(); }
-            else message.error('Failed to delete quiz');
-        } catch { message.error('Error deleting quiz'); }
+    // The column header pins under the app bar while the list scrolls. A zero-height marker sits just
+    // above it: once the marker passes under the bar, the header is pinned and gets its shadow.
+    const stickyTop = headerHeight(r.isMobile);
+    const [stuck, setStuck] = useState(false);
+    const observerRef = useRef<IntersectionObserver | null>(null);
+    const stickyMarker = useCallback((node: HTMLDivElement | null) => {
+        observerRef.current?.disconnect();
+        observerRef.current = null;
+        if (!node) { setStuck(false); return; }
+        const observer = new IntersectionObserver(
+            ([entry]) => setStuck(!entry.isIntersecting && entry.boundingClientRect.top < stickyTop),
+            { rootMargin: `-${stickyTop}px 0px 0px 0px`, threshold: 0 },
+        );
+        observer.observe(node);
+        observerRef.current = observer;
+    }, [stickyTop]);
+    useEffect(() => () => observerRef.current?.disconnect(), []);
+
+    const refresh = () => { setRefreshing(true); load(); };
+    const elapsed = Math.max(0, (now - fetchedAt) / 1000);
+
+    const items = useMemo(() => rows.map(row => ({ row, ...liveStateOf(row, elapsed) })), [rows, elapsed]);
+
+    /* ── Figures ── */
+    const counts = useMemo(() => {
+        const c: Record<Tab, number> = { all: items.length, live: 0, scheduled: 0, draft: 0, ended: 0 };
+        items.forEach(i => { c[i.state]++; });
+        return c;
+    }, [items]);
+
+    const kpi = useMemo(() => {
+        const published = items.filter(i => i.state !== 'draft');
+        const assigned = published.reduce((s, i) => s + i.row.total_students, 0);
+        const submitted = published.reduce((s, i) => s + i.row.submitted_students, 0);
+        const graded = items.filter(i => i.row.avg_score !== null && i.row.submitted_students > 0);
+        const weight = graded.reduce((s, i) => s + i.row.submitted_students, 0);
+        const closingSoon = items.filter(i => i.state === 'live' && i.endsIn !== null && i.endsIn <= DAY).length;
+        const nextStart = items.filter(i => i.state === 'scheduled' && i.startsIn !== null).sort((a, b) => (a.startsIn ?? 0) - (b.startsIn ?? 0))[0];
+        return {
+            published: published.length,
+            completion: assigned ? (submitted / assigned) * 100 : null,
+            assigned,
+            submitted,
+            average: weight ? graded.reduce((s, i) => s + (i.row.avg_score as number) * i.row.submitted_students, 0) / weight : null,
+            gradedCount: graded.length,
+            closingSoon,
+            nextStart,
+        };
+    }, [items]);
+
+    const batchOptions = useMemo(() => {
+        const names = new Set<string>();
+        rows.forEach(q => q.batches.forEach(b => names.add(b)));
+        return [...names].sort((a, b) => a.localeCompare(b)).map(n => ({ value: n, label: n }));
+    }, [rows]);
+
+    const list = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        const out = items.filter(i => {
+            if (tab !== 'all' && i.state !== tab) return false;
+            if (batch && !i.row.batches.includes(batch)) return false;
+            if (q && !`${i.row.title} ${i.row.description || ''} ${i.row.batches.join(' ')}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        const rank: Record<LiveState, number> = { live: 0, scheduled: 1, draft: 2, ended: 3 };
+        const completion = (x: QuizRow) => (x.total_students ? x.submitted_students / x.total_students : Infinity);
+        return out.sort((a, b) => {
+            if (sort === 'title') return a.row.title.localeCompare(b.row.title);
+            if (sort === 'score') return (a.row.avg_score ?? Infinity) - (b.row.avg_score ?? Infinity);
+            if (sort === 'completion') {
+                const pa = a.state === 'draft' ? Infinity : completion(a.row);
+                const pb = b.state === 'draft' ? Infinity : completion(b.row);
+                return pa - pb;
+            }
+            if (sort === 'closing') {
+                if (rank[a.state] !== rank[b.state]) return rank[a.state] - rank[b.state];
+                if (a.state === 'live') return (a.endsIn ?? Infinity) - (b.endsIn ?? Infinity);
+                if (a.state === 'scheduled') return (a.startsIn ?? Infinity) - (b.startsIn ?? Infinity);
+            }
+            return (Date.parse(b.row.created_at) || 0) - (Date.parse(a.row.created_at) || 0);
+        });
+    }, [items, tab, batch, search, sort]);
+
+    useEffect(() => { setPage(1); }, [tab, batch, search, sort]);
+    const pageItems = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const hasFilters = tab !== 'all' || !!batch || !!search.trim();
+    const clearFilters = () => { setTab('all'); setBatch(null); setSearch(''); };
+
+    /* ── Actions ── */
+    const openBuilder = (next: Partial<BuilderState> = {}) =>
+        setBuilder({ quizId: null, duplicateOf: null, withAI: false, context: null, ...next });
+
+    const onSaved = (result: BuilderResult) => {
+        setBuilder(null);
+        const parts = [result.created ? (result.published ? 'Quiz published' : 'Draft saved') : result.published ? 'Changes saved' : 'Saved as draft'];
+        if (result.notified) parts.push(`${plural(result.notified, 'student')} notified`);
+        if (result.regraded) parts.push(`${plural(result.regraded, 'score')} recalculated`);
+        msg.success(parts.join(' · '));
+        load();
     };
 
-    const filtered = quizzes.filter(q => {
-        if (search && !q.title.toLowerCase().includes(search.toLowerCase())) return false;
-        if (batchFilter && !q.batch_names?.includes(batches.find(b => b.id === batchFilter)?.name || '')) return false;
-        if (dateRangeFilter && dateRangeFilter.length === 2 && q.start_date) {
-            const start = dayjs(q.start_date);
-            if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) return false;
+    const setStatus = async (row: QuizRow, status: 'draft' | 'published') => {
+        setBusyId(row.id);
+        try {
+            const res = await apiCall(`/quizzes/${row.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || 'The status could not be changed.');
+            msg.success(status === 'published'
+                ? `Published${data?.notified ? ` · ${plural(data.notified, 'student')} notified` : ''}`
+                : 'Moved to drafts — students no longer see it');
+            await load();
+        } catch (e: any) {
+            msg.error(e?.message || 'The status could not be changed.');
+        } finally {
+            setBusyId(null);
         }
-        if (statusFilter !== 'all') {
-            const s = getStatusInfo(q);
-            if (statusFilter === 'draft' && q.status !== 'draft') return false;
-            if (statusFilter === 'active' && s.text !== 'Active') return false;
-            if (statusFilter === 'scheduled' && s.text !== 'Scheduled') return false;
-            if (statusFilter === 'ended' && s.text !== 'Ended') return false;
+    };
+
+    const confirmPublish = (row: QuizRow) => {
+        if (row.end_date && Date.parse(row.end_date) <= Date.now()) {
+            modal.warning({
+                title: 'This quiz has already closed',
+                content: 'Its closing time is in the past, so students could not take it. Edit the schedule, then publish.',
+                okText: 'Edit schedule',
+                onOk: () => openBuilder({ quizId: row.id, context: row }),
+            });
+            return;
         }
-        return true;
+        modal.confirm({
+            title: `Publish “${row.title}”?`,
+            icon: <SendOutlined />,
+            content: row.total_students
+                ? `${plural(row.total_students, 'student')} in ${row.batches.join(', ')} will see it and be notified by email and in the app.`
+                : 'No students are enrolled in its batches yet, so nobody will be notified.',
+            okText: 'Publish',
+            onOk: () => setStatus(row, 'published'),
+        });
+    };
+
+    const confirmUnpublish = (row: QuizRow, state: LiveState) => {
+        modal.confirm({
+            title: `Move “${row.title}” back to drafts?`,
+            icon: <StopOutlined />,
+            content: state === 'live' && row.in_progress_students
+                ? `${plural(row.in_progress_students, 'student is', 'students are')} taking it right now and will lose access. Submitted work is kept.`
+                : 'Students will no longer see it. Submitted work and scores are kept.',
+            okText: 'Move to drafts',
+            okButtonProps: { danger: state === 'live' },
+            onOk: () => setStatus(row, 'draft'),
+        });
+    };
+
+    const confirmDelete = (row: QuizRow) => {
+        modal.confirm({
+            title: `Delete “${row.title}”?`,
+            icon: <DeleteOutlined />,
+            content: row.submitted_students
+                ? `This permanently deletes the quiz and ${plural(row.submitted_students, 'student submission')} with their scores. This can't be undone.`
+                : 'The quiz and its questions are deleted permanently. This can’t be undone.',
+            okText: 'Delete quiz',
+            okButtonProps: { danger: true },
+            onOk: async () => {
+                const res = await apiCall(`/quizzes/${row.id}`, { method: 'DELETE' });
+                if (!res.ok) {
+                    msg.error((await res.json().catch(() => ({})))?.error || 'The quiz could not be deleted.');
+                    throw new Error('delete failed');
+                }
+                setRows(xs => xs.filter(x => x.id !== row.id));
+                msg.success('Quiz deleted');
+            },
+        });
+    };
+
+    const menuFor = (row: QuizRow, state: LiveState): MenuProps => ({
+        items: [
+            { key: 'preview', icon: <EyeOutlined />, label: 'Preview & answer key' },
+            ...(state !== 'draft' ? [
+                { key: 'results', icon: <TeamOutlined />, label: 'Student results' },
+                { key: 'analysis', icon: <BarChartOutlined />, label: 'Question analysis' },
+            ] : []),
+            { type: 'divider' as const },
+            { key: 'edit', icon: <EditOutlined />, label: state === 'ended' ? 'Edit (closed quizzes are locked)' : 'Edit', disabled: state === 'ended' },
+            { key: 'duplicate', icon: <CopyOutlined />, label: 'Duplicate' },
+            state === 'draft'
+                ? { key: 'publish', icon: <SendOutlined />, label: 'Publish…' }
+                : { key: 'unpublish', icon: <StopOutlined />, label: 'Move to drafts…' },
+            { type: 'divider' as const },
+            { key: 'delete', icon: <DeleteOutlined />, label: 'Delete…', danger: true },
+        ],
+        onClick: ({ key, domEvent }) => {
+            domEvent.stopPropagation();
+            if (key === 'preview') setPreview(row);
+            else if (key === 'results') setResults({ row, tab: 'students' });
+            else if (key === 'analysis') setResults({ row, tab: 'questions' });
+            else if (key === 'edit') openBuilder({ quizId: row.id, context: row });
+            else if (key === 'duplicate') openBuilder({ duplicateOf: row.id });
+            else if (key === 'publish') confirmPublish(row);
+            else if (key === 'unpublish') confirmUnpublish(row, state);
+            else if (key === 'delete') confirmDelete(row);
+        },
     });
 
-    const stats = {
-        total: quizzes.length,
-        published: quizzes.filter(q => q.status === 'published').length,
-        draft: quizzes.filter(q => q.status === 'draft').length,
-        avgScore: quizzes.length > 0
-            ? Math.round(quizzes.reduce((s, q) => s + (q.avg_score || 0), 0) / Math.max(quizzes.filter(q => q.avg_score).length, 1))
-            : 0,
+    /* ── Pieces ── */
+    const whenCell = (row: QuizRow, state: LiveState, startsIn: number | null, endsIn: number | null) => {
+        const range = row.start_date || row.end_date
+            ? `${row.start_date ? when.at(row.start_date) : 'Now'} – ${row.end_date ? when.at(row.end_date) : 'no end'}`
+            : 'No time window';
+        let lead: React.ReactNode;
+        if (state === 'draft') lead = <span className="qz-muted">Not published</span>;
+        else if (state === 'scheduled') lead = <span>Opens in <b>{fmtSpan(startsIn ?? 0)}</b></span>;
+        else if (state === 'live') lead = endsIn === null
+            ? <span>Open, no closing time</span>
+            : <span className={endsIn <= DAY ? 'qz-soon' : undefined}>Closes in <b>{fmtSpan(endsIn)}</b></span>;
+        else lead = <span>Closed {row.end_date ? when.day(row.end_date) : ''}</span>;
+        return <><span className="qz-when-lead">{lead}</span><span className="qz-when-window">{range}</span></>;
     };
 
-    const columns: ColumnsType<Quiz> = [
-        {
-            title: 'Quiz', key: 'title',
-            render: (_, r) => (
-                <div>
-                    <Text strong style={{ fontSize: 13, color: '#1a1d2e', display: 'block' }}>{r.title}</Text>
-                    <Text type="secondary" style={{ fontSize: 11 }}>{r.batch_names || '—'}</Text>
-                </div>
-            ),
-        },
-        {
-            title: 'Questions', dataIndex: 'total_questions', key: 'q', width: 90, align: 'center' as const,
-            render: (v: number) => <Text strong style={{ color: '#4f46e5' }}>{v}</Text>,
-        },
-        {
-            title: 'Duration', dataIndex: 'duration_minutes', key: 'dur', width: 90, align: 'center' as const,
-            render: (v: number) => <Text type="secondary" style={{ fontSize: 12 }}>{v} min</Text>,
-        },
-        {
-            title: 'Submissions', key: 'sub', width: 110, align: 'center' as const,
-            render: (_, r) => (
-                <span style={{ fontSize: 13, fontWeight: 600, color: (r.submitted_students || 0) > 0 ? '#4f46e5' : '#94a3b8' }}>
-                    {r.submitted_students ?? 0} / {r.total_students ?? 0}
-                </span>
-            ),
-        },
-        {
-            title: 'Avg Score', dataIndex: 'avg_score', key: 'score', width: 140,
-            render: (v: number) => (
-                <Space size={6}>
-                    <Progress
-                        percent={v || 0} size="small"
-                        strokeColor={v >= 70 ? '#22c55e' : v >= 50 ? '#f59e0b' : '#ef4444'}
-                        style={{ width: 68 }} showInfo={false}
-                        trailColor="#f0f0f8"
-                    />
-                    <Text strong style={{ fontSize: 12, color: v >= 70 ? '#16a34a' : v >= 50 ? '#d97706' : '#dc2626' }}>
-                        {fmt(v)}%
-                    </Text>
-                </Space>
-            ),
-        },
-        {
-            title: 'Time Left', key: 'time', width: 100, align: 'center' as const,
-            render: (_, r) => {
-                const t = fmtRemaining(r);
-                const color = t === 'Ended' ? '#ef4444' : t === '—' ? '#94a3b8' : (t.includes('m') && !t.includes('h')) ? '#f59e0b' : '#22c55e';
-                return (
-                    <span style={{
-                        background: color + '15', color,
-                        borderRadius: 20, padding: '2px 10px',
-                        fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' as const,
-                    }}>
-                        {t}
-                    </span>
-                );
-            },
-        },
-        {
-            title: 'Status', key: 'status', width: 100, align: 'center' as const,
-            render: (_, r) => {
-                const s = getStatusInfo(r);
-                return (
-                    <span style={{
-                        background: s.bg, color: s.color,
-                        borderRadius: 20, padding: '3px 12px',
-                        fontSize: 11, fontWeight: 600,
-                    }}>
-                        {s.text}
-                    </span>
-                );
-            },
-        },
-        {
-            title: '', key: 'actions', width: 44, align: 'center' as const,
-            render: (_, r) => {
-                const ended = r.status === 'published' && r.end_date && dayjs().isAfter(dayjs(r.end_date));
-                return (
-                    <Dropdown menu={{
-                        items: [
-                            { key: 'details', label: 'Details', icon: <EyeOutlined /> },
-                            { key: 'insights', label: 'Insights', icon: <BarChartOutlined /> },
-                            { key: 'results', label: 'Results', icon: <FileTextOutlined /> },
-                            ...(!ended ? [{ key: 'edit', label: 'Edit', icon: <EditOutlined /> }] : []),
-                            { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true as const },
-                        ],
-                        onClick: ({ key }) => {
-                            if (key === 'details') { setSelectedQuizId(r.id); setDetailsVisible(true); }
-                            else if (key === 'insights') { setSelectedQuizId(r.id); setInsightsVisible(true); }
-                            else if (key === 'results') { setSelectedQuizId(r.id); setResultsVisible(true); }
-                            else if (key === 'edit') { setSelectedQuizId(r.id); setBuilderVisible(true); }
-                            else if (key === 'delete') Modal.confirm({
-                                title: 'Delete this quiz?',
-                                content: 'This cannot be undone.',
-                                okText: 'Delete', okType: 'danger',
-                                onOk: () => handleDelete(r.id),
-                            });
-                        },
-                    }} trigger={['click']}>
-                        <Button
-                            type="text" size="small"
-                            icon={<MoreOutlined style={{ fontSize: 16 }} />}
-                            style={{ borderRadius: 8, color: '#64748b' }}
-                        />
-                    </Dropdown>
-                );
-            },
-        },
-    ];
+    const subsCell = (row: QuizRow, state: LiveState) => {
+        if (state === 'draft') return <span className="qz-muted">—</span>;
+        const pct = row.total_students ? (row.submitted_students / row.total_students) * 100 : 0;
+        return (
+            <>
+                <span className="qz-subs-top"><b>{row.submitted_students}</b> / {row.total_students}</span>
+                <span className="qz-meter" aria-hidden><i style={{ width: `${Math.min(100, pct)}%` }} /></span>
+                {row.in_progress_students > 0 && state === 'live' && <span className="qz-subs-note">{row.in_progress_students} in progress</span>}
+            </>
+        );
+    };
 
-    /* ── LOADING ── */
-    if (loading) return <QuizSkeleton />;
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) {
+        return (
+            <div className="tc qz-page" aria-busy="true">
+                <div className="tc-header"><div><Skeleton.Input active size="small" style={{ width: 110, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 160, height: 26 }} /></div></div></div>
+                <div className="tc-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="tc-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 8 }} /></div>
+            </div>
+        );
+    }
 
-    /* ── LOADED ── */
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingBottom: 0 }}>
-
-            {/* ── Header ── */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexShrink: 0 }}>
-                <div>
-                    <Title level={3} style={{ margin: 0, fontWeight: 800, color: '#1a1d2e', fontSize: 22 }}>Quiz Management</Title>
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                        {stats.total} quiz{stats.total !== 1 ? 'zes' : ''} · {stats.published} published · {stats.draft} draft
-                    </Text>
-                </div>
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    size="large"
-                    onClick={() => { setSelectedQuizId(null); setBuilderVisible(true); }}
-                    style={{
-                        borderRadius: 12, height: 44, fontWeight: 700,
-                        background: 'linear-gradient(135deg, #4f46e5, #6366f1)',
-                        border: 'none', boxShadow: '0 4px 16px rgba(99,102,241,0.30)',
-                        paddingInline: 24,
-                    }}
-                >
-                    Create Quiz
-                </Button>
-            </div>
-
-            {/* ── KPI Cards ── */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 20, flexShrink: 0 }}>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Total Quizzes" value={stats.total} icon={<BookOutlined />} accent="#6366f1" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Published" value={stats.published} icon={<CheckCircleOutlined />} accent="#22c55e" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Drafts" value={stats.draft} icon={<ClockCircleOutlined />} accent="#94a3b8" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Avg Score" value={`${stats.avgScore}%`} icon={<TrophyOutlined />} accent={stats.avgScore >= 70 ? '#22c55e' : '#f59e0b'} />
-                </Col>
-            </Row>
-
-            {/* ── Table card (fills remaining, rows scroll) ── */}
-            <div style={{
-                background: '#fff',
-                borderRadius: 16,
-                border: '1px solid #f0f0f8',
-                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: 0,
-                overflow: 'hidden',
-            }}>
-                {/* Toolbar */}
-                <div style={{
-                    padding: '14px 20px',
-                    borderBottom: '1px solid #f0f0f8',
-                    display: 'flex', alignItems: 'center',
-                    gap: 10, flexShrink: 0, flexWrap: 'wrap' as const,
-                }}>
-                    <Input
-                        placeholder="Search quizzes..."
-                        prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-                        allowClear
-                        value={search}
-                        onChange={e => setSearch(e.target.value)}
-                        style={{ width: 220, borderRadius: 10, borderColor: '#e0e7ff' }}
-                    />
-                    <DatePicker.RangePicker
-                        onChange={setDateRangeFilter}
-                        style={{ width: 250, borderRadius: 10, borderColor: '#e0e7ff' }}
-                        allowClear
-                    />
-                    <Select
-                        value={statusFilter}
-                        onChange={setStatusFilter}
-                        style={{ width: 150 }}
-                        options={[
-                            { value: 'all', label: 'All Status' },
-                            { value: 'active', label: '● Active' },
-                            { value: 'scheduled', label: '● Scheduled' },
-                            { value: 'draft', label: '● Draft' },
-                            { value: 'ended', label: '● Ended' },
-                        ]}
-                    />
-                    <Select
-                        value={batchFilter ?? undefined}
-                        onChange={v => setBatchFilter(v)}
-                        allowClear
-                        placeholder="All Batches"
-                        style={{ width: 170 }}
-                        options={batches.map(b => ({ value: b.id, label: b.name }))}
-                        onClear={() => setBatchFilter(null)}
-                    />
-                    <div style={{ marginLeft: 'auto' }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                            {filtered.length} result{filtered.length !== 1 ? 's' : ''}
-                        </Text>
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            {msgHolder}{modalHolder}
+            <div className="tc qz-page">
+                {/* ── Header ── */}
+                <header className="tc-header">
+                    <div>
+                        <div className="tc-overline">Teacher space</div>
+                        <h1 className="tc-title">Quizzes</h1>
+                        <p className="tc-subtitle">Build, schedule and grade quizzes for your batches. Times shown in {timezoneLabel(user?.timezone)}.</p>
                     </div>
-                </div>
+                    <div className="tc-actions">
+                        <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={refreshing} />} aria-label="Refresh" onClick={refresh} /></Tooltip>
+                        <Button icon={<ThunderboltOutlined />} onClick={() => openBuilder({ withAI: true })}>{r.isMobile ? 'AI' : 'Generate with AI'}</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => openBuilder()}>New quiz</Button>
+                    </div>
+                </header>
 
-                {/* Table */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <Table
-                        columns={columns}
-                        dataSource={filtered}
-                        rowKey="id"
-                        size="small"
-                        scroll={{ y: 'calc(100vh - 390px)', x: 900 }}
-                        pagination={{
-                            pageSize: 20,
-                            showSizeChanger: false,
-                            showTotal: (t) => `${t} quizzes`,
-                            style: { padding: '10px 20px', borderTop: '1px solid #f0f0f8', margin: 0 },
-                        }}
-                        rowClassName={() => 'quiz-table-row'}
-                        locale={{
-                            emptyText: (
-                                <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                                    <BookOutlined style={{ fontSize: 40, color: '#c7d2fe', display: 'block', marginBottom: 10 }} />
-                                    <Text type="secondary">No quizzes yet — create your first one!</Text>
+                {error && (
+                    <div className="tc-alert" role="alert">
+                        <WarningOutlined /><span><strong>Couldn't load your quizzes.</strong> {error}</span>
+                        <Button size="small" onClick={refresh}>Retry</Button>
+                    </div>
+                )}
+
+                {/* ── KPIs ── */}
+                <section className="tc-kpis" aria-label="Summary">
+                    <button type="button" className={`tc-kpi${tab === 'all' ? ' is-on' : ''}`} onClick={() => setTab('all')}>
+                        <span className="tc-kpi-ic"><FileTextOutlined /></span>
+                        <span className="tc-kpi-label">Quizzes</span>
+                        <span className="tc-kpi-value">{counts.all}</span>
+                        <span className="tc-kpi-sub">{kpi.published} published · {counts.draft} {counts.draft === 1 ? 'draft' : 'drafts'}</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-green${tab === 'live' ? ' is-on' : ''}`} onClick={() => setTab('live')}>
+                        <span className="tc-kpi-ic"><CheckCircleOutlined /></span>
+                        <span className="tc-kpi-label">Live now</span>
+                        <span className="tc-kpi-value">{counts.live}</span>
+                        <span className={`tc-kpi-sub${kpi.closingSoon ? ' qz-soon' : ''}`}>{kpi.closingSoon ? `${kpi.closingSoon} closing within 24 h` : 'Open to students'}</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-amber${tab === 'scheduled' ? ' is-on' : ''}`} onClick={() => setTab('scheduled')}>
+                        <span className="tc-kpi-ic"><ClockCircleOutlined /></span>
+                        <span className="tc-kpi-label">Scheduled</span>
+                        <span className="tc-kpi-value">{counts.scheduled}</span>
+                        <span className="tc-kpi-sub">{kpi.nextStart ? `Next opens in ${fmtSpan(kpi.nextStart.startsIn ?? 0)}` : 'Nothing waiting to open'}</span>
+                    </button>
+                    <div className="tc-kpi">
+                        <span className="tc-kpi-ic"><TeamOutlined /></span>
+                        <span className="tc-kpi-label">Completion</span>
+                        <span className="tc-kpi-value">{fmtPct(kpi.completion)}</span>
+                        <span className="tc-kpi-sub">{kpi.assigned ? `${kpi.submitted} of ${kpi.assigned} expected submissions` : 'No published quizzes yet'}</span>
+                        <span className="tc-kpi-meter"><i style={{ width: `${Math.min(100, kpi.completion ?? 0)}%` }} /></span>
+                    </div>
+                    <div className={`tc-kpi ${kpi.average === null ? 'is-slate' : kpi.average >= 70 ? 'is-green' : kpi.average >= PASS_MARK ? 'is-amber' : 'is-red'}`}>
+                        <span className="tc-kpi-ic"><TrophyOutlined /></span>
+                        <span className="tc-kpi-label">Average score</span>
+                        <span className="tc-kpi-value">{fmtPct(kpi.average)}</span>
+                        <span className="tc-kpi-sub">{kpi.gradedCount ? `Across ${plural(kpi.gradedCount, 'graded quiz', 'graded quizzes')} · pass ${PASS_MARK}%` : 'No graded submissions yet'}</span>
+                        <span className="tc-kpi-meter"><i style={{ width: `${Math.min(100, kpi.average ?? 0)}%` }} /></span>
+                    </div>
+                </section>
+
+                {/* ── List ── */}
+                <section className="tc-card qz-list" aria-label="Quizzes">
+                    <div className="qz-toolbar">
+                        <div className="qz-tabs" role="tablist" aria-label="Status">
+                            {TAB_ORDER.map(t => (
+                                <button key={t} type="button" role="tab" aria-selected={tab === t} className={`qz-tab${tab === t ? ' is-on' : ''}${t !== 'all' ? ` is-${t}` : ''}`} onClick={() => setTab(t)}>
+                                    {t !== 'all' && <i className="qz-dot" aria-hidden />}{TAB_LABEL[t]}<span>{counts[t]}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="qz-filters">
+                            <Input className="qz-search" allowClear prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} placeholder="Search quizzes" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search quizzes" />
+                            {batchOptions.length > 1 && (
+                                <Select<string> className="qz-filter" allowClear showSearch placeholder="All batches" value={batch ?? undefined} onChange={v => setBatch(v ?? null)} options={batchOptions} aria-label="Batch" />
+                            )}
+                            <Select<SortKey> className="qz-sort" value={sort} onChange={setSort} aria-label="Sort" options={[
+                                { value: 'recent', label: 'Newest first' },
+                                { value: 'closing', label: 'Closing soonest' },
+                                { value: 'completion', label: 'Lowest completion' },
+                                { value: 'score', label: 'Lowest average' },
+                                { value: 'title', label: 'Title (A–Z)' },
+                            ]} />
+                        </div>
+                    </div>
+
+                    {rows.length === 0 ? (
+                        <div className="qz-empty">
+                            <span className="qz-empty-art"><FormOutlined /></span>
+                            <strong>Create your first quiz</strong>
+                            <span>Write questions yourself, generate a first draft with AI, or add listening sections with recorded or generated audio.</span>
+                            <div className="qz-empty-actions">
+                                <Button type="primary" icon={<PlusOutlined />} onClick={() => openBuilder()}>New quiz</Button>
+                                <Button icon={<ThunderboltOutlined />} onClick={() => openBuilder({ withAI: true })}>Generate with AI</Button>
+                            </div>
+                        </div>
+                    ) : list.length === 0 ? (
+                        <div className="qz-empty is-compact">
+                            <strong>No quizzes match</strong>
+                            <span>Try another status, batch or search term.</span>
+                            {hasFilters && <Button size="small" onClick={clearFilters}>Clear filters</Button>}
+                        </div>
+                    ) : (
+                        <div className="qz-table" role="table" aria-label="Quizzes" style={{ '--qz-sticky-top': `${stickyTop}px` } as React.CSSProperties}>
+                            <div ref={stickyMarker} className="qz-sticky-marker" aria-hidden />
+                            <div className={`qz-row is-head${stuck ? ' is-stuck' : ''}`} role="row">
+                                <span role="columnheader">Quiz</span>
+                                <span role="columnheader">Availability</span>
+                                <span role="columnheader">Submitted</span>
+                                <span role="columnheader">Average</span>
+                                <span role="columnheader">Status</span>
+                                <span role="columnheader"><span className="qz-sr">Actions</span></span>
+                            </div>
+                            {pageItems.map(({ row, state, startsIn, endsIn }) => (
+                                <div key={row.id} className={`qz-row is-${state}`} role="row">
+                                    <div className="qz-c-main" role="cell">
+                                        <button type="button" className="qz-title" onClick={() => setPreview(row)}>{row.title}</button>
+                                        <span className="qz-meta">
+                                            <span>{plural(row.total_questions, 'question')}</span>
+                                            <span>{row.duration_minutes} min</span>
+                                            {row.total_marks !== null && <span>{row.total_marks} pts</span>}
+                                        </span>
+                                        {row.batches.length > 0 && (
+                                            <span className="qz-chips">
+                                                {row.batches.slice(0, 2).map(b => <span key={b} className="qz-chip">{b}</span>)}
+                                                {row.batches.length > 2 && <Tooltip title={row.batches.slice(2).join(', ')}><span className="qz-chip">+{row.batches.length - 2}</span></Tooltip>}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="qz-c-when" role="cell">{whenCell(row, state, startsIn, endsIn)}</div>
+                                    <div className="qz-c-subs" role="cell">{subsCell(row, state)}</div>
+                                    <div className="qz-c-score" role="cell">
+                                        {state === 'draft' || row.submitted_students === 0
+                                            ? <span className="qz-muted">—</span>
+                                            : <span className={`tc-score ${toneOfScore(row.avg_score)}`}>{fmtPct(row.avg_score)}</span>}
+                                    </div>
+                                    <div className="qz-c-status" role="cell"><span className={`qz-state is-${state}`}><i aria-hidden />{STATE_META[state].label}</span></div>
+                                    <div className="qz-c-actions" role="cell">
+                                        {state === 'draft' ? (
+                                            <Button size="small" icon={<EditOutlined />} onClick={() => openBuilder({ quizId: row.id, context: row })}>Edit</Button>
+                                        ) : (
+                                            <Button size="small" icon={<TeamOutlined />} onClick={() => setResults({ row, tab: 'overview' })}>Results</Button>
+                                        )}
+                                        <Dropdown menu={menuFor(row, state)} trigger={['click']} placement="bottomRight">
+                                            <Button size="small" type="text" icon={<MoreOutlined />} loading={busyId === row.id} aria-label={`More actions for ${row.title}`} />
+                                        </Dropdown>
+                                    </div>
                                 </div>
-                            ),
-                        }}
-                    />
-                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {list.length > PAGE_SIZE && (
+                        <div className="qz-foot">
+                            <Pagination size="small" current={page} pageSize={PAGE_SIZE} total={list.length} onChange={setPage} showSizeChanger={false} simple={r.isMobile}
+                                showTotal={r.isMobile ? undefined : (t, [a, b]) => `${a}–${b} of ${t}`} />
+                        </div>
+                    )}
+                </section>
             </div>
 
-            {/* ── QuizBuilder Modal ── */}
-            <Modal
-                title={null} open={builderVisible}
-                onCancel={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
-                footer={null} width={1200} closable={false} style={{ top: 20 }}
-                destroyOnClose
-                styles={{ body: { padding: 0 } }}
-            >
-                <QuizBuilder
-                    quizId={selectedQuizId?.toString()}
-                    onComplete={() => { setBuilderVisible(false); setSelectedQuizId(null); fetchQuizzes(); }}
-                    onClose={() => { setBuilderVisible(false); setSelectedQuizId(null); }}
+            {builder && (
+                <ErrorBoundary>
+                    <QuizBuilder
+                        quizId={builder.quizId}
+                        duplicateOf={builder.duplicateOf}
+                        startWithAI={builder.withAI}
+                        context={builder.context}
+                        onClose={() => setBuilder(null)}
+                        onSaved={onSaved}
+                    />
+                </ErrorBoundary>
+            )}
+
+            <ErrorBoundary>
+                <QuizDetails
+                    quiz={preview}
+                    onClose={() => setPreview(null)}
+                    onEdit={(row) => { setPreview(null); openBuilder({ quizId: row.id, context: row }); }}
+                    onResults={(row) => { setPreview(null); setResults({ row, tab: 'overview' }); }}
+                    canEdit={(row) => liveStateOf(row, elapsed).state !== 'ended'}
                 />
-            </Modal>
+            </ErrorBoundary>
 
-            {/* 📋 Results Modal 📋 */}
-            <Modal
-                title={null}
-                open={resultsVisible}
-                onCancel={() => { setResultsVisible(false); setSelectedQuizId(null); }}
-                footer={null} width={1000} style={{ top: 30 }} destroyOnClose
-                closeIcon={
-                    <div style={{
-                        width: '32px', height: '32px', borderRadius: '50%',
-                        backgroundColor: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ff4d4f';
-                        e.currentTarget.style.color = '#fff';
-                        e.currentTarget.style.transform = 'rotate(90deg)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#fff';
-                        e.currentTarget.style.color = 'inherit';
-                        e.currentTarget.style.transform = 'none';
-                    }}
-                    >
-                        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>✕</span>
-                    </div>
-                }
-                styles={{ content: { borderRadius: '24px', padding: 0, overflow: 'hidden' }, body: { padding: 0 } }}
-            >
-                {selectedQuizId && <ErrorBoundary><QuizResults quizId={selectedQuizId.toString()} /></ErrorBoundary>}
-            </Modal>
-
-            {/* ── Insights Modal ── */}
-            <Modal
-                title={null}
-                open={insightsVisible}
-                onCancel={() => { setInsightsVisible(false); setSelectedQuizId(null); }}
-                footer={null} width={1200} style={{ top: 20 }} destroyOnClose
-                closeIcon={
-                    <div style={{
-                        width: '32px', height: '32px', borderRadius: '50%',
-                        backgroundColor: '#fff', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                    }}
-                    onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ff4d4f';
-                        e.currentTarget.style.color = '#fff';
-                        e.currentTarget.style.transform = 'rotate(90deg)';
-                    }}
-                    onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#fff';
-                        e.currentTarget.style.color = 'inherit';
-                        e.currentTarget.style.transform = 'none';
-                    }}
-                    >
-                        <span style={{ fontSize: '16px', fontWeight: 'bold' }}>✕</span>
-                    </div>
-                }
-                styles={{ content: { borderRadius: '24px', padding: 0, overflow: 'hidden' }, body: { padding: 0 } }}
-            >
-                <ErrorBoundary><QuizInsights quizId={selectedQuizId?.toString()} /></ErrorBoundary>
-            </Modal>
-
-            {/* ── Quiz Details Modal ── */}
-            <Modal
-                title={null}
-                open={detailsVisible}
-                onCancel={() => { setDetailsVisible(false); setSelectedQuizId(null); }}
-                footer={null} width={1000} style={{ top: 30 }} destroyOnClose
-                closable={false}
-                styles={{ body: { padding: 0, maxHeight: 'calc(100vh - 80px)', overflowY: 'auto' } }}
-            >
-                <ErrorBoundary>{selectedQuizId && <QuizDetails quizId={selectedQuizId.toString()} onClose={() => { setDetailsVisible(false); setSelectedQuizId(null); }} />}</ErrorBoundary>
-            </Modal>
-
-            <style>{`
-                .quiz-table-row:hover td { background: #f8f7ff !important; }
-                .ant-table-thead > tr > th {
-                    background: #fafafa !important;
-                    font-weight: 700 !important;
-                    color: #4b5563 !important;
-                    font-size: 11px !important;
-                    text-transform: uppercase !important;
-                    letter-spacing: 0.5px !important;
-                }
-                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
-            `}</style>
-        </div>
+            <ErrorBoundary>
+                <QuizResults
+                    quiz={results?.row ?? null}
+                    initialTab={results?.tab ?? 'overview'}
+                    onClose={() => setResults(null)}
+                />
+            </ErrorBoundary>
+        </ConfigProvider>
     );
 };
 

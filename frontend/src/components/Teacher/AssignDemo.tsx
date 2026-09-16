@@ -1,38 +1,27 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, ConfigProvider, Drawer, Input, Select, Skeleton, Tooltip, message } from 'antd';
 import {
-    Table,
-    Typography,
-    Space,
-    Row,
-    Col,
-    Button,
-    Modal,
-    Descriptions,
-    Select,
-    message,
-    Badge,
-    Skeleton,
-    Avatar,
-    DatePicker
-} from 'antd';
-import {
-    CalendarOutlined,
-    UserOutlined,
-    CheckCircleOutlined,
-    ClockCircleOutlined,
-    EyeOutlined,
-    GlobalOutlined,
-    VideoCameraOutlined,
-    ReloadOutlined,
+    ArrowRightOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, GlobalOutlined,
+    InfoCircleOutlined, MailOutlined, ReloadOutlined, SearchOutlined, StopOutlined, TeamOutlined, UserOutlined, VideoCameraOutlined,
+    WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import dayjs from 'dayjs';
-import type { ColumnsType } from 'antd/es/table';
+import useResponsive from '../../hooks/useResponsive';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import './Teacher.css';
+import './AssignDemo.css';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
+/* ══════════════════════════════════════════
+   DEMO LESSONS — trial lessons the admin team assigned to this teacher.
+   Scheduling and status changes stay with the admins; this page is the teacher's
+   agenda: what's next, who the student is, and one click into the meeting.
+══════════════════════════════════════════ */
 
-interface DemoRequest {
+type Status = 'new' | 'contacted' | 'demo_scheduled' | 'completed' | 'cancelled';
+type Bucket = 'all' | 'upcoming' | 'to_schedule' | 'completed' | 'cancelled';
+type SortKey = 'soonest' | 'newest';
+
+interface Demo {
     id: number;
     full_name: string;
     email: string;
@@ -44,546 +33,409 @@ interface DemoRequest {
     expected_start_time: string;
     preferred_schedule: string;
     timezone: string;
-    status: 'new' | 'contacted' | 'demo_scheduled' | 'completed' | 'cancelled';
+    status: Status;
     notes: string;
-    contacted_at: string;
-    demo_scheduled_at: string;
-    meeting_link: string;
+    contacted_at: string | null;
+    demo_scheduled_at: string | null;
+    meeting_link: string | null;
     created_at: string;
-    updated_at: string;
+    updated_at: string | null;
 }
+interface Stats { total_assigned: number; scheduled: number; contacted: number; completed: number; cancelled: number; this_week_demos: number }
 
-interface DemoStatistics {
-    total_assigned: number;
-    scheduled: number;
-    contacted: number;
-    completed: number;
-    cancelled: number;
-    upcoming_demos: number;
-    this_week_demos: number;
-}
-
-/* ── Status helpers ── */
-const getStatusColor = (status: string) => {
-    switch (status) {
-        case 'new': return '#6366f1';
-        case 'contacted': return '#f59e0b';
-        case 'demo_scheduled': return '#22c55e';
-        case 'completed': return '#8b5cf6';
-        case 'cancelled': return '#ef4444';
-        default: return '#94a3b8';
-    }
+const STATUS: Record<Status, { label: string; tone: string }> = {
+    new: { label: 'New request', tone: 'is-new' },
+    contacted: { label: 'Contacted', tone: 'is-contacted' },
+    demo_scheduled: { label: 'Scheduled', tone: 'is-scheduled' },
+    completed: { label: 'Completed', tone: 'is-completed' },
+    cancelled: { label: 'Cancelled', tone: 'is-cancelled' },
 };
-const getStatusBg = (status: string) => {
-    switch (status) {
-        case 'new': return '#eef2ff';
-        case 'contacted': return '#fef3c7';
-        case 'demo_scheduled': return '#dcfce7';
-        case 'completed': return '#f3e8ff';
-        case 'cancelled': return '#fee2e2';
-        default: return '#f1f5f9';
-    }
+const BUCKETS: { key: Bucket; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'upcoming', label: 'Upcoming' },
+    { key: 'to_schedule', label: 'To schedule' },
+    { key: 'completed', label: 'Completed' },
+    { key: 'cancelled', label: 'Cancelled' },
+];
+const LIVE_GRACE_MS = 90 * 60_000;   // a demo counts as "now / upcoming" until 90 min after its start
+
+const validZone = (tz?: string | null) => {
+    if (!tz) return null;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(); return tz; } catch { return null; }
 };
-const getStatusText = (status: string) => {
-    switch (status) {
-        case 'new': return 'New';
-        case 'contacted': return 'Contacted';
-        case 'demo_scheduled': return 'Scheduled';
-        case 'completed': return 'Completed';
-        case 'cancelled': return 'Cancelled';
-        default: return status;
-    }
+const ts = (iso?: string | null) => { const t = iso ? Date.parse(iso) : NaN; return Number.isNaN(t) ? null : t; };
+const initials = (name: string) => (name || '?').trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase() || '?';
+const relative = (ms: number) => {
+    const abs = Math.abs(ms);
+    const m = Math.round(abs / 60_000);
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    const text = d >= 2 ? `${d} days` : h >= 1 ? `${h} h ${m % 60 ? `${m % 60} min` : ''}`.trim() : `${Math.max(1, m)} min`;
+    return ms >= 0 ? `in ${text}` : `${text} ago`;
 };
-
-/* ── KPI card (same style as TeacherBatches) ── */
-const KpiCard: React.FC<{ label: string; value: number; icon: React.ReactNode; accent: string }> = ({ label, value, icon, accent }) => (
-    <div style={{
-        borderRadius: 16,
-        padding: '20px 24px',
-        background: '#fff',
-        border: '1px solid #f0f0f8',
-        boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 16,
-    }}>
-        <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: accent + '18',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 20, color: accent, flexShrink: 0,
-        }}>
-            {icon}
-        </div>
-        <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 }}>
-                {label}
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: '#1a1d2e', lineHeight: 1 }}>
-                {value}
-            </div>
-        </div>
-    </div>
-);
-
-/* ── Loading skeleton ── */
-const DemoSkeleton: React.FC = () => (
-    <div style={{ paddingBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-            <div>
-                <Skeleton.Input active style={{ width: 260, height: 28, borderRadius: 8 }} />
-                <div style={{ marginTop: 6 }}>
-                    <Skeleton.Input active style={{ width: 160, height: 14, borderRadius: 6 }} />
-                </div>
-            </div>
-            <Skeleton.Button active style={{ width: 90, height: 36, borderRadius: 10 }} />
-        </div>
-
-        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            {[1, 2, 3, 4].map(i => (
-                <Col xs={24} sm={12} md={6} key={i}>
-                    <div style={{
-                        borderRadius: 16, padding: '20px 24px',
-                        background: '#fff', border: '1px solid #f0f0f8',
-                        boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-                        display: 'flex', alignItems: 'center', gap: 16,
-                    }}>
-                        <Skeleton.Avatar active size={44} shape="square" style={{ borderRadius: 12 }} />
-                        <div style={{ flex: 1 }}>
-                            <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 4, marginBottom: 8 }} block />
-                            <Skeleton.Input active style={{ width: 40, height: 26, borderRadius: 6 }} />
-                        </div>
-                    </div>
-                </Col>
-            ))}
-        </Row>
-
-        <div style={{
-            background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8',
-            boxShadow: '0 2px 12px rgba(99,102,241,0.07)', padding: 24,
-        }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <Skeleton.Input active style={{ width: 180, height: 32, borderRadius: 8 }} />
-            </div>
-            {[1, 2, 3, 4, 5].map(i => (
-                <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 20,
-                    padding: '14px 0', borderBottom: '1px solid #f8f8fc',
-                }}>
-                    <Skeleton.Avatar active size={32} />
-                    <Skeleton.Input active style={{ flex: 2, height: 14, borderRadius: 6 }} />
-                    <Skeleton.Input active style={{ flex: 1, height: 14, borderRadius: 6 }} />
-                    <Skeleton.Input active style={{ width: 60, height: 22, borderRadius: 20 }} />
-                    <Skeleton.Input active style={{ width: 60, height: 22, borderRadius: 20 }} />
-                    <Skeleton.Input active style={{ width: 70, height: 22, borderRadius: 20 }} />
-                    <Skeleton.Input active style={{ flex: 1.5, height: 14, borderRadius: 6 }} />
-                    <Skeleton.Button active style={{ width: 90, height: 30, borderRadius: 8 }} />
-                </div>
-            ))}
-        </div>
-    </div>
-);
+const bucketOf = (d: Demo, now: number): Exclude<Bucket, 'all'> => {
+    if (d.status === 'completed') return 'completed';
+    if (d.status === 'cancelled') return 'cancelled';
+    const at = ts(d.demo_scheduled_at);
+    if (d.status === 'demo_scheduled' && at !== null && at + LIVE_GRACE_MS >= now) return 'upcoming';
+    return 'to_schedule';
+};
 
 const AssignDemo: React.FC = () => {
-    const { apiCall } = useAuth();
-    const [demos, setDemos] = useState<DemoRequest[]>([]);
-    const [statistics, setStatistics] = useState<DemoStatistics | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [tableLoading, setTableLoading] = useState(false);
-    const [selectedDemo, setSelectedDemo] = useState<DemoRequest | null>(null);
-    const [detailsModalVisible, setDetailsModalVisible] = useState(false);
-    const [statusFilter, setStatusFilter] = useState<string>('');
-    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
-    const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+    const { apiCall, user } = useAuth();
+    const r = useResponsive();
+    const [msg, msgHolder] = message.useMessage();
+    const tz = resolveTimezone(user?.timezone);
 
-    const fetchDemos = async (page = 1, status = statusFilter, dates = dateRangeFilter, isInitial = false) => {
-        isInitial ? setLoading(true) : setTableLoading(true);
+    const [demos, setDemos] = useState<Demo[]>([]);
+    const [stats, setStats] = useState<Stats | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [now, setNow] = useState(() => Date.now());
+
+    const [bucket, setBucket] = useState<Bucket>('all');
+    const [search, setSearch] = useState('');
+    const [sort, setSort] = useState<SortKey>('soonest');
+    const [openId, setOpenId] = useState<number | null>(null);
+
+    // One request for everything assigned (a teacher's demo list is small), so tabs, search and counts are exact.
+    const load = useCallback(async () => {
         try {
-            const params = new URLSearchParams({ page: page.toString(), limit: pagination.pageSize.toString() });
-            if (status) params.append('status', status);
-            if (dates && dates.length === 2) {
-                params.append('start_date', dates[0].startOf('day').toISOString());
-                params.append('end_date', dates[1].endOf('day').toISOString());
-            }
-            const response = await apiCall(`/api/demo-requests/my-demos?${params}`);
-            if (response.ok) {
-                const data = await response.json();
-                setDemos(data.data || []);
-                setStatistics(data.statistics || null);
-                setPagination(prev => ({ ...prev, current: data.pagination?.page || page, total: data.pagination?.total || 0 }));
-            } else {
-                let errorMsg = 'Failed to fetch demo requests';
-                try { const err = await response.json(); errorMsg = err.message || err.error || errorMsg; } catch {}
-                message.error(errorMsg);
-            }
-        } catch {
-            message.error('Failed to fetch demo requests');
+            const res = await apiCall('/demo-requests/my-demos?page=1&limit=500');
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.message || data?.error || `The server answered ${res.status}.`);
+            setDemos(Array.isArray(data?.data) ? data.data : []);
+            setStats(data?.statistics ?? null);
+            setError(null);
+        } catch (e: any) {
+            setError(e?.message || 'Your demo lessons could not be loaded.');
         } finally {
             setLoading(false);
-            setTableLoading(false);
+            setRefreshing(false);
+            setNow(Date.now());
         }
+    }, [apiCall]);
+
+    useEffect(() => { load(); }, [load]);
+    useEffect(() => {
+        const id = window.setInterval(() => setNow(Date.now()), 30_000);
+        return () => window.clearInterval(id);
+    }, []);
+
+    const fmt = useMemo(() => {
+        const make = (zone: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', { timeZone: zone, ...opts });
+        const day = make(tz, { weekday: 'short', month: 'short', day: 'numeric' });
+        const time = make(tz, { hour: 'numeric', minute: '2-digit' });
+        const full = make(tz, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const short = make(tz, { month: 'short', day: 'numeric', year: 'numeric' });
+        return {
+            day: (iso: string) => day.format(new Date(iso)),
+            time: (iso: string) => time.format(new Date(iso)),
+            full: (iso: string) => full.format(new Date(iso)),
+            short: (iso?: string | null) => (ts(iso) === null ? '—' : short.format(new Date(iso as string))),
+            inZone: (iso: string, zone: string) => make(zone, { weekday: 'short', hour: 'numeric', minute: '2-digit' }).format(new Date(iso)),
+        };
+    }, [tz]);
+
+    const counts = useMemo(() => {
+        const c: Record<Bucket, number> = { all: demos.length, upcoming: 0, to_schedule: 0, completed: 0, cancelled: 0 };
+        demos.forEach(d => { c[bucketOf(d, now)]++; });
+        return c;
+    }, [demos, now]);
+
+    const next = useMemo(() => demos
+        .filter(d => bucketOf(d, now) === 'upcoming')
+        .sort((a, b) => (ts(a.demo_scheduled_at) ?? 0) - (ts(b.demo_scheduled_at) ?? 0))[0] ?? null, [demos, now]);
+
+    const list = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        const out = demos.filter(d => {
+            if (bucket !== 'all' && bucketOf(d, now) !== bucket) return false;
+            if (q && !`${d.full_name} ${d.email} ${d.country} ${d.current_level} ${d.interested_level}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        const rank: Record<Exclude<Bucket, 'all'>, number> = { upcoming: 0, to_schedule: 1, completed: 2, cancelled: 3 };
+        return out.sort((a, b) => {
+            if (sort === 'newest') return (ts(b.created_at) ?? 0) - (ts(a.created_at) ?? 0);
+            const ra = rank[bucketOf(a, now)];
+            const rb = rank[bucketOf(b, now)];
+            if (ra !== rb) return ra - rb;
+            if (ra === 0) return (ts(a.demo_scheduled_at) ?? 0) - (ts(b.demo_scheduled_at) ?? 0);
+            if (ra === 1) return (ts(b.created_at) ?? 0) - (ts(a.created_at) ?? 0);
+            return (ts(b.demo_scheduled_at ?? b.updated_at) ?? 0) - (ts(a.demo_scheduled_at ?? a.updated_at) ?? 0);
+        });
+    }, [demos, bucket, search, sort, now]);
+
+    const open = demos.find(d => d.id === openId) ?? null;
+
+    const copy = async (text: string, what: string) => {
+        try { await navigator.clipboard.writeText(text); msg.success(`${what} copied`); }
+        catch { msg.error('Your browser blocked the clipboard.'); }
+    };
+    const joinable = (d: Demo) => {
+        const at = ts(d.demo_scheduled_at);
+        return !!d.meeting_link && d.status === 'demo_scheduled' && at !== null && at - now <= 15 * 60_000 && at + LIVE_GRACE_MS >= now;
+    };
+    const studentZone = (d: Demo) => validZone(d.timezone);
+
+    /* ── Pieces ── */
+    const levels = (d: Demo) => (
+        <span className="dm-levels" aria-label={`From ${d.current_level || 'unknown'} to ${d.interested_level || 'unknown'}`}>
+            <b>{d.current_level || '—'}</b><ArrowRightOutlined /><b className="is-target">{d.interested_level || '—'}</b>
+        </span>
+    );
+    const whenBlock = (d: Demo) => {
+        const at = ts(d.demo_scheduled_at);
+        if (at === null) return <span className="dm-when is-none"><strong>Not scheduled yet</strong><em>Requested {fmt.short(d.created_at)}</em></span>;
+        const live = at <= now && at + LIVE_GRACE_MS >= now && d.status === 'demo_scheduled';
+        return (
+            <span className="dm-when">
+                <strong>{fmt.day(d.demo_scheduled_at as string)} · {fmt.time(d.demo_scheduled_at as string)}</strong>
+                <em className={live ? 'is-live' : at > now && at - now < 86_400_000 ? 'is-soon' : undefined}>{live ? 'Happening now' : relative(at - now)}</em>
+            </span>
+        );
     };
 
-    useEffect(() => { fetchDemos(1, '', true); }, []);
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) {
+        return (
+            <div className="tc dm" aria-busy="true">
+                <div className="tc-header"><div><Skeleton.Input active size="small" style={{ width: 110, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 200, height: 26 }} /></div></div></div>
+                <div className="tc-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="tc-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                <div className="tc-card tc-pad"><Skeleton active avatar paragraph={{ rows: 6 }} /></div>
+            </div>
+        );
+    }
 
-    const getInitials = (name: string) => name.split(' ').map(p => p[0]).join('').toUpperCase().slice(0, 2) || '?';
-    const getAvatarColor = (name: string) => {
-        const colors = ['#4f46e5', '#0ea5e9', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-        const seed = name.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-        return colors[seed % colors.length];
-    };
+    const nextAt = next ? ts(next.demo_scheduled_at) : null;
+    const nextZone = next ? studentZone(next) : null;
 
-    const columns: ColumnsType<DemoRequest> = [
-        {
-            title: 'Student',
-            dataIndex: 'full_name',
-            key: 'full_name',
-            render: (name: string) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Avatar size={32} style={{ backgroundColor: getAvatarColor(name), fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                        {getInitials(name)}
-                    </Avatar>
-                    <Text strong style={{ color: '#1a1d2e', fontSize: 13 }}>{name}</Text>
-                </div>
-            ),
-        },
-        {
-            title: 'Country',
-            dataIndex: 'country',
-            key: 'country',
-            render: (country: string) => (
-                <Space size={4}>
-                    <GlobalOutlined style={{ color: '#94a3b8', fontSize: 12 }} />
-                    <Text style={{ fontSize: 13, color: '#4b5563' }}>{country}</Text>
-                </Space>
-            ),
-        },
-        {
-            title: 'Current',
-            dataIndex: 'current_level',
-            key: 'current_level',
-            render: (level: string) => (
-                <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
-                    {level}
-                </span>
-            ),
-        },
-        {
-            title: 'Target',
-            dataIndex: 'interested_level',
-            key: 'interested_level',
-            render: (level: string) => (
-                <span style={{ background: '#dcfce7', color: '#16a34a', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
-                    {level}
-                </span>
-            ),
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            render: (status: string) => (
-                <span style={{
-                    background: getStatusBg(status),
-                    color: getStatusColor(status),
-                    borderRadius: 20,
-                    padding: '3px 12px',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    whiteSpace: 'nowrap',
-                }}>
-                    {getStatusText(status)}
-                </span>
-            ),
-        },
-        {
-            title: 'Demo Scheduled',
-            dataIndex: 'demo_scheduled_at',
-            key: 'demo_scheduled_at',
-            render: (date: string) => date ? (
-                <Space size={4}>
-                    <CalendarOutlined style={{ color: '#6366f1', fontSize: 12 }} />
-                    <Text style={{ fontSize: 12, color: '#4b5563' }}>{dayjs(date).format('MMM DD, YYYY HH:mm')}</Text>
-                </Space>
-            ) : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>,
-        },
-        {
-            title: 'Created',
-            dataIndex: 'created_at',
-            key: 'created_at',
-            render: (date: string) => <Text type="secondary" style={{ fontSize: 12 }}>{dayjs(date).format('MMM DD, YYYY')}</Text>,
-        },
-        {
-            title: 'Actions',
-            key: 'actions',
-            render: (_, record) => (
-                <Button
-                    size="small"
-                    icon={<EyeOutlined />}
-                    onClick={() => { setSelectedDemo(record); setDetailsModalVisible(true); }}
-                    style={{ borderRadius: 8, color: '#6366f1', borderColor: '#c7d2fe', fontSize: 12 }}
-                >
-                    Details
-                </Button>
-            ),
-        },
-    ];
-
-    /* ── LOADING ── */
-    if (loading) return <DemoSkeleton />;
-
-    /* ── LOADED ── */
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingBottom: 0 }}>
-
-            {/* ── Header ── */}
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 24, flexShrink: 0 }}>
-                <div>
-                    <Title level={3} style={{ margin: 0, fontWeight: 800, color: '#1a1d2e', fontSize: 22 }}>
-                        Assigned Demo Requests
-                    </Title>
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                        {statistics?.total_assigned ?? demos.length} request{(statistics?.total_assigned ?? demos.length) !== 1 ? 's' : ''} assigned to you
-                    </Text>
-                </div>
-                <Button
-                    icon={<ReloadOutlined />}
-                    onClick={() => fetchDemos(pagination.current)}
-                    loading={tableLoading}
-                    style={{ borderRadius: 10, height: 38, fontWeight: 600, borderColor: '#e0e7ff', color: '#6366f1' }}
-                >
-                    Refresh
-                </Button>
-            </div>
-
-            {/* ── KPI Cards ── */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 24, flexShrink: 0 }}>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Total Assigned" value={statistics?.total_assigned || 0} icon={<UserOutlined />} accent="#6366f1" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Scheduled Demos" value={statistics?.scheduled || 0} icon={<CalendarOutlined />} accent="#22c55e" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Upcoming This Week" value={statistics?.this_week_demos || 0} icon={<ClockCircleOutlined />} accent="#f59e0b" />
-                </Col>
-                <Col xs={24} sm={12} md={6}>
-                    <KpiCard label="Completed" value={statistics?.completed || 0} icon={<CheckCircleOutlined />} accent="#8b5cf6" />
-                </Col>
-            </Row>
-
-            {/* ── Table card (fills remaining space, rows scroll) ── */}
-            <div style={{
-                background: '#fff',
-                borderRadius: 16,
-                border: '1px solid #f0f0f8',
-                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: 0,
-                overflow: 'hidden',
-            }}>
-                {/* Toolbar */}
-                <div style={{
-                    padding: '16px 20px',
-                    borderBottom: '1px solid #f0f0f8',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    flexShrink: 0,
-                }}>
-                    <Text style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Filter:</Text>
-                    <Select
-                        placeholder="All statuses"
-                        style={{ width: 170, borderRadius: 10 }}
-                        value={statusFilter || undefined}
-                        onChange={(val) => { setStatusFilter(val || ''); fetchDemos(1, val || ''); }}
-                        allowClear
-                        onClear={() => { setStatusFilter(''); fetchDemos(1, ''); }}
-                    >
-                        <Option value="new">
-                            <span style={{ color: '#6366f1', fontWeight: 600 }}>● New</span>
-                        </Option>
-                        <Option value="contacted">
-                            <span style={{ color: '#f59e0b', fontWeight: 600 }}>● Contacted</span>
-                        </Option>
-                        <Option value="demo_scheduled">
-                            <span style={{ color: '#22c55e', fontWeight: 600 }}>● Scheduled</span>
-                        </Option>
-                        <Option value="completed">
-                            <span style={{ color: '#8b5cf6', fontWeight: 600 }}>● Completed</span>
-                        </Option>
-                        <Option value="cancelled">
-                            <span style={{ color: '#ef4444', fontWeight: 600 }}>● Cancelled</span>
-                        </Option>
-                    </Select>
-
-                    <DatePicker.RangePicker
-                        onChange={(dates) => { setDateRangeFilter(dates); fetchDemos(1, statusFilter, dates); }}
-                        style={{ width: 260, borderRadius: 10 }}
-                        allowClear
-                    />
-
-                    {statusFilter && (
-                        <span style={{
-                            background: getStatusBg(statusFilter),
-                            color: getStatusColor(statusFilter),
-                            borderRadius: 20, padding: '2px 12px', fontSize: 12, fontWeight: 600,
-                        }}>
-                            Showing: {getStatusText(statusFilter)}
-                        </span>
-                    )}
-
-                    <div style={{ marginLeft: 'auto' }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                            {pagination.total} result{pagination.total !== 1 ? 's' : ''}
-                        </Text>
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            {msgHolder}
+            <div className="tc dm">
+                <header className="tc-header">
+                    <div>
+                        <div className="tc-overline">Teacher space</div>
+                        <h1 className="tc-title">Demo lessons</h1>
+                        <p className="tc-subtitle">Trial lessons the admin team assigned to you. Times are shown in {timezoneLabel(user?.timezone)}.</p>
                     </div>
-                </div>
+                    <div className="tc-actions">
+                        <Button icon={<ReloadOutlined spin={refreshing} />} onClick={() => { setRefreshing(true); load(); }}>Refresh</Button>
+                    </div>
+                </header>
 
-                {/* Table */}
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <Table
-                        columns={columns}
-                        dataSource={demos}
-                        rowKey="id"
-                        loading={tableLoading}
-                        scroll={{ y: 'calc(100vh - 400px)' }}
-                        pagination={{
-                            ...pagination,
-                            showSizeChanger: true,
-                            showQuickJumper: true,
-                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total}`,
-                            style: { padding: '12px 20px', borderTop: '1px solid #f0f0f8', margin: 0 },
-                        }}
-                        onChange={(pag) => fetchDemos(pag.current || 1)}
-                        rowClassName={() => 'demo-table-row'}
-                        locale={{
-                            emptyText: (
-                                <div style={{ padding: '48px 0', textAlign: 'center' }}>
-                                    <VideoCameraOutlined style={{ fontSize: 40, color: '#c7d2fe', display: 'block', marginBottom: 10 }} />
-                                    <Text type="secondary">No demo requests assigned yet</Text>
-                                </div>
-                            ),
-                        }}
-                    />
-                </div>
-            </div>
+                {error && (
+                    <div className="tc-alert" role="alert">
+                        <WarningOutlined /><span><strong>Couldn't load your demo lessons.</strong> {error}</span>
+                        <Button size="small" onClick={() => { setRefreshing(true); load(); }}>Retry</Button>
+                    </div>
+                )}
 
-            {/* ── Details Modal ── */}
-            <Modal
-                title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        {selectedDemo && (
-                            <Avatar size={36} style={{ backgroundColor: getAvatarColor(selectedDemo.full_name), fontWeight: 700, fontSize: 13 }}>
-                                {getInitials(selectedDemo.full_name)}
-                            </Avatar>
-                        )}
-                        <div>
-                            <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 15 }}>{selectedDemo?.full_name}</div>
-                            {selectedDemo && (
-                                <span style={{
-                                    background: getStatusBg(selectedDemo.status),
-                                    color: getStatusColor(selectedDemo.status),
-                                    borderRadius: 20, padding: '1px 10px', fontSize: 11, fontWeight: 600,
-                                }}>
-                                    {getStatusText(selectedDemo.status)}
-                                </span>
-                            )}
+                {/* ── KPIs ── */}
+                <section className="tc-kpis" aria-label="Summary">
+                    <button type="button" className={`tc-kpi${bucket === 'all' ? ' is-on' : ''}`} onClick={() => setBucket('all')}>
+                        <span className="tc-kpi-ic"><TeamOutlined /></span>
+                        <span className="tc-kpi-label">Assigned to you</span>
+                        <span className="tc-kpi-value">{stats?.total_assigned ?? demos.length}</span>
+                        <span className="tc-kpi-sub">All demo requests</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-green${bucket === 'upcoming' ? ' is-on' : ''}`} onClick={() => setBucket('upcoming')}>
+                        <span className="tc-kpi-ic"><CalendarOutlined /></span>
+                        <span className="tc-kpi-label">Upcoming</span>
+                        <span className="tc-kpi-value">{counts.upcoming}</span>
+                        <span className="tc-kpi-sub">{stats?.this_week_demos ? `${stats.this_week_demos} in the next 7 days` : 'Scheduled with a time'}</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-amber${bucket === 'to_schedule' ? ' is-on' : ''}`} onClick={() => setBucket('to_schedule')}>
+                        <span className="tc-kpi-ic"><ClockCircleOutlined /></span>
+                        <span className="tc-kpi-label">To schedule</span>
+                        <span className="tc-kpi-value">{counts.to_schedule}</span>
+                        <span className="tc-kpi-sub">Waiting for a time from the admins</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-slate${bucket === 'completed' ? ' is-on' : ''}`} onClick={() => setBucket('completed')}>
+                        <span className="tc-kpi-ic"><CheckCircleOutlined /></span>
+                        <span className="tc-kpi-label">Completed</span>
+                        <span className="tc-kpi-value">{counts.completed}</span>
+                        <span className="tc-kpi-sub">Demo lessons given</span>
+                    </button>
+                    <button type="button" className={`tc-kpi is-red${bucket === 'cancelled' ? ' is-on' : ''}`} onClick={() => setBucket('cancelled')}>
+                        <span className="tc-kpi-ic"><StopOutlined /></span>
+                        <span className="tc-kpi-label">Cancelled</span>
+                        <span className="tc-kpi-value">{counts.cancelled}</span>
+                        <span className="tc-kpi-sub">No longer happening</span>
+                    </button>
+                </section>
+
+                {/* ── Up next ── */}
+                {next && nextAt !== null && (
+                    <section className={`dm-next${joinable(next) ? ' is-live' : ''}`} aria-label="Next demo lesson">
+                        <div className="dm-next-when">
+                            <span className="dm-eyebrow">{nextAt <= now ? 'Happening now' : 'Up next'}</span>
+                            <strong>{nextAt <= now ? 'Started ' + relative(nextAt - now) : relative(nextAt - now).replace(/^in /, 'Starts in ')}</strong>
+                            <em>{fmt.full(next.demo_scheduled_at as string)}</em>
+                        </div>
+                        <div className="dm-next-who">
+                            <span className="dm-av is-lg">{initials(next.full_name)}</span>
+                            <div className="dm-next-id">
+                                <strong>{next.full_name}</strong>
+                                <em>{[next.country, nextZone ? `${fmt.inZone(next.demo_scheduled_at as string, nextZone)} for them` : null].filter(Boolean).join(' · ')}</em>
+                                {levels(next)}
+                            </div>
+                        </div>
+                        <div className="dm-next-actions">
+                            {next.meeting_link ? (
+                                <Tooltip title={joinable(next) ? '' : 'The meeting opens 15 minutes before the start'}>
+                                    <Button type="primary" icon={<VideoCameraOutlined />} href={next.meeting_link} target="_blank" rel="noopener noreferrer" disabled={!joinable(next)}>Join meeting</Button>
+                                </Tooltip>
+                            ) : <span className="dm-hint"><InfoCircleOutlined /> No meeting link yet</span>}
+                            {next.meeting_link && <Tooltip title="Copy meeting link"><Button icon={<CopyOutlined />} onClick={() => copy(next.meeting_link as string, 'Meeting link')} aria-label="Copy meeting link" /></Tooltip>}
+                            <Button onClick={() => setOpenId(next.id)}>Details</Button>
+                        </div>
+                    </section>
+                )}
+
+                {/* ── List ── */}
+                <section className="tc-card dm-list" aria-label="Demo lessons">
+                    <div className="dm-toolbar">
+                        <div className="dm-tabs" role="tablist" aria-label="Status">
+                            {BUCKETS.map(b => (
+                                <button key={b.key} type="button" role="tab" aria-selected={bucket === b.key} className={`dm-tab${bucket === b.key ? ' is-on' : ''}`} onClick={() => setBucket(b.key)}>
+                                    {b.label}<span>{counts[b.key]}</span>
+                                </button>
+                            ))}
+                        </div>
+                        <div className="dm-filters">
+                            <Input className="dm-search" allowClear prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} placeholder="Search students" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search students" />
+                            <Select<SortKey> className="dm-sort" value={sort} onChange={setSort} aria-label="Sort" options={[{ value: 'soonest', label: 'Soonest demo first' }, { value: 'newest', label: 'Newest request first' }]} />
                         </div>
                     </div>
-                }
-                open={detailsModalVisible}
-                onCancel={() => setDetailsModalVisible(false)}
-                width={760}
-                footer={[
-                    <Button key="close" onClick={() => setDetailsModalVisible(false)} style={{ borderRadius: 8 }}>
-                        Close
-                    </Button>
-                ]}
-            >
-                {selectedDemo && (
-                    <Descriptions column={2} bordered size="small" style={{ borderRadius: 10, overflow: 'hidden' }}>
-                        <Descriptions.Item label="Student Name" span={2}>
-                            <Text strong>{selectedDemo.full_name}</Text>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Country">
-                            <Space size={4}><GlobalOutlined />{selectedDemo.country}</Space>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Timezone">
-                            {selectedDemo.timezone || '—'}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Current Level">
-                            <span style={{ background: '#eef2ff', color: '#4f46e5', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
-                                {selectedDemo.current_level}
-                            </span>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Target Level">
-                            <span style={{ background: '#dcfce7', color: '#16a34a', borderRadius: 6, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
-                                {selectedDemo.interested_level}
-                            </span>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Previous Experience">
-                            <Badge
-                                status={selectedDemo.has_previous_experience === 'yes' ? 'success' : 'default'}
-                                text={selectedDemo.has_previous_experience === 'yes' ? 'Yes' : 'No'}
-                            />
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Expected Start">
-                            {selectedDemo.expected_start_time || '—'}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Learning Goals" span={2}>
-                            <Text>{selectedDemo.learning_goals || '—'}</Text>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Preferred Schedule" span={2}>
-                            <Text>{selectedDemo.preferred_schedule || '—'}</Text>
-                        </Descriptions.Item>
-                        {selectedDemo.demo_scheduled_at && (
-                            <Descriptions.Item label="Demo Scheduled At" span={2}>
-                                <Space size={6}>
-                                    <CalendarOutlined style={{ color: '#6366f1' }} />
-                                    <Text strong>{dayjs(selectedDemo.demo_scheduled_at).format('MMMM DD, YYYY [at] HH:mm')}</Text>
-                                </Space>
-                            </Descriptions.Item>
-                        )}
-                        {selectedDemo.meeting_link && (
-                            <Descriptions.Item label="Meeting Link" span={2}>
-                                <Space size={6}>
-                                    <VideoCameraOutlined style={{ color: '#6366f1' }} />
-                                    <a href={selectedDemo.meeting_link} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1' }}>
-                                        {selectedDemo.meeting_link}
-                                    </a>
-                                </Space>
-                            </Descriptions.Item>
-                        )}
-                        {selectedDemo.notes && (
-                            <Descriptions.Item label="Notes" span={2}>
-                                <Text>{selectedDemo.notes}</Text>
-                            </Descriptions.Item>
-                        )}
-                        <Descriptions.Item label="Created">
-                            {dayjs(selectedDemo.created_at).format('MMM DD, YYYY HH:mm')}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Last Updated">
-                            {dayjs(selectedDemo.updated_at).format('MMM DD, YYYY HH:mm')}
-                        </Descriptions.Item>
-                    </Descriptions>
-                )}
-            </Modal>
 
-            <style>{`
-                .demo-table-row:hover td { background: #f8f7ff !important; }
-                .ant-table-thead > tr > th {
-                    background: #fafafa !important;
-                    font-weight: 700 !important;
-                    color: #4b5563 !important;
-                    font-size: 12px !important;
-                    text-transform: uppercase !important;
-                    letter-spacing: 0.5px !important;
-                }
-            `}</style>
-        </div>
+                    {demos.length === 0 ? (
+                        <div className="dm-empty">
+                            <span className="dm-empty-art"><VideoCameraOutlined /></span>
+                            <strong>No demo lessons assigned yet</strong>
+                            <span>When the admin team assigns you a trial lesson, it appears here with the student's details and the meeting link.</span>
+                        </div>
+                    ) : list.length === 0 ? (
+                        <div className="dm-empty is-compact">
+                            <strong>Nothing matches</strong>
+                            <span>Try another status or search term.</span>
+                            <Button size="small" onClick={() => { setBucket('all'); setSearch(''); }}>Clear filters</Button>
+                        </div>
+                    ) : (
+                        <ul className="dm-rows">
+                            {list.map(d => {
+                                const st = STATUS[d.status] ?? STATUS.new;
+                                const overdue = d.status === 'demo_scheduled' && (ts(d.demo_scheduled_at) ?? Infinity) + LIVE_GRACE_MS < now;
+                                return (
+                                    <li key={d.id}>
+                                        <div className="dm-row" role="button" tabIndex={0} onClick={() => setOpenId(d.id)} onKeyDown={e => { if (e.key === 'Enter') setOpenId(d.id); }}>
+                                            <span className="dm-who">
+                                                <span className="dm-av">{initials(d.full_name)}</span>
+                                                <span className="dm-who-text"><strong>{d.full_name}</strong><em>{d.email}</em></span>
+                                            </span>
+                                            <span className="dm-where"><GlobalOutlined /> {d.country || '—'}</span>
+                                            {levels(d)}
+                                            {whenBlock(d)}
+                                            <span className="dm-status-cell">
+                                                <span className={`dm-status ${overdue ? 'is-overdue' : st.tone}`}><i aria-hidden />{overdue ? 'Awaiting update' : st.label}</span>
+                                            </span>
+                                            <span className="dm-row-actions" onClick={e => e.stopPropagation()}>
+                                                {joinable(d) && <Button size="small" type="primary" icon={<VideoCameraOutlined />} href={d.meeting_link as string} target="_blank" rel="noopener noreferrer">Join</Button>}
+                                                <Button size="small" onClick={() => setOpenId(d.id)}>Details</Button>
+                                            </span>
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+                </section>
+            </div>
+
+            {/* ── Details ── */}
+            <Drawer open={!!open} onClose={() => setOpenId(null)} placement="right" width={r.isMobile ? '100%' : 520} destroyOnHidden rootClassName="tc-drawer dm-drawer"
+                closeIcon={<CloseOutlined />}
+                title={open && <span className="tc-dtitle"><strong>{open.full_name}</strong><em>Demo lesson · {STATUS[open.status]?.label}</em></span>}>
+                {open && (() => {
+                    const zone = studentZone(open);
+                    const at = ts(open.demo_scheduled_at);
+                    const timeline = [
+                        { label: 'Request received', at: open.created_at, done: true },
+                        { label: 'Student contacted', at: open.contacted_at, done: !!open.contacted_at },
+                        { label: 'Demo scheduled', at: open.demo_scheduled_at, done: open.status === 'demo_scheduled' || open.status === 'completed' },
+                        open.status === 'cancelled'
+                            ? { label: 'Cancelled', at: open.updated_at, done: true, bad: true }
+                            : { label: 'Completed', at: open.status === 'completed' ? open.updated_at : null, done: open.status === 'completed' },
+                    ];
+                    return (
+                        <>
+                            <section className="tc-card dm-d-demo">
+                                <div className="dm-d-head">
+                                    <span className={`dm-status ${STATUS[open.status]?.tone}`}><i aria-hidden />{STATUS[open.status]?.label}</span>
+                                    {levels(open)}
+                                </div>
+                                {at !== null ? (
+                                    <>
+                                        <strong className="dm-d-time">{fmt.full(open.demo_scheduled_at as string)}</strong>
+                                        <p className="dm-d-sub">{relative(at - now)} · your time ({timezoneLabel(user?.timezone)}){zone ? ` · ${fmt.inZone(open.demo_scheduled_at as string, zone)} for the student (${zone.replace(/_/g, ' ')})` : ''}</p>
+                                    </>
+                                ) : <p className="dm-d-sub">No time has been set yet. The admin team schedules it with the student.</p>}
+                                {open.meeting_link && (
+                                    <div className="dm-link">
+                                        <VideoCameraOutlined />
+                                        <span title={open.meeting_link}>{open.meeting_link}</span>
+                                        <Tooltip title="Copy link"><Button size="small" type="text" icon={<CopyOutlined />} onClick={() => copy(open.meeting_link as string, 'Meeting link')} aria-label="Copy meeting link" /></Tooltip>
+                                        <Button size="small" type={joinable(open) ? 'primary' : 'default'} href={open.meeting_link} target="_blank" rel="noopener noreferrer">Open</Button>
+                                    </div>
+                                )}
+                            </section>
+
+                            <section className="tc-card dm-d-section">
+                                <h4><UserOutlined /> Student</h4>
+                                <dl className="dm-dl">
+                                    <div><dt>Email</dt><dd><a href={`mailto:${open.email}`}>{open.email}</a><Tooltip title="Copy email"><Button size="small" type="text" icon={<CopyOutlined />} onClick={() => copy(open.email, 'Email')} aria-label="Copy email" /></Tooltip></dd></div>
+                                    <div><dt>Country</dt><dd>{open.country || '—'}</dd></div>
+                                    <div><dt>Time zone</dt><dd>{open.timezone ? `${open.timezone}${zone ? ` · ${timezoneLabel(zone)}` : ''}` : '—'}</dd></div>
+                                    <div><dt>Learned French before</dt><dd>{open.has_previous_experience === 'yes' ? 'Yes' : open.has_previous_experience === 'no' ? 'No' : open.has_previous_experience || '—'}</dd></div>
+                                    <div><dt>Current level</dt><dd>{open.current_level || '—'}</dd></div>
+                                    <div><dt>Wants to reach</dt><dd>{open.interested_level || '—'}</dd></div>
+                                </dl>
+                            </section>
+
+                            <section className="tc-card dm-d-section">
+                                <h4><InfoCircleOutlined /> Goals & availability</h4>
+                                <dl className="dm-dl is-stacked">
+                                    <div><dt>Learning goals</dt><dd>{open.learning_goals || '—'}</dd></div>
+                                    <div><dt>Preferred schedule</dt><dd>{open.preferred_schedule || '—'}</dd></div>
+                                    <div><dt>Wants to start</dt><dd>{open.expected_start_time || '—'}</dd></div>
+                                </dl>
+                                {open.notes && <div className="dm-notes"><strong>Notes from the admin team</strong><p>{open.notes}</p></div>}
+                            </section>
+
+                            <section className="tc-card dm-d-section">
+                                <h4><ClockCircleOutlined /> Timeline</h4>
+                                <ol className="dm-timeline">
+                                    {timeline.map(step => (
+                                        <li key={step.label} className={`${step.done ? 'is-done' : ''}${'bad' in step && step.bad ? ' is-bad' : ''}`}>
+                                            <i aria-hidden />
+                                            <span><strong>{step.label}</strong><em>{step.at && step.done ? fmt.short(step.at) : 'Not yet'}</em></span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            </section>
+
+                            <p className="dm-d-note"><InfoCircleOutlined /> Scheduling and status changes are handled by the admin team. If a demo needs to move, contact them.</p>
+                            <div className="dm-d-actions">
+                                <Button icon={<MailOutlined />} href={`mailto:${open.email}`}>Email student</Button>
+                                {open.meeting_link && <Button type="primary" icon={<VideoCameraOutlined />} href={open.meeting_link} target="_blank" rel="noopener noreferrer" disabled={!joinable(open)}>Join meeting</Button>}
+                            </div>
+                        </>
+                    );
+                })()}
+            </Drawer>
+        </ConfigProvider>
     );
 };
 

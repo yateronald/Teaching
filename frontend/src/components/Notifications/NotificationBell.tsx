@@ -127,9 +127,9 @@ const NotificationBell: React.FC<BellProps> = ({ variant = 'dark' }) => {
 
     // Light/dark color tokens
     const isLight = variant === 'light';
-    const btnColor = isLight ? '#0f172a' : '#fff';
-    const btnBg = isLight ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.12)';
-    const btnBorder = isLight ? '1px solid rgba(16,185,129,0.18)' : '1px solid rgba(255,255,255,0.15)';
+    const btnColor = isLight ? '#475569' : '#fff';
+    const btnBg = isLight ? 'transparent' : 'rgba(255,255,255,0.12)';
+    const btnBorder = isLight ? '1px solid #e5e7eb' : '1px solid rgba(255,255,255,0.15)';
 
     const dropdownContent = (
         <div style={{
@@ -270,7 +270,7 @@ const NotificationBell: React.FC<BellProps> = ({ variant = 'dark' }) => {
                         aria-label="Notifications"
                         icon={<BellOutlined />}
                         style={{
-                            width: 40, height: 40, borderRadius: 10,
+                            width: 36, height: 36, borderRadius: 9,
                             color: btnColor,
                             background: btnBg,
                             border: btnBorder,

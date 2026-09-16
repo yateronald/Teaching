@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  Card, Modal, Form, Input, InputNumber, Select, Table, Button, message,
-  Skeleton, Empty, Breadcrumb, Tooltip, Space, Row, Col,
-  Typography, Tag, Tabs, Radio, Dropdown, Upload, Progress
+  Drawer, Modal, Form, Input, InputNumber, Select, Table, Button, message,
+  Skeleton, Tooltip, Space, Row, Col,
+  Typography, Tag, Radio, Dropdown, Upload, Progress
 } from 'antd';
 import type { UploadFile } from 'antd';
 import {
@@ -12,7 +12,8 @@ import {
   TeamOutlined, UserOutlined, MoreOutlined, ArrowUpOutlined, ArrowDownOutlined,
   SendOutlined, UploadOutlined, ThunderboltOutlined,
   CustomerServiceOutlined, FolderOpenOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  BarChartOutlined
+  BarChartOutlined, RightOutlined, ClockCircleOutlined, AppstoreOutlined,
+  WarningOutlined, PictureOutlined, CheckOutlined, ArrowRightOutlined, CloseOutlined, CalendarOutlined
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import {
@@ -26,6 +27,10 @@ import ExamAssignmentModal from './ExamAssignmentModal';
 import GrantCreditsModal from './GrantCreditsModal';
 import AdminCOAnalytics from './AdminCOAnalytics';
 import ExamResultsDashboard from '../Common/ExamResultsDashboard';
+import { FAMILY_CODE, familyOfCategory } from './examAdminData';
+import type { ExamAssignmentGroup } from './examAdminData';
+import './ExamAdmin.css';
+import { AudioPlayButton, fmtClock, useSharedAudio } from './SharedAudio';
 
 const { Text } = Typography;
 const { TextArea } = Input;
@@ -40,6 +45,8 @@ interface Category {
   icon: string | null;
   display_order: number;
   series_count: number;
+  question_count?: number;
+  sub_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -94,30 +101,6 @@ interface SeriesDetail extends Series {
   questions: Question[];
 }
 
-interface Assignment {
-  id: number;
-  series_id?: number;
-  category_id?: number;
-  student_id: number | null;
-  batch_id: number | null;
-  assigned_at: string;
-  student_first_name?: string;
-  student_last_name?: string;
-  student_email?: string;
-  batch_name?: string;
-}
-
-interface Student {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-}
-
-interface Batch {
-  id: number;
-  name: string;
-}
 
 // ============================================================
 // Constants
@@ -182,30 +165,6 @@ const CefrTag: React.FC<{ level: string }> = ({ level }) => (
   </Tag>
 );
 
-const CefrDistributionTags: React.FC<{ distribution: CefrDistribution }> = ({ distribution }) => (
-  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-    {CEFR_LEVELS.map(level => {
-      const count = distribution[level] || 0;
-      if (count === 0) return null;
-      return (
-        <Tag
-          key={level}
-          style={{
-            background: `${CEFR_COLORS[level]}15`,
-            color: CEFR_COLORS[level],
-            border: `1px solid ${CEFR_COLORS[level]}40`,
-            fontWeight: 700,
-            fontSize: 10,
-            borderRadius: 6,
-            margin: 0,
-          }}
-        >
-          {level}: {count}
-        </Tag>
-      );
-    })}
-  </div>
-);
 
 
 // ============================================================
@@ -826,271 +785,6 @@ const QuestionFormModal: React.FC<{
           </Row>
         </Form>
       </div>
-    </Modal>
-  );
-};
-
-
-// ============================================================
-// AssignmentModal
-// ============================================================
-const AssignmentModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  assignType: 'series' | 'category';
-  assignId: number;
-  assignName: string;
-  categoryType: CategoryType;
-  apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, assignType, assignId, assignName, categoryType, apiCall }) => {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-  const [selectedBatchIds, setSelectedBatchIds] = useState<number[]>([]);
-  const [assigning, setAssigning] = useState(false);
-
-  const fetchData = useCallback(async () => {
-    if (!open) return;
-    setLoading(true);
-    try {
-      const [studentsResp, batchesResp, assignResp] = await Promise.all([
-        apiCall('/users?role=student'),
-        apiCall('/batches'),
-        apiCall(
-          assignType === 'series'
-            ? `${getApiPrefix(categoryType)}/series/${assignId}/assignments`
-            : `/tcf/categories/${assignId}/assignments`
-        ),
-      ]);
-
-      if (studentsResp.ok) {
-        const data = await studentsResp.json();
-        setStudents(Array.isArray(data) ? data : data.users || []);
-      }
-      if (batchesResp.ok) {
-        const data = await batchesResp.json();
-        setBatches(Array.isArray(data) ? data : []);
-      }
-      if (assignResp.ok) {
-        setAssignments(await assignResp.json());
-      }
-    } catch {
-      message.error('Failed to load assignment data');
-    } finally {
-      setLoading(false);
-    }
-  }, [open, assignType, assignId, apiCall]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  const handleAssignStudents = async () => {
-    if (selectedStudentIds.length === 0) return;
-    setAssigning(true);
-    try {
-      const url = assignType === 'series'
-        ? `${getApiPrefix(categoryType)}/series/${assignId}/assign`
-        : `/tcf/categories/${assignId}/assign`;
-      let successCount = 0, dupCount = 0;
-      for (const studentId of selectedStudentIds) {
-        const resp = await apiCall(url, { method: 'POST', body: JSON.stringify({ student_id: studentId }) });
-        if (resp.ok) successCount++;
-        else if (resp.status === 409) dupCount++;
-      }
-      if (successCount > 0) message.success(`${successCount} student${successCount > 1 ? 's' : ''} assigned`);
-      if (dupCount > 0) message.info(`${dupCount} already assigned`);
-      setSelectedStudentIds([]);
-      fetchData();
-    } catch { message.error('Failed to assign students'); }
-    finally { setAssigning(false); }
-  };
-
-  const handleAssignBatches = async () => {
-    if (selectedBatchIds.length === 0) return;
-    setAssigning(true);
-    try {
-      const url = assignType === 'series'
-        ? `${getApiPrefix(categoryType)}/series/${assignId}/assign`
-        : `/tcf/categories/${assignId}/assign`;
-      let successCount = 0, dupCount = 0;
-      for (const batchId of selectedBatchIds) {
-        const resp = await apiCall(url, { method: 'POST', body: JSON.stringify({ batch_id: batchId }) });
-        if (resp.ok) successCount++;
-        else if (resp.status === 409) dupCount++;
-      }
-      if (successCount > 0) message.success(`${successCount} batch${successCount > 1 ? 'es' : ''} assigned`);
-      if (dupCount > 0) message.info(`${dupCount} already assigned`);
-      setSelectedBatchIds([]);
-      fetchData();
-    } catch { message.error('Failed to assign batches'); }
-    finally { setAssigning(false); }
-  };
-
-  const handleRemoveAssignment = async (assignmentId: number) => {
-    try {
-      const url = assignType === 'series'
-        ? `${getApiPrefix(categoryType)}/assignments/${assignmentId}`
-        : `/tcf/category-assignments/${assignmentId}`;
-      const resp = await apiCall(url, { method: 'DELETE' });
-      if (resp.ok) {
-        message.success('Assignment removed');
-        fetchData();
-      } else {
-        message.error('Failed to remove assignment');
-      }
-    } catch {
-      message.error('Failed to remove assignment');
-    }
-  };
-
-  const studentAssignments = assignments.filter(a => a.student_id);
-  const batchAssignments = assignments.filter(a => a.batch_id);
-
-  return (
-    <Modal
-      title={`Assign: ${assignName}`}
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width={600}
-      destroyOnClose
-    >
-      <Tabs
-        items={[
-          {
-            key: 'students',
-            label: (
-              <span><UserOutlined /> Students</span>
-            ),
-            children: (
-              <div>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                  <Select
-                    mode="multiple"
-                    showSearch
-                    placeholder="Select students..."
-                    value={selectedStudentIds}
-                    onChange={setSelectedStudentIds}
-                    optionFilterProp="label"
-                    style={{ flex: 1 }}
-                    loading={loading}
-                    maxTagCount="responsive"
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode}
-                    options={students.map(s => ({
-                      value: s.id,
-                      label: `${s.first_name} ${s.last_name} (${s.email})`,
-                    }))}
-                  />
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={handleAssignStudents}
-                    loading={assigning}
-                    disabled={selectedStudentIds.length === 0}
-                  >
-                    Assign
-                  </Button>
-                </div>
-                {studentAssignments.length === 0 ? (
-                  <Empty description="No students assigned" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {studentAssignments.map(a => (
-                      <div
-                        key={a.id}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '8px 12px', borderRadius: 10, background: '#f8fafc',
-                          border: '1px solid #f0f0f8',
-                        }}
-                      >
-                        <div>
-                          <Text strong style={{ fontSize: 13 }}>
-                            {a.student_first_name} {a.student_last_name}
-                          </Text>
-                          <div style={{ fontSize: 11, color: '#94a3b8' }}>{a.student_email}</div>
-                        </div>
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveAssignment(a.id)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          },
-          {
-            key: 'batches',
-            label: (
-              <span><TeamOutlined /> Batches</span>
-            ),
-            children: (
-              <div>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                  <Select
-                    mode="multiple"
-                    showSearch
-                    placeholder="Select batches..."
-                    value={selectedBatchIds}
-                    onChange={setSelectedBatchIds}
-                    optionFilterProp="label"
-                    style={{ flex: 1 }}
-                    loading={loading}
-                    maxTagCount="responsive"
-                    getPopupContainer={(triggerNode) => triggerNode.parentNode}
-                    options={batches.map(b => ({
-                      value: b.id,
-                      label: b.name,
-                    }))}
-                  />
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={handleAssignBatches}
-                    loading={assigning}
-                    disabled={selectedBatchIds.length === 0}
-                  >
-                    Assign
-                  </Button>
-                </div>
-                {batchAssignments.length === 0 ? (
-                  <Empty description="No batches assigned" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {batchAssignments.map(a => (
-                      <div
-                        key={a.id}
-                        style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '8px 12px', borderRadius: 10, background: '#f8fafc',
-                          border: '1px solid #f0f0f8',
-                        }}
-                      >
-                        <Text strong style={{ fontSize: 13 }}>{a.batch_name}</Text>
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          onClick={() => handleRemoveAssignment(a.id)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ),
-          },
-        ]}
-      />
     </Modal>
   );
 };
@@ -2812,104 +2506,118 @@ const EO_TASK_DEFAULTS: Record<number, { type: string; prep: number; dur: number
 // ============================================================
 const EoYearModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
-  categoryId: number | null;
+  categoryId: number | null; existing?: number[];
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, categoryId, apiCall }) => {
+}> = ({ open, onClose, onSuccess, categoryId, existing = [], apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) form.setFieldsValue({ year: new Date().getFullYear() }); }, [open, form]);
-  const handleSubmit = async () => {
+  const thisYear = new Date().getFullYear();
+  useEffect(() => { if (open) form.setFieldsValue({ year: thisYear }); }, [open, form, thisYear]);
+  const submit = async () => {
     try {
       const { year } = await form.validateFields();
       setSaving(true);
       const resp = await apiCall(`/tcf/eo/categories/${categoryId}/years`, { method: 'POST', body: JSON.stringify({ year }) });
-      if (resp.ok) { message.success('Year created'); onSuccess(); }
-      else { const d = await resp.json(); message.error(d.error || 'Failed'); }
+      if (resp.ok) { message.success(`${year} added`); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The year could not be added.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title="Add Year" open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="year" label="Year" rules={[{ required: true, message: 'Year is required' }]}>
-          <InputNumber min={2000} max={2100} style={{ width: '100%' }} />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText="Add year" destroyOnHidden
+      closable={false} title={null} width={420} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<CalendarOutlined />} title="Add a year" subtitle="Expression Orale sessions are grouped by year, then by month." tone="eo" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="year" label="Year" rules={[{ required: true, message: 'Enter a year' }]}>
+            <InputNumber min={2000} max={2100} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+        <div className="fm-quick">
+          {[thisYear - 1, thisYear, thisYear + 1].map(y => (
+            <button key={y} type="button" disabled={existing.includes(y)} onClick={() => form.setFieldsValue({ year: y })}>
+              {y}{existing.includes(y) ? ' · added' : ''}
+            </button>
+          ))}
+        </div>
+      </div>
     </Modal>
   );
 };
 
 const EoMonthModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
-  yearId: number | null;
+  yearId: number | null; existing?: number[];
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, yearId, apiCall }) => {
+}> = ({ open, onClose, onSuccess, yearId, existing = [], apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (open) form.resetFields(); }, [open, form]);
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const { month } = await form.validateFields();
       setSaving(true);
-      const resp = await apiCall(`/tcf/eo/years/${yearId}/months`, {
-        method: 'POST', body: JSON.stringify({ month, month_name: FRENCH_MONTHS[month] }),
-      });
-      if (resp.ok) { message.success('Month created'); onSuccess(); }
-      else { const d = await resp.json(); message.error(d.error || 'Failed'); }
+      const resp = await apiCall(`/tcf/eo/years/${yearId}/months`, { method: 'POST', body: JSON.stringify({ month, month_name: FRENCH_MONTHS[month] }) });
+      if (resp.ok) { message.success(`${FRENCH_MONTHS[month]} added`); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The month could not be added.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title="Add Month" open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="month" label="Month" rules={[{ required: true, message: 'Select a month' }]}>
-          <Select placeholder="Select month">
-            {Object.entries(FRENCH_MONTHS).map(([num, name]) => (
-              <Select.Option key={num} value={parseInt(num, 10)}>{name}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText="Add month" destroyOnHidden
+      closable={false} title={null} width={460} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<CalendarOutlined />} title="Add a month" subtitle="Months already added are greyed out." tone="eo" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="month" label="Month" rules={[{ required: true, message: 'Choose a month' }]}>
+            <Select placeholder="Choose a month" options={Object.entries(FRENCH_MONTHS).map(([num, name]) => ({
+              value: parseInt(num, 10), label: `${num}. ${name}`, disabled: existing.includes(parseInt(num, 10)),
+            }))} />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
 
 const EoPartieModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
-  monthId: number | null; editing: EoPartie | null;
+  monthId: number | null; editing: EoPartie | null; nextNumber?: number;
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, monthId, editing, apiCall }) => {
+}> = ({ open, onClose, onSuccess, monthId, editing, nextNumber = 1, apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (open) {
-      if (editing) form.setFieldsValue({ name: editing.name, display_order: editing.display_order });
-      else form.resetFields();
+      form.setFieldsValue(editing
+        ? { name: editing.name, display_order: editing.display_order }
+        : { name: `Partie ${nextNumber}`, display_order: nextNumber });
     }
-  }, [open, editing, form]);
-  const handleSubmit = async () => {
+  }, [open, editing, nextNumber, form]);
+  const submit = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const resp = await apiCall(`/tcf/eo/parties/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) });
-        if (resp.ok) { message.success('Partie updated'); onSuccess(); }
-        else { message.error('Failed'); }
-      } else {
-        const resp = await apiCall(`/tcf/eo/months/${monthId}/parties`, { method: 'POST', body: JSON.stringify(values) });
-        if (resp.ok) { message.success('Partie created'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      }
+      const resp = editing
+        ? await apiCall(`/tcf/eo/parties/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) })
+        : await apiCall(`/tcf/eo/months/${monthId}/parties`, { method: 'POST', body: JSON.stringify(values) });
+      if (resp.ok) { message.success(editing ? 'Partie saved' : 'Partie added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The partie could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title={editing ? 'Edit Partie' : 'Add Partie'} open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Name is required' }]}>
-          <Input placeholder="e.g. Partie 1" />
-        </Form.Item>
-        <Form.Item name="display_order" label="Display Order">
-          <InputNumber min={0} style={{ width: '100%' }} placeholder="0" />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save' : 'Add partie'} destroyOnHidden
+      closable={false} title={null} width={460} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<AudioOutlined />} title={editing ? 'Edit partie' : 'Add a partie'}
+        subtitle={editing ? undefined : 'A partie holds the three tâches of one oral exam session.'} tone="eo" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Enter a name' }]}>
+            <Input placeholder="e.g. Partie 1" maxLength={80} />
+          </Form.Item>
+          <Form.Item name="display_order" label={<>Position <em className="fm-opt">order in the list</em></>}>
+            <InputNumber min={1} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
@@ -2922,55 +2630,52 @@ const EoTacheModal: React.FC<{
 }> = ({ open, onClose, onSuccess, partieId, taskNumber, editing, apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  const defaults = EO_TASK_DEFAULTS[taskNumber];
+  const num = editing ? editing.task_number : taskNumber;
+  const defaults = EO_TASK_DEFAULTS[num];
   useEffect(() => {
     if (open) {
-      if (editing) {
-        form.setFieldsValue({
-          prompt_text: editing.prompt_text || '',
-          prep_minutes: editing.prep_minutes,
-          duration_minutes: editing.duration_minutes,
-        });
-      } else {
-        form.setFieldsValue({
-          prompt_text: '',
-          prep_minutes: defaults?.prep || 0,
-          duration_minutes: defaults?.dur || 2,
-        });
-      }
+      form.setFieldsValue(editing
+        ? { prompt_text: editing.prompt_text || '', prep_minutes: editing.prep_minutes, duration_minutes: editing.duration_minutes }
+        : { prompt_text: '', prep_minutes: defaults?.prep || 0, duration_minutes: defaults?.dur || 2 });
     }
   }, [open, editing, form, defaults]);
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const resp = await apiCall(`/tcf/eo/taches/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) });
-        if (resp.ok) { message.success('Tâche updated'); onSuccess(); }
-        else { message.error('Failed'); }
-      } else {
-        const payload = { ...values, task_number: taskNumber, task_type: defaults?.type || 'presentation' };
-        const resp = await apiCall(`/tcf/eo/parties/${partieId}/taches`, { method: 'POST', body: JSON.stringify(payload) });
-        if (resp.ok) { message.success('Tâche created'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      }
+      const resp = editing
+        ? await apiCall(`/tcf/eo/taches/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) })
+        : await apiCall(`/tcf/eo/parties/${partieId}/taches`, {
+          method: 'POST',
+          body: JSON.stringify({ ...values, task_number: num, task_type: defaults?.type || 'presentation' }),
+        });
+      if (resp.ok) { message.success(editing ? 'Tâche saved' : 'Tâche added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The tâche could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title={editing ? `Edit Tâche ${taskNumber}` : `Add Tâche ${taskNumber} — ${EO_TASK_TYPE_LABELS[defaults?.type || 'presentation']}`} open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="prompt_text" label="Prompt / Instructions">
-          <Input.TextArea rows={3} placeholder="Task instructions..." style={{ borderRadius: 8 }} />
-        </Form.Item>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="prep_minutes" label="Prep (min)" style={{ flex: 1 }}>
-            <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="duration_minutes" label="Duration (min)" rules={[{ required: true }]} style={{ flex: 1 }}>
-            <InputNumber min={0.5} step={0.5} style={{ width: '100%' }} />
-          </Form.Item>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save tâche' : 'Add tâche'} destroyOnHidden
+      closable={false} title={null} width={520} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<AudioOutlined />} title={`${editing ? 'Edit' : 'Add'} tâche ${num}`} subtitle={EO_TASK_TYPE_LABELS[defaults?.type || 'presentation']} tone="eo" />
+      <div className="fm-body">
+        <div className="fm-facts">
+          <span>{EO_TASK_TYPE_LABELS[defaults?.type || 'presentation']}</span>
+          {num === 1 ? <span>up to <b>4</b> points à aborder</span> : <span>holds the <b>sujets</b></span>}
         </div>
-      </Form>
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="prompt_text" label={<>Instructions <em className="fm-opt">optional</em></>}>
+            <TextArea rows={3} placeholder="What the examiner asks…" />
+          </Form.Item>
+          <div className="fm-grid2">
+            <Form.Item name="prep_minutes" label="Preparation (min)">
+              <InputNumber min={0} step={0.5} style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="duration_minutes" label="Duration (min)" rules={[{ required: true, message: 'Enter a duration' }]}>
+              <InputNumber min={0.5} step={0.5} style={{ width: '100%' }} />
+            </Form.Item>
+          </div>
+        </Form>
+      </div>
     </Modal>
   );
 };
@@ -2983,36 +2688,33 @@ const EoPointModal: React.FC<{
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) {
-      if (editing) form.setFieldsValue({ title: editing.title, subtitle: editing.subtitle || '' });
-      else form.resetFields();
-    }
+    if (open) form.setFieldsValue({ title: editing?.title || '', subtitle: editing?.subtitle || '' });
   }, [open, editing, form]);
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const resp = await apiCall(`/tcf/eo/points/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) });
-        if (resp.ok) { message.success('Point updated'); onSuccess(); }
-        else { message.error('Failed'); }
-      } else {
-        const resp = await apiCall(`/tcf/eo/taches/${tacheId}/points`, { method: 'POST', body: JSON.stringify({ ...values, point_number: nextNumber }) });
-        if (resp.ok) { message.success('Point added'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      }
+      const resp = editing
+        ? await apiCall(`/tcf/eo/points/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) })
+        : await apiCall(`/tcf/eo/taches/${tacheId}/points`, { method: 'POST', body: JSON.stringify({ ...values, point_number: nextNumber }) });
+      if (resp.ok) { message.success(editing ? 'Point saved' : 'Point added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The point could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title={editing ? 'Edit Point' : `Add Point ${nextNumber}`} open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Title is required' }]}>
-          <Input placeholder="e.g. Identité" style={{ borderRadius: 8 }} />
-        </Form.Item>
-        <Form.Item name="subtitle" label="Subtitle (optional)">
-          <Input placeholder="e.g. Nom, âge, ville" style={{ borderRadius: 8 }} />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save' : 'Add point'} destroyOnHidden
+      closable={false} title={null} width={440} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<AudioOutlined />} title={editing ? 'Edit point' : `Add point ${nextNumber}`} subtitle="Points à aborder guide the student's presentation." tone="eo" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="title" label="Title" rules={[{ required: true, message: 'Enter a title' }]}>
+            <Input placeholder="e.g. Identité" maxLength={80} />
+          </Form.Item>
+          <Form.Item name="subtitle" label={<>Detail <em className="fm-opt">optional</em></>}>
+            <Input placeholder="e.g. Nom, âge, ville" maxLength={120} />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
@@ -3026,41 +2728,45 @@ const EoSujetModal: React.FC<{
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (open) {
-      if (editing) form.setFieldsValue({ prompt_text: editing.prompt_text, duration_seconds: editing.duration_seconds || '', correction_text: editing.correction_text || '' });
-      else form.resetFields();
+      form.setFieldsValue({
+        prompt_text: editing?.prompt_text || '',
+        duration_seconds: editing?.duration_seconds ?? undefined,
+        correction_text: editing?.correction_text || '',
+      });
     }
   }, [open, editing, form]);
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const resp = await apiCall(`/tcf/eo/sujets/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) });
-        if (resp.ok) { message.success('Sujet updated'); onSuccess(); }
-        else { message.error('Failed'); }
-      } else {
-        const resp = await apiCall(`/tcf/eo/taches/${tacheId}/sujets`, { method: 'POST', body: JSON.stringify({ ...values, sujet_number: nextNumber }) });
-        if (resp.ok) { message.success('Sujet added'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      }
+      const resp = editing
+        ? await apiCall(`/tcf/eo/sujets/${editing.id}`, { method: 'PUT', body: JSON.stringify(values) })
+        : await apiCall(`/tcf/eo/taches/${tacheId}/sujets`, { method: 'POST', body: JSON.stringify({ ...values, sujet_number: nextNumber }) });
+      if (resp.ok) { message.success(editing ? 'Sujet saved' : 'Sujet added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The sujet could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title={editing ? 'Edit Sujet' : `Add Sujet ${nextNumber}`} open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose width={560}>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="prompt_text" label="Prompt / Question" rules={[{ required: true, message: 'Prompt is required' }]}>
-          <Input.TextArea rows={4} placeholder="Sujet text..." style={{ borderRadius: 8 }} />
-        </Form.Item>
-        <Form.Item name="duration_seconds" label="Duration (seconds)">
-          <InputNumber min={0} style={{ width: '100%', borderRadius: 8 }} placeholder="e.g. 210" />
-        </Form.Item>
-        <Form.Item name="correction_text" label="Correction (optional)">
-          <Input.TextArea rows={3} placeholder="Model answer / correction..." style={{ borderRadius: 8 }} />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save sujet' : 'Add sujet'} destroyOnHidden
+      closable={false} title={null} width={600} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<AudioOutlined />} title={editing ? 'Edit sujet' : `Add sujet ${nextNumber}`} subtitle="One question the student answers out loud." tone="eo" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="prompt_text" label="Sujet" rules={[{ required: true, message: 'The sujet text is required' }]}>
+            <TextArea rows={4} placeholder="The question as the student reads it…" />
+          </Form.Item>
+          <Form.Item name="duration_seconds" label={<>Speaking time (seconds) <em className="fm-opt">optional</em></>}>
+            <InputNumber min={0} max={3600} step={30} style={{ width: '100%' }} placeholder="e.g. 210" />
+          </Form.Item>
+          <Form.Item name="correction_text" label={<>Model answer <em className="fm-opt">optional</em></>}>
+            <TextArea rows={3} placeholder="Shown to students as the correction…" />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
+
 
 // ============================================================
 // EO Bulk Import Types & Modal
@@ -3441,30 +3147,63 @@ const EoBulkImportModal: React.FC<{
   );
 };
 
+/** Shown when a list could not be loaded, so the screen is never blank with no way forward. */
+const TreeError: React.FC<{ what: string; onRetry: () => void }> = ({ what, onRetry }) => (
+  <div className="ea-state">
+    <WarningOutlined />
+    <strong>Couldn’t load the {what}</strong>
+    <span>The server did not answer. Check your connection and try again.</span>
+    <Button onClick={onRetry}>Retry</Button>
+  </div>
+);
+
+const ModalHead: React.FC<{ icon: React.ReactNode; title: string; subtitle?: string; tone?: string }> = ({ icon, title, subtitle, tone }) => (
+  <header className={`ea-head fm-head${tone ? ` fam-${tone}` : ''}`}>
+    <span className="ea-head-ic fm-ic">{icon}</span>
+    <div className="ea-head-text">
+      <h2>{title}</h2>
+      {subtitle && <p>{subtitle}</p>}
+    </div>
+  </header>
+);
+
 const EeYearModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
   categoryId: number | null;
+  existing?: number[];
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, categoryId, apiCall }) => {
+}> = ({ open, onClose, onSuccess, categoryId, existing = [], apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
-  useEffect(() => { if (open) form.setFieldsValue({ year: new Date().getFullYear() }); }, [open, form]);
-  const handleSubmit = async () => {
+  const thisYear = new Date().getFullYear();
+  useEffect(() => { if (open) form.setFieldsValue({ year: thisYear }); }, [open, form, thisYear]);
+  const submit = async () => {
     try {
       const { year } = await form.validateFields();
       setSaving(true);
       const resp = await apiCall(`/tcf/ee/categories/${categoryId}/years`, { method: 'POST', body: JSON.stringify({ year }) });
-      if (resp.ok) { message.success('Year created'); onSuccess(); }
-      else { const d = await resp.json(); message.error(d.error || 'Failed'); }
+      if (resp.ok) { message.success(`${year} added`); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The year could not be added.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title="Add Year" open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="year" label="Year" rules={[{ required: true, message: 'Year is required' }]}>
-          <InputNumber min={2000} max={2100} style={{ width: '100%' }} />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText="Add year" destroyOnHidden
+      closable={false} title={null} width={420} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<CalendarOutlined />} title="Add a year" subtitle="Expression Écrite sessions are grouped by year, then by month." tone="ee" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="year" label="Year" rules={[{ required: true, message: 'Enter a year' }]}>
+            <InputNumber min={2000} max={2100} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+        <div className="fm-quick">
+          {[thisYear - 1, thisYear, thisYear + 1].map(y => (
+            <button key={y} type="button" disabled={existing.includes(y)} onClick={() => form.setFieldsValue({ year: y })}>
+              {y}{existing.includes(y) ? ' · added' : ''}
+            </button>
+          ))}
+        </div>
+      </div>
     </Modal>
   );
 };
@@ -3472,69 +3211,71 @@ const EeYearModal: React.FC<{
 const EeMonthModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
   yearId: number | null;
+  existing?: number[];
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, yearId, apiCall }) => {
+}> = ({ open, onClose, onSuccess, yearId, existing = [], apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (open) form.resetFields(); }, [open, form]);
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const { month } = await form.validateFields();
       setSaving(true);
-      const resp = await apiCall(`/tcf/ee/years/${yearId}/months`, {
-        method: 'POST', body: JSON.stringify({ month, month_name: FRENCH_MONTHS[month] }),
-      });
-      if (resp.ok) { message.success('Month created'); onSuccess(); }
-      else { const d = await resp.json(); message.error(d.error || 'Failed'); }
+      const resp = await apiCall(`/tcf/ee/years/${yearId}/months`, { method: 'POST', body: JSON.stringify({ month, month_name: FRENCH_MONTHS[month] }) });
+      if (resp.ok) { message.success(`${FRENCH_MONTHS[month]} added`); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The month could not be added.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title="Add Month" open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="month" label="Month" rules={[{ required: true, message: 'Select a month' }]}>
-          <Select placeholder="Select month">
-            {Object.entries(FRENCH_MONTHS).map(([num, name]) => (
-              <Select.Option key={num} value={parseInt(num, 10)}>{name}</Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText="Add month" destroyOnHidden
+      closable={false} title={null} width={460} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<CalendarOutlined />} title="Add a month" subtitle="Months already added are greyed out." tone="ee" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="month" label="Month" rules={[{ required: true, message: 'Choose a month' }]}>
+            <Select placeholder="Choose a month" options={Object.entries(FRENCH_MONTHS).map(([num, name]) => ({
+              value: parseInt(num, 10), label: `${num}. ${name}`, disabled: existing.includes(parseInt(num, 10)),
+            }))} />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
 
 const EeCombinaisonModal: React.FC<{
   open: boolean; onClose: () => void; onSuccess: () => void;
-  monthId: number | null; editing: EeCombinaison | null;
+  monthId: number | null; editing: EeCombinaison | null; nextNumber?: number;
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, onSuccess, monthId, editing, apiCall }) => {
+}> = ({ open, onClose, onSuccess, monthId, editing, nextNumber = 1, apiCall }) => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    if (open) { form.setFieldsValue({ name: editing?.name || '' }); }
-  }, [open, editing, form]);
-  const handleSubmit = async () => {
+    if (open) form.setFieldsValue({ name: editing?.name || `Combinaison ${nextNumber}` });
+  }, [open, editing, nextNumber, form]);
+  const submit = async () => {
     try {
       const { name } = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const resp = await apiCall(`/tcf/ee/combinaisons/${editing.id}`, { method: 'PUT', body: JSON.stringify({ name }) });
-        if (resp.ok) { message.success('Updated'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      } else {
-        const resp = await apiCall(`/tcf/ee/months/${monthId}/combinaisons`, { method: 'POST', body: JSON.stringify({ name }) });
-        if (resp.ok) { message.success('Created'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      }
+      const resp = editing
+        ? await apiCall(`/tcf/ee/combinaisons/${editing.id}`, { method: 'PUT', body: JSON.stringify({ name }) })
+        : await apiCall(`/tcf/ee/months/${monthId}/combinaisons`, { method: 'POST', body: JSON.stringify({ name }) });
+      if (resp.ok) { message.success(editing ? 'Combinaison renamed' : 'Combinaison added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The combinaison could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
   return (
-    <Modal title={editing ? 'Edit Combinaison' : 'Add Combinaison'} open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} destroyOnClose>
-      <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Name is required' }]}>
-          <Input placeholder="e.g. Combinaison 1" />
-        </Form.Item>
-      </Form>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save' : 'Add combinaison'} destroyOnHidden
+      closable={false} title={null} width={460} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<FormOutlined />} title={editing ? 'Rename combinaison' : 'Add a combinaison'}
+        subtitle={editing ? undefined : 'A combinaison holds the three writing tâches of one exam session.'} tone="ee" />
+      <div className="fm-body">
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <Form.Item name="name" label="Name" rules={[{ required: true, message: 'Enter a name' }]}>
+            <Input placeholder="e.g. Combinaison 1" maxLength={80} />
+          </Form.Item>
+        </Form>
+      </div>
     </Modal>
   );
 };
@@ -3561,78 +3302,72 @@ const EeTacheModal: React.FC<{
     }
   }, [open, editing, form]);
 
-  const handleSubmit = async () => {
+  const submit = async () => {
     try {
       const values = await form.validateFields();
       setSaving(true);
-      if (editing) {
-        const payload: Record<string, unknown> = {
-          prompt_text: values.prompt_text,
-          correction_text: values.correction_text?.trim() || null,
-        };
-        if (taskNum === 3) {
-          payload.question_text = values.question_text?.trim() || null;
-          payload.argument_text_1 = values.argument_text_1?.trim() || null;
-          payload.argument_text_2 = values.argument_text_2?.trim() || null;
-        }
-        const resp = await apiCall(`/tcf/ee/taches/${editing.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        if (resp.ok) { message.success('Tâche updated'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
-      } else {
-        const payload: Record<string, unknown> = {
-          task_number: taskNum, task_type: defaults.type,
-          prompt_text: values.prompt_text,
-          min_words: defaults.min, max_words: defaults.max, duration_minutes: defaults.dur,
-          correction_text: values.correction_text?.trim() || null,
-        };
-        if (taskNum === 3) {
-          payload.question_text = values.question_text?.trim() || null;
-          payload.argument_text_1 = values.argument_text_1?.trim() || null;
-          payload.argument_text_2 = values.argument_text_2?.trim() || null;
-        }
-        const resp = await apiCall(`/tcf/ee/combinaisons/${combinaisonId}/taches`, { method: 'POST', body: JSON.stringify(payload) });
-        if (resp.ok) { message.success('Tâche created'); onSuccess(); }
-        else { const d = await resp.json(); message.error(d.error || 'Failed'); }
+      const payload: Record<string, unknown> = {
+        prompt_text: values.prompt_text,
+        correction_text: values.correction_text?.trim() || null,
+      };
+      if (taskNum === 3) {
+        payload.question_text = values.question_text?.trim() || null;
+        payload.argument_text_1 = values.argument_text_1?.trim() || null;
+        payload.argument_text_2 = values.argument_text_2?.trim() || null;
       }
+      if (!editing) {
+        payload.task_number = taskNum;
+        payload.task_type = defaults.type;
+        payload.min_words = defaults.min;
+        payload.max_words = defaults.max;
+        payload.duration_minutes = defaults.dur;
+      }
+      const resp = editing
+        ? await apiCall(`/tcf/ee/taches/${editing.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+        : await apiCall(`/tcf/ee/combinaisons/${combinaisonId}/taches`, { method: 'POST', body: JSON.stringify(payload) });
+      if (resp.ok) { message.success(editing ? 'Tâche saved' : 'Tâche added'); onSuccess(); }
+      else { const d = await resp.json().catch(() => ({})); message.error(d.error || 'The tâche could not be saved.'); }
     } catch { /* validation */ } finally { setSaving(false); }
   };
 
   return (
-    <Modal
-      title={editing ? `Edit Tâche ${editing.task_number}` : `Add Tâche ${taskNumber}`}
-      open={open} onCancel={onClose} onOk={handleSubmit} confirmLoading={saving} width={640} destroyOnClose
-    >
-      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Tag color="blue" style={{ borderRadius: 8, padding: '4px 12px', fontWeight: 700 }}>{TASK_TYPE_LABELS[defaults.type]}</Tag>
-          <Tag style={{ borderRadius: 8, padding: '4px 12px', background: '#f0fdf4', color: '#15803d', border: 'none', fontWeight: 600 }}>{defaults.min}-{defaults.max} mots</Tag>
-          <Tag style={{ borderRadius: 8, padding: '4px 12px', background: '#fffbeb', color: '#b45309', border: 'none', fontWeight: 600 }}>{defaults.dur} min</Tag>
+    <Modal open={open} onCancel={onClose} onOk={submit} confirmLoading={saving} okText={editing ? 'Save tâche' : 'Add tâche'}
+      width={680} destroyOnHidden closable={false} title={null} wrapClassName="fm-modal" styles={{ body: { padding: 0 } }}>
+      <ModalHead icon={<FormOutlined />} title={`${editing ? 'Edit' : 'Add'} tâche ${taskNum}`} subtitle={TASK_TYPE_LABELS[defaults.type]} tone="ee" />
+      <div className="fm-body">
+        <div className="fm-facts">
+          <span><b>{defaults.min}–{defaults.max}</b> words</span>
+          <span><b>{defaults.dur}</b> min</span>
+          <span>{TASK_TYPE_LABELS[defaults.type]}</span>
         </div>
         <Form form={form} layout="vertical" requiredMark={false}>
-          <Form.Item name="prompt_text" label={<Text strong style={{ fontSize: 12 }}>Prompt Text *</Text>} rules={[{ required: true, message: 'Prompt text is required' }]}>
-            <TextArea rows={4} placeholder="Enter the task prompt..." style={{ borderRadius: 8 }} />
+          <Form.Item name="prompt_text" label="Prompt" rules={[{ required: true, message: 'The prompt is required' }]}>
+            <TextArea rows={4} placeholder="What the student is asked to write…" />
           </Form.Item>
           {taskNum === 3 && (
             <>
-              <Form.Item name="question_text" label={<Text strong style={{ fontSize: 12 }}>Question (e.g. "Pour ou Contre ?")</Text>}>
-                <Input placeholder="e.g. L'uniforme scolaire : Pour Ou Contre ?" style={{ borderRadius: 8 }} />
+              <Form.Item name="question_text" label={<>Question <em className="fm-opt">optional</em></>}>
+                <Input placeholder="e.g. L’uniforme scolaire : pour ou contre ?" />
               </Form.Item>
-              <Form.Item name="argument_text_1" label={<Text strong style={{ fontSize: 12 }}>Argument Text 1</Text>}>
-                <TextArea rows={3} placeholder="First argument/position..." style={{ borderRadius: 8 }} />
-              </Form.Item>
-              <Form.Item name="argument_text_2" label={<Text strong style={{ fontSize: 12 }}>Argument Text 2 (Counter-argument)</Text>}>
-                <TextArea rows={3} placeholder="Counter-argument/opposing position..." style={{ borderRadius: 8 }} />
-              </Form.Item>
+              <div className="fm-grid2">
+                <Form.Item name="argument_text_1" label={<>Argument 1 <em className="fm-opt">optional</em></>}>
+                  <TextArea rows={3} placeholder="First position…" />
+                </Form.Item>
+                <Form.Item name="argument_text_2" label={<>Argument 2 <em className="fm-opt">optional</em></>}>
+                  <TextArea rows={3} placeholder="Opposing position…" />
+                </Form.Item>
+              </div>
             </>
           )}
-          <Form.Item name="correction_text" label={<Text strong style={{ fontSize: 12 }}>Correction (optional)</Text>}>
-            <TextArea rows={4} placeholder="Model answer / correction..." style={{ borderRadius: 8 }} />
+          <Form.Item name="correction_text" label={<>Model answer <em className="fm-opt">optional</em></>}>
+            <TextArea rows={4} placeholder="Shown to students as the correction…" />
           </Form.Item>
         </Form>
       </div>
     </Modal>
   );
 };
+
 
 // ============================================================
 // Main Component
@@ -3662,15 +3397,27 @@ const ExamPreparation: React.FC = () => {
   const [editingSeries, setEditingSeries] = useState<Series | null>(null);
   const [questionModalOpen, setQuestionModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [ceImportModalOpen, setCeImportModalOpen] = useState(false);
   const [examAssignModalOpen, setExamAssignModalOpen] = useState(false);
   const [grantCreditsModalOpen, setGrantCreditsModalOpen] = useState(false);
-  const [assignType, setAssignType] = useState<'series' | 'category'>('series');
-  const [assignId, setAssignId] = useState<number>(0);
-  const [assignName, setAssignName] = useState<string>('');
   const [coAnalyticsOpen, setCoAnalyticsOpen] = useState(false);
+  const [examAssignTab, setExamAssignTab] = useState<'new' | 'list'>('new');
+  const [assignGroups, setAssignGroups] = useState<ExamAssignmentGroup[] | null>(null);
+  const [examAssignPreset, setExamAssignPreset] = useState<{ content_type: string; content_id: number }[]>([]);
+  const [seriesSort, setSeriesSort] = useState<'number' | 'newest' | 'questions'>('number');
+  const [sdQuery, setSdQuery] = useState('');
+  const [sdLevel, setSdLevel] = useState<string>('all');
+  const [sdOpenId, setSdOpenId] = useState<number | null>(null);
+  const player = useSharedAudio();
+  const openExamAssign = (tab: 'new' | 'list', preset: { content_type: string; content_id: number }[] = []) => {
+    setExamAssignPreset(preset);
+    setExamAssignTab(tab);
+    setExamAssignModalOpen(true);
+  };
+  // Leaving a series (or switching to another) stops playback and resets its filters.
+  const stopPlayer = player.stop;
+  useEffect(() => { stopPlayer(); setSdOpenId(null); setSdQuery(''); setSdLevel('all'); }, [view, selectedSeriesId, stopPlayer]);
 
   // EE state
   const [eeYears, setEeYears] = useState<EeYear[]>([]);
@@ -3720,120 +3467,136 @@ const ExamPreparation: React.FC = () => {
   const [eoCorrectionVisible, setEoCorrectionVisible] = useState<Record<number, boolean>>({});
   const [eoImportModalOpen, setEoImportModalOpen] = useState(false);
 
-  const fetchCategories = useCallback(async () => {
+
+
+  // Assignment groups feed the landing KPIs and "Recent assignments".
+  const fetchAssignGroups = useCallback(async () => {
+    try {
+      const resp = await apiCall('/tcf/exam-assignments');
+      if (resp.ok) {
+        const d = await resp.json();
+        setAssignGroups(Array.isArray(d) ? d : []);
+      }
+    } catch { /* KPIs stay empty */ }
+  }, [apiCall]);
+  useEffect(() => { if (view === 'categories') fetchAssignGroups(); }, [view, fetchAssignGroups]);
+
+
+
+
+
+  // ── List loading ──
+  // Every list on this page (skills, series, the open series, and the EE / EO trees) is tracked here.
+  // 'key' is the parent a request was made for; 'dataKey' is the parent the data currently in state
+  // belongs to. That distinction tells a first load from a background refresh:
+  //   data for this parent → show it, even while refreshing (no skeleton flash)
+  //   otherwise, request failed → retry card
+  //   otherwise → skeleton, so a screen can never show "empty" for data it does not have.
+  type ListView = 'skeleton' | 'error' | 'data';
+  type ListEntry = { key: number; status: 'loading' | 'ready' | 'error'; dataKey: number | null };
+  const [treeState, setTreeState] = useState<Record<string, ListEntry>>({});
+  const [combQuery, setCombQuery] = useState('');
+  const [partieQuery, setPartieQuery] = useState('');
+  const treeReq = useRef<Record<string, number>>({});
+
+  const treeViewOf = (kind: string, parent: number | null): ListView => {
+    if (parent == null) return 'skeleton';
+    const entry = treeState[kind];
+    if (entry?.dataKey === parent) return 'data';
+    if (entry?.key === parent && entry.status === 'error') return 'error';
+    return 'skeleton';
+  };
+  /** Makes the next visit reload that list — used after a change alters a parent's counts. */
+  const invalidateTree = (kind: string) => setTreeState(s => { const next = { ...s }; delete next[kind]; return next; });
+
+  /** Runs one request, ignoring answers a newer request has superseded. */
+  const runTreeFetch = useCallback(async (kind: string, parent: number, url: string, apply: (data: unknown) => void, failMessage: string) => {
+    const id = (treeReq.current[kind] = (treeReq.current[kind] || 0) + 1);
+    setTreeState(s => ({ ...s, [kind]: { key: parent, status: 'loading', dataKey: s[kind]?.dataKey ?? null } }));
     setLoading(true);
     try {
-      const resp = await apiCall('/tcf/categories');
-      if (resp.ok) {
-        setCategories(await resp.json());
-      } else {
-        message.error('Failed to load categories');
-      }
+      const resp = await apiCall(url);
+      if (id !== treeReq.current[kind]) return;
+      if (!resp.ok) throw new Error(String(resp.status));
+      apply(await resp.json());
+      setTreeState(s => ({ ...s, [kind]: { key: parent, status: 'ready', dataKey: parent } }));
     } catch {
-      message.error('Failed to load categories');
+      if (id === treeReq.current[kind]) {
+        setTreeState(s => ({ ...s, [kind]: { key: parent, status: 'error', dataKey: s[kind]?.dataKey ?? null } }));
+        message.error(failMessage);
+      }
     } finally {
-      setLoading(false);
+      if (id === treeReq.current[kind]) setLoading(false);
     }
   }, [apiCall]);
 
-  // ── Fetch series list ──
+  const fetchCategories = useCallback(async () => {
+    await runTreeFetch('categories', 0, '/tcf/categories',
+      d => setCategories(Array.isArray(d) ? d as Category[] : []), 'Could not load the skills.');
+  }, [runTreeFetch]);
+
   const fetchSeriesList = useCallback(async () => {
-    if (!selectedCategoryId) return;
-    setLoading(true);
-    try {
-      const prefix = getApiPrefix(categoryType);
-      const resp = await apiCall(`${prefix}/categories/${selectedCategoryId}/series`);
-      if (resp.ok) {
-        setSeriesList(await resp.json());
-      } else {
-        message.error('Failed to load series');
-      }
-    } catch {
-      message.error('Failed to load series');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiCall, selectedCategoryId, categoryType]);
+    const id = selectedCategoryId;
+    if (!id) return;
+    await runTreeFetch('series', id, `${getApiPrefix(categoryType)}/categories/${id}/series`,
+      d => setSeriesList(Array.isArray(d) ? d as Series[] : []), 'Could not load the series.');
+  }, [runTreeFetch, selectedCategoryId, categoryType]);
 
-  // ── Fetch series detail ──
   const fetchSeriesDetail = useCallback(async () => {
-    if (!selectedSeriesId) return;
-    setLoading(true);
-    try {
-      const prefix = getApiPrefix(categoryType);
-      const resp = await apiCall(`${prefix}/series/${selectedSeriesId}`);
-      if (resp.ok) {
-        const data = await resp.json();
-        // Parse cefr_thresholds if string
-        if (typeof data.cefr_thresholds === 'string') {
-          data.cefr_thresholds = JSON.parse(data.cefr_thresholds);
-        }
-        setSeriesDetail(data);
-      } else {
-        message.error('Failed to load series detail');
-      }
-    } catch {
-      message.error('Failed to load series detail');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiCall, selectedSeriesId, categoryType]);
+    const id = selectedSeriesId;
+    if (!id) return;
+    await runTreeFetch('series-detail', id, `${getApiPrefix(categoryType)}/series/${id}`,
+      d => {
+        const data = d as SeriesDetail & { cefr_thresholds: unknown };
+        if (typeof data.cefr_thresholds === 'string') data.cefr_thresholds = JSON.parse(data.cefr_thresholds);
+        setSeriesDetail(data as SeriesDetail);
+      }, 'Could not load the series.');
+  }, [runTreeFetch, selectedSeriesId, categoryType]);
 
-  // ── Fetch EE years ──
   const fetchEeYears = useCallback(async () => {
-    if (!selectedCategoryId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/ee/categories/${selectedCategoryId}/years`);
-      if (resp.ok) {
-        setEeYears(await resp.json());
-      } else {
-        message.error('Failed to load years');
-      }
-    } catch {
-      message.error('Failed to load years');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiCall, selectedCategoryId]);
+    const id = selectedCategoryId;
+    if (!id) return;
+    await runTreeFetch('ee-years', id, `/tcf/ee/categories/${id}/years`,
+      d => setEeYears(Array.isArray(d) ? d as EeYear[] : []), 'Could not load the years.');
+  }, [runTreeFetch, selectedCategoryId]);
 
-  // ── Fetch EE months ──
   const fetchEeMonths = useCallback(async () => {
-    if (!selectedEeYearId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/ee/years/${selectedEeYearId}/months`);
-      if (resp.ok) {
-        setEeMonths(await resp.json());
-      } else {
-        message.error('Failed to load months');
-      }
-    } catch {
-      message.error('Failed to load months');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiCall, selectedEeYearId]);
+    const id = selectedEeYearId;
+    if (!id) return;
+    await runTreeFetch('ee-months', id, `/tcf/ee/years/${id}/months`,
+      d => setEeMonths(Array.isArray(d) ? d as EeMonth[] : []), 'Could not load the months.');
+  }, [runTreeFetch, selectedEeYearId]);
 
-  // ── Fetch EE combinaisons ──
   const fetchEeCombinaisons = useCallback(async () => {
-    if (!selectedEeMonthId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/ee/months/${selectedEeMonthId}/combinaisons`);
-      if (resp.ok) {
-        setEeCombinaisons(await resp.json());
-      } else {
-        message.error('Failed to load combinaisons');
-      }
-    } catch {
-      message.error('Failed to load combinaisons');
-    } finally {
-      setLoading(false);
-    }
-  }, [apiCall, selectedEeMonthId]);
+    const id = selectedEeMonthId;
+    if (!id) return;
+    await runTreeFetch('ee-combs', id, `/tcf/ee/months/${id}/combinaisons`,
+      d => setEeCombinaisons(Array.isArray(d) ? d as EeCombinaison[] : []), 'Could not load the combinaisons.');
+  }, [runTreeFetch, selectedEeMonthId]);
 
-  // Load data based on view
+  const fetchEoYears = useCallback(async () => {
+    const id = selectedCategoryId;
+    if (!id) return;
+    await runTreeFetch('eo-years', id, `/tcf/eo/categories/${id}/years`,
+      d => setEoYears(Array.isArray(d) ? d as EoYear[] : []), 'Could not load the years.');
+  }, [runTreeFetch, selectedCategoryId]);
+
+  const fetchEoMonths = useCallback(async () => {
+    const id = selectedEoYearId;
+    if (!id) return;
+    await runTreeFetch('eo-months', id, `/tcf/eo/years/${id}/months`,
+      d => setEoMonths(Array.isArray(d) ? d as EoMonth[] : []), 'Could not load the months.');
+  }, [runTreeFetch, selectedEoYearId]);
+
+  const fetchEoParties = useCallback(async () => {
+    const id = selectedEoMonthId;
+    if (!id) return;
+    await runTreeFetch('eo-parties', id, `/tcf/eo/months/${id}/parties`,
+      d => setEoParties(Array.isArray(d) ? d as EoPartie[] : []), 'Could not load the parties.');
+  }, [runTreeFetch, selectedEoMonthId]);
+
+  // The skills, the series list and the open series refresh on every visit: their counts change
+  // as content is edited deeper in the tree. Cached data stays on screen while they refresh.
   useEffect(() => {
     if (view === 'categories') fetchCategories();
   }, [view, fetchCategories]);
@@ -3846,62 +3609,32 @@ const ExamPreparation: React.FC = () => {
     if (view === 'series-detail' && selectedSeriesId) fetchSeriesDetail();
   }, [view, selectedSeriesId, fetchSeriesDetail]);
 
+  // The tree levels load once per parent: a 'loading' entry is written before the request goes out,
+  // so these never fire twice, and returning to a level you already opened is instant.
   useEffect(() => {
-    if (view === 'ee-years' && selectedCategoryId) fetchEeYears();
-  }, [view, selectedCategoryId, fetchEeYears]);
-
-  useEffect(() => {
-    if (view === 'ee-months' && selectedEeYearId) fetchEeMonths();
-  }, [view, selectedEeYearId, fetchEeMonths]);
+    if (view === 'ee-years' && selectedCategoryId && treeState['ee-years']?.key !== selectedCategoryId) fetchEeYears();
+  }, [view, selectedCategoryId, treeState, fetchEeYears]);
 
   useEffect(() => {
-    if (view === 'ee-combinaisons' && selectedEeMonthId) fetchEeCombinaisons();
-  }, [view, selectedEeMonthId, fetchEeCombinaisons]);
-
-  // ── Fetch EO years ──
-  const fetchEoYears = useCallback(async () => {
-    if (!selectedCategoryId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/eo/categories/${selectedCategoryId}/years`);
-      if (resp.ok) setEoYears(await resp.json());
-      else message.error('Failed to load years');
-    } catch { message.error('Failed to load years'); } finally { setLoading(false); }
-  }, [apiCall, selectedCategoryId]);
-
-  // ── Fetch EO months ──
-  const fetchEoMonths = useCallback(async () => {
-    if (!selectedEoYearId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/eo/years/${selectedEoYearId}/months`);
-      if (resp.ok) setEoMonths(await resp.json());
-      else message.error('Failed to load months');
-    } catch { message.error('Failed to load months'); } finally { setLoading(false); }
-  }, [apiCall, selectedEoYearId]);
-
-  // ── Fetch EO parties ──
-  const fetchEoParties = useCallback(async () => {
-    if (!selectedEoMonthId) return;
-    setLoading(true);
-    try {
-      const resp = await apiCall(`/tcf/eo/months/${selectedEoMonthId}/parties`);
-      if (resp.ok) setEoParties(await resp.json());
-      else message.error('Failed to load parties');
-    } catch { message.error('Failed to load parties'); } finally { setLoading(false); }
-  }, [apiCall, selectedEoMonthId]);
+    if (view === 'ee-months' && selectedEeYearId && treeState['ee-months']?.key !== selectedEeYearId) fetchEeMonths();
+  }, [view, selectedEeYearId, treeState, fetchEeMonths]);
 
   useEffect(() => {
-    if (view === 'eo-years' && selectedCategoryId) fetchEoYears();
-  }, [view, selectedCategoryId, fetchEoYears]);
+    if (view === 'ee-combinaisons' && selectedEeMonthId && treeState['ee-combs']?.key !== selectedEeMonthId) fetchEeCombinaisons();
+  }, [view, selectedEeMonthId, treeState, fetchEeCombinaisons]);
 
   useEffect(() => {
-    if (view === 'eo-months' && selectedEoYearId) fetchEoMonths();
-  }, [view, selectedEoYearId, fetchEoMonths]);
+    if (view === 'eo-years' && selectedCategoryId && treeState['eo-years']?.key !== selectedCategoryId) fetchEoYears();
+  }, [view, selectedCategoryId, treeState, fetchEoYears]);
 
   useEffect(() => {
-    if ((view === 'eo-parties' || view === 'eo-partie-detail') && selectedEoMonthId) fetchEoParties();
-  }, [view, selectedEoMonthId, fetchEoParties]);
+    if (view === 'eo-months' && selectedEoYearId && treeState['eo-months']?.key !== selectedEoYearId) fetchEoMonths();
+  }, [view, selectedEoYearId, treeState, fetchEoMonths]);
+
+  useEffect(() => {
+    // Opening one partie does not re-load the whole month.
+    if ((view === 'eo-parties' || view === 'eo-partie-detail') && selectedEoMonthId && treeState['eo-parties']?.key !== selectedEoMonthId) fetchEoParties();
+  }, [view, selectedEoMonthId, treeState, fetchEoParties]);
 
   // ── Navigation helpers ──
   const navigateToSeriesList = (category: Category) => {
@@ -3914,6 +3647,12 @@ const ExamPreparation: React.FC = () => {
     setSelectedCategoryName(category.name);
     setCategoryType(catType);
     setSearchText('');
+    // The lists are kept: each one is validated against the parent it was loaded for, so a
+    // list belonging to another skill renders a skeleton and reloads instead of showing stale rows.
+    setSelectedEeYearId(null); setSelectedEeYear(null); setSelectedEeMonthId(null); setSelectedEeMonthName('');
+    setSelectedEoYearId(null); setSelectedEoYear(null); setSelectedEoMonthId(null); setSelectedEoMonthName('');
+    setViewingCombinaison(null); setViewingPartie(null);
+    setCombQuery(''); setPartieQuery('');
     if (catType === 'ee') {
       setView('ee-years');
     } else if (catType === 'eo') {
@@ -3942,19 +3681,16 @@ const ExamPreparation: React.FC = () => {
     } else if (view === 'ee-combinaisons') {
       setSelectedEeMonthId(null);
       setSelectedEeMonthName('');
-      setEeCombinaisons([]);
       setCorrectionVisible({});
       setView('ee-months');
     } else if (view === 'ee-months') {
       setSelectedEeYearId(null);
       setSelectedEeYear(null);
-      setEeMonths([]);
       setView('ee-years');
     } else if (view === 'ee-years') {
       setSelectedCategoryId(null);
       setSelectedCategoryName('');
       setCategoryType('ce');
-      setEeYears([]);
       setView('categories');
     } else if (view === 'eo-partie-detail') {
       setViewingPartie(null);
@@ -3963,18 +3699,15 @@ const ExamPreparation: React.FC = () => {
     } else if (view === 'eo-parties') {
       setSelectedEoMonthId(null);
       setSelectedEoMonthName('');
-      setEoParties([]);
       setView('eo-months');
     } else if (view === 'eo-months') {
       setSelectedEoYearId(null);
       setSelectedEoYear(null);
-      setEoMonths([]);
       setView('eo-years');
     } else if (view === 'eo-years') {
       setSelectedCategoryId(null);
       setSelectedCategoryName('');
       setCategoryType('ce');
-      setEoYears([]);
       setView('categories');
     }
   };
@@ -4034,44 +3767,35 @@ const ExamPreparation: React.FC = () => {
     });
   };
 
+  // Swap two neighbouring questions on screen right away, then save only those two rows.
   const handleMoveQuestion = async (questionId: number, direction: 'up' | 'down') => {
     if (!seriesDetail) return;
-    const questions = [...seriesDetail.questions];
+    const questions = [...seriesDetail.questions].sort((a, b) => a.question_order - b.question_order);
     const idx = questions.findIndex(q => q.id === questionId);
-    if (idx < 0) return;
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= questions.length) return;
-
-    // Swap order values
-    const newOrder = questions.map((q, i) => {
-      if (i === idx) return { id: q.id, question_order: questions[swapIdx].question_order };
-      if (i === swapIdx) return { id: q.id, question_order: questions[idx].question_order };
-      return { id: q.id, question_order: q.question_order };
+    if (idx < 0 || swapIdx < 0 || swapIdx >= questions.length) return;
+    const a = questions[idx];
+    const b = questions[swapIdx];
+    const previous = seriesDetail;
+    setSeriesDetail({
+      ...seriesDetail,
+      questions: questions
+        .map(q => (q.id === a.id ? { ...q, question_order: b.question_order } : q.id === b.id ? { ...q, question_order: a.question_order } : q))
+        .sort((x, y) => x.question_order - y.question_order),
     });
-
     try {
       const prefix = getApiPrefix(categoryType);
       const resp = await apiCall(`${prefix}/series/${seriesDetail.id}/questions/reorder`, {
         method: 'PUT',
-        body: JSON.stringify({ questions: newOrder }),
+        body: JSON.stringify({ questions: [{ id: a.id, question_order: b.question_order }, { id: b.id, question_order: a.question_order }] }),
       });
-      if (resp.ok) {
-        fetchSeriesDetail();
-      } else {
-        message.error('Failed to reorder');
-      }
+      if (!resp.ok) throw new Error();
     } catch {
-      message.error('Failed to reorder');
+      setSeriesDetail(previous);
+      message.error('The new order could not be saved.');
     }
   };
 
-  // ── Assignment helpers ──
-  const openAssignModal = (type: 'series' | 'category', id: number, name: string) => {
-    setAssignType(type);
-    setAssignId(id);
-    setAssignName(name);
-    setAssignModalOpen(true);
-  };
 
   // ── Filtered series ──
   const filteredSeries = useMemo(() => {
@@ -4093,256 +3817,169 @@ const ExamPreparation: React.FC = () => {
   // RENDER: Categories View
   // ════════════════════════════════════════════════════════════
   const renderCategoriesView = () => {
-    if (loading && categories.length === 0) {
+    const groups = assignGroups || [];
+    const active = groups.filter(g => !g.is_expired);
+    const now = Date.now();
+    const expiringSoon = active.filter(g => g.expires_at && new Date(g.expires_at).getTime() - now < 7 * 86_400_000).length;
+    const reached = new Set(active.flatMap(g => g.recipients.map(r => r.key)));
+    const studentsReached = Array.from(reached).filter(k => k.startsWith('student:')).length;
+    const batchesReached = reached.size - studentsReached;
+    const contentTotal = categories.reduce((t, c) => t + (Number(c.series_count) || 0), 0);
+    const activeFor = (fam: string) => active.filter(g => g.items.some(i => (i.content_type === 'category' ? familyOfCategory(i.content_name) : i.content_type.slice(0, 2)) === fam)).length;
+    const openAssign = (tab: 'new' | 'list') => openExamAssign(tab);
+    const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const createCategory = () => { setEditingCategory(null); setCategoryModalOpen(true); };
+
+    const listView = treeViewOf('categories', 0);
+    if (listView === 'error' && categories.length === 0) {
+      return <div className="ep"><TreeError what="skills" onRetry={fetchCategories} /></div>;
+    }
+    if (listView === 'skeleton' && categories.length === 0) {
       return (
-        <div>
-          <Skeleton.Button active style={{ height: 140, borderRadius: 16, width: '100%', marginBottom: 24 }} block />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
-            {[1, 2, 3, 4].map(i => (
-              <Skeleton.Button key={i} active style={{ height: 200, borderRadius: 16, width: '100%' }} block />
-            ))}
-          </div>
+        <div className="ep" aria-busy="true">
+          <div className="ep-header"><div><Skeleton.Input active size="small" style={{ width: 150, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 260, height: 26 }} /></div></div></div>
+          <div className="ep-kpis">{[0, 1, 2, 3].map(i => <div key={i} className="ep-kpi"><Skeleton active avatar={{ shape: 'square' }} title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+          <div className="ep-cats">{[0, 1, 2, 3].map(i => <div key={i} className="ep-cat"><Skeleton active paragraph={{ rows: 4 }} /></div>)}</div>
         </div>
       );
     }
 
     return (
-      <div>
-        {/* Gradient Hero Banner */}
-        <div
-          style={{
-            background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
-            borderRadius: 16,
-            padding: '32px 36px',
-            marginBottom: 28,
-            position: 'relative',
-            overflow: 'hidden',
-          }}
-        >
-          {/* Decorative circles */}
-          <div style={{
-            position: 'absolute', top: -30, right: -30, width: 120, height: 120,
-            borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
-          }} />
-          <div style={{
-            position: 'absolute', bottom: -20, right: 80, width: 80, height: 80,
-            borderRadius: '50%', background: 'rgba(255,255,255,0.06)',
-          }} />
-          <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-            <div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', letterSpacing: -0.3, marginBottom: 6 }}>
-                🇨🇦 TCF Canada Exam Preparation
-              </div>
-              <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>
-                Manage exam categories, series, and questions for your students
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={() => setExamAssignModalOpen(true)}
-                style={{
-                  borderRadius: 10, height: 42, fontWeight: 600, fontSize: 14,
-                  background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                  border: 'none',
-                  boxShadow: '0 2px 8px rgba(34,197,94,0.3)',
-                }}
-              >
-                Assign
-              </Button>
-              <Button
-                type="primary"
-                icon={<ThunderboltOutlined />}
-                onClick={() => setGrantCreditsModalOpen(true)}
-                style={{
-                  borderRadius: 10, height: 42, fontWeight: 600, fontSize: 14,
-                  background: 'linear-gradient(135deg, #0ea5e9, #0284c7)',
-                  border: 'none',
-                  boxShadow: '0 2px 8px rgba(14,165,233,0.35)',
-                }}
-              >
-                Grant Credits
-              </Button>
-              <Button
-                type="primary"
-                icon={<BarChartOutlined />}
-                onClick={() => setView('student-results')}
-                style={{
-                  borderRadius: 10, height: 42, fontWeight: 600, fontSize: 14,
-                  background: 'linear-gradient(135deg, #ec4899, #db2777)',
-                  border: 'none',
-                  boxShadow: '0 2px 8px rgba(236,72,153,0.35)',
-                }}
-              >
-                Student Results
-              </Button>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => { setEditingCategory(null); setCategoryModalOpen(true); }}
-                style={{
-                  borderRadius: 10, height: 42, fontWeight: 600, fontSize: 14,
-                  background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-                }}
-              >
-                Create Category
-              </Button>
-            </div>
+      <div className="ep">
+        {/* ── Header ── */}
+        <header className="ep-header">
+          <div>
+            <div className="ep-overline">Admin console · Exam preparation</div>
+            <h1 className="ep-title">TCF Canada preparation</h1>
+            <p className="ep-subtitle">Build practice content for the four TCF skills, give students access to it, and follow their results.</p>
           </div>
+          <div className="ep-actions">
+            <Button icon={<BarChartOutlined />} onClick={() => setView('student-results')}>Student results</Button>
+            <Button icon={<ThunderboltOutlined />} onClick={() => setGrantCreditsModalOpen(true)}>AI credits</Button>
+            <Button type="primary" icon={<SendOutlined />} onClick={() => openAssign('new')}>Assign content</Button>
+          </div>
+        </header>
+
+        {/* ── KPIs ── */}
+        <section className="ep-kpis" aria-label="Overview">
+          <button type="button" className="ep-kpi" onClick={() => openAssign('list')}>
+            <span className="ep-kpi-ic"><SendOutlined /></span>
+            <span className="ep-kpi-text"><span>Active assignments</span><strong>{assignGroups ? active.length : '–'}</strong><em>{assignGroups ? `${groups.length - active.length} expired · manage all` : 'Loading…'}</em></span>
+          </button>
+          <div className="ep-kpi is-green">
+            <span className="ep-kpi-ic"><TeamOutlined /></span>
+            <span className="ep-kpi-text"><span>Students with access</span><strong>{assignGroups ? studentsReached : '–'}</strong><em>{assignGroups ? `+ ${batchesReached} ${batchesReached === 1 ? 'batch' : 'batches'}` : 'Loading…'}</em></span>
+          </div>
+          <div className="ep-kpi is-amber">
+            <span className="ep-kpi-ic"><ClockCircleOutlined /></span>
+            <span className="ep-kpi-text"><span>Ending this week</span><strong>{assignGroups ? expiringSoon : '–'}</strong><em>assignments that lock within 7 days</em></span>
+          </div>
+          <div className="ep-kpi is-slate">
+            <span className="ep-kpi-ic"><AppstoreOutlined /></span>
+            <span className="ep-kpi-text"><span>Practice content</span><strong>{contentTotal}</strong><em>series and years across {categories.length} {categories.length === 1 ? 'skill' : 'skills'}</em></span>
+          </div>
+        </section>
+
+        {/* ── Skills ── */}
+        <div className="ep-section-head">
+          <div>
+            <h2>Skills</h2>
+            <p>Open a skill to manage its series, years, months and tasks.</p>
+          </div>
+          <Button type="text" icon={<PlusOutlined />} onClick={createCategory}>New category</Button>
         </div>
 
-        {/* Category Cards Grid */}
         {categories.length === 0 ? (
-          <div style={{
-            textAlign: 'center', padding: '60px 20px',
-            background: '#fafbff', borderRadius: 16, border: '2px dashed #e0e7ff',
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📚</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
-              No categories yet
+          <div className="ep-card">
+            <div className="ea-state">
+              <BookOutlined />
+              <strong>No categories yet</strong>
+              <span>Create the first TCF skill to start building practice content.</span>
+              <Button type="primary" icon={<PlusOutlined />} onClick={createCategory}>Create category</Button>
             </div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20, maxWidth: 360, margin: '0 auto 20px' }}>
-              Create your first exam category to start building TCF Canada preparation content
-            </div>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => { setEditingCategory(null); setCategoryModalOpen(true); }}
-              style={{ borderRadius: 10, height: 40, fontWeight: 600, background: '#4338ca', borderColor: '#4338ca' }}
-            >
-              Create First Category
-            </Button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20 }}>
+          <div className="ep-cats">
             {categories.map(cat => {
-              const iconNode = ICON_MAP[cat.icon || ''] || <BookOutlined />;
-              const isImplemented = IMPLEMENTED_CATEGORIES.includes(cat.name);
+              const fam = familyOfCategory(cat.name);
+              const implemented = IMPLEMENTED_CATEGORIES.includes(cat.name);
+              const primary = Number(cat.series_count) || 0;
+              const isYears = fam === 'ee' || fam === 'eo';
+              const secondary = isYears ? Number(cat.sub_count) || 0 : Number(cat.question_count) || 0;
+              const secondaryLabel = fam === 'ee' ? 'combinaisons' : fam === 'eo' ? 'parties' : 'questions';
+              const liveFor = activeFor(fam);
+              const open = () => implemented && navigateToSeriesList(cat);
               return (
-                <Card
-                  key={cat.id}
-                  hoverable
-                  onClick={() => navigateToSeriesList(cat)}
-                  style={{
-                    borderRadius: 16,
-                    border: '1px solid #e8e8f4',
-                    boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
-                    cursor: 'pointer',
-                    transition: 'all 0.25s ease',
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}
-                  bodyStyle={{ padding: 24 }}
-                  className="exam-category-card"
-                >
-                  <style>{`
-                    .exam-category-card:hover {
-                      transform: translateY(-4px) scale(1.01) !important;
-                      box-shadow: 0 8px 30px rgba(99,102,241,0.15) !important;
-                      border-color: #c7d2fe !important;
-                    }
-                  `}</style>
-                  {/* Actions dropdown */}
-                  <div
-                    style={{ position: 'absolute', top: 12, right: 12, zIndex: 2 }}
-                    onClick={e => e.stopPropagation()}
-                  >
-                    <Dropdown
-                      menu={{
+                <article key={cat.id} className={`ep-cat fam-${fam}${implemented ? '' : ' is-soon'}`} role="button" tabIndex={0}
+                  onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }} aria-label={`Open ${cat.name}`}>
+                  <div className="ep-cat-top">
+                    <span className="ep-cat-ic">{ICON_MAP[cat.icon || ''] || <BookOutlined />}</span>
+                    <span className="ep-cat-code">{FAMILY_CODE[fam]}</span>
+                    <span className="ep-cat-menu" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                      <Dropdown trigger={['click']} menu={{
                         items: [
+                          { key: 'edit', icon: <EditOutlined />, label: 'Edit details', onClick: () => { setEditingCategory(cat); setCategoryModalOpen(true); } },
+                          ...(fam === 'co' ? [{ key: 'analytics', icon: <BarChartOutlined />, label: 'Listening analytics', onClick: () => setCoAnalyticsOpen(true) }] : []),
+                          { type: 'divider' as const },
                           {
-                            key: 'edit',
-                            icon: <EditOutlined />,
-                            label: 'Edit',
-                            onClick: () => { setEditingCategory(cat); setCategoryModalOpen(true); },
-                          },
-                          { type: 'divider' },
-                          ...(cat.name === 'Compréhension Orale' ? [{
-                            key: 'analytics',
-                            icon: React.createElement(BarChartOutlined || SearchOutlined),
-                            label: 'Analytics',
-                            onClick: () => setCoAnalyticsOpen(true),
-                          }, { type: 'divider' as const }] : []),
-                          {
-                            key: 'delete',
-                            icon: <DeleteOutlined />,
-                            label: 'Delete',
-                            danger: true,
-                            onClick: () => {
-                              Modal.confirm({
-                                title: 'Delete Category',
-                                content: `Delete "${cat.name}" and all its series, questions, and assignments?`,
-                                okText: 'Delete',
-                                okType: 'danger',
-                                onOk: () => handleDeleteCategory(cat.id),
-                              });
-                            },
+                            key: 'delete', icon: <DeleteOutlined />, label: 'Delete category', danger: true,
+                            onClick: () => Modal.confirm({
+                              title: `Delete “${cat.name}”?`,
+                              content: 'Every series, year, question and assignment inside it is deleted too. This can’t be undone.',
+                              okText: 'Delete category', okButtonProps: { danger: true },
+                              onOk: () => handleDeleteCategory(cat.id),
+                            }),
                           },
                         ],
-                      }}
-                      trigger={['click']}
-                    >
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<MoreOutlined />}
-                        style={{ borderRadius: 8, background: 'rgba(0,0,0,0.04)' }}
-                      />
-                    </Dropdown>
+                      }}>
+                        <Button type="text" size="small" icon={<MoreOutlined />} aria-label={`Actions for ${cat.name}`} />
+                      </Dropdown>
+                    </span>
                   </div>
-
-                  {/* Icon with gradient background */}
-                  <div
-                    style={{
-                      width: 56, height: 56, borderRadius: 16,
-                      background: 'linear-gradient(135deg, #6366f1, #4338ca)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 24, color: '#fff', marginBottom: 16,
-                      boxShadow: '0 4px 12px rgba(99,102,241,0.3)',
-                    }}
-                  >
-                    {iconNode}
+                  <h3>{cat.name}</h3>
+                  <p>{cat.description || 'No description yet.'}</p>
+                  <div className="ep-cat-stats">
+                    <div><strong>{primary}</strong><span>{isYears ? (primary === 1 ? 'year' : 'years') : 'series'}</span></div>
+                    <div><strong>{secondary.toLocaleString('en-US')}</strong><span>{secondaryLabel}</span></div>
                   </div>
-
-                  {/* Name */}
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>
-                    {cat.name}
+                  <div className="ep-cat-foot">
+                    {implemented ? <span className="ep-open">Open <RightOutlined /></span> : <span className="ep-soon">Coming soon</span>}
+                    {assignGroups && <span className="ep-cat-reach">{liveFor ? `${liveFor} active ${liveFor === 1 ? 'assignment' : 'assignments'}` : 'Not assigned'}</span>}
                   </div>
-
-                  {/* Description */}
-                  <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 16, minHeight: 20 }}>
-                    {cat.description || 'No description'}
-                  </div>
-
-                  {/* Footer */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div
-                      style={{
-                        background: '#eef2ff', color: '#4338ca', border: 'none',
-                        fontWeight: 700, fontSize: 12, borderRadius: 20,
-                        padding: '4px 12px', display: 'inline-flex', alignItems: 'center', gap: 4,
-                      }}
-                    >
-                      <span style={{ fontSize: 16, fontWeight: 800 }}>{cat.series_count}</span>
-                      <span>
-                        {['Expression Écrite', 'Expression Orale'].includes(cat.name) 
-                          ? (cat.series_count === 1 ? 'year' : 'years') 
-                          : (cat.series_count === 1 ? 'series' : 'series')}
-                      </span>
-                    </div>
-                    {!isImplemented && (
-                      <Tag style={{ background: '#fef3c7', color: '#b45309', border: 'none', fontWeight: 600, fontSize: 11, borderRadius: 6 }}>
-                        Coming soon
-                      </Tag>
-                    )}
-                  </div>
-                </Card>
+                </article>
               );
             })}
           </div>
         )}
+
+        {/* ── Recent assignments ── */}
+        <section className="ep-card">
+          <div className="ep-card-head">
+            <span className="ep-card-title"><span className="ep-card-ic"><SendOutlined /></span>Recent assignments</span>
+            <button type="button" className="ep-link" onClick={() => openAssign('list')}>Manage all</button>
+          </div>
+          {!assignGroups ? (
+            <div style={{ padding: 16 }}><Skeleton active title={false} paragraph={{ rows: 3 }} /></div>
+          ) : groups.length === 0 ? (
+            <div className="ep-empty-line">Nothing assigned yet — use “Assign content” to give students access.</div>
+          ) : (
+            <ul className="ep-recent">
+              {groups.slice(0, 6).map(g => (
+                <li key={g.group_id}>
+                  <span className="ep-recent-name">
+                    <strong title={g.group_name}>{g.group_name}</strong>
+                    <em>{g.items.length} {g.items.length === 1 ? 'item' : 'items'} · assigned {shortDate(g.assigned_at)}{g.expires_at ? ` · until ${shortDate(g.expires_at)}` : ''}</em>
+                  </span>
+                  <span className="ep-recent-who">
+                    {g.recipients[0]?.type === 'batch' ? <TeamOutlined /> : <UserOutlined />}
+                    {g.recipients.slice(0, 2).map(r => r.name).join(', ')}{g.recipients.length > 2 ? ` +${g.recipients.length - 2}` : ''}
+                  </span>
+                  <span className={`ea-pill ${g.is_expired ? 'is-expired' : 'is-active'}`}>{g.is_expired ? 'Expired' : 'Active'}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     );
   };
@@ -4352,210 +3989,146 @@ const ExamPreparation: React.FC = () => {
   // RENDER: Series List View
   // ════════════════════════════════════════════════════════════
   const renderSeriesListView = () => {
-    if (loading && seriesList.length === 0) {
+    const fam = familyOfCategory(selectedCategoryName);
+    const isCo = categoryType === 'co';
+    const createSeries = () => { setEditingSeries(null); setSeriesModalOpen(true); };
+
+    const listView = treeViewOf('series', selectedCategoryId);
+    if (listView === 'error') {
+      return <div className="ep"><TreeError what="series" onRetry={fetchSeriesList} /></div>;
+    }
+    if (listView === 'skeleton') {
       return (
-        <div>
-          <Skeleton.Input active style={{ width: 300, height: 20, borderRadius: 6, marginBottom: 20 }} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 20 }}>
-            <Skeleton.Input active style={{ width: 200, height: 36, borderRadius: 8 }} />
-            <Skeleton.Button active style={{ width: 140, height: 36, borderRadius: 8 }} />
-          </div>
-          <Skeleton.Button active style={{ height: 64, borderRadius: 12, width: '100%', marginBottom: 20 }} block />
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-            {[1, 2, 3].map(i => (
-              <Skeleton.Button key={i} active style={{ height: 200, borderRadius: 16, width: '100%' }} block />
-            ))}
-          </div>
+        <div className="ep" aria-busy="true">
+          <Skeleton.Input active size="small" style={{ width: 240, height: 14 }} />
+          <div className="ep-header"><Skeleton.Input active style={{ width: 300, height: 30 }} /></div>
+          <div className="ep-card" style={{ padding: 16 }}><Skeleton active paragraph={{ rows: 8 }} /></div>
         </div>
       );
     }
 
-    // Stats removed — series count shown in header subtitle
+    const numOf = (name: string) => parseInt((name.match(/\d+/) || ['0'])[0], 10);
+    const qCount = (s: Series) => Number(s.total_questions) || 0;
+    // "Typical" size of a series = the most common question count; smaller series are flagged.
+    const freq = new Map<number, number>();
+    seriesList.forEach(s => { const c = qCount(s); if (c) freq.set(c, (freq.get(c) || 0) + 1); });
+    const typical = Array.from(freq.entries()).sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]?.[0] || 0;
+    const short = seriesList.filter(s => typical > 0 && qCount(s) < typical);
+    const shortIds = new Set(short.map(s => s.id));
+    const totalQuestions = seriesList.reduce((t, s) => t + qCount(s), 0);
+    const withIntro = seriesList.filter(s => s.intro_audio_kdrive_file_id).length;
+    const sorted = [...filteredSeries].sort((a, b) =>
+      seriesSort === 'newest' ? new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        : seriesSort === 'questions' ? qCount(a) - qCount(b) || numOf(a.name) - numOf(b.name)
+          : numOf(a.name) - numOf(b.name) || a.name.localeCompare(b.name));
+    const seriesType = isCo ? 'co_series' : 'ce_series';
 
     return (
-      <div>
-        {/* Breadcrumb */}
-        <Breadcrumb
-          style={{ marginBottom: 20, fontSize: 13 }}
-          items={[
-            {
-              title: (
-                <a
-                  onClick={() => navigateBack()}
-                  style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}
-                >
-                  📋 Exam Preparation
-                </a>
-              ),
-            },
-            { title: <span style={{ color: '#475569', fontWeight: 600 }}>{selectedCategoryName}</span> },
-          ]}
-        />
+      <div className={`ep fam-${fam}`}>
+        <nav className="ep-crumbs" aria-label="Breadcrumb">
+          <button type="button" onClick={navigateBack}>Exam preparation</button>
+          <RightOutlined />
+          <span>{selectedCategoryName}</span>
+        </nav>
 
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={navigateBack}
-              style={{ borderRadius: 10, border: '1px solid #e0e7ff', color: '#4338ca' }}
-            />
+        <header className="ep-header">
+          <div className="sl-title">
+            <button type="button" className="ep-back" onClick={navigateBack} aria-label="Back to exam preparation"><ArrowLeftOutlined /></button>
+            <span className="ep-cat-ic">{isCo ? <SoundOutlined /> : <ReadOutlined />}</span>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-                {selectedCategoryName}
-              </div>
-              <Text style={{ fontSize: 12, color: '#94a3b8' }}>
-                {filteredSeries.length} of {seriesList.length} series
-              </Text>
+              <h1 className="ep-title">{selectedCategoryName}</h1>
+              <p className="ep-subtitle">
+                {seriesList.length} {seriesList.length === 1 ? 'series' : 'series'} · {totalQuestions.toLocaleString('en-US')} questions
+                {isCo ? ` · ${withIntro} with intro audio` : ''}
+              </p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <Input
-              placeholder="Search series..."
-              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              allowClear
-              style={{ width: 220, borderRadius: 8, border: '1px solid #e0e7ff' }}
-            />
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => { setEditingSeries(null); setSeriesModalOpen(true); }}
-              style={{
-                borderRadius: 10, height: 36, fontWeight: 600,
-                background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-                border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-              }}
-            >
-              Create Series
-            </Button>
-            {categoryType === 'co' && (
-              <Button
-                icon={<FolderOpenOutlined />}
-                onClick={() => setImportModalOpen(true)}
-                style={{
-                  borderRadius: 10, height: 36, fontWeight: 600,
-                  border: '1px solid #c7d2fe', color: '#4338ca',
-                  background: '#f8f9ff',
-                }}
-              >
-                📁 Import from Folder
-              </Button>
-            )}
-            {categoryType === 'ce' && (
-              <Button
-                icon={<FolderOpenOutlined />}
-                onClick={() => setCeImportModalOpen(true)}
-                style={{
-                  borderRadius: 10, height: 36, fontWeight: 600,
-                  border: '1px solid #14b8a6', color: '#0f766e',
-                  background: '#f0fdfa',
-                }}
-              >
-                JSON Bulk Import
-              </Button>
-            )}
+          <div className="ep-actions">
+            {isCo && <Button icon={<FolderOpenOutlined />} onClick={() => setImportModalOpen(true)}>Import from folder</Button>}
+            {categoryType === 'ce' && <Button icon={<UploadOutlined />} onClick={() => setCeImportModalOpen(true)}>Import JSON</Button>}
+            <Button type="primary" icon={<PlusOutlined />} onClick={createSeries}>New series</Button>
           </div>
-        </div>
+        </header>
 
-        {/* Series Cards */}
-        {filteredSeries.length === 0 ? (
-          <div style={{
-            textAlign: 'center', padding: '60px 20px',
-            background: '#fafbff', borderRadius: 16, border: '2px dashed #e0e7ff',
-          }}>
-            <div style={{
-              width: 72, height: 72, borderRadius: 20, margin: '0 auto 20px',
-              background: 'linear-gradient(135deg, #eef2ff, #e0e7ff)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 32, color: '#6366f1',
-            }}>
-              <FileTextOutlined />
-            </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>
-              {searchText ? 'No series match your search' : 'No series yet'}
-            </div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 24, maxWidth: 360, margin: '0 auto 24px' }}>
-              {searchText
-                ? 'Try adjusting your search terms'
-                : 'Create your first series to start adding questions and building exams'}
-            </div>
-            {!searchText && (
-              <Button
-                type="primary"
-                size="large"
-                icon={<PlusOutlined />}
-                onClick={() => { setEditingSeries(null); setSeriesModalOpen(true); }}
-                style={{
-                  borderRadius: 10, fontWeight: 600, height: 44,
-                  background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-                  border: 'none', boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
-                }}
-              >
-                Create First Series
-              </Button>
-            )}
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-            {filteredSeries.map(series => (
-                <div
-                  key={series.id}
-                  onClick={() => navigateToSeriesDetail(series)}
-                  style={{
-                    borderRadius: 12,
-                    border: '1px solid #e8e8f4',
-                    borderLeft: '3px solid #6366f1',
-                    background: '#fff',
-                    padding: '12px 14px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(99,102,241,0.12)'; e.currentTarget.style.borderLeftColor = '#4338ca'; }}
-                  onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderLeftColor = '#6366f1'; }}
-                >
-                  {/* Left: name + stats */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {series.name}
-                      {series.intro_audio_kdrive_file_id && (
-                        <Tooltip title="Has introduction audio">
-                          <CustomerServiceOutlined style={{ fontSize: 12, color: '#6366f1', flexShrink: 0 }} />
-                        </Tooltip>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, fontSize: 11, color: '#94a3b8' }}>
-                      <span><span style={{ fontWeight: 700, color: '#4338ca' }}>{series.total_questions}</span> Q</span>
-                      <span><span style={{ fontWeight: 700, color: '#22c55e' }}>{series.total_points}</span> pts</span>
-                      <span><span style={{ fontWeight: 700, color: '#f59e0b' }}>{series.duration_minutes}</span> min</span>
-                    </div>
-                  </div>
-
-                  {/* Right: actions */}
-                  <div onClick={e => e.stopPropagation()}>
-                    <Dropdown
-                      menu={{
-                        items: [
-                          { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => { setEditingSeries(series); setSeriesModalOpen(true); } },
-                          { key: 'assign', icon: <SendOutlined />, label: 'Assign', onClick: () => openAssignModal('series', series.id, series.name) },
-                          { type: 'divider' },
-                          { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => { Modal.confirm({ title: 'Delete Series', content: `Delete "${series.name}"?`, okText: 'Delete', okType: 'danger', onOk: () => handleDeleteSeries(series.id) }); } },
-                        ],
-                      }}
-                      trigger={['click']}
-                    >
-                      <Button type="text" size="small" icon={<MoreOutlined />} style={{ borderRadius: 6, width: 28, height: 28 }} />
-                    </Dropdown>
-                  </div>
-                </div>
-            ))}
+        {short.length > 0 && (
+          <div className="sl-alert" role="note">
+            <WarningOutlined />
+            <span>
+              <strong>{short.length} {short.length === 1 ? 'series has' : 'series have'} fewer than {typical} questions</strong>
+              {' — '}{short.slice(0, 6).map(s => `${s.name} (${qCount(s)})`).join(', ')}{short.length > 6 ? '…' : ''}
+            </span>
           </div>
         )}
+
+        <section className="ep-card">
+          <div className="sl-toolbar">
+            <Input allowClear prefix={<SearchOutlined />} placeholder="Search series" value={searchText} onChange={e => setSearchText(e.target.value)} />
+            <Select value={seriesSort} onChange={setSeriesSort} aria-label="Sort series" options={[
+              { value: 'number', label: 'By number' },
+              { value: 'newest', label: 'Newest first' },
+              { value: 'questions', label: 'Fewest questions' },
+            ]} />
+            <span className="sl-legend" aria-hidden>
+              {CEFR_LEVELS.map(l => <span key={l}><i style={{ background: CEFR_COLORS[l] }} />{l}</span>)}
+            </span>
+          </div>
+
+          {sorted.length === 0 ? (
+            <div className="ea-state">
+              <FileTextOutlined />
+              <strong>{searchText ? 'No series match your search' : 'No series yet'}</strong>
+              <span>{searchText ? 'Try another name or number.' : 'Create the first series, then add its questions.'}</span>
+              {!searchText && <Button type="primary" icon={<PlusOutlined />} onClick={createSeries}>New series</Button>}
+            </div>
+          ) : (
+            <div className="sl-grid">
+              {sorted.map(s => {
+                const dist = s.cefr_distribution || ({} as CefrDistribution);
+                const num = numOf(s.name);
+                const warn = shortIds.has(s.id);
+                return (
+                  <article key={s.id} className={`sl-card${warn ? ' is-warn' : ''}`} role="button" tabIndex={0}
+                    onClick={() => navigateToSeriesDetail(s)} onKeyDown={e => { if (e.key === 'Enter') navigateToSeriesDetail(s); }}>
+                    <div className="sl-card-top">
+                      <span className="sl-num">{num || '–'}</span>
+                      <span className="sl-card-name">
+                        <strong title={s.name}>
+                          {s.name}
+                          {isCo && s.intro_audio_kdrive_file_id && <Tooltip title="Has an introduction audio"><CustomerServiceOutlined /></Tooltip>}
+                        </strong>
+                        <em><b>{qCount(s)}</b> questions · <b>{s.total_points}</b> pts · <b>{s.duration_minutes}</b> min</em>
+                      </span>
+                      {warn && <span className="sl-warn-tag">Short</span>}
+                      <span onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                        <Dropdown trigger={['click']} menu={{
+                          items: [
+                            { key: 'edit', icon: <EditOutlined />, label: 'Edit details', onClick: () => { setEditingSeries(s); setSeriesModalOpen(true); } },
+                            { key: 'assign', icon: <SendOutlined />, label: 'Assign…', onClick: () => openExamAssign('new', [{ content_type: seriesType, content_id: s.id }]) },
+                            { type: 'divider' },
+                            {
+                              key: 'delete', icon: <DeleteOutlined />, label: 'Delete series', danger: true,
+                              onClick: () => Modal.confirm({
+                                title: `Delete “${s.name}”?`,
+                                content: `Its ${qCount(s)} questions${isCo ? ' and their audio files' : ''} are deleted too. This can’t be undone.`,
+                                okText: 'Delete series', okButtonProps: { danger: true },
+                                onOk: () => handleDeleteSeries(s.id),
+                              }),
+                            },
+                          ],
+                        }}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} aria-label={`Actions for ${s.name}`} />
+                        </Dropdown>
+                      </span>
+                    </div>
+                    <div className="sl-cefr" title={CEFR_LEVELS.map(l => `${l}: ${dist[l] || 0}`).join(' · ')}>
+                      {CEFR_LEVELS.map(l => (dist[l] ? <span key={l} style={{ flex: dist[l], background: CEFR_COLORS[l] }} /> : null))}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     );
   };
@@ -4565,348 +4138,212 @@ const ExamPreparation: React.FC = () => {
   // RENDER: Series Detail View
   // ════════════════════════════════════════════════════════════
   const renderSeriesDetailView = () => {
-    if (loading || !seriesDetail) {
+    // Skeleton only while a different (or no) series is loaded — refreshes after edits keep the page in place.
+    const detailView = treeViewOf('series-detail', selectedSeriesId);
+    if (detailView === 'error' && (!seriesDetail || seriesDetail.id !== selectedSeriesId)) {
+      return <div className="ep"><TreeError what="series" onRetry={fetchSeriesDetail} /></div>;
+    }
+    if (!seriesDetail || seriesDetail.id !== selectedSeriesId) {
       return (
-        <div>
-          <Skeleton.Input active style={{ width: 400, height: 20, borderRadius: 6, marginBottom: 20 }} />
-          <Skeleton.Button active style={{ height: 120, borderRadius: 16, width: '100%', marginBottom: 20 }} block />
-          <Skeleton.Button active style={{ height: 300, borderRadius: 16, width: '100%' }} block />
+        <div className="ep" aria-busy="true">
+          <Skeleton.Input active size="small" style={{ width: 300, height: 14 }} />
+          <div className="ep-header"><Skeleton.Input active style={{ width: 260, height: 30 }} /></div>
+          <div className="sd-stats">{[0, 1, 2, 3].map(i => <div key={i} className="sd-stat"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+          <div className="ep-card" style={{ padding: 16 }}><Skeleton active paragraph={{ rows: 10 }} /></div>
         </div>
       );
     }
 
-    const thresholds = typeof seriesDetail.cefr_thresholds === 'string'
-      ? JSON.parse(seriesDetail.cefr_thresholds)
-      : seriesDetail.cefr_thresholds;
-    const distribution = seriesDetail.cefr_distribution || { A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0 };
-
-    const questionColumns = [
-      {
-        title: '#',
-        dataIndex: 'question_order',
-        key: 'order',
-        width: 50,
-        render: (order: number) => (
-          <span style={{ fontWeight: 700, color: '#64748b', fontSize: 13 }}>{order}</span>
-        ),
-      },
-      ...(categoryType === 'co' ? [{
-        title: 'Audio',
-        key: 'audio',
-        width: 160,
-        render: (_: unknown, record: Question) => (
-          record.audio_kdrive_file_id ? (
-            <audio
-              controls
-              preload="none"
-              style={{ height: 28, width: 140 }}
-              src={`${API_BASE}/tcf/co/questions/${record.id}/audio?token=${token}`}
-              title={record.audio_file_name || 'Audio'}
-            />
-          ) : (
-            <span style={{ color: '#d1d5db', fontSize: 12 }}>—</span>
-          )
-        ),
-      }] : []),
-      {
-        title: 'Question',
-        dataIndex: 'question_text',
-        key: 'question_text',
-        ellipsis: true,
-        render: (text: string) => (
-          <Tooltip title={text}>
-            <span style={{ fontSize: 13, color: '#1e293b' }}>
-              {text.length > 80 ? text.substring(0, 80) + '...' : text}
-            </span>
-          </Tooltip>
-        ),
-      },
-      {
-        title: 'CEFR',
-        dataIndex: 'cefr_level',
-        key: 'cefr_level',
-        width: 80,
-        render: (level: string) => <CefrTag level={level} />,
-      },
-      {
-        title: 'Points',
-        dataIndex: 'points',
-        key: 'points',
-        width: 70,
-        render: (pts: number) => (
-          <span style={{ fontWeight: 700, color: '#1e293b' }}>{pts}</span>
-        ),
-      },
-      {
-        title: 'Answer',
-        dataIndex: 'correct_answer',
-        key: 'correct_answer',
-        width: 70,
-        render: (ans: string) => (
-          <Tag style={{ background: '#dcfce7', color: '#15803d', border: 'none', fontWeight: 700, borderRadius: 6 }}>
-            {ans}
-          </Tag>
-        ),
-      },
-      {
-        title: 'Actions',
-        key: 'actions',
-        width: 140,
-        render: (_: unknown, record: Question) => (
-          <Space size="small">
-            <Tooltip title="Move up">
-              <Button
-                type="text"
-                size="small"
-                icon={<ArrowUpOutlined />}
-                disabled={record.question_order === 1}
-                onClick={() => handleMoveQuestion(record.id, 'up')}
-                style={{ borderRadius: 8 }}
-              />
-            </Tooltip>
-            <Tooltip title="Move down">
-              <Button
-                type="text"
-                size="small"
-                icon={<ArrowDownOutlined />}
-                disabled={record.question_order === seriesDetail.questions.length}
-                onClick={() => handleMoveQuestion(record.id, 'down')}
-                style={{ borderRadius: 8 }}
-              />
-            </Tooltip>
-            <Tooltip title="Edit">
-              <Button
-                type="text"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => { setEditingQuestion(record); setQuestionModalOpen(true); }}
-                style={{ borderRadius: 8, color: '#6366f1' }}
-              />
-            </Tooltip>
-            <Tooltip title="Delete">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDeleteQuestion(record.id)}
-                style={{ borderRadius: 8 }}
-              />
-            </Tooltip>
-          </Space>
-        ),
-      },
-    ];
+    const d = seriesDetail;
+    const fam = familyOfCategory(selectedCategoryName);
+    const isCo = categoryType === 'co';
+    const thresholds: Partial<CefrThresholds> = (typeof d.cefr_thresholds === 'string' ? JSON.parse(d.cefr_thresholds) : d.cefr_thresholds) || {};
+    const questions = [...(d.questions || [])].sort((a, b) => a.question_order - b.question_order);
+    const dist: Record<string, number> = { A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0 };
+    questions.forEach(x => { if (x.cefr_level in dist) dist[x.cefr_level] += 1; });
+    const totalPoints = questions.reduce((t, x) => t + (Number(x.points) || 0), 0);
+    const missingAudio = isCo ? questions.filter(x => !x.audio_kdrive_file_id).length : 0;
+    const needle = sdQuery.trim().toLowerCase();
+    const shown = questions.filter(x => (sdLevel === 'all' || x.cefr_level === sdLevel)
+      && (!needle || `${x.question_text} ${x.option_a} ${x.option_b} ${x.option_c} ${x.option_d}`.toLowerCase().includes(needle)));
+    const reorderable = !needle && sdLevel === 'all';
+    const pos = filteredSeries.findIndex(s => s.id === d.id);
+    const prev = pos > 0 ? filteredSeries[pos - 1] : null;
+    const next = pos >= 0 && pos < filteredSeries.length - 1 ? filteredSeries[pos + 1] : null;
+    const withToken = (url: string) => `${url}${url.includes('?') ? '&' : '?'}token=${token}`;
+    const imageOf = (x: Question) => (isCo
+      ? (x.image_kdrive_file_id ? withToken(`${API_BASE}/tcf/co/questions/${x.id}/image`) : null)
+      : (x.image_url ? withToken(x.image_url) : null));
+    const toRoot = () => { setSelectedSeriesId(null); setSeriesDetail(null); setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setView('categories'); };
+    const secsPerQuestion = questions.length ? Math.round((d.duration_minutes * 60) / questions.length) : 0;
+    const seriesType = isCo ? 'co_series' : 'ce_series';
+    const rowClass = `sd-row${isCo ? ' has-audio' : ''}`;
 
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 130px)' }}>
-        {/* Fixed header section */}
-        <div style={{ flexShrink: 0 }}>
-        {/* Breadcrumb */}
-        <Breadcrumb
-          style={{ marginBottom: 10, fontSize: 13 }}
-          items={[
-            {
-              title: (
-                <a
-                  onClick={() => {
-                    setSelectedSeriesId(null);
-                    setSeriesDetail(null);
-                    setSelectedCategoryId(null);
-                    setSelectedCategoryName('');
-                    setCategoryType('ce');
-                    setView('categories');
-                  }}
-                  style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}
-                >
-                  📋 Exam Preparation
-                </a>
-              ),
-            },
-            {
-              title: (
-                <a onClick={() => navigateBack()} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>
-                  {selectedCategoryName}
-                </a>
-              ),
-            },
-            { title: <span style={{ color: '#475569', fontWeight: 600 }}>{seriesDetail.name}</span> },
-          ]}
-        />
+      <div className={`ep fam-${fam}`}>
+        <nav className="ep-crumbs" aria-label="Breadcrumb">
+          <button type="button" onClick={toRoot}>Exam preparation</button>
+          <RightOutlined />
+          <button type="button" onClick={navigateBack}>{selectedCategoryName}</button>
+          <RightOutlined />
+          <span>{d.name}</span>
+        </nav>
 
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={navigateBack}
-              style={{ borderRadius: 10, border: '1px solid #e0e7ff', color: '#4338ca' }}
-            />
+        <header className="ep-header">
+          <div className="sl-title">
+            <button type="button" className="ep-back" onClick={navigateBack} aria-label={`Back to ${selectedCategoryName}`}><ArrowLeftOutlined /></button>
             <div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-                {seriesDetail.name}
-              </div>
-              {seriesDetail.description && (
-                <Text style={{ fontSize: 12, color: '#94a3b8' }}>{seriesDetail.description}</Text>
-              )}
+              <h1 className="ep-title">{d.name}</h1>
+              {d.description && <p className="ep-subtitle sd-desc" title={d.description}>{d.description}</p>}
             </div>
           </div>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => { setEditingQuestion(null); setQuestionModalOpen(true); }}
-            style={{
-              borderRadius: 10, height: 36, fontWeight: 600, fontSize: 13,
-              background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-              border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-            }}
-          >
-            Add Question
-          </Button>
-        </div>
-
-        {/* Compact metadata card */}
-        <div
-          style={{
-            background: '#fff', borderRadius: 12, padding: '14px 18px',
-            border: '1px solid #e8e8f4', marginBottom: 14,
-            boxShadow: '0 1px 6px rgba(99,102,241,0.05)',
-            display: 'flex', flexDirection: 'column', gap: 10,
-          }}
-        >
-          {/* Row 1: Stats pills */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, marginRight: 2 }}>📊</span>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 8,
-              background: '#eef2ff', color: '#4338ca',
-              fontSize: 13, fontWeight: 700,
-            }}>
-              {seriesDetail.total_questions} Questions
-            </span>
-            <span style={{ color: '#cbd5e1', fontSize: 13 }}>·</span>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 8,
-              background: '#f0fdf4', color: '#15803d',
-              fontSize: 13, fontWeight: 700,
-            }}>
-              {seriesDetail.total_points} Points
-            </span>
-            <span style={{ color: '#cbd5e1', fontSize: 13 }}>·</span>
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              padding: '3px 10px', borderRadius: 8,
-              background: '#fffbeb', color: '#b45309',
-              fontSize: 13, fontWeight: 700,
-            }}>
-              {seriesDetail.duration_minutes} min
-            </span>
+          <div className="ep-actions">
+            {filteredSeries.length > 1 && (
+              <span className="sd-pager">
+                <Tooltip title={prev ? `Previous: ${prev.name}` : 'First series'}><Button icon={<ArrowLeftOutlined />} disabled={!prev} onClick={() => prev && navigateToSeriesDetail(prev)} aria-label="Previous series" /></Tooltip>
+                <Tooltip title={next ? `Next: ${next.name}` : 'Last series'}><Button icon={<ArrowRightOutlined />} disabled={!next} onClick={() => next && navigateToSeriesDetail(next)} aria-label="Next series" /></Tooltip>
+              </span>
+            )}
+            <Button icon={<EditOutlined />} onClick={() => { setEditingSeries(d); setSeriesModalOpen(true); }}>Edit series</Button>
+            <Button icon={<SendOutlined />} onClick={() => openExamAssign('new', [{ content_type: seriesType, content_id: d.id }])}>Assign</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingQuestion(null); setQuestionModalOpen(true); }}>Add question</Button>
           </div>
+        </header>
 
-          {/* Row 2: CEFR Distribution + Thresholds */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3 }}>CEFR:</span>
-              <CefrDistributionTags distribution={distribution} />
+        <section className="sd-stats" aria-label="Series summary">
+          <div className="sd-stat">
+            <span>Questions</span>
+            <strong>{questions.length}</strong>
+            {missingAudio ? <em className="is-warn">{missingAudio} without audio</em> : <em>{isCo ? 'all with audio' : 'multiple choice'}</em>}
+          </div>
+          <div className="sd-stat">
+            <span>Points</span>
+            <strong>{totalPoints}</strong>
+            <em>maximum score</em>
+          </div>
+          <div className="sd-stat">
+            <span>Duration</span>
+            <strong>{d.duration_minutes} min</strong>
+            <em>{secsPerQuestion ? `≈ ${secsPerQuestion} s per question` : '—'}</em>
+          </div>
+          <div className="sd-stat">
+            <span>Level mix · points needed</span>
+            <div className="sd-cefr-bar" aria-hidden>
+              {CEFR_LEVELS.map(l => (dist[l] ? <span key={l} style={{ flex: dist[l], background: CEFR_COLORS[l] }} /> : null))}
             </div>
-            <span style={{ color: '#e2e8f0', fontSize: 11 }}>|</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3 }}>Thresholds:</span>
-              {CEFR_LEVELS.map(level => (
-                <span
-                  key={level}
-                  style={{
-                    padding: '1px 7px', borderRadius: 5, fontSize: 11, fontWeight: 700,
-                    background: `${CEFR_COLORS[level]}12`,
-                    color: CEFR_COLORS[level],
-                    border: `1px solid ${CEFR_COLORS[level]}25`,
-                  }}
-                >
-                  {level}≥{thresholds[level]}
+            <div className="sd-cefr-legend">
+              {CEFR_LEVELS.map(l => (
+                <span key={l}>
+                  <b><i style={{ background: CEFR_COLORS[l] }} />{l} · {dist[l]}</b>
+                  {thresholds[l] != null ? `≥ ${thresholds[l]} pts` : '—'}
                 </span>
               ))}
             </div>
           </div>
+        </section>
 
-          {/* Row 3: Intro Audio (CO only) */}
-          {categoryType === 'co' && seriesDetail.intro_audio_kdrive_file_id && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 6, borderTop: '1px solid #f0f0f8' }}>
-              <span style={{ fontSize: 13 }}>🎧</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3, whiteSpace: 'nowrap' }}>Intro:</span>
-              <audio
-                controls
-                preload="none"
-                style={{ height: 30, flex: 1, maxWidth: 360 }}
-                src={`${API_BASE}/tcf/co/series/${seriesDetail.id}/intro-audio?token=${token}`}
-              />
-              <span style={{ fontSize: 11, color: '#94a3b8', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {seriesDetail.intro_audio_file_name}
-              </span>
+        {isCo && d.intro_audio_kdrive_file_id && (
+          <div className="sd-intro">
+            <CustomerServiceOutlined />
+            <div><strong>Introduction audio</strong><em title={d.intro_audio_file_name || ''}>{d.intro_audio_file_name || 'Played before question 1'}</em></div>
+            <audio controls preload="none" src={withToken(`${API_BASE}/tcf/co/series/${d.id}/intro-audio`)} />
+          </div>
+        )}
+
+        <section className="ep-card">
+          <div className="sd-toolbar">
+            <strong>Questions <em>{shown.length === questions.length ? questions.length : `${shown.length} / ${questions.length}`}</em></strong>
+            <div className="sd-levels" role="tablist" aria-label="Filter by level">
+              <button type="button" className={sdLevel === 'all' ? 'is-on' : ''} onClick={() => setSdLevel('all')}>All</button>
+              {CEFR_LEVELS.map(l => (
+                <button key={l} type="button" disabled={!dist[l]} className={sdLevel === l ? 'is-on' : ''}
+                  style={{ '--c': CEFR_COLORS[l] } as React.CSSProperties} onClick={() => setSdLevel(sdLevel === l ? 'all' : l)}>
+                  {l}<em>{dist[l]}</em>
+                </button>
+              ))}
             </div>
-          )}
-        </div>
-        </div>{/* end fixed header */}
+            <Input allowClear prefix={<SearchOutlined />} placeholder="Search questions and answers" value={sdQuery} onChange={e => setSdQuery(e.target.value)} />
+          </div>
+          {!reorderable && questions.length > 1 && <div className="sd-note">Clear the search and level filter to reorder questions.</div>}
 
-        {/* Scrollable questions table */}
-        <div
-          style={{
-            background: '#fff', borderRadius: 12, border: '1px solid #e8e8f4',
-            boxShadow: '0 1px 6px rgba(99,102,241,0.04)',
-            overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0,
-          }}
-        >
-          <div style={{ padding: '10px 16px', borderBottom: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-              width: 26, height: 26, borderRadius: 8,
-              background: 'linear-gradient(135deg, #eef2ff, #e0e7ff)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#4338ca', fontSize: 13,
-            }}>
+          {questions.length === 0 ? (
+            <div className="ea-state">
               <QuestionCircleOutlined />
+              <strong>No questions yet</strong>
+              <span>Add the first question of this series.</span>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingQuestion(null); setQuestionModalOpen(true); }}>Add question</Button>
             </div>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>Questions</span>
-            <span style={{
-              fontSize: 11, fontWeight: 700, color: '#6366f1',
-              background: '#eef2ff', padding: '2px 10px', borderRadius: 10,
-            }}>
-              {seriesDetail.questions.length}
-            </span>
-          </div>
-          <style>{`
-            .exam-questions-table .ant-table-tbody > tr:nth-child(even) > td {
-              background: #fafbff;
-            }
-            .exam-questions-table .ant-table-tbody > tr:hover > td {
-              background: #eef2ff !important;
-            }
-            .exam-questions-table .ant-table-thead > tr > th {
-              background: #f8f9ff !important;
-              font-weight: 700 !important;
-              color: #475569 !important;
-              font-size: 12px !important;
-              text-transform: uppercase !important;
-              letter-spacing: 0.5px !important;
-            }
-            .exam-questions-table .ant-table-body {
-              padding-bottom: 40px !important;
-            }
-          `}</style>
-          <div style={{ flex: 1, overflow: 'hidden' }}>
-          <Table
-            className="exam-questions-table"
-            columns={questionColumns}
-            dataSource={seriesDetail.questions}
-            rowKey="id"
-            size="small"
-            pagination={false}
-            sticky
-            scroll={{ y: 'max(300px, calc(100vh - 450px))' }}
-            locale={{ emptyText: <Empty description="No questions yet — add one to get started" /> }}
-          />
-          </div>
-        </div>
+          ) : shown.length === 0 ? (
+            <div className="ea-state"><SearchOutlined /><strong>No question matches</strong><span>Try another word or level.</span></div>
+          ) : (
+            <>
+              <div className={`${rowClass} sd-head`} aria-hidden>
+                <span>#</span>{isCo && <span>Audio</span>}<span>Question</span><span className="sd-col-level">Level</span><span className="sd-col-pts">Points</span><span className="sd-col-ans">Answer</span><span />
+              </div>
+              <ol className="sd-list">
+                {shown.map(x => {
+                  const open = sdOpenId === x.id;
+                  const img = open ? imageOf(x) : null;
+                  const hasImg = isCo ? !!x.image_kdrive_file_id : !!x.image_url;
+                  const idx = questions.indexOf(x);
+                  const key = `q${x.id}`;
+                  const active = player.current === key;
+                  const opts: Record<'A' | 'B' | 'C' | 'D', string> = { A: x.option_a, B: x.option_b, C: x.option_c, D: x.option_d };
+                  const toggleOpen = () => setSdOpenId(open ? null : x.id);
+                  return (
+                    <li key={x.id} className={`sd-q${open ? ' is-open' : ''}`}>
+                      <div className={rowClass} role="button" tabIndex={0} aria-expanded={open} onClick={toggleOpen}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); } }}>
+                        <span className="sd-num">{x.question_order}</span>
+                        {isCo && (
+                          <span onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                            {x.audio_kdrive_file_id ? (
+                              <>
+                                <AudioPlayButton status={active ? player.status : 'idle'} progress={active ? player.progress : 0} label={`question ${x.question_order}`}
+                                  onClick={() => player.toggle(key, withToken(`${API_BASE}/tcf/co/questions/${x.id}/audio`))} />
+                                {active && player.time.total > 0 && <span className="sd-clock">{fmtClock(player.time.total - player.time.at)}</span>}
+                              </>
+                            ) : (
+                              <Tooltip title="This question has no audio"><span className="sd-noaudio"><WarningOutlined /></span></Tooltip>
+                            )}
+                          </span>
+                        )}
+                        <span className="sd-text">
+                          <span><span title={x.question_text}>{x.question_text}</span>{hasImg && <PictureOutlined aria-label="Has an image" />}</span>
+                          <span className="sd-meta">{x.cefr_level} · {x.points} pts · answer {x.correct_answer}</span>
+                        </span>
+                        <span className="sd-col-level"><span className="sd-level" style={{ '--c': CEFR_COLORS[x.cefr_level] || '#64748b' } as React.CSSProperties}>{x.cefr_level}</span></span>
+                        <span className="sd-pts sd-col-pts">{x.points}</span>
+                        <span className="sd-col-ans"><span className="sd-ans">{x.correct_answer}</span></span>
+                        <span className="sd-actions" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                          <Tooltip title="Move up"><Button className="sd-move" type="text" size="small" icon={<ArrowUpOutlined />} disabled={!reorderable || idx === 0} onClick={() => handleMoveQuestion(x.id, 'up')} aria-label="Move up" /></Tooltip>
+                          <Tooltip title="Move down"><Button className="sd-move" type="text" size="small" icon={<ArrowDownOutlined />} disabled={!reorderable || idx === questions.length - 1} onClick={() => handleMoveQuestion(x.id, 'down')} aria-label="Move down" /></Tooltip>
+                          <Tooltip title="Edit"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingQuestion(x); setQuestionModalOpen(true); }} aria-label={`Edit question ${x.question_order}`} /></Tooltip>
+                          <Tooltip title="Delete"><Button className="is-danger" type="text" size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteQuestion(x.id)} aria-label={`Delete question ${x.question_order}`} /></Tooltip>
+                        </span>
+                      </div>
+                      {open && (
+                        <div className="sd-detail">
+                          {img && <img className="sd-img" src={img} alt={`Question ${x.question_order}`} loading="lazy" />}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div className="sd-options">
+                              {(['A', 'B', 'C', 'D'] as const).map(k => (
+                                <div key={k} className={`sd-opt${x.correct_answer === k ? ' is-correct' : ''}`}>
+                                  <b>{k}</b><span>{opts[k] || '—'}</span>{x.correct_answer === k && <CheckOutlined />}
+                                </div>
+                              ))}
+                            </div>
+                            {x.audio_file_name && <em className="sd-file">Audio file: {x.audio_file_name}</em>}
+                          </div>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </>
+          )}
+        </section>
       </div>
     );
   };
@@ -4916,72 +4353,92 @@ const ExamPreparation: React.FC = () => {
   // RENDER: EE Years View
   // ════════════════════════════════════════════════════════════
   const renderEeYearsView = () => {
+    const listView = treeViewOf('ee-years', selectedCategoryId);
+    const totalMonths = eeYears.reduce((t, y) => t + (Number(y.month_count) || 0), 0);
+    const toRoot = () => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setView('categories'); };
+
     return (
-      <div>
-        <Breadcrumb
-          style={{ marginBottom: 20, fontSize: 13 }}
-          items={[
-            { title: <a onClick={() => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setEeYears([]); setView('categories'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>📋 Exam Preparation</a> },
-            { title: <span style={{ color: '#475569', fontWeight: 600 }}>{selectedCategoryName}</span> },
-          ]}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={navigateBack} style={{ borderRadius: 10, border: '1px solid #e0e7ff', color: '#4338ca' }} />
+      <div className="ep fam-ee">
+        <nav className="ep-crumbs" aria-label="Breadcrumb">
+          <button type="button" onClick={toRoot}>Exam preparation</button>
+          <RightOutlined />
+          <span>{selectedCategoryName}</span>
+        </nav>
+
+        <header className="ep-header">
+          <div className="sl-title">
+            <button type="button" className="ep-back" onClick={navigateBack} aria-label="Back to exam preparation"><ArrowLeftOutlined /></button>
+            <span className="ep-cat-ic"><FormOutlined /></span>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>{selectedCategoryName}</div>
-              <Text style={{ fontSize: 12, color: '#94a3b8' }}>{eeYears.length} year{eeYears.length !== 1 ? 's' : ''}</Text>
+              <h1 className="ep-title">{selectedCategoryName}</h1>
+              <p className="ep-subtitle">{eeYears.length} {eeYears.length === 1 ? 'year' : 'years'} · {totalMonths} {totalMonths === 1 ? 'month' : 'months'} of exam sessions</p>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Button
-              icon={<FolderOpenOutlined />}
-              onClick={() => setEeImportModalOpen(true)}
-              style={{ borderRadius: 10, height: 36, fontWeight: 600, border: '1px solid #c7d2fe', color: '#4338ca', background: '#f8f9ff' }}
-            >
-              📁 Import Year from File
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeYearModalOpen(true)} style={{ borderRadius: 10, height: 36, fontWeight: 600, background: 'linear-gradient(135deg, #4338ca, #6366f1)', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
-              Add Year
-            </Button>
+          <div className="ep-actions">
+            <Button icon={<FolderOpenOutlined />} onClick={() => setEeImportModalOpen(true)}>Import from file</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeYearModalOpen(true)}>Add year</Button>
           </div>
-        </div>
-        {loading && eeYears.length === 0 ? (
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {[1, 2, 3].map(i => <Skeleton.Button key={i} active style={{ width: 120, height: 48, borderRadius: 12 }} />)}
-          </div>
-        ) : eeYears.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fafbff', borderRadius: 16, border: '2px dashed #e0e7ff' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📅</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>No years yet</div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>Add a year to start organizing Expression Écrite content</div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeYearModalOpen(true)} style={{ borderRadius: 10, height: 40, fontWeight: 600, background: '#4338ca', borderColor: '#4338ca' }}>Add First Year</Button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {eeYears.map(y => (
-              <div
-                key={y.id}
-                onClick={() => { setSelectedEeYearId(y.id); setSelectedEeYear(y.year); setView('ee-months'); }}
-                style={{ padding: '14px 24px', borderRadius: 12, border: '1px solid #e8e8f4', background: '#fff', cursor: 'pointer', transition: 'all 0.2s ease', position: 'relative', minWidth: 120, textAlign: 'center' }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 16px rgba(99,102,241,0.15)'; e.currentTarget.style.borderColor = '#c7d2fe'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderColor = '#e8e8f4'; }}
-              >
-                <div style={{ fontSize: 20, fontWeight: 800, color: '#4338ca' }}>{y.year}</div>
-                <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{y.month_count} month{y.month_count !== 1 ? 's' : ''}</div>
-                <div style={{ position: 'absolute', top: 4, right: 4 }} onClick={e => e.stopPropagation()}>
-                  <Tooltip title="Delete year">
-                    <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => {
-                      Modal.confirm({ title: 'Delete Year', content: `Delete ${y.year} and all its months, combinaisons, and tâches?`, okText: 'Delete', okType: 'danger', onOk: async () => {
-                        try { const resp = await apiCall(`/tcf/ee/years/${y.id}`, { method: 'DELETE' }); if (resp.ok) { message.success('Year deleted'); fetchEeYears(); } else { message.error('Failed'); } } catch { message.error('Failed'); }
-                      }});
-                    }} style={{ borderRadius: 6, width: 24, height: 24 }} />
-                  </Tooltip>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        </header>
+
+        <section className="ep-card">
+          {listView === 'skeleton' ? (
+            <div className="tr-grid">{[0, 1, 2, 3].map(i => <div key={i} className="tr-card is-skeleton"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+          ) : listView === 'error' ? (
+            <TreeError what="years" onRetry={fetchEeYears} />
+          ) : eeYears.length === 0 ? (
+            <div className="ea-state">
+              <CalendarOutlined />
+              <strong>No years yet</strong>
+              <span>Add a year, then its months and combinaisons — or import a whole year from a file.</span>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeYearModalOpen(true)}>Add year</Button>
+            </div>
+          ) : (
+            <div className="tr-grid">
+              {eeYears.map(y => {
+                const months = Number(y.month_count) || 0;
+                const open = () => { setSelectedEeYearId(y.id); setSelectedEeYear(y.year); setView('ee-months'); };
+                return (
+                  <article key={y.id} className="tr-card is-year" role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }}>
+                    <div className="tr-card-top">
+                      <span className="tr-year">{y.year}</span>
+                      <span className="tr-menu" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                        <Dropdown trigger={['click']} menu={{
+                          items: [
+                            { key: 'assign', icon: <SendOutlined />, label: 'Assign…', onClick: () => openExamAssign('new', [{ content_type: 'ee_year', content_id: y.id }]) },
+                            { type: 'divider' },
+                            {
+                              key: 'delete', icon: <DeleteOutlined />, label: 'Delete year', danger: true,
+                              onClick: () => Modal.confirm({
+                                title: `Delete ${y.year}?`,
+                                content: `Its ${months} ${months === 1 ? 'month' : 'months'}, combinaisons and tâches are deleted too. This can’t be undone.`,
+                                okText: 'Delete year', okButtonProps: { danger: true },
+                                onOk: async () => {
+                                  const resp = await apiCall(`/tcf/ee/years/${y.id}`, { method: 'DELETE' });
+                                  if (!resp.ok) { message.error('The year could not be deleted.'); throw new Error(); }
+                                  message.success('Year deleted');
+                                  fetchEeYears();
+                                },
+                              }),
+                            },
+                          ],
+                        }}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} aria-label={`Actions for ${y.year}`} />
+                        </Dropdown>
+                      </span>
+                    </div>
+                    <div className="tr-months" aria-hidden>
+                      {Array.from({ length: 12 }, (_, i) => <span key={i} className={i < months ? 'is-on' : ''} />)}
+                    </div>
+                    <div className="tr-card-foot">
+                      <em>{months} / 12 months</em>
+                      <span className="ep-open">Open <RightOutlined /></span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     );
   };
@@ -4990,70 +4447,96 @@ const ExamPreparation: React.FC = () => {
   // RENDER: EE Months View
   // ════════════════════════════════════════════════════════════
   const renderEeMonthsView = () => {
+    const listView = treeViewOf('ee-months', selectedEeYearId);
+    const totalCombs = eeMonths.reduce((t, m) => t + (Number(m.combinaison_count) || 0), 0);
+    const empty = eeMonths.filter(m => !Number(m.combinaison_count)).length;
+    const toRoot = () => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setView('categories'); };
+    const toYears = () => { setSelectedEeYearId(null); setSelectedEeYear(null); setView('ee-years'); };
+
     return (
-      <div>
-        <Breadcrumb
-          style={{ marginBottom: 20, fontSize: 13 }}
-          items={[
-            { title: <a onClick={() => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setEeYears([]); setView('categories'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>📋 Exam Preparation</a> },
-            { title: <a onClick={() => { setSelectedEeYearId(null); setSelectedEeYear(null); setEeMonths([]); setView('ee-years'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>{selectedCategoryName}</a> },
-            { title: <span style={{ color: '#475569', fontWeight: 600 }}>{selectedEeYear}</span> },
-          ]}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={navigateBack} style={{ borderRadius: 10, border: '1px solid #e0e7ff', color: '#4338ca' }} />
+      <div className="ep fam-ee">
+        <nav className="ep-crumbs" aria-label="Breadcrumb">
+          <button type="button" onClick={toRoot}>Exam preparation</button>
+          <RightOutlined />
+          <button type="button" onClick={toYears}>{selectedCategoryName}</button>
+          <RightOutlined />
+          <span>{selectedEeYear}</span>
+        </nav>
+
+        <header className="ep-header">
+          <div className="sl-title">
+            <button type="button" className="ep-back" onClick={navigateBack} aria-label={`Back to ${selectedCategoryName}`}><ArrowLeftOutlined /></button>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>{selectedCategoryName} — {selectedEeYear}</div>
-              <Text style={{ fontSize: 12, color: '#94a3b8' }}>{eeMonths.length} month{eeMonths.length !== 1 ? 's' : ''}</Text>
+              <h1 className="ep-title">{selectedEeYear}</h1>
+              <p className="ep-subtitle">{eeMonths.length} {eeMonths.length === 1 ? 'month' : 'months'} · {totalCombs} {totalCombs === 1 ? 'combinaison' : 'combinaisons'}{empty ? ` · ${empty} empty` : ''}</p>
             </div>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeMonthModalOpen(true)} style={{ borderRadius: 10, height: 36, fontWeight: 600, background: 'linear-gradient(135deg, #4338ca, #6366f1)', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
-            Add Month
-          </Button>
-        </div>
-        {loading && eeMonths.length === 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
-            {[1, 2, 3, 4].map(i => <Skeleton.Button key={i} active style={{ height: 100, borderRadius: 12, width: '100%' }} block />)}
+          <div className="ep-actions">
+            <Button icon={<SendOutlined />} onClick={() => openExamAssign('new', [{ content_type: 'ee_year', content_id: selectedEeYearId as number }])}>Assign year</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeMonthModalOpen(true)}>Add month</Button>
           </div>
-        ) : eeMonths.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fafbff', borderRadius: 16, border: '2px dashed #e0e7ff' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>📆</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>No months yet</div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>Add a month to start adding combinaisons</div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeMonthModalOpen(true)} style={{ borderRadius: 10, height: 40, fontWeight: 600, background: '#4338ca', borderColor: '#4338ca' }}>Add First Month</Button>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
-            {eeMonths.map(m => (
-              <div
-                key={m.id}
-                onClick={() => { setSelectedEeMonthId(m.id); setSelectedEeMonthName(m.month_name); setView('ee-combinaisons'); }}
-                style={{
-                  borderRadius: 10, border: '1px solid #e8e8f4', borderLeft: '3px solid #6366f1',
-                  background: '#fff', padding: '10px 12px', cursor: 'pointer',
-                  transition: 'all 0.2s ease', position: 'relative',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 4px 12px rgba(99,102,241,0.12)'; }}
-                onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-              >
-                <div style={{ position: 'absolute', top: 4, right: 4, zIndex: 2 }} onClick={e => e.stopPropagation()}>
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => {
-                    Modal.confirm({ title: 'Delete Month', content: `Delete ${m.month_name}?`, okText: 'Delete', okType: 'danger', onOk: async () => {
-                      try { const resp = await apiCall(`/tcf/ee/months/${m.id}`, { method: 'DELETE' }); if (resp.ok) { message.success('Deleted'); fetchEeMonths(); } } catch { message.error('Failed'); }
-                    }});
-                  }} style={{ borderRadius: 6, width: 22, height: 22, fontSize: 10 }} />
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 2 }}>{m.month_name}</div>
-                <div style={{ display: 'flex', gap: 8, fontSize: 11, color: '#94a3b8' }}>
-                  <span>{selectedEeYear}</span>
-                  <span>·</span>
-                  <span><span style={{ fontWeight: 700, color: '#4338ca' }}>{m.combinaison_count}</span> comb.</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        </header>
+
+        <section className="ep-card">
+          {listView === 'skeleton' ? (
+            <div className="tr-grid">{[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="tr-card is-skeleton"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+          ) : listView === 'error' ? (
+            <TreeError what="months" onRetry={fetchEeMonths} />
+          ) : eeMonths.length === 0 ? (
+            <div className="ea-state">
+              <CalendarOutlined />
+              <strong>No months yet</strong>
+              <span>Add the months of {selectedEeYear} that have exam content.</span>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setEeMonthModalOpen(true)}>Add month</Button>
+            </div>
+          ) : (
+            <div className="tr-grid">
+              {eeMonths.map(m => {
+                const count = Number(m.combinaison_count) || 0;
+                const open = () => { setCombQuery(''); setSelectedEeMonthId(m.id); setSelectedEeMonthName(m.month_name); setView('ee-combinaisons'); };
+                return (
+                  <article key={m.id} className={`tr-card${count ? '' : ' is-empty'}`} role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }}>
+                    <div className="tr-card-top">
+                      <span className="tr-num">{m.month}</span>
+                      <span className="tr-card-name">
+                        <strong>{m.month_name}</strong>
+                        <em>{count ? `${count} ${count === 1 ? 'combinaison' : 'combinaisons'}` : 'No combinaisons yet'}</em>
+                      </span>
+                      <span className="tr-menu" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                        <Dropdown trigger={['click']} menu={{
+                          items: [
+                            { key: 'assign', icon: <SendOutlined />, label: 'Assign…', onClick: () => openExamAssign('new', [{ content_type: 'ee_month', content_id: m.id }]) },
+                            { type: 'divider' },
+                            {
+                              key: 'delete', icon: <DeleteOutlined />, label: 'Delete month', danger: true,
+                              onClick: () => Modal.confirm({
+                                title: `Delete ${m.month_name} ${selectedEeYear}?`,
+                                content: `Its ${count} ${count === 1 ? 'combinaison is' : 'combinaisons are'} deleted too. This can’t be undone.`,
+                                okText: 'Delete month', okButtonProps: { danger: true },
+                                onOk: async () => {
+                                  const resp = await apiCall(`/tcf/ee/months/${m.id}`, { method: 'DELETE' });
+                                  if (!resp.ok) { message.error('The month could not be deleted.'); throw new Error(); }
+                                  message.success('Month deleted');
+                                  fetchEeMonths();
+                                },
+                              }),
+                            },
+                          ],
+                        }}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} aria-label={`Actions for ${m.month_name}`} />
+                        </Dropdown>
+                      </span>
+                    </div>
+                    <div className="tr-card-foot">
+                      <em>{selectedEeYear}</em>
+                      <span className="ep-open">Open <RightOutlined /></span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     );
   };
@@ -5062,84 +4545,129 @@ const ExamPreparation: React.FC = () => {
   // RENDER: EE Combinaisons View
   // ════════════════════════════════════════════════════════════
   const renderEeCombinaisonsView = () => {
-    const handleDeleteCombinaison = (comb: EeCombinaison) => {
-      Modal.confirm({
-        title: 'Delete Combinaison',
-        content: `Delete "${comb.name}" and all its tâches?`,
-        okText: 'Delete', okType: 'danger',
-        onOk: async () => {
-          try {
-            const resp = await apiCall(`/tcf/ee/combinaisons/${comb.id}`, { method: 'DELETE' });
-            if (resp.ok) { message.success('Deleted'); fetchEeCombinaisons(); }
-            else { message.error('Failed'); }
-          } catch { message.error('Failed'); }
-        },
-      });
-    };
+    const listView = treeViewOf('ee-combs', selectedEeMonthId);
+    const list = [...eeCombinaisons].sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.id - b.id);
+    const q = combQuery.trim().toLowerCase();
+    const shown = q ? list.filter(c => c.name.toLowerCase().includes(q)) : list;
+    const incomplete = list.filter(c => (c.taches?.length || 0) < 3);
+    const toRoot = () => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setView('categories'); };
+    const toYears = () => { setSelectedEeYearId(null); setSelectedEeYear(null); setView('ee-years'); };
+    const toMonths = () => { setSelectedEeMonthId(null); setSelectedEeMonthName(''); setCorrectionVisible({}); setView('ee-months'); };
+
+    const removeCombinaison = (comb: EeCombinaison) => Modal.confirm({
+      title: `Delete “${comb.name}”?`,
+      content: 'Its tâches and corrections are deleted too. This can’t be undone.',
+      okText: 'Delete combinaison', okButtonProps: { danger: true },
+      onOk: async () => {
+        const resp = await apiCall(`/tcf/ee/combinaisons/${comb.id}`, { method: 'DELETE' });
+        if (!resp.ok) { message.error('The combinaison could not be deleted.'); throw new Error(); }
+        message.success('Combinaison deleted');
+        fetchEeCombinaisons();
+      },
+    });
 
     return (
-      <div>
-        <Breadcrumb
-          style={{ marginBottom: 20, fontSize: 13 }}
-          items={[
-            { title: <a onClick={() => { setSelectedCategoryId(null); setSelectedCategoryName(''); setCategoryType('ce'); setEeYears([]); setView('categories'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>📋 Exam Preparation</a> },
-            { title: <a onClick={() => { setSelectedEeYearId(null); setSelectedEeYear(null); setEeMonths([]); setView('ee-years'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>{selectedCategoryName}</a> },
-            { title: <a onClick={() => { setSelectedEeMonthId(null); setSelectedEeMonthName(''); setEeCombinaisons([]); setCorrectionVisible({}); setView('ee-months'); }} style={{ cursor: 'pointer', color: '#6366f1', fontWeight: 600 }}>{selectedEeYear}</a> },
-            { title: <span style={{ color: '#475569', fontWeight: 600 }}>{selectedEeMonthName}</span> },
-          ]}
-        />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button icon={<ArrowLeftOutlined />} onClick={navigateBack} style={{ borderRadius: 10, border: '1px solid #e0e7ff', color: '#4338ca' }} />
+      <div className="ep fam-ee">
+        <nav className="ep-crumbs" aria-label="Breadcrumb">
+          <button type="button" onClick={toRoot}>Exam preparation</button>
+          <RightOutlined />
+          <button type="button" onClick={toYears}>{selectedCategoryName}</button>
+          <RightOutlined />
+          <button type="button" onClick={toMonths}>{selectedEeYear}</button>
+          <RightOutlined />
+          <span>{selectedEeMonthName}</span>
+        </nav>
+
+        <header className="ep-header">
+          <div className="sl-title">
+            <button type="button" className="ep-back" onClick={navigateBack} aria-label={`Back to ${selectedEeYear}`}><ArrowLeftOutlined /></button>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>{selectedEeMonthName} {selectedEeYear}</div>
-              <Text style={{ fontSize: 12, color: '#94a3b8' }}>{eeCombinaisons.length} combinaison{eeCombinaisons.length !== 1 ? 's' : ''}</Text>
+              <h1 className="ep-title">{selectedEeMonthName} {selectedEeYear}</h1>
+              <p className="ep-subtitle">{list.length} {list.length === 1 ? 'combinaison' : 'combinaisons'} · 3 tâches each</p>
             </div>
           </div>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingCombinaison(null); setEeCombinaisonModalOpen(true); }} style={{ borderRadius: 10, height: 36, fontWeight: 600, background: 'linear-gradient(135deg, #4338ca, #6366f1)', border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)' }}>
-            Add Combinaison
-          </Button>
-        </div>
-        {loading && eeCombinaisons.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {[1, 2].map(i => <Skeleton.Button key={i} active style={{ height: 80, borderRadius: 12, width: '100%' }} block />)}
+          <div className="ep-actions">
+            <Button icon={<SendOutlined />} onClick={() => openExamAssign('new', [{ content_type: 'ee_month', content_id: selectedEeMonthId as number }])}>Assign month</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingCombinaison(null); setEeCombinaisonModalOpen(true); }}>Add combinaison</Button>
           </div>
-        ) : eeCombinaisons.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', background: '#fafbff', borderRadius: 16, border: '2px dashed #e0e7ff' }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>✍️</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#4338ca', marginBottom: 8 }}>No combinaisons yet</div>
-            <div style={{ fontSize: 14, color: '#94a3b8', marginBottom: 20 }}>Add a combinaison to start creating writing tasks</div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingCombinaison(null); setEeCombinaisonModalOpen(true); }} style={{ borderRadius: 10, height: 40, fontWeight: 600, background: '#4338ca', borderColor: '#4338ca' }}>Add First Combinaison</Button>
-          </div>
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 8 }}>
-            {eeCombinaisons.map(comb => {
-              return (
-                <div key={comb.id} style={{ borderRadius: 10, border: '1px solid #e8e8f4', background: '#fff', overflow: 'hidden', boxShadow: '0 1px 4px rgba(99,102,241,0.04)' }}>
-                  <div
-                    onClick={() => { setViewingCombinaison(comb); }}
-                    style={{ padding: '8px', cursor: 'pointer', background: '#fff', textAlign: 'center', position: 'relative', transition: 'background 0.15s' }}
-                    onMouseEnter={e => { e.currentTarget.style.background = '#f8f9ff'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
-                  >
-                    <div style={{ position: 'absolute', top: 3, right: 3, display: 'flex', gap: 1 }} onClick={e => e.stopPropagation()}>
-                      <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingCombinaison(comb); setEeCombinaisonModalOpen(true); }} style={{ borderRadius: 4, color: '#6366f1', width: 18, height: 18, fontSize: 9 }} />
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteCombinaison(comb)} style={{ borderRadius: 4, width: 18, height: 18, fontSize: 9 }} />
-                    </div>
-                    <div style={{ width: 24, height: 24, borderRadius: 6, background: 'linear-gradient(135deg, #6366f1, #4338ca)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 10, fontWeight: 800, marginBottom: 3 }}>
-                      {comb.display_order}
-                    </div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{comb.name}</div>
-                    <div style={{ fontSize: 9, color: '#94a3b8' }}>{comb.taches.length}/3</div>
-                  </div>
-                </div>
-              );
-            })}
+        </header>
+
+        {listView === 'data' && incomplete.length > 0 && (
+          <div className="sl-alert" role="note">
+            <WarningOutlined />
+            <span>
+              <strong>{incomplete.length} {incomplete.length === 1 ? 'combinaison is' : 'combinaisons are'} missing tâches</strong>
+              {' — '}{incomplete.slice(0, 6).map(c => `${c.name} (${c.taches?.length || 0}/3)`).join(', ')}{incomplete.length > 6 ? '…' : ''}
+            </span>
           </div>
         )}
+
+        <section className="ep-card">
+          {list.length > 8 && (
+            <div className="sl-toolbar">
+              <Input allowClear prefix={<SearchOutlined />} placeholder="Search combinaisons" value={combQuery} onChange={e => setCombQuery(e.target.value)} />
+            </div>
+          )}
+          {listView === 'skeleton' ? (
+            <div className="tr-grid">{[0, 1, 2, 3, 4, 5].map(i => <div key={i} className="tr-card is-skeleton"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+          ) : listView === 'error' ? (
+            <TreeError what="combinaisons" onRetry={fetchEeCombinaisons} />
+          ) : list.length === 0 ? (
+            <div className="ea-state">
+              <FormOutlined />
+              <strong>No combinaisons yet</strong>
+              <span>A combinaison holds the three writing tâches of one exam session.</span>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingCombinaison(null); setEeCombinaisonModalOpen(true); }}>Add combinaison</Button>
+            </div>
+          ) : shown.length === 0 ? (
+            <div className="ea-state"><SearchOutlined /><strong>No combinaison matches</strong><span>Try another name.</span></div>
+          ) : (
+            <div className="tr-grid">
+              {shown.map(comb => {
+                const taches = comb.taches || [];
+                const open = () => setViewingCombinaison(comb);
+                return (
+                  <article key={comb.id} className={`tr-card${taches.length < 3 ? ' is-warn' : ''}`} role="button" tabIndex={0} onClick={open} onKeyDown={e => { if (e.key === 'Enter') open(); }}>
+                    <div className="tr-card-top">
+                      <span className="tr-num">{comb.display_order || '–'}</span>
+                      <span className="tr-card-name">
+                        <strong>{comb.name}</strong>
+                        <em>{taches.filter(t => t.correction_text).length} with correction</em>
+                      </span>
+                      <span className="tr-menu" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
+                        <Dropdown trigger={['click']} menu={{
+                          items: [
+                            { key: 'edit', icon: <EditOutlined />, label: 'Rename', onClick: () => { setEditingCombinaison(comb); setEeCombinaisonModalOpen(true); } },
+                            { key: 'assign', icon: <SendOutlined />, label: 'Assign…', onClick: () => openExamAssign('new', [{ content_type: 'ee_combinaison', content_id: comb.id }]) },
+                            { type: 'divider' },
+                            { key: 'delete', icon: <DeleteOutlined />, label: 'Delete combinaison', danger: true, onClick: () => removeCombinaison(comb) },
+                          ],
+                        }}>
+                          <Button type="text" size="small" icon={<MoreOutlined />} aria-label={`Actions for ${comb.name}`} />
+                        </Dropdown>
+                      </span>
+                    </div>
+                    <div className="tr-tasks" aria-label={`${taches.length} of 3 tâches`}>
+                      {[1, 2, 3].map(n => {
+                        const t = taches.find(x => x.task_number === n);
+                        return (
+                          <Tooltip key={n} title={`Tâche ${n} — ${TASK_TYPE_LABELS[TASK_DEFAULTS[n].type]}${t ? '' : ' (missing)'}`}>
+                            <span className={`tr-task is-t${n}${t ? '' : ' is-missing'}`}>{t ? <CheckOutlined /> : n}</span>
+                          </Tooltip>
+                        );
+                      })}
+                      <em>{taches.length}/3 tâches</em>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     );
   };
+
 
   // ════════════════════════════════════════════════════════════
   // EO Render Wrappers (delegate to EoRenderHelpers)
@@ -5161,6 +4689,13 @@ const ExamPreparation: React.FC = () => {
     setSelectedCategoryId, setSelectedCategoryName,
     setEoYears, setEoMonths, setEoParties,
     setEoImportModalOpen,
+    // Which parent each list belongs to — prevents an empty state flashing before the data lands.
+    yearsView: treeViewOf('eo-years', selectedCategoryId),
+    monthsView: treeViewOf('eo-months', selectedEoYearId),
+    partiesView: treeViewOf('eo-parties', selectedEoMonthId),
+    openAssign: (preset: { content_type: string; content_id: number }[]) => openExamAssign('new', preset),
+    partieQuery,
+    setPartieQuery,
   };
   const renderEoYearsView = () => _renderEoYearsView(eoProps);
   const renderEoMonthsView = () => _renderEoMonthsView(eoProps);
@@ -5205,7 +4740,7 @@ const ExamPreparation: React.FC = () => {
         <SeriesFormModal
           open={seriesModalOpen}
           onClose={() => { setSeriesModalOpen(false); setEditingSeries(null); }}
-          onSuccess={fetchSeriesList}
+          onSuccess={() => { fetchSeriesList(); if (view === 'series-detail') fetchSeriesDetail(); }}
           editingSeries={editingSeries}
           categoryId={selectedCategoryId}
           categoryType={categoryType}
@@ -5225,17 +4760,6 @@ const ExamPreparation: React.FC = () => {
         />
       )}
 
-      {assignModalOpen && (
-        <AssignmentModal
-          open={assignModalOpen}
-          onClose={() => setAssignModalOpen(false)}
-          assignType={assignType}
-          assignId={assignId}
-          assignName={assignName}
-          categoryType={categoryType}
-          apiCall={apiCall}
-        />
-      )}
 
       {selectedCategoryId && categoryType === 'co' && (
         <BulkImportModal
@@ -5257,16 +4781,16 @@ const ExamPreparation: React.FC = () => {
         />
       )}
 
-      {/* EE Year Modal */}
+      {/* EE modals */}
       <EeYearModal
         open={eeYearModalOpen}
         onClose={() => setEeYearModalOpen(false)}
         onSuccess={() => { fetchEeYears(); setEeYearModalOpen(false); }}
         categoryId={selectedCategoryId}
+        existing={eeYears.map(y => y.year)}
         apiCall={apiCall}
       />
 
-      {/* EE Bulk Import Modal */}
       {selectedCategoryId && categoryType === 'ee' && (
         <EeBulkImportModal
           open={eeImportModalOpen}
@@ -5277,151 +4801,159 @@ const ExamPreparation: React.FC = () => {
         />
       )}
 
-      {/* EE Month Modal */}
       <EeMonthModal
         open={eeMonthModalOpen}
         onClose={() => setEeMonthModalOpen(false)}
-        onSuccess={() => { fetchEeMonths(); setEeMonthModalOpen(false); }}
+        onSuccess={() => { fetchEeMonths(); invalidateTree('ee-years'); setEeMonthModalOpen(false); }}
         yearId={selectedEeYearId}
+        existing={eeMonths.map(m => m.month)}
         apiCall={apiCall}
       />
 
-      {/* EE Combinaison Modal */}
       <EeCombinaisonModal
         open={eeCombinaisonModalOpen}
         onClose={() => { setEeCombinaisonModalOpen(false); setEditingCombinaison(null); }}
-        onSuccess={() => { fetchEeCombinaisons(); setEeCombinaisonModalOpen(false); setEditingCombinaison(null); }}
+        onSuccess={() => { fetchEeCombinaisons(); invalidateTree('ee-months'); setEeCombinaisonModalOpen(false); setEditingCombinaison(null); }}
         monthId={selectedEeMonthId}
         editing={editingCombinaison}
+        nextNumber={eeCombinaisons.length + 1}
         apiCall={apiCall}
       />
 
-      {/* EE Tâche Edit Modal */}
       <EeTacheModal
         open={eeTacheModalOpen}
         onClose={() => { setEeTacheModalOpen(false); setEditingTache(null); }}
-        onSuccess={() => { fetchEeCombinaisons(); setEeTacheModalOpen(false); setEditingTache(null); if (viewingCombinaison) { /* refresh viewing */ apiCall(`/tcf/ee/months/${selectedEeMonthId}/combinaisons`).then(r => r.ok ? r.json() : []).then(combs => { const updated = (combs as EeCombinaison[]).find(c => c.id === viewingCombinaison.id); if (updated) setViewingCombinaison(updated); }); } }}
+        onSuccess={() => { fetchEeCombinaisons(); setEeTacheModalOpen(false); setEditingTache(null); }}
         editing={editingTache}
         taskNumber={editingTacheTaskNumber}
         combinaisonId={editingTacheCombinaisonId}
         apiCall={apiCall}
       />
 
-      {/* EE Combinaison View Modal */}
-      <Modal
-        title={null}
+      {/* EE combinaison detail */}
+      <Drawer
         open={!!viewingCombinaison}
-        onCancel={() => setViewingCombinaison(null)}
-        footer={null}
-        width={700}
-        destroyOnClose
-        styles={{ body: { padding: 0 } }}
+        onClose={() => { setViewingCombinaison(null); setCorrectionVisible({}); }}
+        width={720}
+        closable={false}
+        title={null}
+        className="pd-drawer"
       >
-        {viewingCombinaison && (
-          <>
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 10 }}>
-              <div style={{ width: 36, height: 36, borderRadius: 10, background: 'linear-gradient(135deg, #6366f1, #4338ca)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontWeight: 800 }}>
-                {viewingCombinaison.display_order}
-              </div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>{viewingCombinaison.name}</div>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>{viewingCombinaison.taches.length}/3 tâches</div>
-              </div>
-            </div>
-            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {viewingCombinaison.taches.sort((a, b) => a.task_number - b.task_number).map(tache => {
-                const defaults = TASK_DEFAULTS[tache.task_number];
-                const showCorr = correctionVisible[tache.id];
-                return (
-                  <div key={tache.id} style={{ padding: '12px 14px', borderRadius: 10, background: '#fafbff', border: '1px solid #f0f0f8' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        <Tag color="blue" style={{ borderRadius: 6, fontWeight: 700, fontSize: 11, margin: 0 }}>Tâche {tache.task_number}</Tag>
-                        <Tag style={{ borderRadius: 6, background: '#f0fdf4', color: '#15803d', border: 'none', fontWeight: 600, fontSize: 11, margin: 0 }}>{TASK_TYPE_LABELS[tache.task_type]}</Tag>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>{defaults?.min}-{defaults?.max} mots · {defaults?.dur} min</span>
-                      </div>
-                      <Space size={2}>
-                        <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingTache(tache); setEditingTacheTaskNumber(tache.task_number); setEditingTacheCombinaisonId(viewingCombinaison.id); setEeTacheModalOpen(true); }} style={{ borderRadius: 6, color: '#6366f1', width: 26, height: 26 }} />
-                        <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => { Modal.confirm({ title: `Delete Tâche ${tache.task_number}`, content: 'Are you sure?', okText: 'Delete', okType: 'danger', onOk: async () => { const resp = await apiCall(`/tcf/ee/taches/${tache.id}`, { method: 'DELETE' }); if (resp.ok) { message.success('Deleted'); fetchEeCombinaisons(); const updated = { ...viewingCombinaison, taches: viewingCombinaison.taches.filter(t => t.id !== tache.id) }; setViewingCombinaison(updated); } } }); }} style={{ borderRadius: 6, width: 26, height: 26 }} />
-                      </Space>
-                    </div>
-                    <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{tache.prompt_text}</div>
-                    {tache.task_type === 'argumentation' && tache.question_text && (
-                      <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#f0f9ff', border: '1px solid #bae6fd' }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', marginBottom: 4 }}>Question</div>
-                        <div style={{ fontSize: 12, color: '#475569', fontWeight: 600 }}>{tache.question_text}</div>
-                      </div>
-                    )}
-                    {tache.task_type === 'argumentation' && tache.argument_text_1 && (
-                      <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 8, background: '#eef2ff', border: '1px solid #e0e7ff' }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', marginBottom: 4 }}>Argument 1</div>
-                        <div style={{ fontSize: 12, color: '#475569', whiteSpace: 'pre-wrap' }}>{tache.argument_text_1}</div>
-                      </div>
-                    )}
-                    {tache.task_type === 'argumentation' && tache.argument_text_2 && (
-                      <div style={{ marginTop: 6, padding: '8px 12px', borderRadius: 8, background: '#fef3c7', border: '1px solid #fde68a' }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginBottom: 4 }}>Argument 2</div>
-                        <div style={{ fontSize: 12, color: '#475569', whiteSpace: 'pre-wrap' }}>{tache.argument_text_2}</div>
-                      </div>
-                    )}
-                    {tache.correction_text && (
-                      <div style={{ marginTop: 8 }}>
-                        <Button size="small" type="link" onClick={() => setCorrectionVisible(prev => ({ ...prev, [tache.id]: !prev[tache.id] }))} style={{ padding: 0, fontSize: 12, color: '#6366f1', fontWeight: 600 }}>
-                          {showCorr ? '🔽 Hide correction' : '📝 View correction'}
-                        </Button>
-                        {showCorr && (
-                          <div style={{ marginTop: 6, padding: '10px 14px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                            <div style={{ fontSize: 12, color: '#334155', whiteSpace: 'pre-wrap' }}>{tache.correction_text}</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {/* Add missing tâches */}
-              {(() => {
-                const existing = new Set(viewingCombinaison.taches.map(t => t.task_number));
-                const missing = [1, 2, 3].filter(n => !existing.has(n));
-                if (missing.length === 0) return null;
-                return (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {missing.map(num => (
-                      <Button key={num} size="small" icon={<PlusOutlined />}
-                        onClick={() => { setEditingTache(null); setEditingTacheTaskNumber(num); setEditingTacheCombinaisonId(viewingCombinaison.id); setEeTacheModalOpen(true); }}
-                        style={{ borderRadius: 8, fontSize: 12, color: '#6366f1', borderColor: '#c7d2fe', background: '#f8f9ff' }}>
-                        Add Tâche {num} ({TASK_TYPE_LABELS[TASK_DEFAULTS[num].type]})
+        {viewingCombinaison && (() => {
+          // Always read the freshest copy, so edits show without re-opening the drawer.
+          const comb = eeCombinaisons.find(c => c.id === viewingCombinaison.id) || viewingCombinaison;
+          const taches = [...(comb.taches || [])].sort((a, b) => a.task_number - b.task_number);
+          const missing = [1, 2, 3].filter(n => !taches.some(t => t.task_number === n));
+          return (
+            <div className="ep fam-ee">
+              <header className="ea-head">
+                <span className="ea-head-ic"><FormOutlined /></span>
+                <div className="ea-head-text">
+                  <h2>{comb.name}</h2>
+                  <p>{selectedEeMonthName} {selectedEeYear} · {taches.length}/3 tâches</p>
+                </div>
+                <Button type="text" icon={<EditOutlined />} onClick={() => { setEditingCombinaison(comb); setEeCombinaisonModalOpen(true); }} aria-label="Rename combinaison" />
+                <button type="button" className="ea-close" onClick={() => { setViewingCombinaison(null); setCorrectionVisible({}); }} aria-label="Close"><CloseOutlined /></button>
+              </header>
+              <div className="pd-tasks" style={{ padding: 16 }}>
+                {taches.map(tache => {
+                  const defaults = TASK_DEFAULTS[tache.task_number];
+                  const shown = correctionVisible[tache.id];
+                  return (
+                    <section key={tache.id} className={`pd-task is-t${tache.task_number}`}>
+                      <header className="pd-task-head">
+                        <span className="pd-task-n">{tache.task_number}</span>
+                        <div className="pd-task-id">
+                          <strong>Tâche {tache.task_number} — {TASK_TYPE_LABELS[tache.task_type]}</strong>
+                          <em>{defaults?.min}–{defaults?.max} words · {defaults?.dur} min</em>
+                        </div>
+                        <span className="pd-task-actions">
+                          <Tooltip title="Edit tâche">
+                            <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Edit tâche ${tache.task_number}`}
+                              onClick={() => { setEditingTache(tache); setEditingTacheTaskNumber(tache.task_number); setEditingTacheCombinaisonId(comb.id); setEeTacheModalOpen(true); }} />
+                          </Tooltip>
+                          <Tooltip title="Delete tâche">
+                            <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete tâche ${tache.task_number}`}
+                              onClick={() => Modal.confirm({
+                                title: `Delete tâche ${tache.task_number}?`,
+                                content: 'Its prompt and correction are deleted too. This can’t be undone.',
+                                okText: 'Delete tâche', okButtonProps: { danger: true },
+                                onOk: async () => {
+                                  const resp = await apiCall(`/tcf/ee/taches/${tache.id}`, { method: 'DELETE' });
+                                  if (!resp.ok) { message.error('The tâche could not be deleted.'); throw new Error(); }
+                                  message.success('Tâche deleted');
+                                  fetchEeCombinaisons();
+                                },
+                              })} />
+                          </Tooltip>
+                        </span>
+                      </header>
+                      {tache.prompt_text && <p className="pd-prompt">{tache.prompt_text}</p>}
+                      {tache.task_type === 'argumentation' && tache.question_text && (
+                        <>
+                          <div className="pd-sub">Question</div>
+                          <p className="pd-prompt">{tache.question_text}</p>
+                        </>
+                      )}
+                      {tache.task_type === 'argumentation' && (tache.argument_text_1 || tache.argument_text_2) && (
+                        <div className="fm-grid2" style={{ marginTop: 12 }}>
+                          {tache.argument_text_1 && <div><div className="pd-sub">Argument 1</div><p className="pd-prompt" style={{ marginTop: 0 }}>{tache.argument_text_1}</p></div>}
+                          {tache.argument_text_2 && <div><div className="pd-sub">Argument 2</div><p className="pd-prompt" style={{ marginTop: 0 }}>{tache.argument_text_2}</p></div>}
+                        </div>
+                      )}
+                      {tache.correction_text && (
+                        <>
+                          <button type="button" className="pd-link" onClick={() => setCorrectionVisible(prev => ({ ...prev, [tache.id]: !prev[tache.id] }))}>
+                            {shown ? 'Hide model answer' : 'Show model answer'}
+                          </button>
+                          {shown && <div className="pd-correction">{tache.correction_text}</div>}
+                        </>
+                      )}
+                    </section>
+                  );
+                })}
+                {missing.length > 0 && (
+                  <div className="pd-missing">
+                    <WarningOutlined />
+                    <span>{missing.length === 3 ? 'This combinaison has no tâches yet.' : `Missing tâche ${missing.join(' and ')}.`}</span>
+                    {missing.map(n => (
+                      <Button key={n} size="small" icon={<PlusOutlined />}
+                        onClick={() => { setEditingTache(null); setEditingTacheTaskNumber(n); setEditingTacheCombinaisonId(comb.id); setEeTacheModalOpen(true); }}>
+                        Add tâche {n} — {TASK_TYPE_LABELS[TASK_DEFAULTS[n].type]}
                       </Button>
                     ))}
                   </div>
-                );
-              })()}
+                )}
+              </div>
             </div>
-          </>
-        )}
-      </Modal>
+          );
+        })()}
+      </Drawer>
 
-      {/* EO Modals */}
+      {/* EO modals */}
       <EoYearModal
         open={eoYearModalOpen}
         onClose={() => setEoYearModalOpen(false)}
         onSuccess={() => { fetchEoYears(); setEoYearModalOpen(false); }}
         categoryId={selectedCategoryId}
+        existing={eoYears.map(y => y.year)}
         apiCall={apiCall}
       />
       <EoMonthModal
         open={eoMonthModalOpen}
         onClose={() => setEoMonthModalOpen(false)}
-        onSuccess={() => { fetchEoMonths(); setEoMonthModalOpen(false); }}
+        onSuccess={() => { fetchEoMonths(); invalidateTree('eo-years'); setEoMonthModalOpen(false); }}
         yearId={selectedEoYearId}
+        existing={eoMonths.map(m => m.month)}
         apiCall={apiCall}
       />
       <EoPartieModal
         open={eoPartieModalOpen}
         onClose={() => { setEoPartieModalOpen(false); setEditingPartie(null); }}
-        onSuccess={() => { fetchEoParties(); setEoPartieModalOpen(false); setEditingPartie(null); }}
+        onSuccess={() => { fetchEoParties(); invalidateTree('eo-months'); setEoPartieModalOpen(false); setEditingPartie(null); }}
         monthId={selectedEoMonthId}
         editing={editingPartie}
+        nextNumber={eoParties.length + 1}
         apiCall={apiCall}
       />
       <EoTacheModal
@@ -5464,6 +4996,9 @@ const ExamPreparation: React.FC = () => {
         open={examAssignModalOpen}
         onClose={() => setExamAssignModalOpen(false)}
         apiCall={apiCall}
+        initialTab={examAssignTab}
+        preselect={examAssignPreset}
+        onChanged={fetchAssignGroups}
       />
       <GrantCreditsModal
         open={grantCreditsModalOpen}

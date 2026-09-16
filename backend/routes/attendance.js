@@ -167,8 +167,12 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
             SELECT 
                 cs.id as session_id,
                 s.title as schedule_title,
+                b.id as batch_id,
                 b.name as batch_name,
+                b.teacher_id as teacher_id,
                 u.first_name || ' ' || u.last_name as teacher_name,
+                cs.start_time as starts_at,
+                cs.end_time as ends_at,
                 cs.start_time::date as session_date,
                 cs.start_time::time as start_time,
                 cs.end_time::time as end_time,
@@ -233,7 +237,7 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
         }
 
         query += `
-            GROUP BY cs.id, s.title, b.name, u.first_name, u.last_name, cs.start_time, cs.end_time, cs.access_code, cs.code_generated_at, cs.session_started_at, cs.status
+            GROUP BY cs.id, s.title, b.id, b.name, b.teacher_id, u.first_name, u.last_name, cs.start_time, cs.end_time, cs.access_code, cs.code_generated_at, cs.session_started_at, cs.status
             ORDER BY cs.start_time DESC
         `;
 
@@ -437,7 +441,7 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
 // GET /api/attendance/reports/students - Student statistics (Admin/Teacher)
 router.get('/reports/students', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
-        const { query, batch_id, student_id, teacher_id, date_from, date_to, min_attendance_rate, max_attendance_rate, sort_by = 'name', sort_order = 'asc', limit = 50, offset = 0 } = req.query;
+        const { query, batch_id, student_id, teacher_id, date_from, date_to, min_attendance_rate, max_attendance_rate, sort_by = 'name', sort_order = 'asc', limit = 1000, offset = 0 } = req.query;
         const db = req.db;
 
         let conditions = ['u.role = $1'];
@@ -877,6 +881,28 @@ router.post('/sessions/:scheduleId/start', authenticateToken, teacherOnly, async
         res.status(400).json({
             success: false,
             error: error.message || 'Failed to start class session'
+        });
+    }
+});
+
+// End a class session early (Teachers only). endClassSession already existed and checks that the
+// teacher owns the session, but no route exposed it — the "End session" button always failed.
+router.post('/sessions/:sessionId/end', authenticateToken, teacherOnly, async (req, res) => {
+    try {
+        const sessionId = parseInt(req.params.sessionId, 10);
+        if (!Number.isInteger(sessionId)) {
+            return res.status(400).json({ success: false, error: 'Invalid session id' });
+        }
+        const AttendanceService = require('../services/attendanceService');
+        const attendanceService = new AttendanceService(req.db);
+        await attendanceService.endClassSession(sessionId, req.user.id);
+        res.json({ success: true, message: 'Class session ended' });
+    } catch (error) {
+        console.error('Error ending class session:', error);
+        const notFound = /not found|access denied/i.test(error.message || '');
+        res.status(notFound ? 404 : 400).json({
+            success: false,
+            error: error.message || 'Failed to end class session'
         });
     }
 });
@@ -3252,6 +3278,41 @@ router.get('/reports/sessions-without-codes', authenticateToken, teacherOrAdmin,
 });
 
 // GET /api/attendance/session-details/:sessionId — Simple endpoint for student attendance in a session
+// GET /api/attendance/reports/student-sessions/:studentId - Every held class of a student's batches with
+// their status ('absent' when no record). Optional batch_id, date_from, date_to. (Admin/Teacher)
+router.get('/reports/student-sessions/:studentId', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const studentId = parseInt(req.params.studentId);
+        const { batch_id, date_from, date_to } = req.query;
+        const params = [studentId];
+        let where = `s.type = 'class'`;
+        if (batch_id) { params.push(parseInt(batch_id)); where += ` AND b.id = $${params.length}`; }
+        if (date_from) { params.push(date_from); where += ` AND cs.start_time::date >= $${params.length}::date`; }
+        if (date_to) { params.push(date_to); where += ` AND cs.start_time::date <= $${params.length}::date`; }
+        if (req.user.role === 'teacher') { params.push(req.user.id); where += ` AND b.teacher_id = $${params.length}`; }
+
+        const sessions = await req.db.all(`
+            SELECT cs.id as session_id, cs.start_time as starts_at, cs.end_time as ends_at,
+                   b.id as batch_id, b.name as batch_name,
+                   u.first_name || ' ' || u.last_name as teacher_name,
+                   COALESCE(a.status, 'absent') as status, a.check_in_time
+            FROM batch_students bs
+            JOIN batches b ON b.id = bs.batch_id
+            JOIN users u ON u.id = b.teacher_id
+            JOIN schedules s ON s.batch_id = b.id
+            JOIN class_sessions cs ON cs.schedule_id = s.id
+            LEFT JOIN attendance a ON a.session_id = cs.id AND a.student_id = bs.student_id
+            WHERE bs.student_id = $1 AND ${where}
+            ORDER BY cs.start_time DESC
+        `, params);
+
+        res.json({ sessions });
+    } catch (error) {
+        console.error('Error fetching student sessions:', error);
+        res.status(500).json({ error: 'Failed to fetch student sessions' });
+    }
+});
+
 router.get('/session-details-simple/:sessionId', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
         const { sessionId } = req.params;

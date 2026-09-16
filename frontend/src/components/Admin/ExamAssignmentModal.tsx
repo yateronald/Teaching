@@ -1,17 +1,25 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, Checkbox, DatePicker, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Skeleton, Tooltip, message } from 'antd';
 import {
-  Modal, Button, Select, DatePicker, message, Empty, Tabs, Tag, Checkbox, Tooltip, Badge, Space, Spin, Popconfirm, InputNumber
-} from 'antd';
-import {
-  SendOutlined, UserOutlined, TeamOutlined, CalendarOutlined,
-  DeleteOutlined, ReadOutlined, FormOutlined, SoundOutlined, AudioOutlined,
-  BookOutlined, DownOutlined, FolderOutlined,
-  ClockCircleOutlined, CheckCircleFilled, LockOutlined, CloseOutlined,
-  LoadingOutlined, ThunderboltOutlined
+  AudioOutlined, BookOutlined, CalendarOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, FolderOutlined, FormOutlined,
+  ReadOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, SoundOutlined, TeamOutlined, ThunderboltOutlined,
+  UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import {
+  FAMILY_CODE, familyOfCategory, familyOfType, loadPeople, peekPeople, personName,
+} from './examAdminData';
+import type { ApiCall, BatchLite, ExamAssignmentGroup, Family, PersonLite } from './examAdminData';
+import './ExamAdmin.css';
 
-// Types
+/* ══════════════════════════════════════════
+   ASSIGN EXAM CONTENT
+   1 · pick content from the TCF tree (whole skills, years, months or single series)
+   2 · pick students / batches, optional name, access end date and AI credits.
+   Picking a parent includes everything under it, so its children show as "Included".
+══════════════════════════════════════════ */
+
 interface ContentNode {
   id: number;
   name?: string;
@@ -24,931 +32,512 @@ interface ContentNode {
   description?: string;
   total_questions?: number;
   total_points?: number;
-  display_order?: number;
   children?: ContentNode[];
 }
-
-interface Student { id: number; first_name: string; last_name: string; email: string; }
-interface Batch { id: number; name: string; }
-
-interface AssignmentGroup {
-  group_id: string;
-  group_name: string;
-  assigned_at: string;
-  expires_at: string | null;
-  is_expired: boolean;
-  assigned_by: string | null;
-  recipients: { key: string; type: 'student' | 'batch'; name: string }[];
-  items: { id: number; content_type: string; content_id: number; content_name: string }[];
-}
-
-interface SelectedItem { content_type: string; content_id: number; label: string; }
-
-const CONTENT_TYPE_LABELS: Record<string, string> = {
-  category: 'Category', ce_series: 'CE Series', co_series: 'CO Series',
-  ee_year: 'EE Year', ee_month: 'EE Month', ee_combinaison: 'EE Combinaison',
-  eo_year: 'EO Year', eo_month: 'EO Month', eo_partie: 'EO Partie',
-};
-
-const CONTENT_TYPE_COLORS: Record<string, string> = {
-  category: '#4338ca', ce_series: '#3b82f6', co_series: '#8b5cf6',
-  ee_year: '#f59e0b', ee_month: '#22c55e', ee_combinaison: '#06b6d4',
-  eo_year: '#ef4444', eo_month: '#ec4899', eo_partie: '#14b8a6',
-};
-
-const ICON_MAP: Record<string, React.ReactNode> = {
-  ReadOutlined: <ReadOutlined />, FormOutlined: <FormOutlined />,
-  SoundOutlined: <SoundOutlined />, AudioOutlined: <AudioOutlined />,
-  BookOutlined: <BookOutlined />,
-};
-
-// Tree Node Component
-const TreeNode: React.FC<{
+interface Row {
+  key: string;
   node: ContentNode;
   depth: number;
-  selectedItems: SelectedItem[];
-  onToggle: (item: SelectedItem, checked: boolean) => void;
-  expandedKeys: Set<string>;
-  onExpand: (key: string) => void;
-}> = ({ node, depth, selectedItems, onToggle, expandedKeys, onExpand }) => {
-  const nodeKey = `${node.type}-${node.content_id || node.id}`;
-  const isExpanded = expandedKeys.has(nodeKey);
-  const hasChildren = node.children && node.children.length > 0;
-  const contentType = node.type;
-  const contentId = node.content_id || node.id;
-  const isSelected = selectedItems.some(i => i.content_type === contentType && i.content_id === contentId);
+  parent: string | null;
+  family: Family;
+  label: string;
+  path: string;
+  childKeys: string[];
+}
 
-  const label = node.name || (node.year ? `${node.year}` : node.month_name || `#${contentId}`);
-  const color = CONTENT_TYPE_COLORS[contentType] || '#6366f1';
-
-  const getIcon = () => {
-    if (node.icon && ICON_MAP[node.icon]) return ICON_MAP[node.icon];
-    if (contentType === 'category') return <FolderOutlined />;
-    if (contentType.includes('year')) return <CalendarOutlined />;
-    if (contentType.includes('month')) return <ClockCircleOutlined />;
-    return <BookOutlined />;
-  };
-
-  const getMeta = () => {
-    if (node.total_questions) return `${node.total_questions} questions · ${node.total_points} pts`;
-    if (hasChildren) return `${node.children!.length} items`;
-    return null;
-  };
-
-  const isRoot = depth === 0;
-
-  return (
-    <div>
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: isRoot ? '10px 14px' : `7px 10px 7px ${16 + depth * 22}px`,
-          borderRadius: isRoot ? 10 : 7,
-          margin: isRoot ? '2px 4px' : '1px 4px',
-          cursor: 'pointer', transition: 'all 0.18s ease',
-          background: isSelected
-            ? `${color}0d`
-            : isRoot ? '#fff' : 'transparent',
-          border: isRoot
-            ? `1px solid ${isSelected ? color + '40' : '#eef0f6'}`
-            : 'none',
-          borderLeft: !isRoot
-            ? `3px solid ${isSelected ? color : 'transparent'}`
-            : undefined,
-          boxShadow: isRoot && isSelected ? `0 2px 8px ${color}15` : 'none',
-        }}
-        onMouseEnter={e => {
-          if (!isSelected) e.currentTarget.style.background = isRoot ? '#f8f9ff' : '#f4f5fb';
-        }}
-        onMouseLeave={e => {
-          if (!isSelected) e.currentTarget.style.background = isRoot ? '#fff' : 'transparent';
-        }}
-      >
-        {/* Expand button */}
-        {hasChildren ? (
-          <div
-            onClick={(e) => { e.stopPropagation(); onExpand(nodeKey); }}
-            style={{
-              width: 22, height: 22, borderRadius: 6, display: 'flex',
-              alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              color: isExpanded ? color : '#94a3b8', fontSize: 9,
-              transition: 'all 0.2s',
-              transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-              background: isExpanded ? `${color}10` : 'transparent',
-            }}
-          >
-            <DownOutlined />
-          </div>
-        ) : <div style={{ width: 22, flexShrink: 0 }} />}
-
-        {/* Checkbox */}
-        <Checkbox
-          checked={isSelected}
-          onChange={e => onToggle({ content_type: contentType, content_id: contentId, label }, e.target.checked)}
-          style={{ marginRight: 0 }}
-        />
-
-        {/* Icon */}
-        <div style={{
-          width: isRoot ? 32 : 26, height: isRoot ? 32 : 26,
-          borderRadius: isRoot ? 8 : 6, flexShrink: 0,
-          background: isRoot
-            ? `linear-gradient(135deg, ${color}18, ${color}08)`
-            : `${color}0c`,
-          color, display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          fontSize: isRoot ? 15 : 12,
-          border: isRoot ? `1px solid ${color}15` : 'none',
-        }}>
-          {getIcon()}
-        </div>
-
-        {/* Label */}
-        <div style={{ flex: 1, minWidth: 0 }} onClick={() => hasChildren && onExpand(nodeKey)}>
-          <div style={{
-            fontSize: isRoot ? 14 : 13, fontWeight: isRoot ? 700 : 600,
-            color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>
-            {label}
-          </div>
-          {getMeta() && (
-            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 0 }}>{getMeta()}</div>
-          )}
-        </div>
-
-        {/* Type badge */}
-        <Tag style={{
-          borderRadius: 4, fontSize: 9, fontWeight: 700, margin: 0,
-          padding: '1px 6px', background: `${color}0c`, color, border: `1px solid ${color}18`,
-          flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.3,
-        }}>
-          {CONTENT_TYPE_LABELS[contentType]}
-        </Tag>
-      </div>
-
-      {/* Children */}
-      {hasChildren && isExpanded && (
-        <div style={{
-          marginLeft: isRoot ? 8 : 0,
-          borderLeft: isRoot ? `2px solid ${color}15` : 'none',
-          marginTop: 2, marginBottom: 2,
-        }}>
-          {node.children!.map((child, i) => (
-            <TreeNode
-              key={`${child.type}-${child.content_id || child.id}-${i}`}
-              node={child} depth={depth + 1}
-              selectedItems={selectedItems} onToggle={onToggle}
-              expandedKeys={expandedKeys} onExpand={onExpand}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+const TYPE_LABEL: Record<string, string> = {
+  category: 'Skill', ce_series: 'Series', co_series: 'Series',
+  ee_year: 'Year', ee_month: 'Month', ee_combinaison: 'Combinaison',
+  eo_year: 'Year', eo_month: 'Month', eo_partie: 'Partie',
+};
+const CHILD_WORD: Record<string, [string, string]> = {
+  ce_series: ['series', 'series'], co_series: ['series', 'series'],
+  ee_year: ['year', 'years'], eo_year: ['year', 'years'],
+  ee_month: ['month', 'months'], eo_month: ['month', 'months'],
+  ee_combinaison: ['combinaison', 'combinaisons'], eo_partie: ['partie', 'parties'],
+};
+const CATEGORY_ICON: Record<string, React.ReactNode> = {
+  ReadOutlined: <ReadOutlined />, FormOutlined: <FormOutlined />, SoundOutlined: <SoundOutlined />,
+  AudioOutlined: <AudioOutlined />, BookOutlined: <BookOutlined />,
 };
 
-// Main Modal
+const keyOf = (n: ContentNode) => `${n.type}:${n.content_id ?? n.id}`;
+const labelOf = (n: ContentNode) =>
+  n.type.endsWith('_year') ? String(n.year ?? n.name ?? `#${n.id}`)
+    : n.type.endsWith('_month') ? (n.month_name || n.name || `Month ${n.month ?? ''}`.trim())
+      : n.name || `#${n.content_id ?? n.id}`;
+const iconOf = (row: Row) => {
+  const t = row.node.type;
+  if (t === 'category') return CATEGORY_ICON[row.node.icon || ''] || <FolderOutlined />;
+  if (t.endsWith('_year')) return <CalendarOutlined />;
+  if (t.endsWith('_month')) return <ClockCircleOutlined />;
+  return <BookOutlined />;
+};
+const metaOf = (row: Row) => {
+  const n = row.node;
+  if (n.total_questions) return `${n.total_questions} questions${n.total_points ? ` · ${n.total_points} pts` : ''}`;
+  const c = row.childKeys.length;
+  if (!c || !n.children?.length) return row.node.type === 'category' ? 'No content yet' : '';
+  const w = CHILD_WORD[n.children[0].type] || ['item', 'items'];
+  return `${c} ${c === 1 ? w[0] : w[1]}`;
+};
+const fmtDate = (iso?: string | null) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+/* Content tree is cached briefly (it is the heaviest request); the reload button forces a refresh. */
+const TREE_TTL = 60_000;
+let treeCache: { at: number; tree: ContentNode[] } | null = null;
+
+/* ── one tree row (memoised: only rows whose state changes re-render) ── */
+const TreeRow = memo(function TreeRow({ row, checked, included, open, onToggle, onExpand }: {
+  row: Row; checked: boolean; included: boolean; open: boolean;
+  onToggle: (key: string, on: boolean) => void; onExpand: (key: string) => void;
+}) {
+  const has = row.childKeys.length > 0;
+  const meta = metaOf(row);
+  return (
+    <div className={`ea-row fam-${row.family}${checked ? ' is-checked' : ''}${included ? ' is-included' : ''}${row.depth === 0 ? ' is-root' : ''}`}
+      style={{ paddingLeft: 8 + row.depth * 22 }} role="treeitem" aria-selected={checked || included} aria-expanded={has ? open : undefined}>
+      <button type="button" className={`ea-caret${open ? ' is-open' : ''}`} onClick={() => has && onExpand(row.key)}
+        tabIndex={has ? 0 : -1} aria-hidden={!has} aria-label={open ? `Collapse ${row.label}` : `Expand ${row.label}`}>
+        {has && <RightOutlined />}
+      </button>
+      <Checkbox checked={checked || included} disabled={included} onChange={e => onToggle(row.key, e.target.checked)} aria-label={`Select ${row.label}`} />
+      <span className="ea-row-ic">{iconOf(row)}</span>
+      <span className="ea-row-text" onClick={() => (has ? onExpand(row.key) : !included && onToggle(row.key, !checked))}>
+        <strong>{row.label}</strong>
+        {meta && <em>{meta}</em>}
+      </span>
+      <span className="ea-type">{included ? 'Included' : TYPE_LABEL[row.node.type] || row.node.type}</span>
+    </div>
+  );
+});
+
 const ExamAssignmentModal: React.FC<{
   open: boolean;
   onClose: () => void;
-  apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-}> = ({ open, onClose, apiCall }) => {
-  const [activeTab, setActiveTab] = useState('content');
-  const [tree, setTree] = useState<ContentNode[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [assignments, setAssignments] = useState<AssignmentGroup[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null);
-  const [, setExpandedGroups] = useState<Set<string>>(new Set());
+  apiCall: ApiCall;
+  initialTab?: 'new' | 'list';
+  onChanged?: () => void;
+  /** Content ticked when the modal opens (e.g. "Assign" from a series). */
+  preselect?: { content_type: string; content_id: number }[];
+}> = ({ open, onClose, apiCall, initialTab = 'new', onChanged, preselect }) => {
+  const [msg, msgHolder] = message.useMessage();
+  const [tab, setTab] = useState<'new' | 'list'>(initialTab);
 
-  // Selections
-  const [selectedItems, setSelectedItems] = useState<SelectedItem[]>([]);
-  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
-  const [selectedBatchIds, setSelectedBatchIds] = useState<number[]>([]);
-  const [expiresAt, setExpiresAt] = useState<dayjs.Dayjs | null>(null);
+  const [tree, setTree] = useState<ContentNode[]>(() => treeCache?.tree || []);
+  const [students, setStudents] = useState<PersonLite[]>(() => peekPeople()?.students || []);
+  const [batches, setBatches] = useState<BatchLite[]>(() => peekPeople()?.batches || []);
+  const [groups, setGroups] = useState<ExamAssignmentGroup[] | null>(null);
+  const [treeLoading, setTreeLoading] = useState(!treeCache);
+  const [treeError, setTreeError] = useState<string | null>(null);
+
+  const [selected, setSelected] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState('');
+  const [family, setFamily] = useState<Family | 'all'>('all');
+  const [name, setName] = useState('');
+  const [studentIds, setStudentIds] = useState<number[]>([]);
+  const [batchIds, setBatchIds] = useState<number[]>([]);
+  const [expiresAt, setExpiresAt] = useState<Dayjs | null>(null);
   const [eeCredits, setEeCredits] = useState<number | null>(null);
   const [eoCredits, setEoCredits] = useState<number | null>(null);
-  const [assignmentName, setAssignmentName] = useState('');
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-  const [studentSearch, setStudentSearch] = useState('');
-  const [batchSearch, setBatchSearch] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  // Optimized options: show top 10 + always include selected
-  const studentOptions = useMemo(() => {
-    const MAX = 10;
-    const selectedSet = new Set(selectedStudentIds);
-    const q = studentSearch.toLowerCase().trim();
-    const matched = q
-      ? students.filter(s =>
-          `${s.first_name} ${s.last_name} ${s.email}`.toLowerCase().includes(q)
-        )
-      : students;
-    const visible = matched.slice(0, MAX);
-    // Always include already-selected students even if not in top 10
-    const visibleIds = new Set(visible.map(s => s.id));
-    const selectedNotShown = students.filter(s => selectedSet.has(s.id) && !visibleIds.has(s.id));
-    const all = [...selectedNotShown, ...visible];
-    return {
-      options: all.map(s => ({ value: s.id, label: `${s.first_name} ${s.last_name} (${s.email})` })),
-      total: matched.length,
-      showing: visible.length,
-    };
-  }, [students, studentSearch, selectedStudentIds]);
+  const [listQuery, setListQuery] = useState('');
+  const [listStatus, setListStatus] = useState<'all' | 'active' | 'expired'>('active');
+  const [removing, setRemoving] = useState<string | null>(null);
 
-  const batchOptions = useMemo(() => {
-    const MAX = 10;
-    const selectedSet = new Set(selectedBatchIds);
-    const q = batchSearch.toLowerCase().trim();
-    const matched = q
-      ? batches.filter(b => b.name.toLowerCase().includes(q))
-      : batches;
-    const visible = matched.slice(0, MAX);
-    const visibleIds = new Set(visible.map(b => b.id));
-    const selectedNotShown = batches.filter(b => selectedSet.has(b.id) && !visibleIds.has(b.id));
-    const all = [...selectedNotShown, ...visible];
-    return {
-      options: all.map(b => ({ value: b.id, label: b.name })),
-      total: matched.length,
-      showing: visible.length,
-    };
-  }, [batches, batchSearch, selectedBatchIds]);
-
-  const fetchData = useCallback(async () => {
-    if (!open) return;
-    setLoading(true);
+  /* ═══════════ DATA ═══════════ */
+  const loadGroups = useCallback(async () => {
     try {
-      const [treeResp, studentsResp, batchesResp, assignResp] = await Promise.all([
-        apiCall('/tcf/exam-assignments/content-tree'),
-        apiCall('/users?role=student'),
-        apiCall('/batches'),
-        apiCall('/tcf/exam-assignments'),
-      ]);
-      if (treeResp.ok) setTree(await treeResp.json());
-      if (studentsResp.ok) {
-        const d = await studentsResp.json();
-        setStudents(Array.isArray(d) ? d : d.users || []);
-      }
-      if (batchesResp.ok) {
-        const d = await batchesResp.json();
-        setBatches(Array.isArray(d) ? d : []);
-      }
-      if (assignResp.ok) setAssignments(await assignResp.json());
-    } catch { message.error('Failed to load data'); }
-    finally { setLoading(false); }
-  }, [open, apiCall]);
+      const r = await apiCall('/tcf/exam-assignments');
+      const d = r.ok ? await r.json() : [];
+      setGroups(Array.isArray(d) ? d : []);
+    } catch { setGroups(g => g ?? []); }
+  }, [apiCall]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  useEffect(() => {
-    if (open) {
-      setSelectedItems([]);
-      setSelectedStudentIds([]);
-      setSelectedBatchIds([]);
-      setExpiresAt(null);
-      setEeCredits(null);
-      setEoCredits(null);
-      setAssignmentName('');
-      setActiveTab('content');
-      setExpandedGroups(new Set());
+  const loadTree = useCallback(async (force = false) => {
+    if (!force && treeCache && Date.now() - treeCache.at < TREE_TTL) { setTree(treeCache.tree); setTreeLoading(false); return; }
+    if (!treeCache || force) setTreeLoading(true);
+    try {
+      const r = await apiCall('/tcf/exam-assignments/content-tree');
+      if (!r.ok) throw new Error(`The server answered ${r.status}.`);
+      const d = await r.json();
+      treeCache = { at: Date.now(), tree: Array.isArray(d) ? d : [] };
+      setTree(treeCache.tree);
+      setTreeError(null);
+    } catch (e: any) {
+      setTreeError(e?.message || 'Could not load the content.');
+    } finally {
+      setTreeLoading(false);
     }
-  }, [open]);
+  }, [apiCall]);
 
-  const handleToggleItem = (item: SelectedItem, checked: boolean) => {
-    if (checked) {
-      setSelectedItems(prev => [...prev.filter(i => !(i.content_type === item.content_type && i.content_id === item.content_id)), item]);
-    } else {
-      setSelectedItems(prev => prev.filter(i => !(i.content_type === item.content_type && i.content_id === item.content_id)));
-    }
+  const resetForm = () => {
+    setSelected([]); setName(''); setStudentIds([]); setBatchIds([]);
+    setExpiresAt(null); setEeCredits(null); setEoCredits(null);
   };
 
-  const handleExpand = (key: string) => {
-    setExpandedKeys(prev => {
+  useEffect(() => {
+    if (!open) return;
+    setTab(initialTab);
+    resetForm();
+    if (preselect?.length) setSelected(preselect.map(p => `${p.content_type}:${p.content_id}`));
+    setQuery('');
+    setListQuery('');
+    loadTree();
+    loadGroups();
+    loadPeople(apiCall).then(p => { setStudents(p.students); setBatches(p.batches); }).catch(() => { /* selects stay empty */ });
+  }, [open, initialTab, preselect, apiCall, loadTree, loadGroups]);
+
+  /* ═══════════ TREE INDEX ═══════════ */
+  const index = useMemo(() => {
+    const map = new Map<string, Row>();
+    const roots: string[] = [];
+    const walk = (n: ContentNode, depth: number, parent: string | null, fam: Family, prefix: string): string => {
+      const key = keyOf(n);
+      const label = labelOf(n);
+      const row: Row = { key, node: n, depth, parent, family: fam, label, path: prefix ? `${prefix} › ${label}` : label, childKeys: [] };
+      map.set(key, row);
+      (n.children || []).forEach(c => row.childKeys.push(walk(c, depth + 1, key, fam, row.path)));
+      return key;
+    };
+    tree.forEach(n => roots.push(walk(n, 0, null, familyOfCategory(n.name), '')));
+    return { map, roots };
+  }, [tree]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const includedSet = useMemo(() => {
+    const out = new Set<string>();
+    const add = (k: string) => index.map.get(k)?.childKeys.forEach(c => { out.add(c); add(c); });
+    selected.forEach(add);
+    return out;
+  }, [selected, index]);
+
+  const onToggle = useCallback((key: string, on: boolean) => {
+    setSelected(prev => {
+      if (!on) return prev.filter(k => k !== key);
+      // A parent covers its children: drop any selected descendant.
+      const desc = new Set<string>();
+      const add = (k: string) => index.map.get(k)?.childKeys.forEach(c => { desc.add(c); add(c); });
+      add(key);
+      return [...prev.filter(k => !desc.has(k) && k !== key), key];
+    });
+  }, [index]);
+
+  const onExpand = useCallback((key: string) => {
+    setExpanded(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
-  };
+  }, []);
 
-  const handleSubmit = async () => {
-    if (selectedItems.length === 0) { message.warning('Select at least one content item'); return; }
-    if (selectedStudentIds.length === 0 && selectedBatchIds.length === 0) { message.warning('Select at least one student or batch'); return; }
-    if (!assignmentName.trim()) { message.warning('Please provide an assignment name'); setActiveTab('recipients'); return; }
-
-    setSubmitting(true);
-    try {
-      const resp = await apiCall('/tcf/exam-assignments', {
-        method: 'POST',
-        body: JSON.stringify({
-          items: selectedItems.map(i => ({ content_type: i.content_type, content_id: i.content_id })),
-          student_ids: selectedStudentIds,
-          batch_ids: selectedBatchIds,
-          expires_at: expiresAt ? expiresAt.toISOString() : null,
-          group_name: assignmentName.trim(),
-          ee_credits: eeCredits || 0,
-          eo_credits: eoCredits || 0,
-        }),
-      });
-      if (resp.ok) {
-        const result = await resp.json();
-        message.success(`${result.created} assignment${result.created > 1 ? 's' : ''} created${result.duplicates ? ` (${result.duplicates} already existed)` : ''}`);
-        setSelectedItems([]);
-        setSelectedStudentIds([]);
-        setSelectedBatchIds([]);
-        setExpiresAt(null);
-        setEeCredits(null);
-        setEoCredits(null);
-        setAssignmentName('');
-        setActiveTab('existing');
-        fetchData();
-      } else {
-        const err = await resp.json();
-        message.error(err.error || 'Failed to create assignments');
+  const q = query.trim().toLowerCase();
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    let allowed: Set<string> | null = null;
+    if (q) {
+      allowed = new Set();
+      for (const r of index.map.values()) {
+        if (!r.label.toLowerCase().includes(q)) continue;
+        let k: string | null = r.key;
+        while (k && !allowed.has(k)) { allowed.add(k); k = index.map.get(k)?.parent ?? null; }
       }
-    } catch { message.error('Failed to create assignments'); }
-    finally { setSubmitting(false); }
-  };
-
-  const handleRemoveGroup = async (groupId: string) => {
-    setRemovingId(groupId);
-    try {
-      const resp = await apiCall(`/tcf/exam-assignments/group/${groupId}`, { method: 'DELETE' });
-      if (resp.ok) { message.success('Assignment group removed successfully'); fetchData(); }
-      else message.error('Failed to remove assignment group');
-    } catch { message.error('Failed to remove assignment group'); }
-    finally { setRemovingId(null); }
-  };
-
-
+    }
+    const visit = (k: string) => {
+      if (allowed && !allowed.has(k)) return;
+      const r = index.map.get(k)!;
+      out.push(r);
+      const isOpen = allowed ? r.childKeys.some(c => allowed!.has(c)) : expanded.has(k);
+      if (isOpen) r.childKeys.forEach(visit);
+    };
+    index.roots.filter(k => family === 'all' || index.map.get(k)!.family === family).forEach(visit);
+    return out;
+  }, [index, expanded, q, family]);
 
   const expandAll = () => {
     const keys = new Set<string>();
-    const traverse = (nodes: ContentNode[]) => {
-      for (const n of nodes) {
-        if (n.children && n.children.length > 0) {
-          keys.add(`${n.type}-${n.content_id || n.id}`);
-          traverse(n.children);
-        }
-      }
-    };
-    traverse(tree);
-    setExpandedKeys(keys);
+    index.map.forEach((r, k) => { if (r.childKeys.length && r.node.type !== 'ee_month' && r.node.type !== 'eo_month') keys.add(k); });
+    setExpanded(keys);
   };
 
-  const totalRecipients = selectedStudentIds.length + selectedBatchIds.length;
+  /* ═══════════ SELECTION SUMMARY ═══════════ */
+  const selectedRows = selected.map(k => index.map.get(k)).filter((r): r is Row => !!r);
+  const hasEe = selectedRows.some(r => r.family === 'ee');
+  const hasEo = selectedRows.some(r => r.family === 'eo');
+  const autoName = selectedRows.length
+    ? `${selectedRows.slice(0, 2).map(r => (r.depth === 0 ? r.label : `${FAMILY_CODE[r.family]} ${r.label}`)).join(', ')}${selectedRows.length > 2 ? ` +${selectedRows.length - 2}` : ''}`
+    : '';
+  const recipients = studentIds.length + batchIds.length;
+  const reach = useMemo(() => {
+    const byId = new Map(batches.map(b => [b.id, Number(b.student_count) || 0]));
+    return studentIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
+  }, [studentIds, batchIds, batches]);
+  const canSubmit = selected.length > 0 && recipients > 0 && !submitting;
+
+  const studentOptions = useMemo(() => students.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [students]);
+  const batchOptions = useMemo(() => batches.map(b => ({ value: b.id, label: b.name, count: Number(b.student_count) || 0, search: b.name.toLowerCase() })), [batches]);
+
+  /* ═══════════ ACTIONS ═══════════ */
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const r = await apiCall('/tcf/exam-assignments', {
+        method: 'POST',
+        body: JSON.stringify({
+          items: selectedRows.map(row => ({ content_type: row.node.type, content_id: row.node.content_id ?? row.node.id })),
+          student_ids: studentIds,
+          batch_ids: batchIds,
+          expires_at: expiresAt ? expiresAt.toISOString() : null,
+          group_name: name.trim() || autoName,
+          ee_credits: hasEe ? eeCredits || 0 : 0,
+          eo_credits: hasEo ? eoCredits || 0 : 0,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { msg.error(d?.error || 'The assignment could not be created.'); return; }
+      msg.success(d.duplicates
+        ? `${d.created} assigned · ${d.duplicates} already existed`
+        : `${d.created} ${d.created === 1 ? 'assignment' : 'assignments'} created`);
+      resetForm();
+      setListStatus('active');
+      setTab('list');
+      loadGroups();
+      onChanged?.();
+    } catch {
+      msg.error('The assignment could not be created. Check your connection and try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const removeGroup = async (g: ExamAssignmentGroup) => {
+    setRemoving(g.group_id);
+    try {
+      const r = await apiCall(`/tcf/exam-assignments/group/${encodeURIComponent(g.group_id)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error();
+      setGroups(list => (list || []).filter(x => x.group_id !== g.group_id));
+      msg.success('Assignment removed');
+      onChanged?.();
+    } catch {
+      msg.error('The assignment could not be removed.');
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  const lq = listQuery.trim().toLowerCase();
+  const visibleGroups = useMemo(() => (groups || []).filter(g =>
+    (listStatus === 'all' || (listStatus === 'active' ? !g.is_expired : g.is_expired))
+    && (!lq || `${g.group_name} ${g.items.map(i => i.content_name).join(' ')} ${g.recipients.map(x => x.name).join(' ')}`.toLowerCase().includes(lq))), [groups, listStatus, lq]);
+  const activeCount = (groups || []).filter(g => !g.is_expired).length;
+  const expiredCount = (groups || []).length - activeCount;
+
+  const rootChips = index.roots.map(k => index.map.get(k)!);
 
   return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      footer={null}
-      width={920}
-      destroyOnClose
-      centered
-      title={null}
-      closable={false}
-      styles={{ body: { padding: 0 } }}
-      style={{ top: 20 }}
-    >
-      {/* Header */}
-      <div style={{
-        background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #818cf8 100%)',
-        padding: '24px 28px', borderRadius: '8px 8px 0 0',
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 12,
-            background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontSize: 20,
-          }}>
-            <SendOutlined />
+    <Modal open={open} onCancel={onClose} footer={null} closable={false} centered width="min(1100px, calc(100vw - 24px))"
+      wrapClassName="ea-modal" styles={{ content: { padding: 0 }, body: { padding: 0 } }} maskClosable={!submitting}>
+      {msgHolder}
+      <div className="ea">
+        <header className="ea-head">
+          <span className="ea-head-ic"><SendOutlined /></span>
+          <div className="ea-head-text">
+            <h2>Assign exam content</h2>
+            <p>Give students or whole batches access to TCF practice content.</p>
           </div>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>
-              Assign Exam Content
-            </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>
-              Select content, recipients, and expiration settings
-            </div>
-          </div>
-        </div>
-        {/* Summary badges + close */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {selectedItems.length > 0 && (
-            <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 12, padding: '4px 10px' }}>
-              📂 {selectedItems.length} content
-            </Tag>
-          )}
-          {totalRecipients > 0 && (
-            <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', fontWeight: 700, fontSize: 12, padding: '4px 10px' }}>
-              👥 {totalRecipients} recipients
-            </Tag>
-          )}
-          <button
-            onClick={onClose}
-            style={{
-              width: 34, height: 34, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
-              color: '#fff', fontSize: 16, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'all 0.2s', marginLeft: 4, flexShrink: 0,
-              backdropFilter: 'blur(4px)',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.35)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; }}
-          >
-            <CloseOutlined />
-          </button>
-        </div>
-      </div>
+          <Segmented className="ea-tabs" value={tab} onChange={v => setTab(v as 'new' | 'list')} options={[
+            { value: 'new', label: 'New assignment' },
+            { value: 'list', label: <span className="ea-tab">Assignments <em>{groups ? activeCount : '…'}</em></span> },
+          ]} />
+          <button type="button" className="ea-close" onClick={onClose} aria-label="Close"><CloseOutlined /></button>
+        </header>
 
-      <div style={{ padding: '0 28px 24px' }}>
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          style={{ marginBottom: 0 }}
-          items={[
-            {
-              key: 'content',
-              label: (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <FolderOutlined /> Content
-                  {selectedItems.length > 0 && <Badge count={selectedItems.length} style={{ backgroundColor: '#4338ca' }} />}
-                </span>
-              ),
-              children: (
-                <div>
-                  {/* Toolbar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                      Select categories, series, years, months, or specific content to assign
-                    </div>
-                    <Space size={6}>
-                      <Button size="small" onClick={expandAll} style={{ borderRadius: 6, fontSize: 11 }}>
-                        Expand All
-                      </Button>
-                      <Button size="small" onClick={() => setExpandedKeys(new Set())} style={{ borderRadius: 6, fontSize: 11 }}>
-                        Collapse All
-                      </Button>
-                    </Space>
+        {tab === 'new' ? (
+          <>
+            <div className="ea-body">
+              {/* ── 1 · Content ── */}
+              <section className="ea-pane">
+                <div className="ea-pane-head">
+                  <span className="ea-step">1</span>
+                  <strong>Choose content</strong>
+                  <span className="ea-pane-note">{selected.length ? `${selected.length} selected` : 'Whole skills, years, months or single series'}</span>
+                  <Tooltip title="Reload content"><Button type="text" size="small" icon={<ReloadOutlined spin={treeLoading && !!tree.length} />} onClick={() => loadTree(true)} aria-label="Reload content" /></Tooltip>
+                </div>
+                <div className="ea-tools">
+                  <Input allowClear prefix={<SearchOutlined />} placeholder="Search series, years, months…" value={query} onChange={e => setQuery(e.target.value)} />
+                  <div className="ea-fams" role="tablist" aria-label="Skill">
+                    <button type="button" className={family === 'all' ? 'is-on' : ''} onClick={() => setFamily('all')}>All</button>
+                    {rootChips.map(r => (
+                      <Tooltip key={r.key} title={r.label}>
+                        <button type="button" className={`fam-${r.family}${family === r.family ? ' is-on' : ''}`} onClick={() => setFamily(family === r.family ? 'all' : r.family)}>
+                          {FAMILY_CODE[r.family]}
+                        </button>
+                      </Tooltip>
+                    ))}
                   </div>
+                </div>
+                <div className="ea-tree" role="tree" aria-label="Exam content">
+                  {treeLoading && !tree.length ? (
+                    <div className="ea-pad"><Skeleton active title={false} paragraph={{ rows: 7 }} /></div>
+                  ) : treeError && !tree.length ? (
+                    <div className="ea-state"><WarningOutlined /><strong>Couldn't load the content</strong><span>{treeError}</span><Button size="small" onClick={() => loadTree(true)}>Retry</Button></div>
+                  ) : rows.length === 0 ? (
+                    <div className="ea-state"><SearchOutlined /><strong>{q ? 'Nothing matches your search' : 'No content yet'}</strong><span>{q ? 'Try another word.' : 'Create series or years first.'}</span></div>
+                  ) : rows.map(row => (
+                    <TreeRow key={row.key} row={row} checked={selectedSet.has(row.key)} included={includedSet.has(row.key)}
+                      open={q ? true : expanded.has(row.key)} onToggle={onToggle} onExpand={onExpand} />
+                  ))}
+                </div>
+                <div className="ea-tree-foot">
+                  <button type="button" onClick={expandAll}>Expand all</button>
+                  <button type="button" onClick={() => setExpanded(new Set())}>Collapse all</button>
+                  {selected.length > 0 && <button type="button" className="is-danger" onClick={() => setSelected([])}>Clear selection</button>}
+                </div>
+              </section>
 
-                  {/* Tree */}
-                  <div style={{
-                    border: '1px solid #e8e8f4', borderRadius: 12,
-                    maxHeight: 380, overflowY: 'auto', background: '#fafbff',
-                    position: 'relative',
-                  }}>
-                    {loading && tree.length === 0 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', gap: 12 }}>
-                        <Spin indicator={<LoadingOutlined style={{ fontSize: 28, color: '#6366f1' }} spin />} />
-                        <div style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>Loading content tree...</div>
-                      </div>
-                    ) : tree.length === 0 ? (
-                      <Empty description="No content available" style={{ padding: 40 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              {/* ── 2 · Recipients & options ── */}
+              <section className="ea-pane ea-side">
+                <div className="ea-pane-head">
+                  <span className="ea-step">2</span>
+                  <strong>Recipients & options</strong>
+                </div>
+                <div className="ea-side-body">
+                  <div className="ea-field">
+                    <label>Selected content</label>
+                    {selectedRows.length === 0 ? (
+                      <div className="ea-hint">Tick items on the left. Ticking a skill or a year includes everything inside it.</div>
                     ) : (
-                      <div style={{ padding: '6px 4px' }}>
-                        {tree.map((node, i) => (
-                          <TreeNode
-                            key={`${node.type}-${node.id}-${i}`}
-                            node={node} depth={0}
-                            selectedItems={selectedItems}
-                            onToggle={handleToggleItem}
-                            expandedKeys={expandedKeys}
-                            onExpand={handleExpand}
-                          />
+                      <div className="ea-chips">
+                        {selectedRows.map(r => (
+                          <span key={r.key} className={`ea-chip fam-${r.family}`} title={r.path}>
+                            <b>{FAMILY_CODE[r.family]}</b>{r.depth === 0 ? 'Entire skill' : r.path.split(' › ').slice(1).join(' › ')}
+                            <button type="button" onClick={() => onToggle(r.key, false)} aria-label={`Remove ${r.label}`}><CloseOutlined /></button>
+                          </span>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Selected summary */}
-                  {selectedItems.length > 0 && (
-                    <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                      {selectedItems.map((item, i) => (
-                        <Tag
-                          key={i}
-                          closable
-                          onClose={() => handleToggleItem(item, false)}
-                          style={{
-                            borderRadius: 6, fontWeight: 600, fontSize: 11,
-                            background: `${CONTENT_TYPE_COLORS[item.content_type]}10`,
-                            color: CONTENT_TYPE_COLORS[item.content_type],
-                            border: `1px solid ${CONTENT_TYPE_COLORS[item.content_type]}30`,
-                          }}
-                        >
-                          {item.label}
-                        </Tag>
+                  <div className="ea-field">
+                    <label><UserOutlined /> Students</label>
+                    <Select mode="multiple" allowClear placeholder="Search by name or email" value={studentIds} onChange={setStudentIds}
+                      options={studentOptions} optionFilterProp="search" maxTagCount="responsive" showSearch
+                      optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.email}</em></span>}
+                      notFoundContent={students.length ? 'No student matches' : 'Loading students…'} />
+                  </div>
+                  <div className="ea-field">
+                    <label><TeamOutlined /> Batches</label>
+                    <Select mode="multiple" allowClear placeholder="Every student of the batch gets access" value={batchIds} onChange={setBatchIds}
+                      options={batchOptions} optionFilterProp="search" maxTagCount="responsive" showSearch
+                      optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.count} {o.data.count === 1 ? 'student' : 'students'}</em></span>}
+                      notFoundContent={batches.length ? 'No batch matches' : 'Loading batches…'} />
+                  </div>
+
+                  <div className="ea-grid2">
+                    <div className="ea-field">
+                      <label>Name <em>optional</em></label>
+                      <Input value={name} onChange={e => setName(e.target.value)} maxLength={100} placeholder={autoName || 'e.g. CE practice — week 1'} />
+                    </div>
+                    <div className="ea-field">
+                      <label>Access until <em>optional</em></label>
+                      <DatePicker showTime={{ format: 'HH:mm' }} format="MMM D, YYYY HH:mm" value={expiresAt} onChange={setExpiresAt} placeholder="No end date"
+                        disabledDate={d => d.isBefore(dayjs(), 'day')} style={{ width: '100%' }}
+                        presets={[
+                          { label: 'In 1 week', value: dayjs().add(7, 'day').endOf('day') },
+                          { label: 'In 2 weeks', value: dayjs().add(14, 'day').endOf('day') },
+                          { label: 'In 1 month', value: dayjs().add(1, 'month').endOf('day') },
+                          { label: 'In 3 months', value: dayjs().add(3, 'month').endOf('day') },
+                        ]} />
+                    </div>
+                  </div>
+
+                  {(hasEe || hasEo) && (
+                    <div className="ea-field ea-credits">
+                      <label><ThunderboltOutlined /> AI credits per student <em>optional</em></label>
+                      <div className="ea-grid2">
+                        {hasEe && <div className="ea-credit"><span>Expression Écrite</span><InputNumber min={0} max={9999} value={eeCredits ?? undefined} onChange={v => setEeCredits(v ?? null)} placeholder="0" /></div>}
+                        {hasEo && <div className="ea-credit"><span>Expression Orale</span><InputNumber min={0} max={9999} value={eoCredits ?? undefined} onChange={v => setEoCredits(v ?? null)} placeholder="0" /></div>}
+                      </div>
+                      <small>Each AI-graded attempt uses one credit. Credits never expire.</small>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            <footer className="ea-foot">
+              <div className="ea-summary">
+                {!selected.length ? 'Choose at least one content item.'
+                  : !recipients ? 'Add students or batches.'
+                    : <><strong>{selected.length}</strong> {selected.length === 1 ? 'item' : 'items'} for <strong>{recipients}</strong> {recipients === 1 ? 'recipient' : 'recipients'}{reach ? <> · reaches up to <strong>{reach}</strong> {reach === 1 ? 'student' : 'students'}</> : null}{expiresAt ? ` · until ${expiresAt.format('MMM D')}` : ''}</>}
+              </div>
+              <Button onClick={onClose} disabled={submitting}>Cancel</Button>
+              <Button type="primary" icon={<SendOutlined />} onClick={submit} loading={submitting} disabled={!canSubmit}>Assign</Button>
+            </footer>
+          </>
+        ) : (
+          <>
+            <div className="ea-list">
+              <div className="ea-list-tools">
+                <Input allowClear prefix={<SearchOutlined />} placeholder="Search assignments, content or recipients" value={listQuery} onChange={e => setListQuery(e.target.value)} />
+                <Segmented value={listStatus} onChange={v => setListStatus(v as typeof listStatus)} options={[
+                  { value: 'active', label: `Active ${activeCount}` },
+                  { value: 'expired', label: `Expired ${expiredCount}` },
+                  { value: 'all', label: 'All' },
+                ]} />
+              </div>
+              <div className="ea-groups">
+                {groups === null ? (
+                  <div className="ea-pad"><Skeleton active paragraph={{ rows: 6 }} /></div>
+                ) : visibleGroups.length === 0 ? (
+                  <div className="ea-state"><SendOutlined /><strong>{groups.length ? 'No assignment matches' : 'No assignments yet'}</strong><span>{groups.length ? 'Try another search or status.' : 'Assigned content appears here.'}</span>
+                    {!groups.length && <Button type="primary" size="small" onClick={() => setTab('new')}>New assignment</Button>}</div>
+                ) : visibleGroups.map(g => (
+                  <article key={g.group_id} className={`ea-group${g.is_expired ? ' is-expired' : ''}`}>
+                    <div className="ea-group-main">
+                      <strong title={g.group_name}>{g.group_name}</strong>
+                      <em>{fmtDate(g.assigned_at)}{g.assigned_by ? ` · by ${g.assigned_by}` : ''}</em>
+                    </div>
+                    <div className="ea-group-chips">
+                      {g.items.slice(0, 3).map(it => (
+                        <span key={`${it.content_type}:${it.content_id}`} className={`ea-chip is-sm fam-${familyOfType(it.content_type)}`} title={it.content_name}>
+                          <b>{FAMILY_CODE[familyOfType(it.content_type)]}</b>{it.content_name}
+                        </span>
                       ))}
+                      {g.items.length > 3 && <Tooltip title={g.items.slice(3).map(i => i.content_name).join(', ')}><span className="ea-chip is-sm">+{g.items.length - 3}</span></Tooltip>}
                     </div>
-                  )}
-                </div>
-              ),
-            },
-            {
-              key: 'recipients',
-              label: (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <TeamOutlined /> Recipients
-                  {totalRecipients > 0 && <Badge count={totalRecipients} style={{ backgroundColor: '#22c55e' }} />}
-                </span>
-              ),
-              children: (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxHeight: 380, overflowY: 'auto', paddingRight: 8, paddingBottom: 20 }}>
-                  <style>
-                    {`
-                      ::-webkit-scrollbar { width: 6px; }
-                      ::-webkit-scrollbar-track { background: transparent; }
-                      ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-                      ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-                    `}
-                  </style>
-                  {/* Assignment Name */}
-                  <div style={{
-                    background: '#f0f2ff', borderRadius: 12, padding: 16,
-                    border: '1px solid #e0e4f8',
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#312e81', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      ✏️ Assignment Name <span style={{ color: '#ef4444', fontSize: 11 }}>*</span>
+                    <div className="ea-group-chips">
+                      {g.recipients.slice(0, 3).map(x => (
+                        <span key={x.key} className="ea-who" title={x.name}>{x.type === 'student' ? <UserOutlined /> : <TeamOutlined />}{x.name}</span>
+                      ))}
+                      {g.recipients.length > 3 && <Tooltip title={g.recipients.slice(3).map(x => x.name).join(', ')}><span className="ea-who">+{g.recipients.length - 3}</span></Tooltip>}
                     </div>
-                    <div style={{ fontSize: 11, color: '#6366f1', marginBottom: 8 }}>
-                      Give this assignment a short, recognizable name (e.g. &quot;CE Practice Week 1&quot;)
+                    <div className="ea-group-status">
+                      <span className={`ea-pill ${g.is_expired ? 'is-expired' : 'is-active'}`}>{g.is_expired ? 'Expired' : 'Active'}</span>
+                      <em>{g.expires_at ? `${g.is_expired ? 'Ended' : 'Until'} ${fmtDate(g.expires_at)}` : 'No end date'}</em>
                     </div>
-                    <input
-                      type="text"
-                      value={assignmentName}
-                      onChange={e => setAssignmentName(e.target.value)}
-                      placeholder="e.g. EE Months Jan-March 2025"
-                      maxLength={100}
-                      style={{
-                        width: '100%', padding: '9px 12px', borderRadius: 8,
-                        border: `1.5px solid ${assignmentName.trim() ? '#22c55e' : '#c7d2fe'}`,
-                        outline: 'none', fontSize: 13, fontWeight: 600, color: '#1e293b',
-                        background: '#fff', transition: 'border-color 0.15s',
-                        boxSizing: 'border-box' as const,
-                      }}
-                      onFocus={e => { e.target.style.borderColor = '#6366f1'; }}
-                      onBlur={e => { e.target.style.borderColor = assignmentName.trim() ? '#22c55e' : '#c7d2fe'; }}
-                    />
-                  </div>
-
-                  {/* Students */}
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <UserOutlined style={{ color: '#6366f1' }} /> Students
-                      {selectedStudentIds.length > 0 && <Tag color="blue" style={{ borderRadius: 6, fontWeight: 600, fontSize: 10 }}>{selectedStudentIds.length} selected</Tag>}
-                    </div>
-                    <Select
-                      mode="multiple"
-                      showSearch
-                      placeholder="Search and select students..."
-                      value={selectedStudentIds}
-                      onChange={setSelectedStudentIds}
-                      filterOption={false}
-                      onSearch={setStudentSearch}
-                      style={{ width: '100%' }}
-                      loading={loading}
-                      maxTagCount="responsive"
-                      options={studentOptions.options}
-                      notFoundContent={loading ? 'Loading...' : 'No students found'}
-                      dropdownRender={menu => (
-                        <div>
-                          {menu}
-                          {studentOptions.total > studentOptions.showing && (
-                            <div style={{ padding: '6px 12px', fontSize: 11, color: '#94a3b8', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>
-                              Showing {studentOptions.showing} of {studentOptions.total} — type to search more
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    />
-                  </div>
-
-                  {/* Batches */}
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <TeamOutlined style={{ color: '#22c55e' }} /> Batches
-                      {selectedBatchIds.length > 0 && <Tag color="green" style={{ borderRadius: 6, fontWeight: 600, fontSize: 10 }}>{selectedBatchIds.length} selected</Tag>}
-                    </div>
-                    <Select
-                      mode="multiple"
-                      showSearch
-                      placeholder="Search and select batches..."
-                      value={selectedBatchIds}
-                      onChange={setSelectedBatchIds}
-                      filterOption={false}
-                      onSearch={setBatchSearch}
-                      style={{ width: '100%' }}
-                      loading={loading}
-                      maxTagCount="responsive"
-                      options={batchOptions.options}
-                      notFoundContent={loading ? 'Loading...' : 'No batches found'}
-                      dropdownRender={menu => (
-                        <div>
-                          {menu}
-                          {batchOptions.total > batchOptions.showing && (
-                            <div style={{ padding: '6px 12px', fontSize: 11, color: '#94a3b8', borderTop: '1px solid #f0f0f0', textAlign: 'center' }}>
-                              Showing {batchOptions.showing} of {batchOptions.total} — type to search more
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    />
-                  </div>
-
-                  {/* Expiration */}
-                  <div style={{
-                    background: '#fefce8', borderRadius: 12, padding: 16,
-                    border: '1px solid #fef08a',
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <LockOutlined /> Expiration Date
-                    </div>
-                    <div style={{ fontSize: 11, color: '#a16207', marginBottom: 10 }}>
-                      After this date, assigned content will be frozen for students. Leave empty for no expiration.
-                    </div>
-                    <DatePicker
-                      showTime
-                      value={expiresAt}
-                      onChange={setExpiresAt}
-                      style={{ width: '100%', borderRadius: 8 }}
-                      placeholder="No expiration (optional)"
-                      format="YYYY-MM-DD HH:mm"
-                    />
-                  </div>
-
-                  {/* AI Credits (optional) */}
-                  <div style={{
-                    background: '#f0f9ff', borderRadius: 12, padding: 16,
-                    border: '1px solid #bae6fd', marginTop: 12,
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0369a1', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <ThunderboltOutlined /> AI Credits (optional)
-                    </div>
-                    <div style={{ fontSize: 11, color: '#0c4a6e', marginBottom: 12 }}>
-                      Each Expression Écrite or Expression Orale attempt consumes 1 credit. Credits never expire.
-                      Leave blank or 0 to skip granting credits with this assignment.
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                          Expression Écrite credits
-                        </div>
-                        <InputNumber
-                          min={0} max={9999}
-                          value={eeCredits ?? undefined}
-                          onChange={(v) => setEeCredits(v as number | null)}
-                          placeholder="0"
-                          style={{ width: '100%', borderRadius: 8 }}
-                        />
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
-                          Expression Orale credits
-                        </div>
-                        <InputNumber
-                          min={0} max={9999}
-                          value={eoCredits ?? undefined}
-                          onChange={(v) => setEoCredits(v as number | null)}
-                          placeholder="0"
-                          style={{ width: '100%', borderRadius: 8 }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ),
-            },
-            {
-              key: 'existing',
-              label: (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <CheckCircleFilled /> Active
-                  {assignments.length > 0 && <Badge count={assignments.length} style={{ backgroundColor: '#f59e0b' }} />}
-                </span>
-              ),
-              children: (
-                <div style={{ display: 'flex', flexDirection: 'column', height: 400 }}>
-                  {loading ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 12 }}>
-                      <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#6366f1' }} spin />} />
-                      <div style={{ fontSize: 13, color: '#94a3b8', fontWeight: 500 }}>Loading assignments...</div>
-                    </div>
-                  ) : assignments.length === 0 ? (
-                    <Empty description="No active assignments" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }} />
-                  ) : (
-                    <>
-                      {/* Fixed table header */}
-                      <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: '2fr 1.5fr 1.2fr 72px 80px 60px',
-                        gap: 0,
-                        padding: '10px 16px',
-                        background: 'linear-gradient(135deg, #f8fafc, #f0f2ff)',
-                        borderRadius: '10px 10px 0 0',
-                        border: '1px solid #e8e8f4',
-                        borderBottom: '2px solid #e0e4f8',
-                      }}>
-                        {['Assignment', 'Content', 'Recipients', 'Status', 'Date', 'Actions'].map(h => (
-                          <div key={h} style={{
-                            fontSize: 10, fontWeight: 700, color: '#64748b',
-                            textTransform: 'uppercase', letterSpacing: 0.8,
-                          }}>{h}</div>
-                        ))}
-                      </div>
-
-                      {/* Scrollable table body */}
-                      <div style={{
-                        flex: 1, overflowY: 'auto',
-                        border: '1px solid #e8e8f4', borderTop: 'none',
-                        borderRadius: '0 0 10px 10px',
-                      }}>
-                        {assignments.map((group, idx) => {
-                          const isActive = !group.is_expired;
-                          const accentColor = group.is_expired ? '#ef4444' : ['#6366f1', '#8b5cf6', '#3b82f6', '#0ea5e9', '#22c55e', '#f59e0b'][idx % 6];
-                          return (
-                            <div key={group.group_id} style={{
-                              display: 'grid',
-                              gridTemplateColumns: '2fr 1.5fr 1.2fr 72px 80px 60px',
-                              gap: 0,
-                              padding: '10px 16px',
-                              alignItems: 'center',
-                              borderBottom: '1px solid #f1f5f9',
-                              borderLeft: `3px solid ${accentColor}`,
-                              background: '#fff',
-                              transition: 'background 0.12s',
-                            }}
-                              onMouseEnter={e => { e.currentTarget.style.background = '#fafbff'; }}
-                              onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
-                            >
-                              {/* Assignment name */}
-                              <div style={{ minWidth: 0, paddingRight: 10 }}>
-                                <div style={{
-                                  fontSize: 12, fontWeight: 700, color: '#1e293b',
-                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>
-                                  {group.group_name}
-                                </div>
-                                {group.assigned_by && (
-                                  <div style={{ fontSize: 10, color: '#b0b8c9', marginTop: 1 }}>by {group.assigned_by}</div>
-                                )}
-                              </div>
-
-                              {/* Content items */}
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, paddingRight: 8 }}>
-                                {group.items.map((item, i) => (
-                                  <Tooltip key={i} title={`${CONTENT_TYPE_LABELS[item.content_type] || item.content_type}: ${item.content_name}`}>
-                                    <div style={{
-                                      padding: '2px 7px', borderRadius: 4,
-                                      background: `${CONTENT_TYPE_COLORS[item.content_type]}0c`,
-                                      border: `1px solid ${CONTENT_TYPE_COLORS[item.content_type]}20`,
-                                      fontSize: 10, fontWeight: 600,
-                                      color: CONTENT_TYPE_COLORS[item.content_type],
-                                      maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                    }}>
-                                      {item.content_name}
-                                    </div>
-                                  </Tooltip>
-                                ))}
-                              </div>
-
-                              {/* Recipients */}
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, paddingRight: 8 }}>
-                                {group.recipients.slice(0, 3).map((r, i) => (
-                                  <Tooltip key={i} title={`${r.type === 'student' ? 'Student' : 'Batch'}: ${r.name}`}>
-                                    <div style={{
-                                      display: 'flex', alignItems: 'center', gap: 3,
-                                      padding: '2px 6px', borderRadius: 4,
-                                      background: r.type === 'student' ? '#eff6ff' : '#f0fdf4',
-                                      fontSize: 10, fontWeight: 600,
-                                      color: r.type === 'student' ? '#2563eb' : '#16a34a',
-                                      maxWidth: 72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                    }}>
-                                      {r.type === 'student' ? <UserOutlined style={{ fontSize: 8 }} /> : <TeamOutlined style={{ fontSize: 8 }} />}
-                                      {r.name}
-                                    </div>
-                                  </Tooltip>
-                                ))}
-                                {group.recipients.length > 3 && (
-                                  <Tooltip title={group.recipients.slice(3).map(r => r.name).join(', ')}>
-                                    <div style={{
-                                      padding: '2px 5px', borderRadius: 4,
-                                      background: '#f1f5f9', fontSize: 9, fontWeight: 700, color: '#64748b',
-                                    }}>+{group.recipients.length - 3}</div>
-                                  </Tooltip>
-                                )}
-                              </div>
-
-                              {/* Status */}
-                              <div>
-                                <span style={{
-                                  padding: '2px 7px', borderRadius: 5, fontSize: 9, fontWeight: 700,
-                                  textTransform: 'uppercase', letterSpacing: 0.4,
-                                  background: isActive ? '#f0fdf4' : '#fef2f2',
-                                  color: isActive ? '#16a34a' : '#ef4444',
-                                  border: `1px solid ${isActive ? '#bbf7d0' : '#fecaca'}`,
-                                }}>
-                                  {isActive ? 'Active' : 'Expired'}
-                                </span>
-                              </div>
-
-                              {/* Date */}
-                              <div style={{ fontSize: 10, color: '#94a3b8', lineHeight: 1.4 }}>
-                                <div>{new Date(group.assigned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-                                {group.expires_at && (
-                                  <div style={{ color: group.is_expired ? '#ef4444' : '#94a3b8', fontSize: 9 }}>
-                                    → {new Date(group.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Actions */}
-                              <div style={{ display: 'flex', gap: 4 }}>
-                                <Popconfirm
-                                  title="Remove assignment"
-                                  description={`Remove ${group.items.length} items for ${group.recipients.length} recipient(s)?`}
-                                  onConfirm={() => handleRemoveGroup(group.group_id)}
-                                  okText="Remove"
-                                  cancelText="Cancel"
-                                  okButtonProps={{ danger: true }}
-                                >
-                                  <Tooltip title="Delete">
-                                    <button style={{
-                                      width: 26, height: 26, borderRadius: 5,
-                                      border: '1px solid #fecaca', background: '#fff',
-                                      color: '#ef4444', fontSize: 11, cursor: 'pointer',
-                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                      transition: 'all 0.12s',
-                                    }}
-                                      onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
-                                      onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
-                                    >
-                                      {removingId === group.group_id ? <LoadingOutlined spin /> : <DeleteOutlined />}
-                                    </button>
-                                  </Tooltip>
-                                </Popconfirm>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Bottom summary */}
-                      <div style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '8px 16px', marginTop: 6, fontSize: 11, color: '#94a3b8',
-                      }}>
-                        <div style={{ display: 'flex', gap: 14 }}>
-                          <span><span style={{ fontWeight: 700, color: '#22c55e' }}>{assignments.filter(a => !a.is_expired).length}</span> active</span>
-                          {assignments.some(a => a.is_expired) && (
-                            <span><span style={{ fontWeight: 700, color: '#ef4444' }}>{assignments.filter(a => a.is_expired).length}</span> expired</span>
-                          )}
-                        </div>
-                        <span>{assignments.reduce((a, g) => a + g.recipients.length, 0)} total recipients</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ),
-            },
-          ]}
-        />
-
-        {/* Action buttons */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginTop: 20, paddingTop: 16, borderTop: '1px solid #f0f0f8',
-        }}>
-          <div style={{ fontSize: 12, color: '#94a3b8' }}>
-            {selectedItems.length > 0 && totalRecipients > 0
-              ? `${selectedItems.length} content × ${totalRecipients} recipients = ${selectedItems.length * totalRecipients} assignments`
-              : 'Select content and recipients to assign'
-            }
-          </div>
-          <Space>
-            <Button onClick={onClose} style={{ borderRadius: 8 }}>Cancel</Button>
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={handleSubmit}
-              loading={submitting}
-              disabled={selectedItems.length === 0 || totalRecipients === 0}
-              style={{
-                borderRadius: 10, fontWeight: 600, height: 40,
-                background: 'linear-gradient(135deg, #4338ca, #6366f1)',
-                border: 'none', boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-              }}
-            >
-              Assign{submitting ? 'ing...' : selectedItems.length > 0 && totalRecipients > 0
-                ? ` (${selectedItems.length * totalRecipients})`
-                : ''
-              }
-            </Button>
-          </Space>
-        </div>
+                    <Popconfirm title="Remove this assignment?" description={`${g.recipients.length} ${g.recipients.length === 1 ? 'recipient loses' : 'recipients lose'} access to ${g.items.length} ${g.items.length === 1 ? 'item' : 'items'}.`}
+                      okText="Remove" okButtonProps={{ danger: true }} onConfirm={() => removeGroup(g)} placement="left">
+                      <Button type="text" danger size="small" icon={<DeleteOutlined />} loading={removing === g.group_id} aria-label={`Remove ${g.group_name}`} />
+                    </Popconfirm>
+                  </article>
+                ))}
+              </div>
+            </div>
+            <footer className="ea-foot">
+              <div className="ea-summary">{groups ? <><strong>{activeCount}</strong> active · {expiredCount} expired</> : 'Loading…'}</div>
+              <Button onClick={onClose}>Close</Button>
+              <Button type="primary" icon={<SendOutlined />} onClick={() => setTab('new')}>New assignment</Button>
+            </footer>
+          </>
+        )}
       </div>
     </Modal>
   );

@@ -1,72 +1,33 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, dayjsLocalizer, Views } from 'react-big-calendar';
-import dayjs from 'dayjs';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, ConfigProvider, Drawer, Input, Segmented, Select, Skeleton, Switch, Tooltip } from 'antd';
 import {
-        Select,
-    Space,
-    Typography,
-    Button,
-    Modal,
-    Descriptions,
-    Tag,
-    Row,
-    Col,
-    Spin,
-    Skeleton,
-    message,
-    Badge,
-    Statistic,
-    Avatar,
-    List,
-    
-} from 'antd';
-import {
-    CalendarOutlined,
-    UserOutlined,
-    ClockCircleOutlined,
-    EnvironmentOutlined,
-    LinkOutlined,
-    FilterOutlined,
-    ReloadOutlined,
-    TeamOutlined,
-    EyeOutlined
+    AppstoreOutlined, BarChartOutlined, CalendarOutlined, ClockCircleOutlined, CloseOutlined, EditOutlined, EnvironmentOutlined,
+    LinkOutlined, ReloadOutlined, SearchOutlined, TeamOutlined, UnorderedListOutlined, WarningOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import 'react-big-calendar/lib/css/react-big-calendar.css';
+import useResponsive from '../../hooks/useResponsive';
+import { formatPlain, resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import { LEVELS, STATUS_LABEL, WEEK, countOf, hoursText, initials, levelTone, statusOf } from './batchUtils';
+import type { Batch } from './batchUtils';
+import './AdminTimetable.css';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
+/* ══════════════════════════════════════════
+   TEACHER TIMETABLE — the recurring weekly schedule of every batch.
+   Each slot is stored in its batch's timezone; it is converted to the viewer's
+   timezone so every class sits at the right hour (and on the right day).
+══════════════════════════════════════════ */
 
-// Setup the localizer for react-big-calendar
-const localizer = dayjsLocalizer(dayjs);
-
-interface Teacher {
-    id: number;
-    first_name: string;
-    last_name: string;
-    email: string;
-}
-
-interface Student {
-    id: number;
-    username: string;
-    first_name: string;
-    last_name: string;
-    email: string;
-    enrolled_at: string;
-}
-
-interface TimetableEntry {
+interface Entry {
     id: number;
     batch_id: number;
     day_of_week: number;
     start_time: string;
     end_time: string;
-    timezone: string;
-    location_mode: 'online' | 'physical';
-    location?: string;
-    link?: string;
-    is_active: boolean;
+    timezone?: string | null;
+    location_mode?: string | null;
+    location?: string | null;
+    link?: string | null;
     batch_name: string;
     french_level: string;
     start_date: string;
@@ -75,777 +36,570 @@ interface TimetableEntry {
     teacher_first_name: string;
     teacher_last_name: string;
 }
-
-interface CalendarEvent {
-    id: number;
-    title: string;
-    start: Date;
-    end: Date;
-    resource: TimetableEntry;
+interface Slot extends Entry {
+    day: number;        // viewer weekday, 0 = Sunday
+    start: number;      // minutes from midnight (viewer tz)
+    end: number;
+    teacher: string;
+    color: string;
+    ended: boolean;
+    upcoming: boolean;
+    converted: boolean;
+    lane: number;
+    lanes: number;
 }
+interface Student { id: number; first_name: string; last_name: string; email: string; }
+type View = 'week' | 'agenda' | 'teachers';
+type Mode = 'all' | 'online' | 'physical';
+
+const PALETTE = ['#4f46e5', '#059669', '#e11d48', '#d97706', '#0284c7', '#7c3aed', '#0d9488', '#ea580c', '#db2777', '#65a30d'];
+
+/* ── Timezone maths (no library) ── */
+const fmtCache = new Map<string, Intl.DateTimeFormat>();
+const partsIn = (ms: number, tz: string) => {
+    let f = fmtCache.get(tz);
+    if (!f) {
+        f = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+        fmtCache.set(tz, f);
+    }
+    const p: Record<string, number> = {};
+    for (const x of f.formatToParts(new Date(ms))) if (x.type !== 'literal') p[x.type] = Number(x.value);
+    return { y: p.year, m: p.month, d: p.day, h: p.hour % 24, mi: p.minute };
+};
+const offsetMs = (tz: string, ms: number) => {
+    const p = partsIn(ms, tz);
+    return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi) - Math.floor(ms / 60000) * 60000;
+};
+const validTz = (tz?: string | null) => {
+    if (!tz) return null;
+    try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch { return null; }
+};
+const toMin = (t: string) => { const [h, m] = (t || '0:0').split(':').map(Number); return (h || 0) * 60 + (m || 0); };
+
+/** Recurring slot (weekday + wall time in `srcTz`) → weekday + minutes in `viewTz`, for the current week. */
+const convertSlot = (dow: number, startMin: number, durMin: number, srcTz: string, viewTz: string) => {
+    if (srcTz === viewTz) return { day: dow, start: startMin, end: startMin + durMin };
+    const now = partsIn(Date.now(), srcTz);
+    const todayDow = new Date(Date.UTC(now.y, now.m - 1, now.d)).getUTCDay();
+    const base = Date.UTC(now.y, now.m - 1, now.d + (dow - todayDow), Math.floor(startMin / 60), startMin % 60);
+    let inst = base - offsetMs(srcTz, base);
+    const off2 = offsetMs(srcTz, inst);
+    inst = base - off2;
+    const v = partsIn(inst, viewTz);
+    return { day: new Date(Date.UTC(v.y, v.m - 1, v.d)).getUTCDay(), start: v.h * 60 + v.mi, end: v.h * 60 + v.mi + durMin };
+};
+
+const fmtMin = (m: number) => {
+    const mm = ((m % 1440) + 1440) % 1440;
+    const h = Math.floor(mm / 60);
+    const mi = mm % 60;
+    return `${h % 12 || 12}${mi ? `:${String(mi).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
+};
+const hourLabel = (h: number) => `${h % 12 || 12} ${h < 12 || h === 24 ? 'AM' : 'PM'}`;
+const dayLong = (d: number) => WEEK.find(w => w.v === d)?.long || '';
+
+/** Give overlapping slots side-by-side lanes. */
+const layoutDay = (list: Slot[]) => {
+    const sorted = [...list].sort((a, b) => a.start - b.start || b.end - a.end);
+    let cluster: Slot[] = [];
+    let clusterEnd = -1;
+    const flush = () => {
+        const lanesEnd: number[] = [];
+        cluster.forEach(s => {
+            let lane = lanesEnd.findIndex(e => e <= s.start);
+            if (lane === -1) { lane = lanesEnd.length; lanesEnd.push(s.end); } else lanesEnd[lane] = s.end;
+            s.lane = lane;
+        });
+        cluster.forEach(s => { s.lanes = lanesEnd.length; });
+        cluster = [];
+    };
+    sorted.forEach(s => {
+        if (cluster.length && s.start >= clusterEnd) flush();
+        cluster.push(s);
+        clusterEnd = Math.max(clusterEnd, s.end);
+    });
+    if (cluster.length) flush();
+    return sorted;
+};
 
 const AdminTimetable: React.FC = () => {
-    const [teachers, setTeachers] = useState<Teacher[]>([]);
-    const [selectedTeacher, setSelectedTeacher] = useState<number[] | null>(null);
-    const [timetableData, setTimetableData] = useState<TimetableEntry[]>([]);
+    const { apiCall, user } = useAuth();
+    const navigate = useNavigate();
+    const r = useResponsive();
+    const viewTz = resolveTimezone(user?.timezone);
+
+    const [entries, setEntries] = useState<Entry[]>([]);
+    const [batches, setBatches] = useState<Batch[]>([]);
     const [loading, setLoading] = useState(true);
-    const [detailModalVisible, setDetailModalVisible] = useState(false);
-    const [selectedEvent, setSelectedEvent] = useState<TimetableEntry | null>(null);
-    const [studentListModalVisible, setStudentListModalVisible] = useState(false);
-    const [students, setStudents] = useState<Student[]>([]);
-    const [studentCount, setStudentCount] = useState<number>(0);
-    const [studentsLoading, setStudentsLoading] = useState(false);
-    const { apiCall } = useAuth();
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const [view, setView] = useState<View>('week');
+    const [teacherIds, setTeacherIds] = useState<number[]>([]);
+    const [levels, setLevels] = useState<string[]>([]);
+    const [mode, setMode] = useState<Mode>('all');
+    const [showEnded, setShowEnded] = useState(false);
+    const [query, setQuery] = useState('');
+    const [selected, setSelected] = useState<Slot | null>(null);
+    const [students, setStudents] = useState<{ loading: boolean; list: Student[] | null }>({ loading: false, list: null });
+    const [now, setNow] = useState(Date.now());
 
-    useEffect(() => {
-        fetchTeachers();
-        fetchTimetable();
-    }, []);
+    const todayDow = useMemo(() => { const p = partsIn(now, viewTz); return new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); }, [now, viewTz]);
+    const nowMin = useMemo(() => { const p = partsIn(now, viewTz); return p.h * 60 + p.mi; }, [now, viewTz]);
+    const [dayPick, setDayPick] = useState<number>(todayDow);
 
-    useEffect(() => {
-        fetchTimetable();
-    }, [selectedTeacher]);
-
-    const fetchTeachers = async () => {
+    const load = useCallback(async () => {
         try {
-            const response = await apiCall('/users?role=teacher');
-            if (response.ok) {
-                const data = await response.json();
-                setTeachers(data);
-            }
-        } catch (error) {
-            message.error('Failed to fetch teachers');
-        }
-    };
-
-    const handleTeacherChange = (value: (number | string)[]) => {
-        if (value.includes('all')) {
-            // If 'All' is selected, clear individual selections and set to null (show all)
-            setSelectedTeacher(null);
-        } else if (value.length === 0) {
-            // If nothing is selected, keep it empty (show nothing)
-            setSelectedTeacher([]);
-        } else {
-            // Filter out any 'all' values and keep only numbers
-            const teacherIds = value.filter(v => typeof v === 'number') as number[];
-            setSelectedTeacher(teacherIds);
-        }
-    };
-
-    const fetchTimetable = async () => {
-        setLoading(true);
-        try {
-            // If selectedTeacher is an empty array, show no data
-            if (selectedTeacher && selectedTeacher.length === 0) {
-                setTimetableData([]);
-                setLoading(false);
-                return;
-            }
-            
-            let url = '/batches/timetable';
-            if (selectedTeacher && selectedTeacher.length > 0) {
-                // Filter out 'all' and only use numeric teacher IDs
-                const teacherIds = selectedTeacher.filter(id => typeof id === 'number').join(',');
-                if (teacherIds) {
-                    url = `/batches/timetable?teacher_id=${teacherIds}`;
-                }
-            }
-            
-            const response = await apiCall(url);
-            if (response.ok) {
-                const data = await response.json();
-                setTimetableData(data);
-            } else {
-                message.error('Failed to fetch timetable data');
-            }
-        } catch (error) {
-            message.error('Error fetching timetable');
+            const [tRes, bRes] = await Promise.all([apiCall('/batches/timetable'), apiCall('/batches')]);
+            if (!tRes.ok) throw new Error(`The server answered ${tRes.status}.`);
+            const t = await tRes.json();
+            setEntries(Array.isArray(t) ? t : []);
+            if (bRes.ok) { const b = await bRes.json(); setBatches(Array.isArray(b) ? b : b.batches || []); }
+            setError(null);
+        } catch (e: any) {
+            setError(e?.message || 'Could not load the timetable.');
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
-    };
+    }, [apiCall]);
 
-    const fetchBatchStudents = async (batchId: number) => {
-        setStudentsLoading(true);
+    useEffect(() => { load(); }, [load]);
+    useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(t); }, []);
+    useEffect(() => { setStudents({ loading: false, list: null }); }, [selected?.batch_id]);
+
+    /* ═══════════ DERIVED ═══════════ */
+    const teachers = useMemo(() => {
+        const map = new Map<number, string>();
+        entries.forEach(e => map.set(e.teacher_id, `${e.teacher_first_name || ''} ${e.teacher_last_name || ''}`.trim() || 'Teacher'));
+        return Array.from(map, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+    }, [entries]);
+    const colorOf = useMemo(() => new Map(teachers.map((t, i) => [t.id, PALETTE[i % PALETTE.length]])), [teachers]);
+    const batchById = useMemo(() => new Map(batches.map(b => [b.id, b])), [batches]);
+
+    const slots = useMemo<Slot[]>(() => entries.map(e => {
+        const src = validTz(e.timezone) || viewTz;
+        let dur = toMin(e.end_time) - toMin(e.start_time);
+        if (dur <= 0) dur += 1440;
+        const c = convertSlot(Number(e.day_of_week), toMin(e.start_time), dur, src, viewTz);
+        return {
+            ...e,
+            ...c,
+            teacher: `${e.teacher_first_name || ''} ${e.teacher_last_name || ''}`.trim() || 'Teacher',
+            color: colorOf.get(e.teacher_id) || PALETTE[0],
+            ended: new Date(e.end_date).getTime() < now,
+            upcoming: new Date(e.start_date).getTime() > now,
+            converted: src !== viewTz,
+            lane: 0,
+            lanes: 1,
+        };
+    }), [entries, viewTz, colorOf, now]);
+
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        return slots.filter(s =>
+            (showEnded || !s.ended)
+            && (!teacherIds.length || teacherIds.includes(s.teacher_id))
+            && (!levels.length || levels.includes(s.french_level))
+            && (mode === 'all' || (mode === 'physical' ? s.location_mode === 'physical' : s.location_mode !== 'physical'))
+            && (!q || `${s.batch_name} ${s.teacher}`.toLowerCase().includes(q)));
+    }, [slots, showEnded, teacherIds, levels, mode, query]);
+
+    const byDay = useMemo(() => {
+        const out: Record<number, Slot[]> = {};
+        WEEK.forEach(w => { out[w.v] = layoutDay(filtered.filter(s => s.day === w.v).map(s => ({ ...s }))); });
+        return out;
+    }, [filtered]);
+
+    const stats = useMemo(() => {
+        const minutes = filtered.reduce((t, s) => t + (s.end - s.start), 0);
+        const batchIds = new Set(filtered.map(s => s.batch_id));
+        const online = new Set(filtered.filter(s => s.location_mode !== 'physical').map(s => s.batch_id)).size;
+        const perDay = WEEK.map(w => ({ w, n: byDay[w.v].length, min: byDay[w.v].reduce((t, s) => t + (s.end - s.start), 0) }));
+        const busiest = [...perDay].sort((a, b) => b.min - a.min)[0];
+        return { classes: filtered.length, minutes, batches: batchIds.size, online, physical: batchIds.size - online, teachers: new Set(filtered.map(s => s.teacher_id)).size, perDay, busiest };
+    }, [filtered, byDay]);
+
+    const conflicts = useMemo(() => {
+        const found: { key: string; teacher: string; day: number; a: Slot; b: Slot }[] = [];
+        WEEK.forEach(w => {
+            const list = byDay[w.v];
+            for (let i = 0; i < list.length; i++) {
+                for (let j = i + 1; j < list.length; j++) {
+                    const a = list[i];
+                    const b = list[j];
+                    if (a.teacher_id === b.teacher_id && a.start < b.end && b.start < a.end) {
+                        found.push({ key: `${a.id}-${b.id}`, teacher: a.teacher, day: w.v, a, b });
+                    }
+                }
+            }
+        });
+        return found;
+    }, [byDay]);
+    const conflictIds = useMemo(() => new Set(conflicts.flatMap(c => [c.a.id, c.b.id])), [conflicts]);
+
+    const unscheduled = useMemo(() => {
+        const withSlots = new Set(entries.map(e => e.batch_id));
+        return batches.filter(b => statusOf(b) !== 'ended' && !withSlots.has(b.id));
+    }, [batches, entries]);
+
+    const teacherRows = useMemo(() => teachers
+        .filter(t => !teacherIds.length || teacherIds.includes(t.id))
+        .map(t => {
+            const list = filtered.filter(s => s.teacher_id === t.id);
+            return {
+                ...t,
+                color: colorOf.get(t.id) || PALETTE[0],
+                classes: list.length,
+                minutes: list.reduce((m, s) => m + (s.end - s.start), 0),
+                batches: new Set(list.map(s => s.batch_id)).size,
+                perDay: WEEK.map(w => {
+                    const d = list.filter(s => s.day === w.v);
+                    return { v: w.v, short: w.short, n: d.length, min: d.reduce((m, s) => m + (s.end - s.start), 0) };
+                }),
+                conflicts: conflicts.filter(c => c.a.teacher_id === t.id).length,
+            };
+        })
+        .sort((a, b) => b.minutes - a.minutes), [teachers, teacherIds, filtered, colorOf, conflicts]);
+    const maxDayMin = Math.max(60, ...teacherRows.flatMap(t => t.perDay.map(d => d.min)));
+
+    const [lo, hi] = useMemo(() => {
+        if (!filtered.length) return [8, 18];
+        const a = Math.min(...filtered.map(s => s.start));
+        const b = Math.max(...filtered.map(s => Math.min(s.end, 1440)));
+        const l = Math.max(0, Math.floor(a / 60) - 1);
+        const h = Math.min(24, Math.ceil(b / 60) + 1);
+        return [l, Math.max(h, Math.min(24, l + 6))];
+    }, [filtered]);
+    const HOUR = r.isMobile ? 52 : 64;
+
+    const openStudents = async (batchId: number) => {
+        setStudents({ loading: true, list: null });
         try {
-            const response = await apiCall(`/batches/${batchId}`);
-            if (response.ok) {
-                const data = await response.json();
-                setStudents(Array.isArray(data.students) ? data.students : []);
-                setStudentCount(data.students ? data.students.length : 0);
-            } else {
-                message.error('Failed to fetch students');
-            }
-        } catch (error) {
-            message.error('Error fetching students');
-        } finally {
-            setStudentsLoading(false);
+            const res = await apiCall(`/batches/${batchId}`);
+            const d = res.ok ? await res.json() : null;
+            setStudents({ loading: false, list: Array.isArray(d?.students) ? d.students : [] });
+        } catch {
+            setStudents({ loading: false, list: [] });
         }
     };
 
-    const handleViewStudents = (batchId: number) => {
-        setStudentListModalVisible(true);
-        fetchBatchStudents(batchId);
-    };
+    const hasFilters = !!(teacherIds.length || levels.length || mode !== 'all' || query || showEnded);
+    const clearFilters = () => { setTeacherIds([]); setLevels([]); setMode('all'); setQuery(''); setShowEnded(false); };
+    const toggleTeacher = (id: number) => setTeacherIds(ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]));
+    const tzLabel = timezoneLabel(user?.timezone);
 
-    // Convert timetable entries to calendar events - showing recurring weekly pattern
-    const calendarEvents: CalendarEvent[] = useMemo(() => {
-        const events: CalendarEvent[] = [];
-        
-        timetableData.forEach(entry => {
-            // For timetable view, show the recurring pattern for the current week only
-            // This creates a fixed weekly schedule that doesn't change day by day
-            const startOfWeek = dayjs().startOf('week');
-            const eventDate = startOfWeek.add(entry.day_of_week, 'day');
-            
-            const [startHour, startMinute] = entry.start_time.split(':').map(Number);
-            const [endHour, endMinute] = entry.end_time.split(':').map(Number);
-            
-            const startDateTime = eventDate.hour(startHour).minute(startMinute).toDate();
-            const endDateTime = eventDate.hour(endHour).minute(endMinute).toDate();
-            
-            events.push({
-                id: entry.id,
-                title: entry.french_level,
-                start: startDateTime,
-                end: endDateTime,
-                resource: entry
-            });
-        });
-        
-        return events;
-    }, [timetableData]);
+    /* ═══════════ PIECES ═══════════ */
+    const SlotRow: React.FC<{ s: Slot }> = ({ s }) => (
+        <button type="button" className={`tt-row${conflictIds.has(s.id) ? ' is-conflict' : ''}${s.ended ? ' is-ended' : ''}`}
+            style={{ '--c': s.color } as React.CSSProperties} onClick={() => setSelected(s)}>
+            <span className="tt-row-time"><strong>{fmtMin(s.start)}</strong><em>{hoursText(s.end - s.start)}</em></span>
+            <span className="tt-row-bar" />
+            <span className="tt-row-text">
+                <strong>{s.batch_name}</strong>
+                <em>{s.teacher} · {s.location_mode === 'physical' ? (s.location || 'In person') : 'Online'}</em>
+            </span>
+            <span className={`tt-lv ${levelTone(s.french_level)}`}>{s.french_level}</span>
+            {conflictIds.has(s.id) && <Tooltip title="Overlaps another class of this teacher"><WarningOutlined className="tt-warn-ic" /></Tooltip>}
+        </button>
+    );
 
-    const handleEventSelect = (event: CalendarEvent) => {
-        setSelectedEvent(event.resource);
-        setDetailModalVisible(true);
-    };
-
-    // Generate distinct colors for teachers
-    const teacherColors = useMemo(() => {
-        const uniqueTeachers = Array.from(new Set(timetableData.map(entry => entry.teacher_id)));
-        const colorPalette = [
-            '#1890ff', '#52c41a', '#722ed1', '#fa8c16', '#eb2f96', 
-            '#13c2c2', '#f5222d', '#a0d911', '#fadb14', '#2f54eb',
-            '#fa541c', '#1890ff', '#722ed1', '#52c41a', '#fa8c16'
-        ];
-        
-        const teacherColorMap: Record<number, { primary: string; border: string }> = {};
-        uniqueTeachers.forEach((teacherId, index) => {
-            const baseColor = colorPalette[index % colorPalette.length];
-            teacherColorMap[teacherId] = {
-                primary: baseColor,
-                border: baseColor
-            };
-        });
-        
-        return teacherColorMap;
-    }, [timetableData]);
-
-    // Generate distinct colors for batches (for single teacher view)
-    const batchColors = useMemo(() => {
-        const uniqueBatches = Array.from(new Set(timetableData.map(entry => entry.batch_id)));
-        const colorPalette = [
-            '#1890ff', '#52c41a', '#722ed1', '#fa8c16', '#eb2f96', 
-            '#13c2c2', '#f5222d', '#a0d911', '#fadb14', '#2f54eb',
-            '#fa541c', '#1890ff', '#722ed1', '#52c41a', '#fa8c16'
-        ];
-        
-        const batchColorMap: Record<number, { primary: string; border: string }> = {};
-        uniqueBatches.forEach((batchId, index) => {
-            const baseColor = colorPalette[index % colorPalette.length];
-            batchColorMap[batchId] = {
-                primary: baseColor,
-                border: baseColor
-            };
-        });
-        
-        return batchColorMap;
-    }, [timetableData]);
-
-    // Get unique teachers for legend display
-    const uniqueTeachers = useMemo(() => {
-        const teacherMap = new Map();
-        timetableData.forEach(entry => {
-            if (!teacherMap.has(entry.teacher_id)) {
-                teacherMap.set(entry.teacher_id, {
-                    teacher_id: entry.teacher_id,
-                    teacher_name: `${entry.teacher_first_name} ${entry.teacher_last_name}`,
-                    teacher_first_name: entry.teacher_first_name,
-                    teacher_last_name: entry.teacher_last_name
-                });
-            }
-        });
-        return Array.from(teacherMap.values());
-    }, [timetableData]);
-
-    // Get unique batches for legend display
-    const uniqueBatches = useMemo(() => {
-        const batchMap = new Map();
-        timetableData.forEach(entry => {
-            if (!batchMap.has(entry.batch_id)) {
-                batchMap.set(entry.batch_id, {
-                    batch_id: entry.batch_id,
-                    batch_name: entry.batch_name,
-                    french_level: entry.french_level,
-                    location_mode: entry.location_mode,
-                    teacher_name: `${entry.teacher_first_name} ${entry.teacher_last_name}`
-                });
-            }
-        });
-        return Array.from(batchMap.values());
-    }, [timetableData]);
-
-
-
-    const eventStyleGetter = (event: CalendarEvent) => {
-        const entry = event.resource;
-        
-        // Use teacher colors when multiple teachers are selected or all teachers
-        // Use batch colors when single teacher is selected
-        const isMultipleTeachers = selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1);
-        
-        let backgroundColor, borderColor;
-        
-        if (isMultipleTeachers) {
-            const teacherColor = teacherColors[entry.teacher_id];
-            backgroundColor = teacherColor?.primary || '#1890ff';
-            borderColor = teacherColor?.border || '#1890ff';
-        } else {
-            const batchColor = batchColors[entry.batch_id];
-            backgroundColor = batchColor?.primary || '#1890ff';
-            borderColor = batchColor?.border || '#1890ff';
-        }
-        
-        // Add slight transparency for online classes to maintain distinction
-        const opacity = entry.location_mode === 'online' ? 0.85 : 0.9;
-        
-        return {
-            style: {
-                backgroundColor,
-                borderRadius: '6px',
-                opacity,
-                color: 'white',
-                border: `2px solid ${borderColor}`,
-                display: 'block',
-                minHeight: '40px',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                overflow: 'hidden',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease'
-            }
-        };
-    };
-
-    // Helper function to shorten teacher names
-    const getShortTeacherName = (firstName: string, lastName: string) => {
-        // If last name is short (≤ 8 chars), use it
-        if (lastName.length <= 8) {
-            return lastName;
-        }
-        // If first name is shorter, use it
-        if (firstName.length < lastName.length && firstName.length <= 8) {
-            return firstName;
-        }
-        // Otherwise use first initial + last name (truncated if needed)
-        const initial = firstName.charAt(0).toUpperCase();
-        const shortLastName = lastName.length > 6 ? lastName.substring(0, 6) + '.' : lastName;
-        return `${initial}. ${shortLastName}`;
-    };
-
-    const CustomEvent = ({ event }: { event: CalendarEvent }) => {
-        const entry = event.resource;
-        const shortTeacherName = getShortTeacherName(entry.teacher_first_name, entry.teacher_last_name);
-        
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) {
         return (
-            <div style={{ 
-                fontSize: '12px', 
-                padding: '3px 5px', 
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                lineHeight: '1.1'
-            }}>
-                <div style={{ 
-                    fontWeight: 'bold', 
-                    fontSize: '13px',
-                    textAlign: 'center',
-                    marginBottom: '1px',
-                    width: '100%',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                }}>
-                    {event.title} • {shortTeacherName}
-                </div>
-                <div style={{ 
-                    fontSize: '10px',
-                    textAlign: 'center',
-                    opacity: 0.9
-                }}>
-                    {entry.location_mode === 'online' ? '🌐 Online' : '📍 Physical'}
-                </div>
+            <div className="tt" aria-busy="true">
+                <div className="tt-header"><div><Skeleton.Input active size="small" style={{ width: 130, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 240, height: 24 }} /></div></div></div>
+                <div className="tt-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="tt-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                <div className="tt-panel tt-pad"><Skeleton active paragraph={{ rows: 10 }} /></div>
             </div>
         );
-    };
+    }
 
-    const CustomHeader = ({ date }: { date: Date }) => {
-        const dayName = dayjs(date).format('dddd');
-        return (
-            <div style={{ 
-                textAlign: 'center', 
-                padding: '0 12px',
-                fontWeight: 'bold',
-                fontSize: '18px',
-                backgroundColor: '#fafafa',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                border: 'none',
-                borderBottom: 'none'
-            }}>
-                {dayName}
-            </div>
-        );
-    };
-
-    const getOverallStats = () => {
-        // Get unique batches instead of counting recurring sessions
-        const uniqueBatches = new Map();
-        
-        timetableData.forEach(entry => {
-            if (!uniqueBatches.has(entry.batch_id)) {
-                uniqueBatches.set(entry.batch_id, {
-                    batch_id: entry.batch_id,
-                    batch_name: entry.batch_name,
-                    location_mode: entry.location_mode,
-                    teacher_id: entry.teacher_id
-                });
-            }
-        });
-        
-        const uniqueBatchArray = Array.from(uniqueBatches.values());
-        const totalClasses = uniqueBatchArray.length;
-        const onlineClasses = uniqueBatchArray.filter(batch => batch.location_mode === 'online').length;
-        const physicalClasses = uniqueBatchArray.filter(batch => batch.location_mode === 'physical').length;
-        
-        return {
-            totalClasses,
-            onlineClasses,
-            physicalClasses
-        };
-    };
-
-    const overallStats = getOverallStats();
+    const narrowWeek = view === 'week' && r.width < 900;
+    const hours = Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+    const selBatch = selected ? batchById.get(selected.batch_id) : undefined;
+    const selStatus = selected ? statusOf({ ...selected, id: selected.batch_id, student_count: 0, created_at: selected.start_date } as unknown as Batch) : 'running';
+    const siblings = selected ? slots.filter(s => s.batch_id === selected.batch_id).sort((a, b) => ((a.day + 6) % 7) - ((b.day + 6) % 7) || a.start - b.start) : [];
 
     return (
-        <div style={{ height: 'calc(100vh - 120px)', display: 'flex', flexDirection: 'column' }}>
-            {/* ── Premium Header ── */}
-            <div style={{ marginBottom: 20, flexShrink: 0 }}>
-                <Row justify="space-between" align="middle" style={{ marginBottom: 20 }}>
-                    <Col>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-                            Teacher Timetable
-                        </div>
-                        <Text style={{ fontSize: 13, color: '#94a3b8' }}>
-                            Weekly schedule overview · {timetableData.length} sessions across {uniqueTeachers.length} teachers
-                        </Text>
-                    </Col>
-                    <Col>
-                        <Button
-                            icon={<ReloadOutlined />}
-                            onClick={fetchTimetable}
-                            loading={loading}
-                            style={{ borderRadius: 10, fontWeight: 600, borderColor: '#e0e7ff', color: '#6366f1' }}
-                        >
-                            Refresh
-                        </Button>
-                    </Col>
-                </Row>
-
-                {/* Filter + KPI row */}
-                <Row gutter={16} align="stretch">
-                    <Col xs={24} md={8}>
-                        <div style={{
-                            background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8',
-                            boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
-                            padding: '16px 20px', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center',
-                        }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <FilterOutlined /> Filter by Teacher
-                            </div>
-                            <Select
-                                mode="multiple"
-                                placeholder="Select teachers or 'All'"
-                                style={{ width: '100%' }}
-                                value={selectedTeacher === null ? ['all'] : (selectedTeacher.length === 0 ? [] : selectedTeacher)}
-                                onChange={handleTeacherChange}
-                                allowClear
-                                showSearch
-                                optionFilterProp="children"
-                            >
-                                <Option key="all" value="all">
-                                    <UserOutlined /> All Teachers
-                                </Option>
-                                {teachers.map(teacher => (
-                                    <Option key={teacher.id} value={teacher.id}>
-                                        <UserOutlined /> {teacher.first_name} {teacher.last_name}
-                                    </Option>
-                                ))}
-                            </Select>
-                        </div>
-                    </Col>
-
-                    {/* KPI pills */}
-                    {[
-                        { label: 'Total Classes', value: overallStats.totalClasses, icon: <CalendarOutlined />, gradient: 'linear-gradient(135deg, #6366f1, #818cf8)', accent: '#6366f1' },
-                        { label: 'Physical', value: overallStats.physicalClasses, icon: <EnvironmentOutlined />, gradient: 'linear-gradient(135deg, #ec4899, #f472b6)', accent: '#ec4899' },
-                        { label: 'Online', value: overallStats.onlineClasses, icon: <LinkOutlined />, gradient: 'linear-gradient(135deg, #22c55e, #4ade80)', accent: '#22c55e' },
-                    ].map(kpi => (
-                        <Col xs={24} md={5} lg={5} key={kpi.label}>
-                            <div style={{
-                                borderRadius: 16, padding: '16px 20px',
-                                background: '#fff', border: '1px solid #f0f0f8',
-                                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
-                                display: 'flex', alignItems: 'center', gap: 14, height: '100%',
-                            }}>
-                                <div style={{
-                                    width: 42, height: 42, borderRadius: 12,
-                                    background: kpi.gradient,
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    fontSize: 18, color: '#fff', flexShrink: 0,
-                                    boxShadow: `0 4px 12px ${kpi.accent}40`,
-                                }}>
-                                    {kpi.icon}
-                                </div>
-                                <div>
-                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.6 }}>{kpi.label}</div>
-                                    <div style={{ fontSize: 24, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>{kpi.value}</div>
-                                </div>
-                            </div>
-                        </Col>
-                    ))}
-                </Row>
-
-                {/* Teacher / Batch legend */}
-                <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                    {(selectedTeacher === null || (selectedTeacher && selectedTeacher.length > 1)) && uniqueTeachers.length > 0 && (
-                        <>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginRight: 4 }}>Teachers:</span>
-                            {uniqueTeachers.map(teacher => (
-                                <Tag
-                                    key={teacher.teacher_id}
-                                    color={teacherColors[teacher.teacher_id]?.primary}
-                                    style={{ color: 'white', fontWeight: 700, borderRadius: 8, border: 'none', fontSize: 12, padding: '2px 10px' }}
-                                >
-                                    {teacher.teacher_name}
-                                </Tag>
-                            ))}
-                        </>
-                    )}
-                    {selectedTeacher && selectedTeacher.length === 1 && uniqueBatches.length > 0 && (
-                        <>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.8, marginRight: 4 }}>
-                                {uniqueBatches[0]?.teacher_name}'s Batches:
-                            </span>
-                            {uniqueBatches.map(batch => (
-                                <Tag
-                                    key={batch.batch_id}
-                                    color={batchColors[batch.batch_id]?.primary}
-                                    style={{ color: 'white', fontWeight: 700, borderRadius: 8, border: 'none', fontSize: 12, padding: '2px 10px' }}
-                                >
-                                    {batch.batch_name} ({batch.french_level})
-                                </Tag>
-                            ))}
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {/* ── Calendar Area ── */}
-            <div style={{
-                flex: 1, minHeight: 0,
-                background: '#fff', borderRadius: 16,
-                border: '1px solid #f0f0f8',
-                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
-                overflow: 'hidden',
-            }}>
-                {loading ? (
-                    /* Full-area skeleton */
-                    <div style={{ padding: 24 }}>
-                        {/* Day headers skeleton */}
-                        <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                                <div key={d} style={{ flex: 1, textAlign: 'center' }}>
-                                    <Skeleton.Button active style={{ width: '80%', height: 28, borderRadius: 8 }} block />
-                                </div>
-                            ))}
-                        </div>
-                        {/* Time rows skeleton */}
-                        {[1, 2, 3, 4, 5, 6, 7, 8].map(r => (
-                            <div key={r} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                                <Skeleton.Input active style={{ width: 50, height: 20, borderRadius: 4 }} />
-                                {[1, 2, 3, 4, 5, 6, 7].map(c => (
-                                    <div key={c} style={{ flex: 1 }}>
-                                        {(r + c) % 3 === 0 ? (
-                                            <Skeleton.Button active style={{ width: '90%', height: 36, borderRadius: 6 }} block />
-                                        ) : (
-                                            <div style={{ height: 20 }} />
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        ))}
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            <div className="tt">
+                {/* ── Header ── */}
+                <header className="tt-header">
+                    <div>
+                        <div className="tt-overline">Admin console · Schedule</div>
+                        <h1 className="tt-title">Teacher timetable</h1>
+                        <p className="tt-subtitle">The recurring weekly schedule of every batch, shown in your timezone ({tzLabel} · {viewTz.replace(/_/g, ' ')}).</p>
                     </div>
-                ) : (
-                    <Calendar
-                        localizer={localizer}
-                        events={calendarEvents}
-                        startAccessor="start"
-                        endAccessor="end"
-                        style={{ height: '100%' }}
-                        onSelectEvent={handleEventSelect}
-                        eventPropGetter={eventStyleGetter}
-                        components={{
-                            event: CustomEvent,
-                            toolbar: () => null,
-                            week: {
-                                header: CustomHeader
-                            }
-                        }}
-                        views={[Views.WEEK]}
-                        view={Views.WEEK}
-                        dayLayoutAlgorithm="no-overlap"
-                        step={30}
-                        timeslots={2}
-                        min={dayjs().hour(0).minute(0).toDate()}
-                        max={dayjs().hour(23).minute(59).toDate()}
-                        date={dayjs().startOf('week').toDate()}
-                        popup
-                        popupOffset={30}
-                    />
-                )}
-            </div>
+                    <div className="tt-header-actions">
+                        <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={refreshing} />} aria-label="Refresh" onClick={() => { setRefreshing(true); load(); }} /></Tooltip>
+                        <Button icon={<CalendarOutlined />} onClick={() => navigate('/app/batches')}>Manage batches</Button>
+                    </div>
+                </header>
 
-            <Modal
-                title={
-                    <Space>
-                        <CalendarOutlined />
-                        Class Details
-                    </Space>
-                }
-                open={detailModalVisible}
-                onCancel={() => setDetailModalVisible(false)}
-                footer={[
-                    <Button key="close" onClick={() => setDetailModalVisible(false)}>
-                        Close
-                    </Button>
-                ]}
-                width={600}
-            >
-                {selectedEvent && (
-                    <Descriptions bordered column={2} size="small">
-                        <Descriptions.Item label="Batch Name" span={2}>
-                            <Text strong>{selectedEvent.batch_name}</Text>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="French Level">
-                            <Tag color="blue">{selectedEvent.french_level}</Tag>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Day">
-                            <Tag color="green">{dayNames[selectedEvent.day_of_week]}</Tag>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Time">
-                            <Space>
-                                <ClockCircleOutlined />
-                                {selectedEvent.start_time} - {selectedEvent.end_time}
-                            </Space>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Timezone">
-                            {selectedEvent.timezone}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Teacher" span={2}>
-                            <Space>
-                                <UserOutlined />
-                                {selectedEvent.teacher_first_name} {selectedEvent.teacher_last_name}
-                            </Space>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Students" span={2}>
-                            <Button 
-                                type="link" 
-                                icon={<TeamOutlined />}
-                                onClick={() => handleViewStudents(selectedEvent.batch_id)}
-                                style={{ padding: 0, height: 'auto' }}
-                            >
-                                <Space>
-                                    <EyeOutlined />
-                                    View Students
-                                </Space>
-                            </Button>
-                        </Descriptions.Item>
-                        <Descriptions.Item label="Location Mode" span={2}>
-                            <Tag color={selectedEvent.location_mode === 'online' ? 'green' : 'purple'}>
-                                {selectedEvent.location_mode === 'online' ? '🌐 Online' : '📍 Physical'}
-                            </Tag>
-                        </Descriptions.Item>
-                        {selectedEvent.location_mode === 'physical' && selectedEvent.location && (
-                            <Descriptions.Item label="Location" span={2}>
-                                <Space>
-                                    <EnvironmentOutlined />
-                                    {selectedEvent.location}
-                                </Space>
-                            </Descriptions.Item>
-                        )}
-                        {selectedEvent.location_mode === 'online' && selectedEvent.link && (
-                            <Descriptions.Item label="Meeting Link" span={2}>
-                                <Space>
-                                    <LinkOutlined />
-                                    <a href={selectedEvent.link} target="_blank" rel="noopener noreferrer">
-                                        Join Meeting
-                                    </a>
-                                </Space>
-                            </Descriptions.Item>
-                        )}
-                        <Descriptions.Item label="Batch Duration" span={2}>
-                            <Space>
-                                <CalendarOutlined />
-                                {dayjs(selectedEvent.start_date).format('MMM DD, YYYY')} - {dayjs(selectedEvent.end_date).format('MMM DD, YYYY')}
-                            </Space>
-                        </Descriptions.Item>
-                    </Descriptions>
-                )}
-            </Modal>
+                {error && <div className="tt-alert" role="alert"><WarningOutlined /><span><strong>Couldn't load the timetable.</strong> {error}</span><Button size="small" onClick={() => { setLoading(true); load(); }}>Retry</Button></div>}
 
-            {/* Student List Modal */}
-            <Modal
-                title={
-                    <Space>
-                        <TeamOutlined />
-                        <span>Students in {selectedEvent?.batch_name}</span>
-                        <Badge count={studentCount} style={{ backgroundColor: '#52c41a' }} />
-                    </Space>
-                }
-                open={studentListModalVisible}
-                onCancel={() => {
-                    setStudentListModalVisible(false);
-                    setStudents([]);
-                    setStudentCount(0);
-                }}
-                footer={[
-                    <Button key="close" onClick={() => {
-                        setStudentListModalVisible(false);
-                        setStudents([]);
-                        setStudentCount(0);
-                    }}>
-                        Close
-                    </Button>
-                ]}
-                width={700}
-            >
-                <Spin spinning={studentsLoading}>
-                    {students.length > 0 ? (
-                        <div>
-                            <div style={{ marginBottom: 16, padding: '12px 16px', backgroundColor: '#f5f5f5', borderRadius: 8 }}>
-                                <Row gutter={16}>
-                                    <Col span={8}>
-                                        <Statistic 
-                                            title="Total Students" 
-                                            value={studentCount} 
-                                            prefix={<TeamOutlined />}
-                                            valueStyle={{ color: '#1890ff' }}
-                                        />
-                                    </Col>
-                                    <Col span={8}>
-                                        <Statistic 
-                                            title="Batch" 
-                                            value={selectedEvent?.batch_name || 'N/A'} 
-                                            prefix={<CalendarOutlined />}
-                                        />
-                                    </Col>
-                                    <Col span={8}>
-                                        <Statistic 
-                                            title="Level" 
-                                            value={selectedEvent?.french_level || 'N/A'} 
-                                            prefix={<Tag color="blue" style={{ margin: 0 }}>FR</Tag>}
-                                        />
-                                    </Col>
-                                </Row>
+                {/* ── KPIs ── */}
+                <section className="tt-kpis" aria-label="This week">
+                    <div className="tt-kpi"><span className="tt-kpi-ic is-indigo"><CalendarOutlined /></span><span className="tt-kpi-label">Classes per week</span><strong>{stats.classes}</strong><em>{stats.batches} active {stats.batches === 1 ? 'batch' : 'batches'}</em></div>
+                    <div className="tt-kpi"><span className="tt-kpi-ic is-green"><ClockCircleOutlined /></span><span className="tt-kpi-label">Teaching time</span><strong>{hoursText(stats.minutes)}</strong><em>per week</em></div>
+                    <div className="tt-kpi"><span className="tt-kpi-ic is-blue"><LinkOutlined /></span><span className="tt-kpi-label">Online · in person</span><strong>{stats.online} <small>·</small> {stats.physical}</strong><em>batches</em></div>
+                    <div className="tt-kpi"><span className="tt-kpi-ic is-violet"><TeamOutlined /></span><span className="tt-kpi-label">Teachers teaching</span><strong>{stats.teachers}</strong><em>of {teachers.length} with a schedule</em></div>
+                    <div className="tt-kpi"><span className="tt-kpi-ic is-amber"><BarChartOutlined /></span><span className="tt-kpi-label">Busiest day</span><strong>{stats.busiest && stats.busiest.n ? stats.busiest.w.long : '—'}</strong><em>{stats.busiest && stats.busiest.n ? `${stats.busiest.n} classes · ${hoursText(stats.busiest.min)}` : 'No classes'}</em></div>
+                </section>
+
+                {/* ── Attention ── */}
+                {(conflicts.length > 0 || unscheduled.length > 0) && (
+                    <section className="tt-attention">
+                        {conflicts.length > 0 && (
+                            <div className="tt-att is-red">
+                                <WarningOutlined />
+                                <div>
+                                    <strong>{conflicts.length} overlapping {conflicts.length === 1 ? 'class' : 'classes'}</strong>
+                                    <span>{conflicts.slice(0, 2).map(c => `${c.teacher} · ${dayLong(c.day)} ${fmtMin(Math.max(c.a.start, c.b.start))}`).join(' — ')}{conflicts.length > 2 ? '…' : ''}</span>
+                                </div>
+                                <Button size="small" onClick={() => { setSelected(conflicts[0].a); }}>Review</Button>
                             </div>
-                            
-                            <List
-                                itemLayout="horizontal"
-                                dataSource={students}
-                                renderItem={(student, index) => (
-                                    <List.Item
-                                        style={{
-                                            padding: '12px 16px',
-                                            borderRadius: 8,
-                                            marginBottom: 8,
-                                            backgroundColor: index % 2 === 0 ? '#fafafa' : '#ffffff',
-                                            border: '1px solid #f0f0f0'
-                                        }}
-                                    >
-                                        <List.Item.Meta
-                                            avatar={
-                                                <Avatar 
-                                                    size={40}
-                                                    style={{ 
-                                                        backgroundColor: `hsl(${(student.id * 137.508) % 360}, 70%, 50%)`,
-                                                        fontSize: '16px',
-                                                        fontWeight: 'bold'
-                                                    }}
-                                                >
-                                                    {student.first_name.charAt(0)}{student.last_name.charAt(0)}
-                                                </Avatar>
-                                            }
-                                            title={
-                                                <Space>
-                                                    <Text strong style={{ fontSize: '16px' }}>
-                                                        {student.first_name} {student.last_name}
-                                                    </Text>
-                                                    <Tag color="blue" style={{ fontSize: '11px' }}>
-                                                        @{student.username}
-                                                    </Tag>
-                                                </Space>
-                                            }
-                                            description={
-                                                <Space direction="vertical" size={4}>
-                                                    <Text type="secondary" style={{ fontSize: '14px' }}>
-                                                        📧 {student.email}
-                                                    </Text>
-                                                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                                                        📅 Enrolled: {dayjs(student.enrolled_at).format('MMM DD, YYYY')}
-                                                    </Text>
-                                                </Space>
-                                            }
-                                        />
-                                        <div style={{ textAlign: 'right' }}>
-                                            <Badge 
-                                                count={`#${index + 1}`} 
-                                                style={{ 
-                                                    backgroundColor: '#f0f0f0', 
-                                                    color: '#666',
-                                                    border: '1px solid #d9d9d9'
-                                                }} 
-                                            />
+                        )}
+                        {unscheduled.length > 0 && (
+                            <div className="tt-att is-amber">
+                                <CalendarOutlined />
+                                <div>
+                                    <strong>{unscheduled.length} active {unscheduled.length === 1 ? 'batch has' : 'batches have'} no weekly classes</strong>
+                                    <span>{unscheduled.slice(0, 3).map(b => b.name).join(', ')}{unscheduled.length > 3 ? '…' : ''}</span>
+                                </div>
+                                <Button size="small" onClick={() => navigate(`/app/batches?edit=${unscheduled[0].id}&step=1`)}>Add schedule</Button>
+                            </div>
+                        )}
+                    </section>
+                )}
+
+                {/* ── Toolbar ── */}
+                <section className="tt-panel">
+                    <div className="tt-toolbar">
+                        <Segmented value={view} onChange={v => setView(v as View)} options={[
+                            { value: 'week', label: <span className="tt-seg"><CalendarOutlined /> Week</span> },
+                            { value: 'agenda', label: <span className="tt-seg"><UnorderedListOutlined /> Agenda</span> },
+                            { value: 'teachers', label: <span className="tt-seg"><AppstoreOutlined /> Teachers</span> },
+                        ]} />
+                        <div className="tt-filters">
+                            <Input className="tt-search" prefix={<SearchOutlined />} allowClear placeholder="Search batch or teacher" value={query} onChange={e => setQuery(e.target.value)} />
+                            <Select className="tt-f" mode="multiple" allowClear maxTagCount="responsive" placeholder="All teachers" value={teacherIds} onChange={setTeacherIds}
+                                optionFilterProp="label" options={teachers.map(t => ({ value: t.id, label: t.name }))} />
+                            <Select className="tt-f is-narrow" mode="multiple" allowClear maxTagCount="responsive" placeholder="All levels" value={levels} onChange={setLevels}
+                                options={LEVELS.map(l => ({ value: l, label: l }))} />
+                            <Segmented size="small" value={mode} onChange={v => setMode(v as Mode)} options={[
+                                { value: 'all', label: 'All' }, { value: 'online', label: 'Online' }, { value: 'physical', label: 'In person' },
+                            ]} />
+                            <label className="tt-switch"><Switch size="small" checked={showEnded} onChange={setShowEnded} /> Ended batches</label>
+                            {hasFilters && <Button type="link" size="small" onClick={clearFilters}>Clear</Button>}
+                        </div>
+                    </div>
+
+                    {teachers.length > 0 && view !== 'teachers' && (
+                        <div className="tt-legend">
+                            {teachers.map(t => {
+                                const on = !teacherIds.length || teacherIds.includes(t.id);
+                                const mins = slots.filter(s => s.teacher_id === t.id && (showEnded || !s.ended)).reduce((m, s) => m + (s.end - s.start), 0);
+                                return (
+                                    <button key={t.id} type="button" className={`tt-chip${on ? '' : ' is-off'}${teacherIds.includes(t.id) ? ' is-on' : ''}`}
+                                        style={{ '--c': colorOf.get(t.id) } as React.CSSProperties} onClick={() => toggleTeacher(t.id)} aria-pressed={teacherIds.includes(t.id)}>
+                                        <i />{t.name}<em>{hoursText(mins)}</em>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+
+                    {filtered.length === 0 && view !== 'teachers' ? (
+                        <div className="tt-empty">
+                            <span className="tt-empty-ic"><CalendarOutlined /></span>
+                            <strong>{entries.length ? 'No classes match these filters' : 'No weekly classes yet'}</strong>
+                            <span>{entries.length ? 'Try another teacher or level, or include ended batches.' : 'Add a weekly schedule to a batch and it appears here.'}</span>
+                            {entries.length ? <Button onClick={clearFilters}>Clear filters</Button> : <Button type="primary" onClick={() => navigate('/app/batches')}>Go to batches</Button>}
+                        </div>
+                    ) : view === 'week' && !narrowWeek ? (
+                        /* ── Week grid ── */
+                        <div className="tt-grid-wrap">
+                            <div className="tt-grid" style={{ '--hour': `${HOUR}px` } as React.CSSProperties}>
+                                <div className="tt-head">
+                                    <div className="tt-corner">{tzLabel}</div>
+                                    {WEEK.map(w => {
+                                        const d = stats.perDay.find(p => p.w.v === w.v)!;
+                                        return (
+                                            <div key={w.v} className={`tt-dayhead${w.v === todayDow ? ' is-today' : ''}`}>
+                                                <strong>{w.short}</strong>
+                                                <span>{d.n ? `${d.n} · ${hoursText(d.min)}` : 'Free'}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="tt-body" style={{ height: (hi - lo) * HOUR }}>
+                                    <div className="tt-times">
+                                        {hours.map(h => <span key={h} style={{ top: (h - lo) * HOUR }}>{h < 24 ? hourLabel(h) : ''}</span>)}
+                                    </div>
+                                    {WEEK.map(w => (
+                                        <div key={w.v} className={`tt-col${w.v === todayDow ? ' is-today' : ''}`}>
+                                            {byDay[w.v].map(s => {
+                                                const top = ((s.start - lo * 60) / 60) * HOUR;
+                                                const height = Math.max(22, ((Math.min(s.end, hi * 60) - s.start) / 60) * HOUR - 3);
+                                                const size = height < 42 ? ' is-xs' : height < 70 ? ' is-sm' : '';
+                                                return (
+                                                    <button key={s.id} type="button"
+                                                        className={`tt-ev${size}${s.lanes > 2 ? ' is-narrow' : ''}${conflictIds.has(s.id) ? ' is-conflict' : ''}${s.ended ? ' is-ended' : ''}`}
+                                                        style={{ top, height, left: `calc(${(s.lane / s.lanes) * 100}% + 3px)`, width: `calc(${100 / s.lanes}% - 6px)`, '--c': s.color } as React.CSSProperties}
+                                                        onClick={() => setSelected(s)}
+                                                        title={`${s.batch_name} · ${fmtMin(s.start)} – ${fmtMin(s.end)} · ${s.teacher}`}>
+                                                        <span className="tt-ev-time">{fmtMin(s.start)}<span className="tt-ev-end"> – {fmtMin(s.end)}</span></span>
+                                                        <span className="tt-ev-name">{s.batch_name}</span>
+                                                        <span className="tt-ev-meta">
+                                                            <b className={`tt-lv ${levelTone(s.french_level)}`}>{s.french_level}</b>
+                                                            <span className="tt-ev-teacher">{s.teacher}</span>
+                                                            {s.location_mode === 'physical' ? <EnvironmentOutlined /> : <LinkOutlined />}
+                                                        </span>
+                                                    </button>
+                                                );
+                                            })}
+                                            {w.v === todayDow && nowMin >= lo * 60 && nowMin <= hi * 60 && (
+                                                <span className="tt-now" style={{ top: ((nowMin - lo * 60) / 60) * HOUR }} aria-label="Now" />
+                                            )}
                                         </div>
-                                    </List.Item>
-                                )}
-                            />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ) : view === 'week' ? (
+                        /* ── Week on narrow screens: day picker + list ── */
+                        <div className="tt-mobile">
+                            <div className="tt-daypicker" role="tablist" aria-label="Day">
+                                {WEEK.map(w => (
+                                    <button key={w.v} type="button" role="tab" aria-selected={dayPick === w.v}
+                                        className={`${dayPick === w.v ? 'is-on' : ''}${w.v === todayDow ? ' is-today' : ''}`} onClick={() => setDayPick(w.v)}>
+                                        <strong>{w.short}</strong><span>{byDay[w.v].length || '–'}</span>
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="tt-daylist">
+                                {byDay[dayPick].length === 0 ? <div className="tt-muted-line">No classes on {dayLong(dayPick)}.</div> : byDay[dayPick].map(s => <SlotRow key={s.id} s={s} />)}
+                            </div>
+                        </div>
+                    ) : view === 'agenda' ? (
+                        /* ── Agenda ── */
+                        <div className="tt-agenda">
+                            {WEEK.map(w => (
+                                <div key={w.v} className={`tt-agenda-day${w.v === todayDow ? ' is-today' : ''}`}>
+                                    <div className="tt-agenda-head">
+                                        <strong>{w.long}</strong>
+                                        {w.v === todayDow && <span className="tt-today">Today</span>}
+                                        <em>{byDay[w.v].length ? `${byDay[w.v].length} ${byDay[w.v].length === 1 ? 'class' : 'classes'} · ${hoursText(byDay[w.v].reduce((m, s) => m + (s.end - s.start), 0))}` : 'No classes'}</em>
+                                    </div>
+                                    {byDay[w.v].map(s => <SlotRow key={s.id} s={s} />)}
+                                </div>
+                            ))}
                         </div>
                     ) : (
-                        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                            <TeamOutlined style={{ fontSize: '48px', color: '#d9d9d9', marginBottom: 16 }} />
-                            <Title level={4} type="secondary">No Students Found</Title>
-                            <Text type="secondary">This batch doesn't have any enrolled students yet.</Text>
+                        /* ── Teachers workload ── */
+                        <div className="tt-teachers">
+                            {teacherRows.length === 0 ? <div className="tt-muted-line">No teacher matches these filters.</div> : teacherRows.map(t => (
+                                <div key={t.id} className="tt-tcard" style={{ '--c': t.color } as React.CSSProperties}>
+                                    <div className="tt-tcard-head">
+                                        <span className="tt-tav">{initials(t.name)}</span>
+                                        <div className="tt-tcard-id">
+                                            <strong>{t.name}</strong>
+                                            <em>{t.classes} {t.classes === 1 ? 'class' : 'classes'} · {hoursText(t.minutes)} a week · {t.batches} {t.batches === 1 ? 'batch' : 'batches'}</em>
+                                        </div>
+                                        {t.conflicts > 0 && <Tooltip title="Overlapping classes"><span className="tt-badge is-red"><WarningOutlined /> {t.conflicts}</span></Tooltip>}
+                                    </div>
+                                    <div className="tt-strip">
+                                        {t.perDay.map(d => (
+                                            <Tooltip key={d.v} title={`${dayLong(d.v)}: ${d.n ? `${d.n} ${d.n === 1 ? 'class' : 'classes'} · ${hoursText(d.min)}` : 'free'}`}>
+                                                <div className={`tt-strip-cell${d.n ? '' : ' is-free'}`} style={{ '--i': d.min / maxDayMin } as React.CSSProperties}>
+                                                    <span>{d.short}</span>
+                                                    <strong>{d.n ? hoursText(d.min).replace(' min', 'm') : '—'}</strong>
+                                                </div>
+                                            </Tooltip>
+                                        ))}
+                                    </div>
+                                    <Button size="small" type="link" onClick={() => { setTeacherIds([t.id]); setView('week'); }}>Show in week view</Button>
+                                </div>
+                            ))}
                         </div>
                     )}
-                </Spin>
-            </Modal>
-        </div>
+                </section>
+
+                {/* ── Class details ── */}
+                <Drawer open={!!selected} onClose={() => setSelected(null)} width={r.isMobile ? '100%' : 440} closable={false} title={null} className="tt-drawer">
+                    {selected && (
+                        <div className="tt-detail" style={{ '--c': selected.color } as React.CSSProperties}>
+                            <div className="tt-dh">
+                                <div className="tt-dh-top">
+                                    <span className={`tt-mark ${levelTone(selected.french_level)}`}>{selected.french_level}</span>
+                                    <button type="button" className="tt-dclose" onClick={() => setSelected(null)} aria-label="Close"><CloseOutlined /></button>
+                                </div>
+                                <h3>{selected.batch_name}</h3>
+                                <p><span className="tt-dot" />{selected.teacher}</p>
+                                <div className="tt-dh-when">
+                                    <strong>{dayLong(selected.day)} · {fmtMin(selected.start)} – {fmtMin(selected.end)}</strong>
+                                    <span>{hoursText(selected.end - selected.start)} · {tzLabel}</span>
+                                </div>
+                                <span className={`tt-pill is-${selStatus}`}>{STATUS_LABEL[selStatus]} batch</span>
+                            </div>
+
+                            {conflictIds.has(selected.id) && (
+                                <div className="tt-att is-red is-inline"><WarningOutlined /><div><strong>Overlaps another class</strong><span>{selected.teacher} has another class at the same time this day.</span></div></div>
+                            )}
+
+                            <dl className="tt-facts">
+                                {selected.converted && (
+                                    <div><dt>Scheduled as</dt><dd>{dayLong(Number(selected.day_of_week))} {selected.start_time.slice(0, 5)}–{selected.end_time.slice(0, 5)} <small>{(selected.timezone || '').replace(/_/g, ' ')}</small></dd></div>
+                                )}
+                                <div>
+                                    <dt>{selected.location_mode === 'physical' ? 'Location' : 'Meeting'}</dt>
+                                    <dd>{selected.location_mode === 'physical'
+                                        ? <><EnvironmentOutlined /> {selected.location || 'In person'}</>
+                                        : selected.link ? <a href={selected.link} target="_blank" rel="noopener noreferrer"><LinkOutlined /> Open meeting link</a> : 'Online'}</dd>
+                                </div>
+                                <div><dt>Batch period</dt><dd>{formatPlain(selected.start_date, user?.timezone, { month: 'short', day: 'numeric', year: 'numeric' })} – {formatPlain(selected.end_date, user?.timezone, { month: 'short', day: 'numeric', year: 'numeric' })}</dd></div>
+                                {selBatch && <div><dt>Students</dt><dd>{countOf(selBatch)}</dd></div>}
+                            </dl>
+
+                            <section className="tt-dsec">
+                                <h4>This batch every week</h4>
+                                <ul className="tt-sib">
+                                    {siblings.map(s => (
+                                        <li key={s.id} className={s.id === selected.id ? 'is-on' : ''}>
+                                            <button type="button" onClick={() => setSelected(s)}>
+                                                <strong>{dayLong(s.day)}</strong><span>{fmtMin(s.start)} – {fmtMin(s.end)}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+
+                            <section className="tt-dsec">
+                                <h4>Students</h4>
+                                {students.list === null ? (
+                                    <Button block icon={<TeamOutlined />} loading={students.loading} onClick={() => openStudents(selected.batch_id)}>Show students</Button>
+                                ) : students.list.length === 0 ? (
+                                    <div className="tt-muted-line">No students enrolled.</div>
+                                ) : (
+                                    <ul className="tt-students">
+                                        {students.list.map(st => (
+                                            <li key={st.id}><span className="tt-sav">{initials(`${st.first_name} ${st.last_name}`)}</span><span><strong>{st.first_name} {st.last_name}</strong><em>{st.email}</em></span></li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </section>
+
+                            <div className="tt-dactions">
+                                <Button type="primary" icon={<EditOutlined />} onClick={() => navigate(`/app/batches?edit=${selected.batch_id}&step=1`)}>Edit schedule</Button>
+                                <Button icon={<BarChartOutlined />} onClick={() => navigate(`/app/batches/${selected.batch_id}/insights`)}>Insights</Button>
+                            </div>
+                        </div>
+                    )}
+                </Drawer>
+            </div>
+        </ConfigProvider>
     );
 };
 

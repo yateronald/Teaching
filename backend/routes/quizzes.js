@@ -201,6 +201,369 @@ const autoSubmitExpiredSubmissions = async (db) => {
     }
 };
 
+// ════════════════════════════════════════════════════════════════════
+// Quiz content writer — shared by create and update.
+// Rows that carry a known id are UPDATED IN PLACE. They used to be deleted and re-inserted on
+// every save, but student_answers.question_id is ON DELETE CASCADE: re-creating a question
+// silently erased every answer students had given to it. Each step is a single statement, so a
+// 25-question quiz saves in about a dozen round trips instead of ~125.
+// ════════════════════════════════════════════════════════════════════
+const FINISHED_STATUSES = ['submitted', 'auto_submitted', 'graded'];
+const isMcqType = (type) => type === 'mcq' || type === 'mcq_single' || type === 'mcq_multiple';
+const groupRows = (rows, key) => {
+    const map = new Map();
+    for (const row of rows) {
+        const k = Number(row[key]);
+        if (!map.has(k)) map.set(k, []);
+        map.get(k).push(row);
+    }
+    return map;
+};
+
+async function syncQuizContent(db, quizId, questions, audioClips, { fresh = false } = {}) {
+    const knownQuestionIds = new Set();
+    const optionOwner = new Map();
+    const knownClipIds = new Set();
+    if (!fresh) {
+        (await db.all('SELECT id FROM questions WHERE quiz_id = $1', [quizId])).forEach(r => knownQuestionIds.add(Number(r.id)));
+        if (knownQuestionIds.size) {
+            (await db.all('SELECT id, question_id FROM question_options WHERE question_id = ANY($1::int[])', [[...knownQuestionIds]]))
+                .forEach(o => optionOwner.set(Number(o.id), Number(o.question_id)));
+        }
+        (await db.all('SELECT id FROM quiz_audio_clips WHERE quiz_id = $1', [quizId])).forEach(r => knownClipIds.add(Number(r.id)));
+    }
+
+    // ── Audio clips: a quiz has a handful at most, one statement each ──
+    const clipIdFor = {};
+    let liveClipIds = knownClipIds;
+    if (Array.isArray(audioClips)) {
+        liveClipIds = new Set();
+        for (let a = 0; a < audioClips.length; a++) {
+            const clip = audioClips[a] || {};
+            const values = [
+                clip.transcript || '', clip.voiceName || 'Kore', clip.sourceType || 'tts', clip.kdriveFileId || null,
+                clip.fileName || null, clip.durationSeconds || null, a + 1, clip.maxPlays || 0,
+            ];
+            const dbId = Number(clip.id);
+            let clipId;
+            if (dbId && knownClipIds.has(dbId) && !liveClipIds.has(dbId)) {
+                await db.run(
+                    `UPDATE quiz_audio_clips
+                     SET transcript = $1, voice_name = $2, source_type = $3, kdrive_file_id = $4,
+                         file_name = $5, duration_seconds = $6, audio_order = $7, max_plays = $8
+                     WHERE id = $9`,
+                    [...values, dbId]
+                );
+                clipId = dbId;
+            } else {
+                const created = await db.run(
+                    `INSERT INTO quiz_audio_clips (transcript, voice_name, source_type, kdrive_file_id, file_name, duration_seconds, audio_order, max_plays, quiz_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+                    [...values, quizId]
+                );
+                clipId = Number(created.rows[0].id);
+            }
+            liveClipIds.add(clipId);
+            if (clip.tempId) clipIdFor[clip.tempId] = clipId;
+            clipIdFor[`idx_${a}`] = clipId;
+        }
+        const stale = [...knownClipIds].filter(x => !liveClipIds.has(x));
+        if (stale.length) await db.run('DELETE FROM quiz_audio_clips WHERE id = ANY($1::int[])', [stale]);
+    }
+    const clipOf = (q) => {
+        if (q.audio_clip_temp_id && clipIdFor[q.audio_clip_temp_id]) return clipIdFor[q.audio_clip_temp_id];
+        if (q.audio_clip_index !== undefined && q.audio_clip_index !== null && clipIdFor[`idx_${q.audio_clip_index}`]) {
+            return clipIdFor[`idx_${q.audio_clip_index}`];
+        }
+        const direct = Number(q.audio_clip_id);
+        return direct && liveClipIds.has(direct) ? direct : null;
+    };
+
+    // ── Questions ──
+    const kept = [];
+    const added = [];
+    const claimed = new Set();
+    questions.forEach((q, i) => {
+        const row = {
+            id: null,
+            order: i + 1,
+            text: String(q.question_text),
+            type: q.question_type,
+            marks: Number(q.marks) || 0,
+            correct: typeof q.correct_answer === 'string' ? q.correct_answer : null,
+            explanation: typeof q.explanation === 'string' && q.explanation.trim() ? q.explanation : null,
+            setExplanation: Object.prototype.hasOwnProperty.call(q, 'explanation'),
+            clip: clipOf(q),
+            options: isMcqType(q.question_type) && Array.isArray(q.options) ? q.options : [],
+        };
+        const qid = Number(q.id);
+        if (qid && knownQuestionIds.has(qid) && !claimed.has(qid)) {
+            claimed.add(qid);
+            row.id = qid;
+            kept.push(row);
+        } else {
+            added.push(row);
+        }
+    });
+
+    // Questions the teacher removed go, and their answers with them — that part is intended.
+    if (!fresh) {
+        await db.run('DELETE FROM questions WHERE quiz_id = $1 AND id <> ALL($2::int[])', [quizId, [...claimed]]);
+    }
+    if (kept.length) {
+        await db.run(
+            `UPDATE questions AS q SET
+                 question_text = v.question_text, question_type = v.question_type, question_order = v.question_order,
+                 marks = v.marks, correct_answer = v.correct_answer, audio_clip_id = v.audio_clip_id,
+                 explanation = CASE WHEN v.set_explanation THEN v.explanation ELSE q.explanation END
+             FROM unnest($1::int[], $2::text[], $3::text[], $4::int[], $5::numeric[], $6::text[], $7::text[], $8::boolean[], $9::int[])
+                  AS v(id, question_text, question_type, question_order, marks, correct_answer, explanation, set_explanation, audio_clip_id)
+             WHERE q.id = v.id AND q.quiz_id = $10::int`,
+            [
+                kept.map(r => r.id), kept.map(r => r.text), kept.map(r => r.type), kept.map(r => r.order), kept.map(r => r.marks),
+                kept.map(r => r.correct), kept.map(r => r.explanation), kept.map(r => r.setExplanation), kept.map(r => r.clip), quizId,
+            ]
+        );
+    }
+    if (added.length) {
+        const created = await db.run(
+            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id)
+             SELECT $1::int, v.question_text, v.question_type, v.question_order, v.marks, v.correct_answer, v.explanation, v.audio_clip_id
+             FROM unnest($2::text[], $3::text[], $4::int[], $5::numeric[], $6::text[], $7::text[], $8::int[])
+                  AS v(question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id)
+             RETURNING id, question_order`,
+            [
+                quizId, added.map(r => r.text), added.map(r => r.type), added.map(r => r.order), added.map(r => r.marks),
+                added.map(r => r.correct), added.map(r => r.explanation), added.map(r => r.clip),
+            ]
+        );
+        const idByOrder = new Map(created.rows.map(r => [Number(r.question_order), Number(r.id)]));
+        added.forEach(r => { r.id = idByOrder.get(r.order); });
+    }
+
+    // ── Options: stale ones out first, then update the kept ones, then add the new ones ──
+    const every = [...kept, ...added];
+    const keepOptionIds = [];
+    const upd = { id: [], text: [], order: [], correct: [] };
+    const ins = { question: [], text: [], order: [], correct: [] };
+    for (const row of every) {
+        const used = new Set();
+        row.options.forEach((opt, j) => {
+            const text = String(opt?.option_text ?? '');
+            const correct = !!opt?.is_correct;
+            const oid = Number(opt?.id);
+            if (oid && optionOwner.get(oid) === row.id && !used.has(oid)) {
+                used.add(oid);
+                keepOptionIds.push(oid);
+                upd.id.push(oid); upd.text.push(text); upd.order.push(j + 1); upd.correct.push(correct);
+            } else {
+                ins.question.push(row.id); ins.text.push(text); ins.order.push(j + 1); ins.correct.push(correct);
+            }
+        });
+    }
+    if (!fresh && every.length) {
+        await db.run(
+            'DELETE FROM question_options WHERE question_id = ANY($1::int[]) AND id <> ALL($2::int[])',
+            [every.map(r => r.id), keepOptionIds]
+        );
+    }
+    if (upd.id.length) {
+        await db.run(
+            `UPDATE question_options AS o SET option_text = v.option_text, option_order = v.option_order, is_correct = v.is_correct
+             FROM unnest($1::int[], $2::text[], $3::int[], $4::boolean[]) AS v(id, option_text, option_order, is_correct)
+             WHERE o.id = v.id`,
+            [upd.id, upd.text, upd.order, upd.correct]
+        );
+    }
+    if (ins.question.length) {
+        await db.run(
+            `INSERT INTO question_options (question_id, option_text, option_order, is_correct)
+             SELECT * FROM unnest($1::int[], $2::text[], $3::int[], $4::boolean[])`,
+            [ins.question, ins.text, ins.order, ins.correct]
+        );
+    }
+}
+
+// What decides a score: question types, points, the yes/no key and which options are correct.
+async function loadGradingState(db, quizId) {
+    const questions = await db.all('SELECT id, question_type, marks, correct_answer FROM questions WHERE quiz_id = $1', [quizId]);
+    const options = questions.length
+        ? await db.all('SELECT id, question_id, is_correct FROM question_options WHERE question_id = ANY($1::int[])', [questions.map(q => q.id)])
+        : [];
+    return { questions, options };
+}
+
+function gradingSignature({ questions, options }) {
+    const all = groupRows(options, 'question_id');
+    const ids = (rows, onlyCorrect) => (rows || [])
+        .filter(o => !onlyCorrect || o.is_correct)
+        .map(o => Number(o.id)).sort((a, b) => a - b).join(',');
+    return questions
+        .map(q => `${q.id}|${q.question_type}|${Number(q.marks)}|${q.correct_answer ?? ''}|${ids(all.get(Number(q.id)), true)}|${ids(all.get(Number(q.id)), false)}`)
+        .sort()
+        .join(';');
+}
+
+// Re-scores every finished submission after the answer key or the points changed.
+// Same rules as calculateQuizResults, in a fixed number of round trips whatever the class size.
+async function regradeQuiz(db, quizId, state) {
+    const { questions, options } = state || await loadGradingState(db, quizId);
+    const submissions = await db.all(
+        'SELECT id FROM quiz_submissions WHERE quiz_id = $1 AND status = ANY($2::text[])',
+        [quizId, FINISHED_STATUSES]
+    );
+    if (!submissions.length) return 0;
+
+    const maxScore = questions.reduce((sum, q) => sum + (Number(q.marks) || 0), 0);
+    const questionById = new Map(questions.map(q => [Number(q.id), q]));
+    const correctIdsBy = new Map();
+    for (const o of options) {
+        if (!o.is_correct) continue;
+        const k = Number(o.question_id);
+        if (!correctIdsBy.has(k)) correctIdsBy.set(k, []);
+        correctIdsBy.get(k).push(Number(o.id));
+    }
+
+    const answers = await db.all(
+        `SELECT sa.id, sa.submission_id, sa.question_id, sa.answer_text, sa.selected_options
+         FROM student_answers sa
+         JOIN quiz_submissions qs ON qs.id = sa.submission_id
+         WHERE qs.quiz_id = $1 AND qs.status = ANY($2::text[])`,
+        [quizId, FINISHED_STATUSES]
+    );
+
+    const totals = new Map(submissions.map(s => [Number(s.id), 0]));
+    const graded = { id: [], marks: [], correct: [] };
+    for (const answer of answers) {
+        const q = questionById.get(Number(answer.question_id));
+        if (!q) continue;
+        const marks = Number(q.marks) || 0;
+        let isCorrect = false;
+        let awarded = 0;
+        if (q.question_type === 'yes_no') {
+            isCorrect = answer.answer_text === q.correct_answer;
+            awarded = isCorrect ? marks : 0;
+        } else if (q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple') {
+            let selected = [];
+            try { selected = JSON.parse(answer.selected_options || '[]') || []; } catch { selected = []; }
+            if (!Array.isArray(selected)) selected = [];
+            const correctIds = correctIdsBy.get(Number(q.id)) || [];
+            if (q.question_type === 'mcq_single') {
+                isCorrect = selected.length === 1 && correctIds.includes(selected[0]);
+                awarded = isCorrect ? marks : 0;
+            } else {
+                const totalCorrect = correctIds.length || 1;
+                const right = selected.filter(x => correctIds.includes(x)).length;
+                const wrong = selected.filter(x => !correctIds.includes(x)).length;
+                awarded = Math.max(0, Math.min(marks, (right / totalCorrect) * marks - (wrong / totalCorrect) * marks));
+                isCorrect = right === totalCorrect && wrong === 0;
+            }
+        }
+        graded.id.push(Number(answer.id));
+        graded.marks.push(awarded);
+        graded.correct.push(isCorrect);
+        const sid = Number(answer.submission_id);
+        totals.set(sid, (totals.get(sid) || 0) + awarded);
+    }
+
+    if (graded.id.length) {
+        await db.run(
+            `UPDATE student_answers AS sa SET marks_awarded = v.marks_awarded, is_correct = v.is_correct
+             FROM unnest($1::int[], $2::numeric[], $3::boolean[]) AS v(id, marks_awarded, is_correct)
+             WHERE sa.id = v.id`,
+            [graded.id, graded.marks, graded.correct]
+        );
+    }
+    const subIds = [...totals.keys()];
+    const percentages = subIds.map(sid => {
+        const raw = maxScore > 0 ? (totals.get(sid) / maxScore) * 100 : 0;
+        return Math.min(100, Math.max(0, Number.isFinite(raw) ? Number(raw.toFixed(2)) : 0));
+    });
+    await db.run(
+        `UPDATE quiz_submissions AS qs
+         SET total_score = v.total_score, max_score = $4::numeric, percentage = v.percentage, updated_at = CURRENT_TIMESTAMP
+         FROM unnest($1::int[], $2::numeric[], $3::numeric[]) AS v(id, total_score, percentage)
+         WHERE qs.id = v.id`,
+        [subIds, subIds.map(sid => totals.get(sid)), percentages, maxScore]
+    );
+    return subIds.length;
+}
+
+// Makes a published quiz reachable — one 'not_started' submission per student, in one statement —
+// and, when the quiz has just become published, announces it once (in-app + email). Emails leave
+// after the HTTP response: awaiting one SMTP round trip per student kept the teacher on a spinner.
+async function announceQuiz(db, quizId, senderId, { notify }) {
+    // One row per student: someone enrolled in two of the assigned batches used to get two emails.
+    const students = await db.all(
+        `SELECT DISTINCT ON (bs.student_id) bs.student_id, s.email, s.first_name, s.timezone, b.name AS batch_name
+         FROM quiz_batches qb
+         JOIN batch_students bs ON bs.batch_id = qb.batch_id
+         JOIN users s ON s.id = bs.student_id
+         JOIN batches b ON b.id = qb.batch_id
+         WHERE qb.quiz_id = $1
+         ORDER BY bs.student_id, b.name`,
+        [quizId]
+    );
+    if (!students.length) return 0;
+
+    await db.run(
+        `INSERT INTO quiz_submissions (quiz_id, student_id, status, max_score)
+         SELECT $1::int, sid, 'not_started', (SELECT COALESCE(SUM(marks), 0) FROM questions WHERE quiz_id = $1::int)
+         FROM unnest($2::int[]) AS sid
+         ON CONFLICT (quiz_id, student_id) DO NOTHING`,
+        [quizId, students.map(s => s.student_id)]
+    );
+    if (!notify) return 0;
+
+    const quiz = await db.get(
+        `SELECT q.title, q.duration_minutes, q.start_date, q.end_date, q.total_marks,
+                u.first_name AS teacher_first_name, u.last_name AS teacher_last_name
+         FROM quizzes q LEFT JOIN users u ON u.id = q.teacher_id
+         WHERE q.id = $1`,
+        [quizId]
+    );
+
+    try {
+        const { createBulkNotifications } = require('../services/notificationService');
+        await createBulkNotifications(db, students.map(s => s.student_id), {
+            type: 'quiz_published',
+            title: 'New quiz available',
+            message: `${quiz.title} — your teacher just published a new quiz.`,
+            link: `/app/my-quizzes?quiz=${quizId}`,
+            entity_type: 'quiz',
+            entity_id: parseInt(quizId, 10),
+            sender_id: senderId,
+        });
+    } catch (notifErr) {
+        console.warn('[notifications] quiz_published failed:', notifErr.message);
+    }
+
+    const teacherName = `${quiz.teacher_first_name || ''} ${quiz.teacher_last_name || ''}`.trim() || 'Your Teacher';
+    setImmediate(async () => {
+        for (const student of students) {
+            if (!student.email) continue;
+            try {
+                await sendQuizNotification({
+                    to: student.email,
+                    studentName: student.first_name || 'Student',
+                    quizName: quiz.title,
+                    teacherName,
+                    batchName: student.batch_name,
+                    duration: quiz.duration_minutes || 0,
+                    startDate: quiz.start_date,
+                    endDate: quiz.end_date,
+                    totalPoints: quiz.total_marks || 0,
+                    recipientTimezone: student.timezone || 'UTC',
+                });
+                console.log(`✅ Quiz notification sent to ${student.email}`);
+            } catch (emailError) {
+                console.error(`❌ Failed to send quiz notification to ${student.email}:`, emailError.message);
+            }
+        }
+    });
+    return students.length;
+}
+
 // Get all quizzes (filtered by role)
 router.get('/', authenticateToken, async (req, res) => {
     try {
@@ -264,48 +627,74 @@ router.get('/', authenticateToken, async (req, res) => {
             return res.json(quizzes);
         }
 
-        // Teacher/Admin path (unchanged heavy query — they need aggregation stats)
-        let sql = `
-            SELECT 
-                q.id, q.title, q.description, q.status, q.start_date, q.end_date, 
+        // Teacher/Admin path. Each aggregate is computed on its own before joining: the old single
+        // join multiplied batches × students × submissions for every quiz, and counted submissions
+        // from students no longer in the batches (so "5 / 3" was possible).
+        const sql = `
+            WITH scope AS (
+                SELECT id FROM quizzes WHERE ($1::int IS NULL OR teacher_id = $1::int)
+            ),
+            question_totals AS (
+                SELECT quiz_id, COUNT(*) AS total_questions
+                FROM questions WHERE quiz_id IN (SELECT id FROM scope)
+                GROUP BY quiz_id
+            ),
+            assigned AS (
+                SELECT qb.quiz_id,
+                       COUNT(DISTINCT qb.batch_id) AS batch_count,
+                       string_agg(DISTINCT b.name, ',') AS batch_names,
+                       string_agg(DISTINCT b.french_level, ',') AS french_levels
+                FROM quiz_batches qb JOIN batches b ON b.id = qb.batch_id
+                WHERE qb.quiz_id IN (SELECT id FROM scope)
+                GROUP BY qb.quiz_id
+            ),
+            roster AS (
+                SELECT DISTINCT qb.quiz_id, bs.student_id
+                FROM quiz_batches qb JOIN batch_students bs ON bs.batch_id = qb.batch_id
+                WHERE qb.quiz_id IN (SELECT id FROM scope)
+            ),
+            outcomes AS (
+                SELECT r.quiz_id,
+                       COUNT(*) AS total_students,
+                       COUNT(qs.id) FILTER (WHERE qs.status IN ('submitted','auto_submitted','graded')) AS submitted_students,
+                       COUNT(qs.id) FILTER (WHERE qs.status = 'in_progress') AS in_progress_students,
+                       ROUND(AVG(qs.percentage) FILTER (WHERE qs.status IN ('submitted','auto_submitted','graded') AND qs.percentage IS NOT NULL), 1) AS avg_score
+                FROM roster r
+                LEFT JOIN quiz_submissions qs ON qs.quiz_id = r.quiz_id AND qs.student_id = r.student_id
+                GROUP BY r.quiz_id
+            )
+            SELECT
+                q.id, q.title, q.description, q.status, q.start_date, q.end_date,
                 q.duration_minutes, q.total_marks, q.created_at, q.updated_at,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-                -- Server-authoritative scheduling state. Computed against PG NOW()
-                -- so the result doesn't depend on the viewer's browser clock.
+                u.first_name AS teacher_first_name, u.last_name AS teacher_last_name,
+                -- Server-authoritative scheduling state, computed against PG NOW() so it
+                -- doesn't depend on the viewer's browser clock.
                 CASE
                     WHEN q.status != 'published' THEN 'inactive'
                     WHEN q.start_date IS NOT NULL AND q.start_date > NOW() THEN 'scheduled'
                     WHEN q.end_date   IS NOT NULL AND q.end_date   <= NOW() THEN 'ended'
                     ELSE 'active'
                 END AS schedule_state,
-                CASE
-                    WHEN q.end_date IS NULL THEN NULL
-                    ELSE GREATEST(0, EXTRACT(EPOCH FROM (q.end_date - NOW())))::bigint
-                END AS seconds_until_end,
-                COUNT(DISTINCT qb.batch_id) as batch_count,
-                COUNT(DISTINCT CASE WHEN qs.status IN ('submitted','auto_submitted','graded') THEN qs.student_id END) as submitted_students,
-                COUNT(DISTINCT bs.student_id) as total_students,
-                (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as total_questions,
-                string_agg(DISTINCT b.name, ',') as batch_names,
-                string_agg(DISTINCT b.french_level, ',') as french_levels,
-                ROUND(AVG(CASE WHEN qs.status IN ('submitted','auto_submitted','graded') AND qs.percentage IS NOT NULL THEN qs.percentage END), 1) as avg_score
+                CASE WHEN q.end_date IS NULL THEN NULL
+                     ELSE GREATEST(0, EXTRACT(EPOCH FROM (q.end_date - NOW())))::bigint END AS seconds_until_end,
+                CASE WHEN q.start_date IS NULL THEN NULL
+                     ELSE GREATEST(0, EXTRACT(EPOCH FROM (q.start_date - NOW())))::bigint END AS seconds_until_start,
+                COALESCE(a.batch_count, 0) AS batch_count,
+                COALESCE(o.submitted_students, 0) AS submitted_students,
+                COALESCE(o.total_students, 0) AS total_students,
+                COALESCE(o.in_progress_students, 0) AS in_progress_students,
+                COALESCE(t.total_questions, 0) AS total_questions,
+                a.batch_names, a.french_levels, o.avg_score
             FROM quizzes q
-            LEFT JOIN users u ON q.teacher_id = u.id
-            LEFT JOIN quiz_batches qb ON q.id = qb.quiz_id
-            LEFT JOIN batches b ON qb.batch_id = b.id
-            LEFT JOIN batch_students bs ON b.id = bs.batch_id
-            LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id
+            JOIN scope s ON s.id = q.id
+            LEFT JOIN users u ON u.id = q.teacher_id
+            LEFT JOIN question_totals t ON t.quiz_id = q.id
+            LEFT JOIN assigned a ON a.quiz_id = q.id
+            LEFT JOIN outcomes o ON o.quiz_id = q.id
+            ORDER BY q.created_at DESC
         `;
-        let params = [];
 
-        if (req.user.role === 'teacher') {
-            sql += ' WHERE q.teacher_id = ?';
-            params.push(req.user.id);
-        }
-
-        sql += ' GROUP BY q.id, q.title, q.description, q.status, q.start_date, q.end_date, q.duration_minutes, q.total_marks, q.created_at, q.updated_at, u.first_name, u.last_name ORDER BY q.created_at DESC';
-
-        const quizzes = await req.db.all(sql, params);
+        const quizzes = await req.db.all(sql, [req.user.role === 'teacher' ? req.user.id : null]);
 
         // Coerce numeric fields for Postgres compatibility so frontend tables show correct counts
         for (let quiz of quizzes) {
@@ -369,21 +758,26 @@ router.get('/:id', authenticateToken, async (req, res) => {
         // Get questions with options
         const questions = await req.db.all(`
             SELECT 
-                q.id, q.question_text, q.question_type, q.question_order, q.marks, q.correct_answer, q.audio_clip_id
+                q.id, q.question_text, q.question_type, q.question_order, q.marks, q.correct_answer, q.explanation, q.audio_clip_id
             FROM questions q
             WHERE q.quiz_id = ?
             ORDER BY q.question_order
         `, [id]);
 
-        // Get options for MCQ questions
-        for (let question of questions) {
-            if (question.question_type === 'mcq' || question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
-                question.options = await req.db.all(`
-                    SELECT id, option_text, is_correct, option_order
-                    FROM question_options
-                    WHERE question_id = ?
-                    ORDER BY option_order
-                `, [question.id]);
+        // Options for every MCQ question in one query (it used to be one query per question).
+        const mcqIds = questions.filter(q => isMcqType(q.question_type)).map(q => q.id);
+        const optionsByQuestion = groupRows(mcqIds.length
+            ? await req.db.all(
+                `SELECT id, question_id, option_text, is_correct, option_order
+                 FROM question_options
+                 WHERE question_id = ANY($1::int[])
+                 ORDER BY question_id, option_order`,
+                [mcqIds])
+            : [], 'question_id');
+        for (const question of questions) {
+            if (isMcqType(question.question_type)) {
+                question.options = (optionsByQuestion.get(Number(question.id)) || [])
+                    .map(o => ({ id: o.id, option_text: o.option_text, is_correct: o.is_correct, option_order: o.option_order }));
             }
         }
 
@@ -411,8 +805,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
                         option_order: opt.option_order
                     }));
                 }
-                // Don't send correct_answer to students
+                // Don't send correct_answer (or the explanation that gives it away) to students
                 delete question.correct_answer;
+                delete question.explanation;
             }
         }
 
@@ -834,71 +1229,17 @@ router.post('/', [
             }
         } catch (logErr) { /* ignore */ }
 
-        // Save audio clips (if any) and build a mapping from temp/index to real DB IDs
-        const audioClipMap = {}; // maps tempId or index -> real DB id
-        const audio_clips = req.body.audio_clips || [];
-        for (let a = 0; a < audio_clips.length; a++) {
-            const clip = audio_clips[a];
-            const clipResult = await req.db.run(`
-                INSERT INTO quiz_audio_clips (
-                    quiz_id, transcript, voice_name, source_type, kdrive_file_id,
-                    file_name, duration_seconds, audio_order, max_plays
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-            `, [
-                quizId,
-                clip.transcript || '',
-                clip.voiceName || 'Kore',
-                clip.sourceType || 'tts',
-                clip.kdriveFileId || null,
-                clip.fileName || null,
-                clip.durationSeconds || null,
-                a + 1,
-                clip.maxPlays || 0
-            ]);
-            const clipId = clipResult.rows[0].id;
-            // Map both by tempId (if provided) and by index
-            if (clip.tempId) audioClipMap[clip.tempId] = clipId;
-            audioClipMap[`idx_${a}`] = clipId;
-        }
-
-        // Add questions
-        for (let i = 0; i < questions.length; i++) {
-            const question = questions[i];
-            // Resolve audio_clip_id from tempId or clipIndex
-            let audioClipId = null;
-            if (question.audio_clip_temp_id && audioClipMap[question.audio_clip_temp_id]) {
-                audioClipId = audioClipMap[question.audio_clip_temp_id];
-            } else if (question.audio_clip_index !== undefined && audioClipMap[`idx_${question.audio_clip_index}`]) {
-                audioClipId = audioClipMap[`idx_${question.audio_clip_index}`];
-            }
-
-            const questionResult = await req.db.run(`
-                INSERT INTO questions (
-                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-            `, [
-                quizId, question.question_text, question.question_type, i + 1,
-                Number(question.marks), question.correct_answer || null, question.explanation || null,
-                audioClipId
-            ]);
-
-            // Add options for MCQ questions
-            if (question.question_type.startsWith('mcq') && question.options) {
-                for (let j = 0; j < question.options.length; j++) {
-                    await req.db.run(
-                        'INSERT INTO question_options (question_id, option_text, option_order, is_correct) VALUES (?, ?, ?, ?)',
-                        [questionResult.rows[0].id, question.options[j].option_text, j + 1, question.options[j].is_correct || false]
-                    );
-                }
-            }
-        }
-
-        // Assign quiz to batches
-        for (const batchId of batch_ids) {
+        // Clips, questions and options in a fixed number of statements. If anything fails the
+        // half-made quiz is removed (its rows cascade) instead of lingering as an empty draft.
+        try {
+            await syncQuizContent(req.db, quizId, questions, req.body.audio_clips || [], { fresh: true });
             await req.db.run(
-                'INSERT INTO quiz_batches (quiz_id, batch_id) VALUES (?, ?)',
-                [quizId, batchId]
+                'INSERT INTO quiz_batches (quiz_id, batch_id) SELECT $1::int, unnest($2::int[]) ON CONFLICT (quiz_id, batch_id) DO NOTHING',
+                [quizId, batch_ids.map(Number)]
             );
+        } catch (contentError) {
+            await req.db.run('DELETE FROM quizzes WHERE id = $1', [quizId]).catch(() => {});
+            throw contentError;
         }
 
         // Get created quiz
@@ -1052,13 +1393,23 @@ router.put('/:id', [
             finalTotalMarks = sum;
         }
 
+        // Scores only need recomputing when the answer key or the points actually change.
+        const previous = await req.db.get(
+            `SELECT status, EXISTS (
+                 SELECT 1 FROM quiz_submissions WHERE quiz_id = $1 AND status = ANY($2::text[])
+             ) AS has_finished
+             FROM quizzes WHERE id = $1`,
+            [id, FINISHED_STATUSES]
+        );
+        const gradingBefore = previous?.has_finished ? await loadGradingState(req.db, id) : null;
+        const nextStatus = status === 'published' ? 'published' : 'draft';
+
         // Transaction
         await req.db.run('BEGIN');
 
-        // Update quiz row
         await req.db.run(`
             UPDATE quizzes
-            SET 
+            SET
                 title = ?, description = ?, instructions = ?,
                 status = ?, start_date = ?, end_date = ?, duration_minutes = ?,
                 total_marks = ?, randomize_questions = ?, randomize_options = ?, auto_submit = ?,
@@ -1068,7 +1419,7 @@ router.put('/:id', [
             title,
             description || null,
             instructions || null,
-            status === 'published' ? 'published' : 'draft',
+            nextStatus,
             start_date || null,
             end_date || null,
             duration_minutes || null,
@@ -1079,97 +1430,42 @@ router.put('/:id', [
             id
         ]);
 
-        // Replace batch assignments
-        await req.db.run('DELETE FROM quiz_batches WHERE quiz_id = ?', [id]);
-        for (const batchId of batch_ids) {
-            await req.db.run('INSERT INTO quiz_batches (quiz_id, batch_id) VALUES (?, ?)', [id, batchId]);
-        }
+        // Keep the batch rows that stay (and their assigned_at); only add and remove the difference.
+        const batchIdList = batch_ids.map(Number);
+        await req.db.run('DELETE FROM quiz_batches WHERE quiz_id = $1 AND batch_id <> ALL($2::int[])', [id, batchIdList]);
+        await req.db.run(
+            'INSERT INTO quiz_batches (quiz_id, batch_id) SELECT $1::int, unnest($2::int[]) ON CONFLICT (quiz_id, batch_id) DO NOTHING',
+            [id, batchIdList]
+        );
 
-        // --- Handle Audio Clips ---
-        const audio_clips = req.body.audio_clips || [];
-        const audioClipMap = {}; // maps tempId or index -> real DB id
-
-        if (audio_clips.length > 0) {
-            // Delete old audio clips and re-insert (new set provided by frontend)
-            await req.db.run('DELETE FROM quiz_audio_clips WHERE quiz_id = ?', [id]);
-
-            for (let a = 0; a < audio_clips.length; a++) {
-                const clip = audio_clips[a];
-                const clipResult = await req.db.run(`
-                    INSERT INTO quiz_audio_clips (
-                        quiz_id, transcript, voice_name, source_type, kdrive_file_id,
-                        file_name, duration_seconds, audio_order, max_plays
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-                `, [
-                    id,
-                    clip.transcript || '',
-                    clip.voiceName || 'Kore',
-                    clip.sourceType || 'tts',
-                    clip.kdriveFileId || null,
-                    clip.fileName || null,
-                    clip.durationSeconds || null,
-                    a + 1,
-                    clip.maxPlays || 0
-                ]);
-                const clipId = clipResult.rows[0].id;
-                if (clip.tempId) audioClipMap[clip.tempId] = clipId;
-                audioClipMap[`idx_${a}`] = clipId;
-            }
-        }
-        // If no audio_clips provided, existing clips in DB are preserved as-is
-
-        // Replace questions and options
-        const oldQuestions = await req.db.all('SELECT id FROM questions WHERE quiz_id = ?', [id]);
-        if (oldQuestions.length > 0) {
-            const qIds = oldQuestions.map((r) => r.id);
-            await req.db.run(`DELETE FROM question_options WHERE question_id IN (${qIds.map(() => '?').join(',')})`, qIds);
-            await req.db.run('DELETE FROM questions WHERE quiz_id = ?', [id]);
-        }
-
-        for (let i = 0; i < questions.length; i++) {
-            const q = questions[i];
-
-            // Resolve audio_clip_id: tempId mapping → index mapping → direct DB id
-            let audioClipId = null;
-            if (q.audio_clip_temp_id && audioClipMap[q.audio_clip_temp_id]) {
-                audioClipId = audioClipMap[q.audio_clip_temp_id];
-            } else if (q.audio_clip_index !== undefined && audioClipMap[`idx_${q.audio_clip_index}`]) {
-                audioClipId = audioClipMap[`idx_${q.audio_clip_index}`];
-            } else if (q.audio_clip_id) {
-                // Existing audio_clip_id from database (edit mode, clips not re-sent)
-                audioClipId = q.audio_clip_id;
-            }
-
-            const qRes = await req.db.run(`
-                INSERT INTO questions (
-                    quiz_id, question_text, question_type, question_order, marks, correct_answer, explanation, audio_clip_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
-            `, [
-                id,
-                q.question_text,
-                q.question_type,
-                i + 1,
-                Number(q.marks),
-                q.correct_answer || null,
-                q.explanation || null,
-                audioClipId
-            ]);
-
-            if (q.question_type.startsWith('mcq') && Array.isArray(q.options)) {
-                for (let j = 0; j < q.options.length; j++) {
-                    const opt = q.options[j];
-                    await req.db.run(
-                        'INSERT INTO question_options (question_id, option_text, option_order, is_correct) VALUES (?, ?, ?, ?)',
-                        [qRes.rows[0].id, opt.option_text, j + 1, !!opt.is_correct]
-                    );
-                }
-            }
-        }
+        // Questions, options and audio clips are updated in place — see syncQuizContent.
+        await syncQuizContent(req.db, id, questions, req.body.audio_clips);
 
         await req.db.run('COMMIT');
 
+        // The quiz is saved; nothing below may turn the response into an error.
+        let regraded = 0;
+        if (gradingBefore) {
+            try {
+                const gradingAfter = await loadGradingState(req.db, id);
+                if (gradingSignature(gradingAfter) !== gradingSignature(gradingBefore)) {
+                    regraded = await regradeQuiz(req.db, id, gradingAfter);
+                }
+            } catch (regradeError) {
+                console.error('[quiz/update] regrade failed:', regradeError.message);
+            }
+        }
+        let notified = 0;
+        if (nextStatus === 'published') {
+            try {
+                notified = await announceQuiz(req.db, id, req.user.id, { notify: previous?.status !== 'published' });
+            } catch (announceError) {
+                console.error('[quiz/update] announce failed:', announceError.message);
+            }
+        }
+
         const updatedQuiz = await req.db.get(`
-            SELECT 
+            SELECT
                 q.id, q.title, q.description, q.status, q.total_marks, q.updated_at,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM quizzes q
@@ -1177,7 +1473,7 @@ router.put('/:id', [
             WHERE q.id = ?
         `, [id]);
 
-        return res.json({ message: 'Quiz updated successfully', quiz: updatedQuiz });
+        return res.json({ message: 'Quiz updated successfully', quiz: updatedQuiz, regraded, notified });
 
     } catch (error) {
         try { await req.db.run('ROLLBACK'); } catch { }
@@ -1540,111 +1836,27 @@ router.patch('/:id/status', [
         const { id } = req.params;
         const { status } = req.body;
 
-        // Check if quiz exists and user has access
-        let quiz;
-        if (req.user.role === 'teacher') {
-            quiz = await req.db.get(
-                'SELECT id FROM quizzes WHERE id = ? AND teacher_id = ?',
-                [id, req.user.id]
-            );
-        } else {
-            quiz = await req.db.get('SELECT id FROM quizzes WHERE id = ?', [id]);
-        }
-
+        const quiz = await req.db.get(
+            `SELECT id, status FROM quizzes WHERE id = $1 AND ($2 = 'admin' OR teacher_id = $3)`,
+            [id, req.user.role, req.user.id]
+        );
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
 
-        // Update status
-        await req.db.run(
-            'UPDATE quizzes SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [status, id]
-        );
-
-        // If publishing, create submissions for all students in assigned batches
-        if (status === 'published') {
-            // Get quiz details for email notification
-            const quizDetails = await req.db.get(`
-                SELECT 
-                    q.id, q.title, q.duration_minutes, q.start_date, q.end_date, q.total_marks,
-                    u.first_name as teacher_first_name, u.last_name as teacher_last_name
-                FROM quizzes q
-                LEFT JOIN users u ON q.teacher_id = u.id
-                WHERE q.id = ?
-            `, [id]);
-
-            const students = await req.db.all(`
-                SELECT DISTINCT bs.student_id, s.email, s.first_name, s.last_name, s.timezone, b.name as batch_name
-                FROM quiz_batches qb
-                JOIN batch_students bs ON qb.batch_id = bs.batch_id
-                JOIN users s ON bs.student_id = s.id
-                JOIN batches b ON qb.batch_id = b.id
-                WHERE qb.quiz_id = ?
-            `, [id]);
-
-            // Calculate max score
-            const maxScoreResult = await req.db.get(
-                'SELECT SUM(marks) as max_score FROM questions WHERE quiz_id = ?',
-                [id]
-            );
-            const maxScore = maxScoreResult.max_score || 0;
-
-            for (const student of students) {
-                // Check if submission already exists
-                const existingSubmission = await req.db.get(
-                    'SELECT id FROM quiz_submissions WHERE quiz_id = ? AND student_id = ?',
-                    [id, student.student_id]
-                );
-
-                if (!existingSubmission) {
-                    await req.db.run(
-                        'INSERT INTO quiz_submissions (quiz_id, student_id, status, max_score) VALUES (?, ?, ?, ?)',
-                        [id, student.student_id, 'not_started', maxScore]
-                    );
-                }
-
-                // Send quiz notification email to student
-                try {
-                    await sendQuizNotification({
-                        to: student.email,
-                        studentName: student.first_name || 'Student',
-                        quizName: quizDetails.title,
-                        teacherName: `${quizDetails.teacher_first_name || ''} ${quizDetails.teacher_last_name || ''}`.trim() || 'Your Teacher',
-                        batchName: student.batch_name,
-                        duration: quizDetails.duration_minutes || 0,
-                        startDate: quizDetails.start_date,
-                        endDate: quizDetails.end_date,
-                        totalPoints: quizDetails.total_marks || 0,
-                        recipientTimezone: student.timezone || 'UTC',
-                    });
-                    console.log(`✅ Quiz notification sent to ${student.email}`);
-                } catch (emailError) {
-                    console.error(`❌ Failed to send quiz notification to ${student.email}:`, emailError.message);
-                    // Continue with other students even if one email fails
-                }
-            }
-
-            // Fire in-app notifications (non-blocking; never fails the publish action)
-            if (students && students.length > 0) {
-                try {
-                    const { createBulkNotifications } = require('../services/notificationService');
-                    const studentIds = students.map(s => s.student_id);
-                    await createBulkNotifications(req.db, studentIds, {
-                        type: 'quiz_published',
-                        title: 'New quiz available',
-                        message: `${quizDetails.title} — your teacher just published a new quiz.`,
-                        link: `/app/my-quizzes?quiz=${id}`,
-                        entity_type: 'quiz',
-                        entity_id: parseInt(id),
-                        sender_id: req.user.id,
-                    });
-                } catch (notifErr) {
-                    console.warn('[notifications] quiz_published failed:', notifErr.message);
-                }
-            }
+        const changed = quiz.status !== status;
+        if (changed) {
+            await req.db.run('UPDATE quizzes SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [status, id]);
         }
 
-        res.json({ message: `Quiz ${status} successfully` });
+        // Publishing an already published quiz only makes sure every student can open it. The
+        // announcement goes out once — it used to be re-sent to the whole class on every save.
+        let notified = 0;
+        if (status === 'published') {
+            notified = await announceQuiz(req.db, id, req.user.id, { notify: changed });
+        }
+
+        res.json({ message: changed ? `Quiz ${status} successfully` : `Quiz is already ${status}`, changed, notified });
 
     } catch (error) {
         console.error('Update quiz status error:', error);
@@ -1829,6 +2041,106 @@ router.get('/:id/results', [
     } catch (error) {
         console.error('Get quiz results error:', error);
         res.status(500).json({ error: 'Failed to get quiz results' });
+    }
+});
+
+// Per-question statistics for the teacher's results view: how many finished students got each
+// question right, average points, and how often each option was picked (distractor analysis).
+router.get('/:id/analysis', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const quiz = await req.db.get(
+            `SELECT q.id,
+                    (SELECT COUNT(*) FROM quiz_submissions qs WHERE qs.quiz_id = q.id AND qs.status = ANY($4::text[])) AS finished
+             FROM quizzes q
+             WHERE q.id = $1 AND ($2 = 'admin' OR q.teacher_id = $3)`,
+            [id, req.user.role, req.user.id, FINISHED_STATUSES]
+        );
+        if (!quiz) {
+            return res.status(404).json({ error: 'Quiz not found or access denied' });
+        }
+        const finished = Number(quiz.finished) || 0;
+
+        const questions = await req.db.all(
+            `SELECT id, question_text, question_type, question_order, marks, correct_answer, audio_clip_id
+             FROM questions WHERE quiz_id = $1 ORDER BY question_order`,
+            [id]
+        );
+        const questionIds = questions.map(q => q.id);
+        const optionsBy = groupRows(questionIds.length
+            ? await req.db.all(
+                `SELECT id, question_id, option_text, option_order, is_correct
+                 FROM question_options WHERE question_id = ANY($1::int[])
+                 ORDER BY question_id, option_order`,
+                [questionIds])
+            : [], 'question_id');
+        const answersBy = groupRows(finished
+            ? await req.db.all(
+                `SELECT sa.question_id, sa.answer_text, sa.selected_options, sa.marks_awarded, sa.is_correct
+                 FROM student_answers sa
+                 JOIN quiz_submissions qs ON qs.id = sa.submission_id
+                 WHERE qs.quiz_id = $1 AND qs.status = ANY($2::text[])`,
+                [id, FINISHED_STATUSES])
+            : [], 'question_id');
+
+        const result = questions.map(q => {
+            const marks = Number(q.marks) || 0;
+            const answers = answersBy.get(Number(q.id)) || [];
+            const picks = new Map();
+            let yes = 0;
+            let no = 0;
+            let answered = 0;
+            let correct = 0;
+            let partial = 0;
+            let points = 0;
+            for (const a of answers) {
+                let selected = [];
+                if (a.selected_options) {
+                    try { selected = JSON.parse(a.selected_options) || []; } catch { selected = []; }
+                    if (!Array.isArray(selected)) selected = [];
+                }
+                const gaveAnswer = q.question_type === 'yes_no' ? !!a.answer_text : selected.length > 0;
+                if (!gaveAnswer) continue;
+                answered++;
+                if (q.question_type === 'yes_no') {
+                    if (a.answer_text === 'yes') yes++;
+                    else if (a.answer_text === 'no') no++;
+                } else {
+                    selected.forEach(optionId => picks.set(Number(optionId), (picks.get(Number(optionId)) || 0) + 1));
+                }
+                const awarded = Number(a.marks_awarded) || 0;
+                points += awarded;
+                if (a.is_correct) correct++;
+                else if (awarded > 0 && awarded < marks) partial++;
+            }
+            return {
+                id: q.id,
+                order: q.question_order,
+                question_text: q.question_text,
+                question_type: q.question_type,
+                marks,
+                audio_clip_id: q.audio_clip_id,
+                correct_answer: q.correct_answer,
+                answered,
+                correct,
+                partial,
+                // Averages are over every finished student: a blank answer earns 0 points.
+                avg_points: finished ? Number((points / finished).toFixed(2)) : null,
+                correct_rate: finished ? Number(((correct / finished) * 100).toFixed(1)) : null,
+                yes_no: q.question_type === 'yes_no' ? { yes, no } : null,
+                options: (optionsBy.get(Number(q.id)) || []).map(o => ({
+                    id: o.id,
+                    option_text: o.option_text,
+                    is_correct: !!o.is_correct,
+                    picks: picks.get(Number(o.id)) || 0,
+                })),
+            };
+        });
+
+        res.json({ finished, questions: result });
+    } catch (error) {
+        console.error('Quiz analysis error:', error);
+        res.status(500).json({ error: 'Failed to analyse quiz answers' });
     }
 });
 
@@ -2055,22 +2367,25 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
             ORDER BY q.question_order
         `, [submissionId, id]);
 
-        // Get options for MCQ questions
-        for (let question of questions) {
+        // Options for every MCQ question in one query (it used to be one query per question).
+        const mcqIds = questions.filter(q => isMcqType(q.question_type)).map(q => q.id);
+        const optionsByQuestion = groupRows(mcqIds.length
+            ? await req.db.all(
+                `SELECT id, question_id, option_text, option_order, is_correct
+                 FROM question_options
+                 WHERE question_id = ANY($1::int[])
+                 ORDER BY question_id, option_order`,
+                [mcqIds])
+            : [], 'question_id');
+        for (const question of questions) {
             // Coerce numeric types immediately
             if (question.audio_clip_id != null) question.audio_clip_id = Number(question.audio_clip_id);
             if (question.marks != null) question.marks = Number(question.marks);
             if (question.score != null) question.score = Number(question.score);
-            
-            if (question.question_type === 'mcq' || question.question_type === 'mcq_single' || question.question_type === 'mcq_multiple') {
-                question.options = await req.db.all(`
-                    SELECT id, option_text, option_order, is_correct
-                    FROM question_options
-                    WHERE question_id = ?
-                    ORDER BY option_order
-                `, [question.id]);
 
-                // Parse selected options
+            if (isMcqType(question.question_type)) {
+                question.options = (optionsByQuestion.get(Number(question.id)) || [])
+                    .map(o => ({ id: o.id, option_text: o.option_text, option_order: o.option_order, is_correct: o.is_correct }));
                 if (question.selected_options) {
                     try {
                         question.selected_options = JSON.parse(question.selected_options);
@@ -2538,15 +2853,20 @@ router.get('/teacher/:teacherId', authenticateToken, teacherOrAdmin, async (req,
             ORDER BY q.created_at DESC
         `, [teacherId]);
 
-        // Add batch names and coerce numeric/boolean types for each quiz
+        // Batch names for every quiz in one query (was one query per quiz)
+        const quizIds = quizzes.map(q => q.id);
+        const nameRows = quizIds.length ? await req.db.all(`
+            SELECT qb.quiz_id, string_agg(b.name, ', ' ORDER BY b.name) AS batch_name
+            FROM quiz_batches qb
+            JOIN batches b ON b.id = qb.batch_id
+            WHERE qb.quiz_id = ANY($1::int[])
+            GROUP BY qb.quiz_id
+        `, [quizIds]) : [];
+        const batchNameOf = new Map(nameRows.map(r => [Number(r.quiz_id), r.batch_name]));
+
+        // Coerce numeric/boolean types for each quiz
         for (let quiz of quizzes) {
-            const batches = await req.db.all(`
-                SELECT b.name
-                FROM quiz_batches qb
-                JOIN batches b ON qb.batch_id = b.id
-                WHERE qb.quiz_id = ?
-            `, [quiz.id]);
-            quiz.batch_name = batches.map(b => b.name).join(', ');
+            quiz.batch_name = batchNameOf.get(Number(quiz.id)) || '';
 
             // Coerce numeric fields that Postgres may return as strings
             quiz.batch_count = quiz.batch_count != null ? Number(quiz.batch_count) : 0;

@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Button, ConfigProvider, Empty, Skeleton, Tooltip, message } from 'antd';
+import {
+  ReadOutlined, FormOutlined, SoundOutlined, AudioOutlined, FolderOutlined, LockOutlined,
+  LoadingOutlined, ArrowLeftOutlined, RightOutlined, BarChartOutlined, PlayCircleOutlined,
+  ClockCircleOutlined, InfoCircleOutlined, CalendarOutlined, CheckCircleFilled, ThunderboltOutlined,
+} from '@ant-design/icons';
 import COQuizTaking from './COQuizTaking';
 import COAnalytics from './COAnalytics';
 import COGlobalAnalytics from './COGlobalAnalytics';
@@ -7,788 +13,398 @@ import EOSimulation from './EOSimulation';
 import OutOfCreditsModal from './OutOfCreditsModal';
 import EOAnalytics from './EOAnalytics';
 import EOGlobalAnalytics from './EOGlobalAnalytics';
-import { Breadcrumb, Empty, Spin, Tooltip, Progress } from 'antd';
-import {
-  ReadOutlined, FormOutlined, SoundOutlined, AudioOutlined,
-  FolderOutlined, LockOutlined, UnlockOutlined, LoadingOutlined,
-  ExclamationCircleFilled, ArrowLeftOutlined,
-  RightOutlined, BarChartOutlined
-} from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import useResponsive from '../../hooks/useResponsive';
+import './StudentExamPreparation.css';
 
-// ── Types ──
+/* ── Content tree (loaded one level at a time from /tcf/student/content-tree) ── */
 interface ContentNode {
   id: number; name?: string; year?: number; month?: number; month_name?: string;
   type: string; content_id?: number; icon?: string; description?: string;
   total_questions?: number; total_points?: number;
   is_assigned?: boolean; is_expired?: boolean; has_assigned_children?: boolean;
-  children?: ContentNode[];
-  total_count?: number;
-  available_count?: number;
-  child_type?: string;
-  childrenLoaded?: boolean;
+  total_count?: number; available_count?: number; child_type?: string;
 }
 
-interface BreadcrumbItem { label: string; node?: ContentNode; }
+type Skill = { key: 'ce' | 'co' | 'ee' | 'eo'; english: string; icon: React.ReactNode; summary: string; format: string };
 
-const ICON_MAP: Record<string, React.ReactNode> = {
-  ReadOutlined: <ReadOutlined />, FormOutlined: <FormOutlined />,
-  SoundOutlined: <SoundOutlined />, AudioOutlined: <AudioOutlined />,
+/** The four TCF skills, keyed by the category names used by the backend. */
+const SKILLS: Record<string, Skill> = {
+  'Compréhension Écrite': { key: 'ce', english: 'Reading', icon: <ReadOutlined />, summary: 'Read and understand written documents of increasing difficulty.', format: 'Multiple choice' },
+  'Compréhension Orale': { key: 'co', english: 'Listening', icon: <SoundOutlined />, summary: 'Timed listening series, scored from A1 to C2.', format: 'Timed series' },
+  'Expression Écrite': { key: 'ee', english: 'Writing', icon: <FormOutlined />, summary: 'Write the three official tasks and get an AI correction.', format: 'AI-corrected' },
+  'Expression Orale': { key: 'eo', english: 'Speaking', icon: <AudioOutlined />, summary: 'Talk with an AI examiner, then review detailed feedback.', format: 'Live AI examiner' },
+};
+const skillOf = (name?: string): Skill | null => (name ? SKILLS[name] ?? null : null);
+
+const LEAF_TYPES = ['ce_series', 'co_series', 'ee_combinaison', 'eo_partie'];
+const LEVEL_LABEL: Record<string, string> = {
+  ce_series: 'series', co_series: 'series', ee_year: 'years', ee_month: 'months', ee_combinaison: 'combinations',
+  eo_year: 'years', eo_month: 'months', eo_partie: 'parts',
+};
+const TYPE_ICON: Record<string, React.ReactNode> = {
+  ee_year: <CalendarOutlined />, eo_year: <CalendarOutlined />, ee_month: <CalendarOutlined />, eo_month: <CalendarOutlined />,
+  ce_series: <ReadOutlined />, co_series: <SoundOutlined />, ee_combinaison: <FormOutlined />, eo_partie: <AudioOutlined />,
 };
 
-const CATEGORY_THEMES: Record<string, { gradient: string; light: string; accent: string; icon: string }> = {
-  'Compréhension Écrite': { gradient: 'linear-gradient(135deg, #3b82f6, #1d4ed8)', light: '#eff6ff', accent: '#2563eb', icon: '#3b82f6' },
-  'Compréhension Orale':  { gradient: 'linear-gradient(135deg, #8b5cf6, #6d28d9)', light: '#f5f3ff', accent: '#7c3aed', icon: '#8b5cf6' },
-  'Expression Écrite':    { gradient: 'linear-gradient(135deg, #f43f5e, #e11d48)', light: '#fff1f2', accent: '#e11d48', icon: '#f43f5e' },
-  'Expression Orale':     { gradient: 'linear-gradient(135deg, #10b981, #047857)', light: '#ecfdf5', accent: '#059669', icon: '#10b981' },
+const keyOf = (n: ContentNode) => `${n.type}:${n.content_id ?? n.id}`;
+const labelOf = (n: ContentNode) => n.name || (n.year ? `${n.year}` : n.month_name || `#${n.content_id ?? n.id}`);
+const isAvailable = (n: ContentNode) => {
+  const accessible = n.is_assigned || n.has_assigned_children;
+  const expired = n.is_expired && !n.has_assigned_children;
+  const empty = n.available_count !== undefined && n.available_count === 0;
+  return !!accessible && !expired && !empty;
+};
+const lockReason = (n: ContentNode) => {
+  if (n.is_assigned && n.is_expired && !n.has_assigned_children) return 'Your access has expired. Ask your teacher to renew it.';
+  if (n.available_count === 0 && (n.is_assigned || n.has_assigned_children)) return 'Nothing inside is assigned to you yet.';
+  return 'Not assigned yet. Ask your teacher to open it for you.';
 };
 
-const getTheme = (name: string) =>
-  CATEGORY_THEMES[name] || { gradient: 'linear-gradient(135deg, #6366f1, #4338ca)', light: '#eef2ff', accent: '#4f46e5', icon: '#6366f1' };
-
-// ── Helpers ──
-const countAtLevel = (nodes: ContentNode[]) => {
-  const total = nodes.length;
-  const available = nodes.filter(n => (n.is_assigned && !n.is_expired) || n.has_assigned_children).length;
-  const locked = total - available;
-  return { total, available, locked };
-};
-
-const getLevelLabel = (type: string) => {
-  const MAP: Record<string, string> = {
-    category: 'Categories', ce_series: 'Series', co_series: 'Series',
-    ee_year: 'Years', ee_month: 'Months', ee_combinaison: 'Combinaisons',
-    eo_year: 'Years', eo_month: 'Months', eo_partie: 'Parties',
-  };
-  return MAP[type] || 'Items';
-};
-
-// ── Status Indicator (inline) ──
-const StatusDot: React.FC<{ isAssigned: boolean; isExpired: boolean; hasAssignedChildren?: boolean; size?: number }> = ({ isAssigned, isExpired, hasAssignedChildren, size = 8 }) => {
-  const isAccessible = (isAssigned && !isExpired) || hasAssignedChildren;
-  if (isAccessible) return (
-    <Tooltip title="Available">
-      <div style={{ width: size, height: size, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
-    </Tooltip>
-  );
-  return (
-    <Tooltip title="Locked">
-      <div style={{ width: size, height: size, borderRadius: '50%', background: '#e2e8f0', flexShrink: 0, border: '1px solid #cbd5e1' }} />
-    </Tooltip>
-  );
-};
-
-// ── Category Card ──
-const CategoryCard: React.FC<{ node: ContentNode; onClick: () => void }> = ({ node, onClick }) => {
-  const isAccessible = node.is_assigned || node.has_assigned_children;
-  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
-  const theme = getTheme(node.name || '');
-  
-  const childCount = node.total_count !== undefined ? node.total_count : (node.children?.length || 0);
-  const stats = node.available_count !== undefined
-    ? { total: childCount, available: node.available_count, locked: childCount - node.available_count }
-    : countAtLevel(node.children || []);
-    
-  const icon = node.icon && ICON_MAP[node.icon] ? ICON_MAP[node.icon] : <FolderOutlined />;
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (isFrozen) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    onClick();
-  };
-
-  return (
-    <div
-      onClick={handleClick}
-      style={{
-        borderRadius: 16, overflow: 'hidden', 
-        cursor: isFrozen ? 'not-allowed' : 'pointer',
-        transition: 'all 0.25s ease', position: 'relative',
-        opacity: isFrozen ? 0.5 : 1,
-        filter: isFrozen ? 'grayscale(50%)' : 'none',
-        background: '#fff', height: '100%',
-        border: `1px solid ${isFrozen ? '#e2e8f0' : theme.accent + '20'}`,
-        boxShadow: isFrozen ? 'none' : `0 2px 12px ${theme.accent}08`,
-      }}
-      onMouseEnter={e => {
-        if (isFrozen) return;
-        e.currentTarget.style.transform = 'translateY(-5px)';
-        e.currentTarget.style.boxShadow = `0 16px 40px ${theme.accent + '20'}`;
-      }}
-      onMouseLeave={e => {
-        if (isFrozen) return;
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = `0 2px 12px ${theme.accent}08`;
-      }}
-    >
-      {/* Gradient header */}
-      <div style={{
-        background: isFrozen ? 'linear-gradient(135deg, #cbd5e1, #94a3b8)' : theme.gradient,
-        padding: '18px 20px', position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{
-          position: 'absolute', top: -20, right: -20, width: 70, height: 70,
-          borderRadius: '50%', background: 'rgba(255,255,255,0.08)',
-        }} />
-        <div style={{
-          position: 'absolute', bottom: -15, left: '50%', width: 50, height: 50,
-          borderRadius: '50%', background: 'rgba(255,255,255,0.05)',
-        }} />
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 12,
-            background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(6px)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontSize: 18,
-            border: '1px solid rgba(255,255,255,0.15)',
-          }}>
-            {icon}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', lineHeight: 1.2 }}>
-              {node.name}
-            </div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>
-              {node.description || 'TCF Canada'}
-            </div>
-          </div>
-
-          {/* Lock/unlock icon */}
-          {isFrozen ? (
-            <LockOutlined style={{ color: 'rgba(255,255,255,0.5)', fontSize: 16 }} />
-          ) : (
-            <UnlockOutlined style={{ color: 'rgba(255,255,255,0.7)', fontSize: 16 }} />
-          )}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div style={{ padding: '14px 18px 16px' }}>
-        {/* Stats */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <div style={{
-            flex: 1, padding: '8px 10px', borderRadius: 8,
-            background: stats.available > 0 ? '#f0fdf4' : '#f8fafc',
-            textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: stats.available > 0 ? '#16a34a' : '#94a3b8' }}>
-              {stats.available}
-            </div>
-            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Available</div>
-          </div>
-          <div style={{
-            flex: 1, padding: '8px 10px', borderRadius: 8,
-            background: '#f8fafc', textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#64748b' }}>
-              {childCount}
-            </div>
-            <div style={{ fontSize: 9, color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Total</div>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        {childCount > 0 && (
-          <div>
-            <Progress
-              percent={Math.round((stats.available / childCount) * 100)}
-              showInfo={false}
-              size="small"
-              strokeColor={isFrozen ? '#e2e8f0' : theme.accent}
-              trailColor="#f1f5f9"
-              style={{ marginBottom: 0 }}
-            />
-          </div>
-        )}
-
-        {/* Footer */}
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginTop: 10,
-        }}>
-          <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500 }}>
-            {getLevelLabel(node.child_type || node.children?.[0]?.type || 'category')}
-          </span>
-          <div style={{
-            width: 24, height: 24, borderRadius: 6,
-            background: isFrozen ? '#f1f5f9' : theme.light,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <RightOutlined style={{ fontSize: 10, color: isFrozen ? '#cbd5e1' : theme.accent }} />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ── Item Card (series, years, months, combinaisons, parties) ──
-const ItemCard: React.FC<{
-  node: ContentNode; accent: string; onClick?: () => void; isLeaf?: boolean; onAnalytics?: () => void;
-}> = ({ node, accent, onClick, isLeaf, onAnalytics }) => {
-  const isAccessible = node.is_assigned || node.has_assigned_children;
-  const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
-  const isExpired = node.is_assigned && node.is_expired && !node.has_assigned_children;
-  const label = node.name || (node.year ? `${node.year}` : node.month_name || `#${node.content_id || node.id}`);
-  const childCount = node.total_count !== undefined ? node.total_count : (node.children?.length || 0);
-  const stats = node.available_count !== undefined
-    ? { total: childCount, available: node.available_count, locked: childCount - node.available_count }
-    : countAtLevel(node.children || []);
-  const meta = node.total_questions
-    ? `${node.total_questions} questions · ${node.total_points} pts`
-    : childCount > 0 ? `${stats.available}/${childCount} available` : '';
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (isFrozen) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (onClick) onClick();
-  };
-
-  return (
-    <div
-      onClick={handleClick}
-      style={{
-        borderRadius: 12, padding: '16px 18px',
-        border: `1.5px solid ${isFrozen ? '#e2e8f0' : accent + '25'}`,
-        cursor: isFrozen ? 'not-allowed' : (onClick ? 'pointer' : 'default'),
-        transition: 'all 0.2s ease', position: 'relative',
-        opacity: isFrozen ? 0.5 : 1,
-        filter: isFrozen ? 'grayscale(50%)' : 'none',
-        background: isFrozen ? '#fafbfc' : '#fff',
-        height: '100%',
-      }}
-      onMouseEnter={e => {
-        if (isFrozen) return;
-        if (onClick || (isLeaf && !isFrozen)) {
-          e.currentTarget.style.transform = 'translateY(-3px)';
-          e.currentTarget.style.boxShadow = `0 8px 24px ${accent + '15'}`;
-          e.currentTarget.style.borderColor = accent + '50';
-        }
-      }}
-      onMouseLeave={e => {
-        if (isFrozen) return;
-        e.currentTarget.style.transform = 'translateY(0)';
-        e.currentTarget.style.boxShadow = 'none';
-        e.currentTarget.style.borderColor = accent + '25';
-      }}
-    >
-      {/* Top row: status + label */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-        <StatusDot isAssigned={node.is_assigned || false} isExpired={node.is_expired || false} hasAssignedChildren={node.has_assigned_children} size={10} />
-        <div style={{
-          fontSize: 16, fontWeight: 700,
-          color: isFrozen ? '#94a3b8' : '#1e293b',
-          flex: 1,
-        }}>
-          {label}
-        </div>
-        {isFrozen && <LockOutlined style={{ color: '#cbd5e1', fontSize: 12 }} />}
-        {isExpired && <ExclamationCircleFilled style={{ color: '#f59e0b', fontSize: 13 }} />}
-        {!isFrozen && !isLeaf && onClick && (
-          <RightOutlined style={{ color: accent, fontSize: 10 }} />
-        )}
-      </div>
-
-      {/* Meta */}
-      {meta && (
-        <div style={{ fontSize: 11, color: isFrozen ? '#b0b8c9' : '#64748b', marginBottom: isLeaf ? 0 : 6 }}>
-          {meta}
-        </div>
-      )}
-
-      {/* Progress for non-leaf */}
-      {!isLeaf && childCount > 0 && !isFrozen && (
-        <Progress
-          percent={Math.round((stats.available / childCount) * 100)}
-          showInfo={false} size="small"
-          strokeColor={accent} trailColor="#f1f5f9"
-          style={{ marginBottom: 0, marginTop: 4 }}
-        />
-      )}
-
-      {/* Buttons for leaf */}
-      {isLeaf && !isFrozen && (
-        <div style={{ marginTop: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '5px 14px', borderRadius: 8,
-            background: `linear-gradient(135deg, ${accent}, ${accent}dd)`,
-            color: '#fff', fontSize: 11, fontWeight: 700,
-            boxShadow: `0 2px 8px ${accent}30`,
-          }}>
-            <RightOutlined style={{ fontSize: 9 }} /> Pratiquer
-          </div>
-          {onAnalytics && (
-            <div onClick={e => { e.stopPropagation(); onAnalytics(); }} style={{
-              display: 'inline-flex', alignItems: 'center',
-              padding: '4px 10px', borderRadius: 6,
-              background: 'transparent', border: '1px solid #cbd5e1',
-              color: '#64748b', fontSize: 10, fontWeight: 600,
-              cursor: 'pointer', transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.color = accent; }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.color = '#64748b'; }}
-            >
-              Analyser
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ── Main Component ──
 const StudentExamPreparation: React.FC = () => {
   const { apiCall } = useAuth();
-  const r = useResponsive();
-  const [tree, setTree] = useState<ContentNode[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
-  const [currentNodes, setCurrentNodes] = useState<ContentNode[]>([]);
-  const [currentAccent, setCurrentAccent] = useState('#059669');
-  const [currentView, setCurrentView] = useState<'categories' | 'children'>('categories');
-  const [quizSeriesId, setQuizSeriesId] = useState<number | null>(null);
-  const [eeSimCombId, setEeSimCombId] = useState<number | null>(null);
-  const [eoSimOpen, setEoSimOpen] = useState(false);
-  const [eoSimPartieId, setEoSimPartieId] = useState<number | null>(null);
-  const [analyticsTarget, setAnalyticsTarget] = useState<{ id: number; name: string } | null>(null);
-  const [eoAnalyticsTarget, setEoAnalyticsTarget] = useState<{ id: number; name: string } | null>(null);
-  const [eoGlobalAnalyticsOpen, setEoGlobalAnalyticsOpen] = useState(false);
-  const [credits, setCredits] = useState<{ ee_credits: number; eo_credits: number } | null>(null);
-  const [outOfCreditsType, setOutOfCreditsType] = useState<'ee' | 'eo' | null>(null);
+  const [messageApi, contextHolder] = message.useMessage();
 
-  // Refresh the student's credit balance (called after a simulation start consumes one)
+  const [tree, setTree] = useState<ContentNode[]>([]);
+  const [treeLoading, setTreeLoading] = useState(true);
+  const [treeError, setTreeError] = useState(false);
+  const [childrenCache, setChildrenCache] = useState<Record<string, ContentNode[]>>({});
+  const [path, setPath] = useState<ContentNode[]>([]);
+  const [openingKey, setOpeningKey] = useState<string | null>(null);
+  const inflight = useRef(new Map<string, Promise<ContentNode[] | null>>());
+
+  const [credits, setCredits] = useState<{ ee_credits: number; eo_credits: number } | null>(null);
+  const [coSeriesId, setCoSeriesId] = useState<number | null>(null);
+  const [eeCombId, setEeCombId] = useState<number | null>(null);
+  const [eoPartieId, setEoPartieId] = useState<number | null>(null);
+  const [coAnalytics, setCoAnalytics] = useState<{ id: number; name: string } | null>(null);
+  const [eoAnalytics, setEoAnalytics] = useState<{ id: number; name: string } | null>(null);
+  const [coGlobalOpen, setCoGlobalOpen] = useState(false);
+  const [eoGlobalOpen, setEoGlobalOpen] = useState(false);
+  const [outOfCredits, setOutOfCredits] = useState<'ee' | 'eo' | null>(null);
+
+  /* ── Data ── */
   const refreshCredits = useCallback(async () => {
     try {
       const res = await apiCall('/ai-credits/me');
       if (res.ok) setCredits(await res.json());
-    } catch { /* silent */ }
+    } catch { /* credits are informative only */ }
   }, [apiCall]);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiCall('/ai-credits/me');
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setCredits(data);
-      } catch { /* silent */ }
-    })();
-    return () => { cancelled = true; };
-  }, [apiCall]);
-
-  const fetchTree = useCallback(async (preserveState = false) => {
-    if (!preserveState) setLoading(true);
+  const fetchTree = useCallback(async () => {
+    setTreeLoading(true); setTreeError(false);
     try {
-      const resp = await apiCall('/tcf/student/content-tree');
-      if (resp.ok) {
-        const data = await resp.json();
-        setTree(data);
-        
-        if (!preserveState) {
-          setCurrentNodes(data);
-          setCurrentView('categories');
-          setBreadcrumbs([]);
-        } else {
-          setBreadcrumbs(currentBreadcrumbs => {
-            let currentList = data;
-            const newBreadcrumbs = [];
-            for (const bc of currentBreadcrumbs) {
-              const match = currentList.find((n: ContentNode) => {
-                if (n.type !== bc.node?.type) return false;
-                if (n.id && bc.node?.id && String(n.id) === String(bc.node.id)) return true;
-                if (n.content_id && bc.node?.content_id && String(n.content_id) === String(bc.node.content_id)) return true;
-                if (n.name && bc.node?.name && n.name === bc.node.name) return true;
-                if (n.year && bc.node?.year && String(n.year) === String(bc.node.year)) return true;
-                if (n.month && bc.node?.month && String(n.month) === String(bc.node.month)) return true;
-                return false;
-              });
-              if (match) {
-                newBreadcrumbs.push({ ...bc, node: match });
-                currentList = match.children || [];
-              } else {
-                break;
-              }
-            }
-            setCurrentNodes(currentList);
-            setCurrentView(newBreadcrumbs.length === 0 ? 'categories' : 'children');
-            return newBreadcrumbs;
-          });
-        }
-      }
-    } catch { /* silent */ }
-    finally { setLoading(false); }
+      const res = await apiCall('/tcf/student/content-tree');
+      if (!res.ok) throw new Error();
+      setTree(await res.json());
+    } catch {
+      setTreeError(true);
+    } finally {
+      setTreeLoading(false);
+    }
   }, [apiCall]);
 
-  useEffect(() => { fetchTree(true); }, []); // Use preserveState=true to survive React StrictMode double mounts without wiping navigation
+  useEffect(() => { fetchTree(); refreshCredits(); }, [fetchTree, refreshCredits]);
 
-  const LEAF_TYPES = ['ce_series', 'co_series', 'ee_combinaison', 'eo_partie'];
-
-  const navigateToChildren = async (node: ContentNode) => {
-    const isLeaf = LEAF_TYPES.includes(node.type);
-    if (isLeaf) return;
-
-    const isAccessible = node.is_assigned || node.has_assigned_children;
-    const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
-    if (isFrozen) return;
-
-    let children = node.children || [];
-    if (!node.childrenLoaded) {
-      setLoading(true);
+  /** Children of a node, deduplicated so hover-prefetch and click share one request. */
+  const loadChildren = useCallback((node: ContentNode, force = false): Promise<ContentNode[] | null> => {
+    const key = keyOf(node);
+    if (!force && inflight.current.has(key)) return inflight.current.get(key)!;
+    const p = (async () => {
       try {
-        const resp = await apiCall(`/tcf/student/content-tree/children?parentType=${node.type}&parentId=${node.content_id || node.id}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          children = data;
-          node.children = data;
-          node.childrenLoaded = true;
-        }
-      } catch (err) {
-        console.error('Error fetching children:', err);
-      } finally {
-        setLoading(false);
+        const res = await apiCall(`/tcf/student/content-tree/children?parentType=${node.type}&parentId=${node.content_id ?? node.id}`);
+        if (!res.ok) throw new Error();
+        const data: ContentNode[] = await res.json();
+        setChildrenCache(prev => ({ ...prev, [key]: data }));
+        return data;
+      } catch {
+        inflight.current.delete(key);
+        return null;
       }
+    })();
+    inflight.current.set(key, p);
+    return p;
+  }, [apiCall]);
+
+  const prefetch = (node: ContentNode) => {
+    if (!LEAF_TYPES.includes(node.type) && isAvailable(node) && !childrenCache[keyOf(node)]) void loadChildren(node);
+  };
+
+  /* ── Navigation ── */
+  const current: ContentNode[] = path.length ? childrenCache[keyOf(path[path.length - 1])] ?? [] : tree;
+  const skill = skillOf(path[0]?.name);
+
+  const openNode = async (node: ContentNode) => {
+    if (!isAvailable(node)) return;
+    if (LEAF_TYPES.includes(node.type)) { launch(node); return; }
+    const key = keyOf(node);
+    if (!childrenCache[key]) {
+      setOpeningKey(key);
+      const data = await loadChildren(node);
+      setOpeningKey(null);
+      if (!data) { messageApi.error('Could not open this section. Please try again.'); return; }
+      if (data.length === 0) { messageApi.info('This section is empty for now.'); return; }
     }
-
-    if (children.length === 0) return;
-    const theme = getTheme(node.name || '');
-    const label = node.name || (node.year ? `${node.year}` : node.month_name || '');
-
-    setBreadcrumbs(prev => [...prev, { label, node }]);
-    setCurrentNodes(children);
-    if (breadcrumbs.length === 0) setCurrentAccent(theme.accent);
-    setCurrentView('children');
+    setPath(prev => [...prev, node]);
   };
 
-  const refreshCurrentView = async () => {
-    if (breadcrumbs.length === 0) {
-      await fetchTree(false);
-    } else {
-      const activeNode = breadcrumbs[breadcrumbs.length - 1].node;
-      if (activeNode) {
-        setLoading(true);
-        try {
-          const resp = await apiCall(`/tcf/student/content-tree/children?parentType=${activeNode.type}&parentId=${activeNode.content_id || activeNode.id}`);
-          if (resp.ok) {
-            const data = await resp.json();
-            activeNode.children = data;
-            activeNode.childrenLoaded = true;
-            setCurrentNodes(data);
-          }
-        } catch (err) {
-          console.error('Error refreshing current view:', err);
-        } finally {
-          setLoading(false);
-        }
-      }
+  const refreshCurrent = () => {
+    if (path.length) void loadChildren(path[path.length - 1], true);
+    else void fetchTree();
+  };
+
+  const launch = (node: ContentNode) => {
+    const id = node.content_id;
+    if (!id) return;
+    if (node.type === 'co_series') setCoSeriesId(id);
+    else if (node.type === 'ee_combinaison') {
+      if (credits && credits.ee_credits <= 0) { setOutOfCredits('ee'); return; }
+      setEeCombId(id);
+    } else if (node.type === 'eo_partie') {
+      if (credits && credits.eo_credits <= 0) { setOutOfCredits('eo'); return; }
+      setEoPartieId(id);
     }
   };
 
-  const navigateBack = () => {
-    if (breadcrumbs.length <= 1) {
-      setBreadcrumbs([]); setCurrentNodes(tree); setCurrentView('categories');
-      return;
-    }
-    const nb = breadcrumbs.slice(0, -1);
-    setBreadcrumbs(nb);
-    setCurrentNodes(nb[nb.length - 1].node?.children || tree);
-  };
+  /* ── Figures ── */
+  const available = current.filter(isAvailable).length;
+  const levelWord = LEVEL_LABEL[current[0]?.type] ?? 'items';
+  const isLeafLevel = current.length > 0 && current.every(n => LEAF_TYPES.includes(n.type));
+  const skillsOpen = tree.filter(isAvailable).length;
+  const sectionsOpen = tree.reduce((s, n) => s + (isAvailable(n) ? n.available_count ?? 0 : 0), 0);
 
-  const navigateToBreadcrumb = (index: number) => {
-    if (index < 0) { setBreadcrumbs([]); setCurrentNodes(tree); setCurrentView('categories'); return; }
-    const nb = breadcrumbs.slice(0, index + 1);
-    setBreadcrumbs(nb);
-    setCurrentNodes(nb[nb.length - 1].node?.children || tree);
-  };
-
-  const stats = countAtLevel(currentNodes);
-  const isLeafLevel = currentNodes.length > 0 && currentNodes.every(n => LEAF_TYPES.includes(n.type));
-  const currentTitle = breadcrumbs.length > 0 ? breadcrumbs[breadcrumbs.length - 1].label : '';
-  const isCOSection = breadcrumbs.some(b => b.label?.includes('Compréhension Orale') || b.node?.name?.includes('Compréhension Orale'));
-  const isEOSection = breadcrumbs.some(b => b.label?.includes('Expression Orale') || b.node?.name?.includes('Expression Orale'));
-  const [showGlobalAnalytics, setShowGlobalAnalytics] = useState(false);
-
-  return (
-    <div className="student-portal">
-      {/* ═══ Hero Banner ═══ */}
-      <div style={{
-        background: 'linear-gradient(135deg, #064e3b 0%, #059669 50%, #34d399 100%)',
-        borderRadius: r.isCompact ? 14 : 18,
-        padding: r.isCompact ? '18px 20px' : r.isSmallDesktop ? '22px 26px' : '28px 32px',
-        marginBottom: r.isCompact ? 16 : 24,
-        position: 'relative', overflow: 'hidden',
-      }}>
-        <div style={{ position: 'absolute', top: -60, right: -60, width: 220, height: 220, borderRadius: '50%', background: 'rgba(255,255,255,0.05)' }} />
-        <div style={{ position: 'absolute', bottom: -40, left: '25%', width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
-        <div style={{ position: 'absolute', top: '40%', right: '10%', width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.03)' }} />
-
-        <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
-          <div>
-            <div style={{ fontSize: r.isCompact ? 18 : r.isSmallDesktop ? 21 : 24, fontWeight: 800, color: '#fff', letterSpacing: -0.3, marginBottom: 5 }}>
-              🇨🇦 TCF Canada — Exam Preparation
-            </div>
-            <div style={{ fontSize: r.isCompact ? 12 : 13, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>
-              Practice your assigned exam content. Locked items require admin assignment.
-            </div>
+  /* ── Pieces ── */
+  const SkillCard = ({ node }: { node: ContentNode }) => {
+    const s = skillOf(node.name);
+    const open = isAvailable(node);
+    const total = node.total_count ?? 0;
+    const avail = node.available_count ?? 0;
+    const opening = openingKey === keyOf(node);
+    const unit = LEVEL_LABEL[node.child_type || ''] ?? 'items';
+    return (
+      <article className={`ep-skill ep-skill-${s?.key ?? 'other'}${open ? '' : ' is-locked'}`}
+        onMouseEnter={() => prefetch(node)} onFocus={() => prefetch(node)}>
+        <div className="ep-skill-head">
+          <span className="ep-skill-icon">{s?.icon ?? <FolderOutlined />}</span>
+          <div className="ep-skill-head-text">
+            <span className="ep-skill-tag">{s?.english ?? 'Practice'}</span>
+            <span className="ep-skill-format">{s?.format}</span>
           </div>
-
-          {/* Stats pills */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            <div style={{
-              background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
-              border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
-              textAlign: 'center', minWidth: 70,
-            }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{stats.available}</div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Available</div>
-            </div>
-            <div style={{
-              background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
-              border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
-              textAlign: 'center', minWidth: 70,
-            }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{stats.total}</div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.55)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Total</div>
-            </div>
-            {stats.locked > 0 && (
-              <div style={{
-                background: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: '10px 18px',
-                border: '1px solid rgba(255,255,255,0.1)', textAlign: 'center', minWidth: 70,
-              }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: 'rgba(255,255,255,0.6)', lineHeight: 1 }}>{stats.locked}</div>
-                <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>Locked</div>
-              </div>
-            )}
-            {credits && (
-              <>
-                <div style={{
-                  background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
-                  border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
-                  textAlign: 'center', minWidth: 70,
-                }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{credits.ee_credits}</div>
-                  <div style={{ fontSize: 9, color: '#fda4af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>EE Credits</div>
-                </div>
-                <div style={{
-                  background: 'rgba(255,255,255,0.14)', borderRadius: 12, padding: '10px 18px',
-                  border: '1px solid rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
-                  textAlign: 'center', minWidth: 70,
-                }}>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1 }}>{credits.eo_credits}</div>
-                  <div style={{ fontSize: 9, color: '#86efac', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 3 }}>EO Credits</div>
-                </div>
-              </>
-            )}
-          </div>
+          <span className={`ep-state${open ? ' is-open' : ''}`}>
+            {open ? <><CheckCircleFilled /> Open</> : <><LockOutlined /> Locked</>}
+          </span>
         </div>
+        <div className="ep-skill-body">
+          <h3 className="ep-skill-title">{node.name}</h3>
+          <p className="ep-skill-sub">{s?.summary ?? node.description}</p>
+          <div className="ep-skill-stats">
+            <div><strong>{avail}</strong><span>available</span></div>
+            <div><strong>{total}</strong><span>{unit} in total</span></div>
+          </div>
+          <div className="ep-bar"><span style={{ width: `${total ? (avail / total) * 100 : 0}%` }} /></div>
+        </div>
+        <div className="ep-skill-foot">
+          {open ? (
+            <Button type="primary" block onClick={() => openNode(node)} loading={opening}>
+              {opening ? 'Opening…' : <>Open {s?.english.toLowerCase() ?? 'section'} <RightOutlined /></>}
+            </Button>
+          ) : (
+            <span className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node)}</span>
+          )}
+        </div>
+      </article>
+    );
+  };
+
+  const ItemCard = ({ node }: { node: ContentNode }) => {
+    const open = isAvailable(node);
+    const leaf = LEAF_TYPES.includes(node.type);
+    const opening = openingKey === keyOf(node);
+    const expired = node.is_assigned && node.is_expired && !node.has_assigned_children;
+    const total = node.total_count ?? 0;
+    const avail = node.available_count ?? 0;
+    const meta = node.total_questions
+      ? `${node.total_questions} questions · ${node.total_points ?? 0} pts`
+      : !leaf && total ? `${avail} of ${total} ${LEVEL_LABEL[node.child_type || ''] ?? 'items'} available` : null;
+    const canAnalyse = open && leaf && node.content_id && (node.type === 'co_series' || node.type === 'eo_partie');
+    const notPlayable = leaf && node.type === 'ce_series';
+    const usesCredit = node.type === 'ee_combinaison' || node.type === 'eo_partie';
+
+    const head = (
+      <div className="ep-item-top">
+        <span className="ep-item-icon">{TYPE_ICON[node.type] ?? <FolderOutlined />}</span>
+        <span className="ep-item-text">
+          <span className="ep-item-title" title={labelOf(node)}>{labelOf(node)}</span>
+          {meta && <span className="ep-item-meta">{meta}</span>}
+        </span>
+        {!open && (expired
+          ? <span className="ep-chip is-expired"><ClockCircleOutlined /> Expired</span>
+          : <LockOutlined className="ep-item-lock" />)}
+        {open && !leaf && (opening ? <LoadingOutlined className="ep-item-chevron" /> : <RightOutlined className="ep-item-chevron" />)}
       </div>
+    );
 
-      {/* ═══ Breadcrumb + Title ═══ */}
-      {breadcrumbs.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <Breadcrumb
-            items={[
-              { title: <span onClick={() => navigateToBreadcrumb(-1)} style={{ cursor: 'pointer', color: currentAccent, fontWeight: 600, fontSize: 12 }}>📖 Exam Preparation</span> },
-              ...breadcrumbs.map((b, i) => ({
-                title: <span onClick={() => navigateToBreadcrumb(i)} style={{ cursor: i < breadcrumbs.length - 1 ? 'pointer' : 'default', color: i < breadcrumbs.length - 1 ? currentAccent : '#1e293b', fontWeight: i < breadcrumbs.length - 1 ? 600 : 700, fontSize: 12 }}>{b.label}</span>,
-              })),
-            ]}
+    if (!leaf) {
+      return (
+        <Tooltip title={open ? undefined : lockReason(node)}>
+          <button type="button" className={`ep-item${open ? '' : ' is-locked'}`} disabled={!open}
+            onClick={() => openNode(node)} onMouseEnter={() => prefetch(node)} onFocus={() => prefetch(node)}>
+            {head}
+            {open && total > 0 && <div className="ep-bar is-thin"><span style={{ width: `${(avail / total) * 100}%` }} /></div>}
+          </button>
+        </Tooltip>
+      );
+    }
+    return (
+      <div className={`ep-item is-leaf${open ? '' : ' is-locked'}`}>
+        {head}
+        {open ? (
+          notPlayable ? (
+            <div className="ep-lock-note"><InfoCircleOutlined /> Online practice coming soon</div>
+          ) : (
+            <div className="ep-item-actions">
+              <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => launch(node)}>
+                {node.type === 'co_series' ? 'Start' : 'Practise'}
+              </Button>
+              {canAnalyse && (
+                <Button icon={<BarChartOutlined />}
+                  onClick={() => (node.type === 'co_series'
+                    ? setCoAnalytics({ id: node.content_id!, name: labelOf(node) })
+                    : setEoAnalytics({ id: node.content_id!, name: labelOf(node) }))}>
+                  Results
+                </Button>
+              )}
+              {usesCredit && <span className="ep-credit-note"><ThunderboltOutlined /> 1 credit</span>}
+            </div>
+          )
+        ) : (
+          <div className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node)}</div>
+        )}
+      </div>
+    );
+  };
+
+  /* ═══════════ RENDER ═══════════ */
+  return (
+    <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13 } }}>
+      <div className={`ep${skill ? ` ep-in-${skill.key}` : ''}`}>
+        {contextHolder}
+
+        {/* ── Hero ── */}
+        <header className="ep-hero">
+          <div className="ep-hero-main">
+            <div className="ep-overline">Exam preparation</div>
+            <h1 className="ep-title">TCF Canada</h1>
+            <p className="ep-subtitle">Practise the four skills of the exam in the official format. Your teacher decides which parts are open to you.</p>
+            {!treeLoading && !treeError && (
+              <div className="ep-hero-stats">
+                <div><strong>{skillsOpen}<small>/{tree.length || 4}</small></strong><span>skills open</span></div>
+                <div><strong>{sectionsOpen}</strong><span>sections available</span></div>
+              </div>
+            )}
+          </div>
+          {credits && (
+            <div className="ep-credits" aria-label="AI correction credits">
+              <div className="ep-credits-title"><ThunderboltOutlined /> AI credits</div>
+              <Tooltip title="Each Expression écrite attempt corrected by AI uses one credit.">
+                <div className={`ep-credit is-ee${credits.ee_credits <= 0 ? ' is-empty' : ''}`}>
+                  <span className="ep-credit-icon"><FormOutlined /></span>
+                  <div><strong>{credits.ee_credits}</strong><span>Writing</span></div>
+                </div>
+              </Tooltip>
+              <Tooltip title="Each Expression orale session with the AI examiner uses one credit.">
+                <div className={`ep-credit is-eo${credits.eo_credits <= 0 ? ' is-empty' : ''}`}>
+                  <span className="ep-credit-icon"><AudioOutlined /></span>
+                  <div><strong>{credits.eo_credits}</strong><span>Speaking</span></div>
+                </div>
+              </Tooltip>
+            </div>
+          )}
+        </header>
+
+        {/* ── Section bar (inside a skill) ── */}
+        {path.length > 0 && (
+          <div className="ep-section">
+            <Button className="ep-back" icon={<ArrowLeftOutlined />} onClick={() => setPath(p => p.slice(0, -1))} aria-label="Back" />
+            <span className="ep-section-icon">{skill?.icon ?? <FolderOutlined />}</span>
+            <div className="ep-section-text">
+              <nav className="ep-crumbs" aria-label="Breadcrumb">
+                <button type="button" onClick={() => setPath([])}>TCF Canada</button>
+                {path.map((n, i) => (
+                  <React.Fragment key={keyOf(n)}>
+                    <RightOutlined />
+                    {i < path.length - 1
+                      ? <button type="button" onClick={() => setPath(p => p.slice(0, i + 1))}>{labelOf(n)}</button>
+                      : <span aria-current="page">{labelOf(n)}</span>}
+                  </React.Fragment>
+                ))}
+              </nav>
+              <h2 className="ep-section-title">{labelOf(path[path.length - 1])}</h2>
+              <div className="ep-section-sub">{available} of {current.length} {levelWord} available</div>
+            </div>
+            {skill?.key === 'co' && (
+              <Button icon={<BarChartOutlined />} onClick={() => setCoGlobalOpen(true)}>Listening performance</Button>
+            )}
+            {skill?.key === 'eo' && (
+              <Button icon={<BarChartOutlined />} onClick={() => setEoGlobalOpen(true)}>Speaking performance</Button>
+            )}
+          </div>
+        )}
+
+        {/* ── Content ── */}
+        {treeLoading && path.length === 0 ? (
+          <div className="ep-skills" aria-busy="true">
+            {['ce', 'co', 'ee', 'eo'].map(k => (
+              <div key={k} className={`ep-skill ep-skill-${k} is-loading`}>
+                <div className="ep-skill-head"><Skeleton.Avatar active shape="square" size={44} /></div>
+                <div className="ep-skill-body"><Skeleton active title={{ width: '60%' }} paragraph={{ rows: 3 }} /></div>
+              </div>
+            ))}
+          </div>
+        ) : treeError && path.length === 0 ? (
+          <div className="ep-empty">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="The exam content could not be loaded.">
+              <Button onClick={fetchTree}>Try again</Button>
+            </Empty>
+          </div>
+        ) : current.length === 0 ? (
+          <div className="ep-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing here yet." /></div>
+        ) : path.length === 0 ? (
+          <div className="ep-skills">{current.map(n => <SkillCard key={keyOf(n)} node={n} />)}</div>
+        ) : (
+          <div className={`ep-items${isLeafLevel ? ' is-leaves' : ''}`}>{current.map(n => <ItemCard key={keyOf(n)} node={n} />)}</div>
+        )}
+
+        {/* ── Exercises & analytics (behaviour unchanged) ── */}
+        {coSeriesId && (
+          <COQuizTaking seriesId={coSeriesId} onBack={() => { setCoSeriesId(null); refreshCurrent(); }} />
+        )}
+        {coAnalytics && (
+          <COAnalytics seriesId={coAnalytics.id} seriesName={coAnalytics.name} open onClose={() => setCoAnalytics(null)} />
+        )}
+        <COGlobalAnalytics open={coGlobalOpen} onClose={() => setCoGlobalOpen(false)} />
+        {eeCombId && (
+          <EESimulation
+            combinaisonId={eeCombId}
+            open
+            onClose={() => { setEeCombId(null); refreshCurrent(); }}
+            onCreditConsumed={refreshCredits}
+            onOutOfCredits={() => { setEeCombId(null); setOutOfCredits('ee'); refreshCredits(); }}
           />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 12 }}>
-            <div
-              onClick={navigateBack}
-              style={{
-                width: 36, height: 36, borderRadius: 10,
-                background: currentAccent + '0c',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', color: currentAccent, fontSize: 14,
-                border: `1px solid ${currentAccent}18`,
-                transition: 'all 0.15s',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = currentAccent + '18'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = currentAccent + '0c'; }}
-            >
-              <ArrowLeftOutlined />
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', lineHeight: 1.2 }}>
-                {currentTitle}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                {stats.available} of {stats.total} {getLevelLabel(currentNodes[0]?.type || 'category').toLowerCase()} available
-              </div>
-            </div>
-            {isCOSection && (
-              <button
-                onClick={() => setShowGlobalAnalytics(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 16px', borderRadius: 10,
-                  background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
-                  color: '#fff', fontSize: 11, fontWeight: 700,
-                  border: 'none', cursor: 'pointer', letterSpacing: 0.3,
-                  boxShadow: '0 2px 8px rgba(99,102,241,0.3)',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(99,102,241,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.3)'; }}
-              >
-                <BarChartOutlined /> Global Analytics
-              </button>
-            )}
-            {isEOSection && (
-              <button
-                onClick={() => setEoGlobalAnalyticsOpen(true)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '8px 16px', borderRadius: 10,
-                  background: 'linear-gradient(135deg, #10b981, #059669)',
-                  color: '#fff', fontSize: 11, fontWeight: 700,
-                  border: 'none', cursor: 'pointer', letterSpacing: 0.3,
-                  boxShadow: '0 2px 8px rgba(16,185,129,0.3)',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 14px rgba(16,185,129,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 8px rgba(16,185,129,0.3)'; }}
-              >
-                <BarChartOutlined /> Analyser la performance
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══ Legend (categories view only) ═══ */}
-      {currentView === 'categories' && !loading && (
-        <div style={{
-          display: 'flex', gap: 20, marginBottom: 18, padding: '10px 16px',
-          background: '#f9fafb', borderRadius: 10, border: '1px solid #f0f0f0',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4b5563' }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#22c55e' }} /> Available
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#4b5563' }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#e2e8f0', border: '1px solid #cbd5e1' }} /> Locked
-          </div>
-
-        </div>
-      )}
-
-      {/* ═══ Content ═══ */}
-      {quizSeriesId ? (
-        <COQuizTaking seriesId={quizSeriesId} onBack={() => { setQuizSeriesId(null); refreshCurrentView(); }} />
-      ) : loading ? (
-        <div style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          justifyContent: 'center', padding: '100px 20px', gap: 16,
-        }}>
-          <Spin indicator={<LoadingOutlined style={{ fontSize: 36, color: '#059669' }} spin />} />
-          <div style={{ fontSize: 14, color: '#94a3b8', fontWeight: 500 }}>Loading exam content...</div>
-        </div>
-      ) : currentNodes.length === 0 ? (
-        <Empty description="No content available" style={{ padding: 80 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
-      ) : currentView === 'categories' ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 18 }}>
-          {currentNodes.map((node, i) => (
-            <CategoryCard key={`cat-${node.id}-${i}`} node={node} onClick={() => navigateToChildren(node)} />
-          ))}
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-          {currentNodes.map((node, i) => {
-            const isLeaf = LEAF_TYPES.includes(node.type);
-            const isAccessible = node.is_assigned || node.has_assigned_children;
-            const isFrozen = !isAccessible || (node.is_expired && !node.has_assigned_children) || (node.available_count !== undefined && node.available_count === 0);
-
-            const handleClick = () => {
-              if (isFrozen) return;
-              if (!isLeaf) {
-                navigateToChildren(node);
-              } else if (isLeaf && node.type === 'co_series' && node.content_id) {
-                setQuizSeriesId(node.content_id);
-              } else if (isLeaf && node.type === 'ee_combinaison' && node.content_id) {
-                // Expression Écrite: check credits BEFORE opening the simulation modal
-                if (credits && credits.ee_credits <= 0) {
-                  setOutOfCreditsType('ee');
-                  return;
-                }
-                setEeSimCombId(node.content_id);
-              } else if (isLeaf && node.type === 'eo_partie' && node.content_id) {
-                // Expression Orale: check credits BEFORE opening the simulation modal
-                if (credits && credits.eo_credits <= 0) {
-                  setOutOfCreditsType('eo');
-                  return;
-                }
-                // Launch simulation for THIS specific partie
-                setEoSimPartieId(node.content_id);
-                setEoSimOpen(true);
-              }
-            };
-            return (
-              <ItemCard
-                key={`item-${node.type}-${node.content_id || node.id}-${i}`}
-                node={node} accent={currentAccent} isLeaf={isLeafLevel}
-                onClick={handleClick}
-                onAnalytics={
-                  isLeaf && node.type === 'co_series' && node.content_id
-                    ? () => { setAnalyticsTarget({ id: node.content_id!, name: node.name || `Série ${node.content_id}` }); }
-                    : isLeaf && node.type === 'eo_partie' && node.content_id
-                      ? () => { setEoAnalyticsTarget({ id: node.content_id!, name: node.name || `Partie ${node.content_id}` }); }
-                      : undefined
-                }
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {/* Analytics Modal */}
-      {analyticsTarget && (
-        <COAnalytics seriesId={analyticsTarget.id} seriesName={analyticsTarget.name} open={!!analyticsTarget} onClose={() => setAnalyticsTarget(null)} />
-      )}
-      <COGlobalAnalytics open={showGlobalAnalytics} onClose={() => setShowGlobalAnalytics(false)} />
-      {eeSimCombId && (
-        <EESimulation
-          combinaisonId={eeSimCombId}
-          open={!!eeSimCombId}
-          onClose={() => { setEeSimCombId(null); refreshCurrentView(); }}
+        )}
+        <EOSimulation
+          open={eoPartieId != null}
+          partieId={eoPartieId}
+          onClose={() => { setEoPartieId(null); refreshCurrent(); }}
           onCreditConsumed={refreshCredits}
-          onOutOfCredits={() => { setEeSimCombId(null); setOutOfCreditsType('ee'); refreshCredits(); }}
+          onOutOfCredits={() => { setEoPartieId(null); setOutOfCredits('eo'); refreshCredits(); }}
         />
-      )}
-      <EOSimulation
-        open={eoSimOpen}
-        partieId={eoSimPartieId}
-        onClose={() => { setEoSimOpen(false); setEoSimPartieId(null); refreshCurrentView(); }}
-        onCreditConsumed={refreshCredits}
-        onOutOfCredits={() => { setEoSimOpen(false); setEoSimPartieId(null); setOutOfCreditsType('eo'); refreshCredits(); }}
-      />
-      <OutOfCreditsModal
-        open={outOfCreditsType !== null}
-        type={outOfCreditsType}
-        onClose={() => setOutOfCreditsType(null)}
-      />
-      {eoAnalyticsTarget && (
-        <EOAnalytics
-          partieId={eoAnalyticsTarget.id}
-          partieName={eoAnalyticsTarget.name}
-          open={!!eoAnalyticsTarget}
-          onClose={() => setEoAnalyticsTarget(null)}
-        />
-      )}
-      <EOGlobalAnalytics open={eoGlobalAnalyticsOpen} onClose={() => setEoGlobalAnalyticsOpen(false)} />
-    </div>
+        <OutOfCreditsModal open={outOfCredits !== null} type={outOfCredits} onClose={() => setOutOfCredits(null)} />
+        {eoAnalytics && (
+          <EOAnalytics partieId={eoAnalytics.id} partieName={eoAnalytics.name} open onClose={() => setEoAnalytics(null)} />
+        )}
+        <EOGlobalAnalytics open={eoGlobalOpen} onClose={() => setEoGlobalOpen(false)} />
+      </div>
+    </ConfigProvider>
   );
 };
 

@@ -1,585 +1,634 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Button, ConfigProvider, DatePicker, Input, Modal, Pagination, Segmented, Select, Skeleton, Tooltip, message } from 'antd';
 import {
-    Table, Select, Input, Space, Typography,
-    Button, Modal, Empty, Progress, message, Skeleton, DatePicker
-} from 'antd';
-import {
-    FolderOutlined, FilePdfOutlined, VideoCameraOutlined, SoundOutlined, PictureOutlined,
-    FileTextOutlined, CloudOutlined, SearchOutlined, EyeOutlined, DownloadOutlined,
-    TeamOutlined, BookOutlined, DatabaseOutlined, ExpandOutlined, CompressOutlined,
-    CloudUploadOutlined, DesktopOutlined
+    AppstoreOutlined, CloseOutlined, CloudOutlined, CompressOutlined, DatabaseOutlined, DeleteOutlined, DownloadOutlined,
+    ExclamationCircleOutlined, ExpandOutlined, EyeOutlined, FilePdfOutlined, FileTextOutlined, FolderOpenOutlined, HddOutlined,
+    LoadingOutlined, PictureOutlined, ReloadOutlined, RiseOutlined, SearchOutlined, SoundOutlined, TeamOutlined,
+    UnorderedListOutlined, UserOutlined, VideoCameraOutlined, WarningOutlined,
 } from '@ant-design/icons';
-import { useAuth } from '../../contexts/AuthContext';
-import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import { useAuth } from '../../contexts/AuthContext';
+import useResponsive from '../../hooks/useResponsive';
 import PdfViewer from '../Common/PdfViewer';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import { initials, statusOf } from './batchUtils';
+import type { Batch } from './batchUtils';
+// Shares the file tiles, cards and preview with the student library, recoloured for the admin console.
+import '../Student/StudentResources.css';
+import './AdminResources.css';
 
-const { Text } = Typography;
+/* ══════════════════════════════════════════
+   ADMIN — RESOURCES
+   Every file shared on the platform: who shares what, with which batches,
+   where it is stored — plus preview, download and delete.
+══════════════════════════════════════════ */
 
 interface Resource {
-    id: number; title: string; description: string; file_name: string; file_type: string;
-    file_size: number; batch_id: number; batch_name?: string; teacher_id: number;
-    teacher_first_name?: string; teacher_last_name?: string; category: string;
-    storage_type: string; created_at: string;
+    id: number;
+    title: string;
+    description?: string | null;
+    file_name: string;
+    file_type?: string;
+    file_size: number;
+    batch_ids: number[] | null;
+    batch_names?: string | null;
+    teacher_id: number;
+    teacher_first_name?: string | null;
+    teacher_last_name?: string | null;
+    category: string;
+    storage_type: string;
+    created_at: string;
 }
-interface Batch { id: number; name: string; }
-interface Teacher { id: number; first_name: string; last_name: string; }
+interface Person { id: number; first_name?: string; last_name?: string; }
 
-const CAT: Record<string, { icon: React.ReactNode; color: string; label: string; bg: string }> = {
-    pdf: { icon: <FilePdfOutlined />, color: '#e74c3c', label: 'PDF', bg: '#fde8e8' },
-    video: { icon: <VideoCameraOutlined />, color: '#3498db', label: 'Video', bg: '#dbeafe' },
-    audio: { icon: <SoundOutlined />, color: '#9b59b6', label: 'Audio', bg: '#ede9fe' },
-    image: { icon: <PictureOutlined />, color: '#2ecc71', label: 'Image', bg: '#d1fae5' },
-    document: { icon: <FileTextOutlined />, color: '#f39c12', label: 'Document', bg: '#fef3c7' },
+type Category = 'pdf' | 'video' | 'audio' | 'image' | 'document';
+type SortKey = 'newest' | 'oldest' | 'name' | 'size';
+type View = 'list' | 'grid';
+type Storage = 'all' | 'cloud' | 'local';
+
+const CATEGORIES: Record<Category, { label: string; plural: string; icon: React.ReactNode }> = {
+    pdf: { label: 'PDF', plural: 'PDFs', icon: <FilePdfOutlined /> },
+    video: { label: 'Video', plural: 'Videos', icon: <VideoCameraOutlined /> },
+    audio: { label: 'Audio', plural: 'Audio', icon: <SoundOutlined /> },
+    image: { label: 'Image', plural: 'Images', icon: <PictureOutlined /> },
+    document: { label: 'Document', plural: 'Documents', icon: <FileTextOutlined /> },
+};
+const CATEGORY_KEYS = Object.keys(CATEGORIES) as Category[];
+const categoryOf = (r: Resource): Category => (r.category in CATEGORIES ? (r.category as Category) : 'document');
+
+const PAGE_SIZE = 20;
+const VIEW_KEY = 'lfn.admin.resources.view';
+const NEW_MS = 7 * 86_400_000;
+
+const fmtSize = (b: number) => {
+    if (!b) return '0 B';
+    const k = 1024, units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.min(units.length - 1, Math.floor(Math.log(b) / Math.log(k)));
+    return `${parseFloat((b / Math.pow(k, i)).toFixed(1))} ${units[i]}`;
+};
+const teacherName = (r: Resource) => [r.teacher_first_name, r.teacher_last_name].filter(Boolean).join(' ').trim() || 'Unknown teacher';
+const isCloud = (r: Resource) => r.storage_type === 'kdrive';
+const extOf = (r: Resource) => (r.file_name.includes('.') ? r.file_name.split('.').pop()!.slice(0, 4).toUpperCase() : CATEGORIES[categoryOf(r)].label.toUpperCase());
+const idsOf = (r: Resource) => (Array.isArray(r.batch_ids) ? r.batch_ids.filter(x => x != null) : []);
+const readView = (): View => { try { return localStorage.getItem(VIEW_KEY) === 'grid' ? 'grid' : 'list'; } catch { return 'list'; } };
+const listOf = <T,>(d: unknown, key: string): T[] => (Array.isArray(d) ? d : Array.isArray((d as any)?.[key]) ? (d as any)[key] : []);
+
+const keyFmts = new Map<string, Intl.DateTimeFormat>();
+/** YYYY-MM-DD of an instant in the viewer's timezone. */
+const dayKey = (iso: string, tz: string) => {
+    let f = keyFmts.get(tz);
+    if (!f) { f = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }); keyFmts.set(tz, f); }
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : f.format(d);
 };
 
-function fmtSize(b: number) {
-    if (!b) return '0 B';
-    const k = 1024, s = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(b) / Math.log(k));
-    return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
-}
-
 const AdminResources: React.FC = () => {
+    const r = useResponsive();
+    const { apiCall, user } = useAuth();
+    const tz = resolveTimezone(user?.timezone);
+    const tzLabel = timezoneLabel(user?.timezone);
+    const [msg, msgHolder] = message.useMessage();
+    const [modal, modalHolder] = Modal.useModal();
+
     const [resources, setResources] = useState<Resource[]>([]);
     const [batches, setBatches] = useState<Batch[]>([]);
-    const [teachers, setTeachers] = useState<Teacher[]>([]);
+    const [teachers, setTeachers] = useState<Person[]>([]);
     const [loading, setLoading] = useState(true);
-    const [previewResource, setPreviewResource] = useState<Resource | null>(null);
-    const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
+    const [refreshing, setRefreshing] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const [type, setType] = useState<Category | 'all'>('all');
+    const [search, setSearch] = useState('');
+    const [teacher, setTeacher] = useState<number | null>(null);
+    const [batch, setBatch] = useState<number | 'none' | null>(null);
+    const [storage, setStorage] = useState<Storage>('all');
+    const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
+    const [sort, setSort] = useState<SortKey>('newest');
+    const [view, setView] = useState<View>(readView);
+    const [page, setPage] = useState(1);
+
+    const [preview, setPreview] = useState<Resource | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [previewFailed, setPreviewFailed] = useState(false);
     const [fullscreen, setFullscreen] = useState(false);
-    const [searchText, setSearchText] = useState('');
-    const [filterCategory, setFilterCategory] = useState('all');
-    const [filterBatch, setFilterBatch] = useState<number | null>(null);
-    const [filterTeacher, setFilterTeacher] = useState<number | null>(null);
-    const [dateRangeFilter, setDateRangeFilter] = useState<any>(null);
-    const { apiCall } = useAuth();
+    const [busyId, setBusyId] = useState<number | null>(null);
 
-    const fetchResources = useCallback(async () => {
-        setLoading(true);
+    const load = useCallback(async () => {
         try {
-            const params = new URLSearchParams();
-            if (filterCategory !== 'all') params.set('category', filterCategory);
-            if (filterBatch) params.set('batch_id', String(filterBatch));
-            const resp = await apiCall(`/resources?${params}`);
-            if (resp.ok) setResources(await resp.json());
-        } catch { message.error('Failed to load resources'); }
-        finally { setLoading(false); }
-    }, [filterCategory, filterBatch]);
+            const [rRes, bRes, tRes] = await Promise.all([apiCall('/resources'), apiCall('/batches'), apiCall('/users?role=teacher')]);
+            if (!rRes.ok) throw new Error(`The server answered ${rRes.status}.`);
+            setResources(listOf<Resource>(await rRes.json(), 'resources'));
+            if (bRes.ok) setBatches(listOf<Batch>(await bRes.json(), 'batches'));
+            if (tRes.ok) setTeachers(listOf<Person>(await tRes.json(), 'users'));
+            setError(null);
+        } catch (e: any) {
+            setError(e?.message || 'Could not load resources.');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [apiCall]);
 
-    const fetchBatches = useCallback(async () => {
-        try {
-            const resp = await apiCall('/batches');
-            if (resp.ok) setBatches(await resp.json());
-        } catch {}
-    }, []);
+    useEffect(() => { load(); }, [load]);
 
-    const fetchTeachers = useCallback(async () => {
+    const changeView = (v: View) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode */ } };
+
+    const fmt = useMemo(() => {
+        const date = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' });
+        const time = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+        const safe = (f: Intl.DateTimeFormat) => (iso?: string | null) => { if (!iso) return '—'; const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : f.format(d); };
+        return { date: safe(date), time: safe(time) };
+    }, [tz]);
+
+    /* ── Batch names come from the batch list (ids are authoritative); fall back to the joined names. ── */
+    const batchById = useMemo(() => new Map(batches.map(b => [b.id, b])), [batches]);
+    const batchNamesOf = useCallback((res: Resource) => {
+        const ids = idsOf(res);
+        const joined = (res.batch_names || '').split(', ').filter(Boolean);
+        return ids.map((id, i) => batchById.get(id)?.name || joined[i] || `Batch #${id}`);
+    }, [batchById]);
+
+    /* ═══════════ FILTERING ═══════════ */
+    const scoped = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        const from = range ? range[0].format('YYYY-MM-DD') : null;
+        const to = range ? range[1].format('YYYY-MM-DD') : null;
+        return resources.filter(res => {
+            if (teacher && res.teacher_id !== teacher) return false;
+            if (batch === 'none' && idsOf(res).length) return false;
+            if (typeof batch === 'number' && !idsOf(res).includes(batch)) return false;
+            if (storage !== 'all' && (storage === 'cloud') !== isCloud(res)) return false;
+            if (from && to) { const k = dayKey(res.created_at, tz); if (k < from || k > to) return false; }
+            if (q && !`${res.title} ${res.file_name} ${res.description || ''} ${teacherName(res)} ${res.batch_names || ''}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+    }, [resources, teacher, batch, storage, range, search, tz]);
+
+    const list = useMemo(() => {
+        const out = type === 'all' ? [...scoped] : scoped.filter(res => categoryOf(res) === type);
+        const time = (x: Resource) => new Date(x.created_at).getTime() || 0;
+        return out.sort((a, b) => {
+            if (sort === 'oldest') return time(a) - time(b);
+            if (sort === 'name') return a.title.localeCompare(b.title);
+            if (sort === 'size') return (b.file_size || 0) - (a.file_size || 0);
+            return time(b) - time(a);
+        });
+    }, [scoped, type, sort]);
+
+    useEffect(() => { setPage(1); }, [type, search, teacher, batch, storage, range, sort]);
+
+    const hasFilters = type !== 'all' || !!search.trim() || !!teacher || batch != null || storage !== 'all' || !!range;
+    const clearFilters = () => { setType('all'); setSearch(''); setTeacher(null); setBatch(null); setStorage('all'); setRange(null); };
+
+    /* ═══════════ INSIGHTS (on the scoped set) ═══════════ */
+    const lib = useMemo(() => {
+        const count: Record<Category | 'all', number> = { all: 0, pdf: 0, video: 0, audio: 0, image: 0, document: 0 };
+        const size: Record<Category | 'all', number> = { all: 0, pdf: 0, video: 0, audio: 0, image: 0, document: 0 };
+        let cloud = 0, cloudSize = 0, fresh = 0, unshared = 0;
+        const now = Date.now();
+        scoped.forEach(res => {
+            const c = categoryOf(res);
+            const s = res.file_size || 0;
+            count[c]++; count.all++; size[c] += s; size.all += s;
+            if (isCloud(res)) { cloud++; cloudSize += s; }
+            if (now - new Date(res.created_at).getTime() < NEW_MS) fresh++;
+            if (!idsOf(res).length) unshared++;
+        });
+        return { count, size, cloud, cloudSize, local: count.all - cloud, localSize: size.all - cloudSize, fresh, unshared };
+    }, [scoped]);
+
+    const months = useMemo(() => {
+        const out = Array.from({ length: 6 }, (_, i) => {
+            const m = dayjs().startOf('month').subtract(5 - i, 'month');
+            return { key: m.format('YYYY-MM'), label: m.format('MMM'), long: m.format('MMMM YYYY'), n: 0, size: 0 };
+        });
+        const idx = new Map(out.map((m, i) => [m.key, i]));
+        scoped.forEach(res => {
+            const i = idx.get(dayKey(res.created_at, tz).slice(0, 7));
+            if (i != null) { out[i].n++; out[i].size += res.file_size || 0; }
+        });
+        return out;
+    }, [scoped, tz]);
+    const maxMonth = Math.max(1, ...months.map(m => m.n));
+    const thisMonth = months[5];
+    const lastMonth = months[4];
+
+    const teacherRows = useMemo(() => {
+        const map = new Map<number, { id: number; name: string; n: number; size: number; last: string }>();
+        scoped.forEach(res => {
+            let t = map.get(res.teacher_id);
+            if (!t) { t = { id: res.teacher_id, name: teacherName(res), n: 0, size: 0, last: res.created_at }; map.set(res.teacher_id, t); }
+            t.n++; t.size += res.file_size || 0;
+            if (res.created_at > t.last) t.last = res.created_at;
+        });
+        return Array.from(map.values()).sort((a, b) => b.n - a.n);
+    }, [scoped]);
+    const silentTeachers = useMemo(() => {
+        const sharing = new Set(resources.map(x => x.teacher_id));
+        return teachers.filter(t => !sharing.has(t.id));
+    }, [teachers, resources]);
+
+    const batchRows = useMemo(() => {
+        const map = new Map<number, { id: number; name: string; n: number }>();
+        scoped.forEach(res => idsOf(res).forEach((id, i) => {
+            let b = map.get(id);
+            if (!b) { b = { id, name: batchNamesOf(res)[i], n: 0 }; map.set(id, b); }
+            b.n++;
+        }));
+        return Array.from(map.values()).sort((a, b) => b.n - a.n);
+    }, [scoped, batchNamesOf]);
+    const bareBatches = useMemo(() => {
+        const covered = new Set(resources.flatMap(idsOf));
+        return batches.filter(b => statusOf(b) !== 'ended' && !covered.has(b.id));
+    }, [batches, resources]);
+    const maxTeacher = Math.max(1, ...teacherRows.map(t => t.n));
+    const maxBatch = Math.max(1, ...batchRows.map(b => b.n));
+
+    const teacherOptions = useMemo(() => {
+        const map = new Map<number, string>();
+        teachers.forEach(t => map.set(t.id, `${t.first_name || ''} ${t.last_name || ''}`.trim()));
+        resources.forEach(x => { if (!map.has(x.teacher_id)) map.set(x.teacher_id, teacherName(x)); });
+        return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+    }, [teachers, resources]);
+    const batchOptions = useMemo(() => [
+        { value: 'none' as const, label: 'Not shared with any batch' },
+        ...batches.map(b => ({ value: b.id, label: b.name })).sort((a, b) => a.label.localeCompare(b.label)),
+    ], [batches]);
+
+    /* ═══════════ ACTIONS ═══════════ */
+    const download = async (res: Resource) => {
+        setBusyId(res.id);
+        const hide = msg.loading(`Preparing ${res.file_name}…`, 0);
         try {
-            const resp = await apiCall('/users?role=teacher');
-            if (resp.ok) {
+            const resp = await apiCall(`/resources/${res.id}/download?json=true`);
+            if (!resp.ok) throw new Error();
+            const a = document.createElement('a');
+            a.download = res.file_name;
+            if ((resp.headers.get('content-type') || '').includes('application/json')) {
                 const data = await resp.json();
-                setTeachers(Array.isArray(data) ? data : data.users || []);
-            }
-        } catch {}
-    }, []);
-
-    useEffect(() => { fetchResources(); fetchBatches(); fetchTeachers(); }, [fetchResources, fetchBatches, fetchTeachers]);
-
-    const secureDownload = async (id: number, fileName: string) => {
-        try {
-            const resp = await apiCall(`/resources/${id}/download?json=true`);
-            if (resp.ok) {
-                const contentType = resp.headers.get('content-type');
-                if (contentType && contentType.includes('application/json')) {
-                    const data = await resp.json();
-                    if (data.url) {
-                        const a = document.createElement('a');
-                        a.href = data.url;
-                        a.download = fileName;
-                        a.target = '_blank';
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                        return;
-                    }
-                }
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
+                if (!data?.url) throw new Error();
+                a.href = data.url; a.target = '_blank'; a.rel = 'noopener';
+                document.body.appendChild(a); a.click(); a.remove();
+            } else {
+                const url = URL.createObjectURL(await resp.blob());
                 a.href = url;
-                a.download = fileName;
-                a.click();
-                URL.revokeObjectURL(url);
-            } else {
-                message.error('Download failed');
-            }
-        } catch { message.error('Download failed'); }
-    };
-
-    const openPreview = async (r: Resource) => {
-        setPreviewResource(r);
-        setPreviewBlobUrl(null);
-        try {
-            const resp = await apiCall(`/resources/${r.id}/preview`);
-            if (resp.ok) {
-                const blob = await resp.blob();
-                setPreviewBlobUrl(URL.createObjectURL(blob));
-            } else {
-                setPreviewBlobUrl('error');
+                document.body.appendChild(a); a.click(); a.remove();
+                window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
             }
         } catch {
-            setPreviewBlobUrl('error');
+            msg.error('The download failed. Please try again.');
+        } finally {
+            hide();
+            setBusyId(null);
         }
     };
 
     const closePreview = () => {
-        setPreviewBlobUrl(null);
-        setPreviewResource(null);
-        setFullscreen(false);
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreview(null); setPreviewUrl(null); setPreviewFailed(false); setFullscreen(false);
     };
 
-    // Filtered resources
-    const filtered = useMemo(() => resources.filter(r => {
-        if (searchText && !r.title.toLowerCase().includes(searchText.toLowerCase()) && !r.file_name.toLowerCase().includes(searchText.toLowerCase())) return false;
-        if (filterTeacher && r.teacher_id !== filterTeacher) return false;
-        if (dateRangeFilter && dateRangeFilter.length === 2 && r.created_at) {
-            const start = dayjs(r.created_at);
-            if (start.isBefore(dateRangeFilter[0], 'day') || start.isAfter(dateRangeFilter[1], 'day')) return false;
+    const openPreview = async (res: Resource) => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreview(res); setPreviewUrl(null); setPreviewFailed(false);
+        try {
+            const resp = await apiCall(`/resources/${res.id}/preview`);
+            if (!resp.ok) throw new Error();
+            setPreviewUrl(URL.createObjectURL(await resp.blob()));
+        } catch {
+            setPreviewFailed(true);
         }
-        return true;
-    }), [resources, searchText, filterTeacher, dateRangeFilter]);
+    };
 
-    // Stats (Based on filtered so dashboard is globally dynamic)
-    const totalStorage = filtered.reduce((s, r) => s + (r.file_size || 0), 0);
-    const cloudCount = filtered.filter(r => r.storage_type === 'kdrive').length;
-    const localCount = filtered.length - cloudCount;
-
-    // Insights
-    const teacherStats = useMemo(() => {
-        const map: Record<number, { name: string; count: number; size: number }> = {};
-        filtered.forEach(r => {
-            const tid = r.teacher_id;
-            if (!map[tid]) map[tid] = { name: `${r.teacher_first_name || ''} ${r.teacher_last_name || ''}`.trim() || `Teacher #${tid}`, count: 0, size: 0 };
-            map[tid].count++; map[tid].size += r.file_size || 0;
-        });
-        return Object.values(map).sort((a, b) => b.count - a.count);
-    }, [filtered]);
-
-    const batchStats = useMemo(() => {
-        const map: Record<number, { name: string; count: number }> = {};
-        filtered.forEach(r => {
-            if (!r.batch_id) return;
-            if (!map[r.batch_id]) map[r.batch_id] = { name: r.batch_name || `Batch #${r.batch_id}`, count: 0 };
-            map[r.batch_id].count++;
-        });
-        return Object.values(map).sort((a, b) => b.count - a.count);
-    }, [filtered]);
-
-    const typeStats = useMemo(() => {
-        const counts: Record<string, number> = {};
-        filtered.forEach(r => { counts[r.category] = (counts[r.category] || 0) + 1; });
-        return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    }, [filtered]);
-
-    const columns: ColumnsType<Resource> = [
-        {
-            title: 'Resource', key: 'resource',
-            width: 250,
-            fixed: 'left',
-            render: (_, r) => {
-                const cat = CAT[r.category] || CAT.document;
-                return (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ 
-                            width: 38, height: 38, borderRadius: 10, background: cat.bg, 
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', 
-                            color: cat.color, fontSize: 16, flexShrink: 0,
-                            boxShadow: `0 2px 8px ${cat.color}20` 
-                        }}>
-                            {cat.icon}
-                        </div>
-                        <div>
-                            <div style={{ fontWeight: 700, color: '#1e293b', fontSize: 13, lineHeight: 1.3 }}>{r.title}</div>
-                            <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.file_name} · {fmtSize(r.file_size)}</div>
-                        </div>
-                    </div>
-                );
+    const remove = (res: Resource) => {
+        modal.confirm({
+            title: `Delete “${res.title}”?`,
+            icon: <ExclamationCircleOutlined />,
+            content: `The file is removed for ${teacherName(res)} and every batch it is shared with${isCloud(res) ? ', and deleted from cloud storage' : ''}. This can't be undone.`,
+            okText: 'Delete file',
+            okButtonProps: { danger: true },
+            cancelText: 'Cancel',
+            onOk: async () => {
+                const resp = await apiCall(`/resources/${res.id}`, { method: 'DELETE' });
+                if (!resp.ok) { msg.error('The file could not be deleted.'); throw new Error('delete failed'); }
+                setResources(xs => xs.filter(x => x.id !== res.id));
+                if (preview?.id === res.id) closePreview();
+                msg.success('File deleted.');
             },
-        },
-        {
-            title: 'Type', dataIndex: 'category', key: 'category', width: 100,
-            render: (cat: string) => {
-                const c = CAT[cat] || CAT.document;
-                return (
-                    <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                        background: c.bg, color: c.color, border: `1px solid ${c.color}30`,
-                    }}>
-                        {c.icon} {c.label}
-                    </span>
-                );
-            },
-        },
-        {
-            title: 'Teacher', key: 'teacher', width: 150,
-            render: (_, r) => {
-                const name = r.teacher_first_name ? `${r.teacher_first_name} ${r.teacher_last_name}` : '';
-                if (!name) return <Text type="secondary">—</Text>;
-                return (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{
-                            width: 24, height: 24, borderRadius: '50%',
-                            background: '#f1f5f9', color: '#64748b',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 700, border: '1px solid #e2e8f0'
-                        }}>
-                            {`${name.split(' ')[0]?.[0] || ''}${name.split(' ')[1]?.[0] || ''}`.toUpperCase()}
-                        </div>
-                        <span style={{ fontWeight: 600, color: '#475569', fontSize: 12 }}>{name}</span>
-                    </div>
-                );
-            }
-        },
-        {
-            title: 'Batch', dataIndex: 'batch_name', key: 'batch', width: 140,
-            render: (name: string) => name ? (
-                <span style={{
-                    display: 'inline-block', padding: '2px 10px', borderRadius: 8,
-                    fontSize: 11, fontWeight: 700, color: '#3b82f6', background: '#eff6ff',
-                }}>
-                    {name}
-                </span>
-            ) : <Text type="secondary">—</Text>,
-        },
-        {
-            title: 'Storage', key: 'storage', width: 100,
-            render: (_, r) => r.storage_type === 'kdrive'
-                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, color: '#0891b2', background: '#cffafe', border: '1px solid #a5f3fc' }}><CloudUploadOutlined /> Cloud</span>
-                : <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0' }}>Local</span>,
-        },
-        {
-            title: 'Date', dataIndex: 'created_at', key: 'date', width: 120,
-            render: (d: string) => <span style={{ color: '#64748b', fontSize: 12 }}>{dayjs(d).format('MMM DD, YYYY')}</span>,
-            sorter: (a, b) => dayjs(a.created_at).unix() - dayjs(b.created_at).unix(),
-            defaultSortOrder: 'descend',
-        },
-        {
-            title: 'Actions', key: 'actions', width: 100, fixed: 'right',
-            render: (_, r) => (
-                <Space size="small">
-                    <Button type="text" size="small" icon={<EyeOutlined />} 
-                        onClick={() => openPreview(r)}
-                        style={{ borderRadius: 8, height: 30, width: 30, color: '#6366f1', background: '#eef2ff' }} 
-                        title="Preview" />
-                    <Button type="text" size="small" icon={<DownloadOutlined />} 
-                        onClick={() => secureDownload(r.id, r.file_name)}
-                        style={{ borderRadius: 8, height: 30, width: 30, color: '#10b981', background: '#ecfdf5' }} 
-                        title="Download" />
-                </Space>
-            ),
-        },
-    ];
+        });
+    };
 
-    const maxTeacherCount = teacherStats.length ? teacherStats[0].count : 1;
-    const maxBatchCount = batchStats.length ? batchStats[0].count : 1;
+    /* ── pieces ── */
+    const TypeTile = ({ res }: { res: Resource }) => (
+        <span className={`rs-file-icon rs-type-${categoryOf(res)}`} aria-hidden>
+            {CATEGORIES[categoryOf(res)].icon}
+            <em>{extOf(res)}</em>
+        </span>
+    );
+    const StorageChip = ({ res }: { res: Resource }) => (
+        <span className={`ar-store ${isCloud(res) ? 'is-cloud' : 'is-local'}`}>{isCloud(res) ? <><CloudOutlined /> Cloud</> : <><HddOutlined /> Server</>}</span>
+    );
+    const actions = (res: Resource) => (
+        <span className="rs-actions ar-actions">
+            <Tooltip title="Preview"><Button type="text" size="small" icon={<EyeOutlined />} aria-label={`Preview ${res.title}`} onClick={e => { e.stopPropagation(); openPreview(res); }} /></Tooltip>
+            <Tooltip title="Download"><Button type="text" size="small" aria-label={`Download ${res.title}`} icon={busyId === res.id ? <LoadingOutlined /> : <DownloadOutlined />} onClick={e => { e.stopPropagation(); download(res); }} /></Tooltip>
+            <Tooltip title="Delete"><Button type="text" size="small" className="is-danger" icon={<DeleteOutlined />} aria-label={`Delete ${res.title}`} onClick={e => { e.stopPropagation(); remove(res); }} /></Tooltip>
+        </span>
+    );
 
-    // Full-page Skeleton
-    if (loading && resources.length === 0) {
-        return (
-            <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
-                <div style={{ flexShrink: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                        <div>
-                            <Skeleton.Input active style={{ width: 220, height: 26, borderRadius: 8 }} />
-                            <div style={{ marginTop: 8 }}>
-                                <Skeleton.Input active style={{ width: 360, height: 14, borderRadius: 6 }} />
-                            </div>
-                        </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '12px', marginBottom: 20 }}>
-                        {[...Array(7)].map((_, i) => (
-                            <Skeleton.Button key={i} active style={{ height: 60, borderRadius: 12, width: '100%' }} />
-                        ))}
-                    </div>
-                </div>
+    /* ═══════════ LOADING ═══════════ */
+    if (loading) return (
+        <div className="rs ar" aria-busy="true">
+            <div className="rs-header"><div><Skeleton.Input active size="small" style={{ width: 130, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 220, height: 24 }} /></div></div></div>
+            <div className="rs-overview rs-overview-loading"><Skeleton active avatar={{ size: 64, shape: 'square' }} title={false} paragraph={{ rows: 3 }} /></div>
+            <div className="ar-insights">{[0, 1, 2].map(i => <div key={i} className="ar-card rs-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>)}</div>
+        </div>
+    );
 
-                <div style={{ flex: 1, background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    <div style={{ padding: '14px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                        <Skeleton.Avatar active size={30} shape="square" style={{ borderRadius: 9 }} />
-                        <Skeleton.Input active style={{ width: 120, height: 16, borderRadius: 4 }} />
-                    </div>
-                    <div style={{ padding: '12px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', gap: 24 }}>
-                        {[180, 100, 140, 100, 80, 80].map((w, i) => (
-                            <Skeleton.Input key={i} active style={{ width: w, height: 12, borderRadius: 4 }} />
-                        ))}
-                    </div>
-                    <div style={{ flex: 1, overflow: 'hidden', padding: '0 20px' }}>
-                        {[...Array(6)].map((_, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '14px 0', borderBottom: '1px solid #f8f9fb' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: 180 }}>
-                                    <Skeleton.Avatar active size={34} shape="square" style={{ borderRadius: 10 }} />
-                                    <div>
-                                        <Skeleton.Input active style={{ width: 120, height: 12, borderRadius: 4, marginBottom: 4 }} />
-                                    </div>
-                                </div>
-                                <Skeleton.Input active style={{ width: 80, height: 18, borderRadius: 12 }} />
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 140 }}>
-                                    <Skeleton.Avatar active size={24} shape="circle" />
-                                    <Skeleton.Input active style={{ width: 80, height: 12, borderRadius: 4 }} />
-                                </div>
-                                <Skeleton.Input active style={{ width: 70, height: 18, borderRadius: 12 }} />
-                                <Skeleton.Input active style={{ width: 60, height: 18, borderRadius: 12 }} />
-                                <Skeleton.Input active style={{ width: 60, height: 12, borderRadius: 4 }} />
-                                <div style={{ display: 'flex', gap: 6 }}>
-                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
-                                    <Skeleton.Avatar active size={28} shape="square" style={{ borderRadius: 8 }} />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const pageItems = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const cloudPct = lib.size.all ? Math.round((lib.cloudSize / lib.size.all) * 100) : 0;
+    const monthDelta = thisMonth.n - lastMonth.n;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
-            <div style={{ flexShrink: 0 }}>
-                {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 16 }}>
+        <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
+            {msgHolder}{modalHolder}
+            <div className="rs ar">
+                {/* ── Header ── */}
+                <header className="rs-header">
                     <div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: '#1e293b', letterSpacing: -0.3 }}>
-                            Resource Dashboard
-                        </div>
-                        <Typography.Text style={{ fontSize: 13, color: '#94a3b8' }}>
-                            Overview of all learning resources across the platform
-                        </Typography.Text>
+                        <div className="rs-overline">Admin console · Content</div>
+                        <h1 className="rs-title">Resources</h1>
+                        <p className="rs-subtitle">Every file teachers share on the platform — who shares what, with which batches, and where it's stored. Times in {tzLabel}.</p>
                     </div>
-                    
-                    {/* Global Dashboard Filters */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                        <Input placeholder="Search..." prefix={<SearchOutlined />} allowClear
-                            value={searchText} onChange={e => setSearchText(e.target.value)}
-                            style={{ flex: '1 1 160px', minWidth: 120, borderRadius: 8 }} />
-                        <Select value={filterCategory} onChange={setFilterCategory} style={{ flex: '0 1 130px', minWidth: 110 }}
-                            options={[{ value: 'all', label: 'All Types' }, ...Object.entries(CAT).map(([k, v]) => ({ value: k, label: v.label }))]} />
-                        <Select value={filterTeacher} onChange={setFilterTeacher} allowClear placeholder="Teacher" style={{ flex: '1 1 130px', minWidth: 110, borderRadius: 8 }}
-                            options={teachers.map(t => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))} showSearch optionFilterProp="label" />
-                        <Select value={filterBatch} onChange={setFilterBatch} allowClear placeholder="Batch" style={{ flex: '1 1 130px', minWidth: 110, borderRadius: 8 }}
-                            options={batches.map(b => ({ value: b.id, label: b.name }))} showSearch optionFilterProp="label" />
-                        <DatePicker.RangePicker onChange={setDateRangeFilter} allowClear style={{ flex: '1 1 200px', minWidth: 180, borderRadius: 8 }} />
-                    </div>
-                </div>
+                    <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={refreshing} />} aria-label="Refresh" onClick={() => { setRefreshing(true); load(); }} /></Tooltip>
+                </header>
 
-                {/* Stats Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10, marginBottom: 20 }}>
-                    {[
-                        { label: 'Total', value: filtered.length, icon: <FolderOutlined />, color: '#1a56db', bg: '#eff6ff' },
-                        { label: 'Storage', value: fmtSize(totalStorage), icon: <DatabaseOutlined />, color: '#7c3aed', bg: '#f5f3ff' },
-                        { label: 'Cloud', value: cloudCount, icon: <CloudOutlined />, color: '#0891b2', bg: '#ecfeff' },
-                        { label: 'Local', value: localCount, icon: <DatabaseOutlined />, color: '#64748b', bg: '#f8fafc' },
-                        ...Object.entries(CAT).map(([k, v]) => ({
-                            label: v.label, value: filtered.filter(r => r.category === k).length, icon: v.icon, color: v.color, bg: v.bg
-                        })),
-                    ].map((s, i) => (
-                        <div key={i} style={{ 
-                            background: '#fff', borderRadius: 14, padding: '10px 12px',
-                            border: '1px solid #f0f0f8', boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
-                            display: 'flex', alignItems: 'center', gap: 8, transition: 'all 0.2s',
-                            cursor: 'default'
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                        onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
-                            <div style={{
-                                width: 32, height: 32, borderRadius: 9, background: s.bg,
-                                color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0
-                            }}>
-                                {s.icon}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
-                                <div style={{ fontSize: 15, fontWeight: 800, color: '#1e293b', whiteSpace: 'nowrap' }}>{s.value}</div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
+                {error && <div className="ar-alert" role="alert"><WarningOutlined /><span><strong>Couldn't load resources.</strong> {error}</span><Button size="small" onClick={() => { setRefreshing(true); load(); }}>Retry</Button></div>}
 
-            {/* Content Area - Scrollable */}
-            <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
-                {/* Insights Section */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, flexShrink: 0 }}>
-                    {/* Resources per Teacher */}
-                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: 20 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <TeamOutlined style={{ color: '#1a56db' }} /> Resources per Teacher
-                        </div>
-                        {teacherStats.length === 0 ? <Empty description="No data" /> : teacherStats.slice(0, 5).map((t, i) => (
-                            <div key={i} style={{ marginBottom: 12 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{t.name}</Text>
-                                    <Text type="secondary" style={{ fontSize: 11 }}>{t.count} files · {fmtSize(t.size)}</Text>
+                {/* ── Library overview (type tiles filter the files below) ── */}
+                <section className="rs-overview" aria-label="Library">
+                    <div className="rs-hero">
+                        <span className="rs-hero-art"><FolderOpenOutlined /></span>
+                        <div className="rs-hero-text">
+                            <div className="rs-hero-label">{hasFilters && type === 'all' ? 'Matching files' : 'Platform library'}</div>
+                            <div className="rs-hero-value">
+                                <span>{lib.count.all} <small>{lib.count.all === 1 ? 'file' : 'files'}</small></span>
+                                {lib.fresh > 0 && <span className="rs-new-chip">{lib.fresh} this week</span>}
+                            </div>
+                            <div className="rs-hero-note"><DatabaseOutlined /><span>{fmtSize(lib.size.all)} stored</span></div>
+                            <Tooltip title={`Cloud: ${lib.cloud} files · ${fmtSize(lib.cloudSize)} — Server: ${lib.local} files · ${fmtSize(lib.localSize)}`}>
+                                <div className="ar-split" aria-label={`${cloudPct}% of storage in the cloud`}>
+                                    <span className="ar-split-bar"><span style={{ width: `${cloudPct}%` }} /></span>
+                                    <span className="ar-split-legend"><span><i className="is-cloud" />Cloud {lib.cloud}</span><span><i className="is-local" />Server {lib.local}</span></span>
                                 </div>
-                                <Progress percent={Math.round((t.count / maxTeacherCount) * 100)} showInfo={false} strokeColor="#1a56db" size="small" trailColor="#f1f5f9" />
-                            </div>
+                            </Tooltip>
+                        </div>
+                    </div>
+                    <div className="rs-types" role="tablist" aria-label="File type">
+                        <button type="button" role="tab" aria-selected={type === 'all'} className={`rs-type-tile is-all${type === 'all' ? ' is-active' : ''}`} onClick={() => setType('all')}>
+                            <span className="rs-type-tile-icon"><AppstoreOutlined /></span>
+                            <span className="rs-type-tile-text"><span>All files</span><span className="rs-type-tile-count"><strong>{lib.count.all}</strong><em>{fmtSize(lib.size.all)}</em></span></span>
+                        </button>
+                        {CATEGORY_KEYS.map(k => (
+                            <button key={k} type="button" role="tab" aria-selected={type === k} disabled={!lib.count[k]}
+                                className={`rs-type-tile rs-type-${k}${type === k ? ' is-active' : ''}`} onClick={() => setType(k)}>
+                                <span className="rs-type-tile-icon">{CATEGORIES[k].icon}</span>
+                                <span className="rs-type-tile-text"><span>{CATEGORIES[k].plural}</span><span className="rs-type-tile-count"><strong>{lib.count[k]}</strong>{lib.count[k] > 0 && <em>{fmtSize(lib.size[k])}</em>}</span></span>
+                            </button>
                         ))}
                     </div>
+                </section>
 
-                    {/* Resources per Batch */}
-                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: 20 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <BookOutlined style={{ color: '#7c3aed' }} /> Resources per Batch
+                {/* ── Insights ── */}
+                <div className="ar-insights">
+                    <section className="ar-card">
+                        <div className="ar-card-head">
+                            <span className="ar-card-title"><span className="ar-card-ic"><RiseOutlined /></span>Upload activity</span>
+                            <span className="ar-card-note">last 6 months</span>
                         </div>
-                        {batchStats.length === 0 ? <Empty description="No data" /> : batchStats.slice(0, 5).map((b, i) => (
-                            <div key={i} style={{ marginBottom: 12 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                    <Text style={{ fontSize: 12, fontWeight: 600 }}>{b.name}</Text>
-                                    <Text type="secondary" style={{ fontSize: 11 }}>{b.count} files</Text>
-                                </div>
-                                <Progress percent={Math.round((b.count / maxBatchCount) * 100)} showInfo={false} strokeColor="#7c3aed" size="small" trailColor="#f1f5f9" />
+                        <div className="ar-card-body">
+                            <div className="ar-months">
+                                {months.map((m, i) => (
+                                    <Tooltip key={m.key} title={`${m.long}: ${m.n} ${m.n === 1 ? 'file' : 'files'}${m.n ? ` · ${fmtSize(m.size)}` : ''}`}>
+                                        <div className={`ar-month${i === 5 ? ' is-now' : ''}`}>
+                                            <strong>{m.n || ''}</strong>
+                                            <span className="ar-month-bar"><span style={{ height: `${(m.n / maxMonth) * 100}%` }} /></span>
+                                            <em>{m.label}</em>
+                                        </div>
+                                    </Tooltip>
+                                ))}
                             </div>
-                        ))}
+                            <p className="ar-insight">
+                                <strong>{thisMonth.n}</strong> {thisMonth.n === 1 ? 'file' : 'files'} shared this month
+                                {lastMonth.n > 0 || thisMonth.n > 0 ? (
+                                    <span className={`ar-delta ${monthDelta > 0 ? 'is-up' : monthDelta < 0 ? 'is-down' : ''}`}> {monthDelta > 0 ? '▲' : monthDelta < 0 ? '▼' : '•'} {Math.abs(monthDelta)} vs {lastMonth.label}</span>
+                                ) : null}
+                            </p>
+                        </div>
+                    </section>
+
+                    <section className="ar-card">
+                        <div className="ar-card-head">
+                            <span className="ar-card-title"><span className="ar-card-ic"><UserOutlined /></span>Teachers</span>
+                            <span className="ar-card-note">{teacherRows.length} sharing</span>
+                        </div>
+                        <ul className="ar-bars">
+                            {teacherRows.slice(0, 5).map(t => (
+                                <li key={t.id}>
+                                    <button type="button" className={teacher === t.id ? 'is-on' : ''} onClick={() => setTeacher(teacher === t.id ? null : t.id)} title="Filter by this teacher">
+                                        <span className="ar-av">{initials(t.name)}</span>
+                                        <span className="ar-bars-main">
+                                            <span className="ar-bars-top"><strong>{t.name}</strong><em>{t.n} · {fmtSize(t.size)}</em></span>
+                                            <span className="ar-bars-track"><span style={{ width: `${(t.n / maxTeacher) * 100}%` }} /></span>
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                            {teacherRows.length === 0 && <li className="ar-none">No files for these filters.</li>}
+                        </ul>
+                        {silentTeachers.length > 0 && (
+                            <div className="ar-card-foot"><WarningOutlined className="ar-amber" /> {silentTeachers.length} {silentTeachers.length === 1 ? 'teacher hasn\'t' : 'teachers haven\'t'} shared any file yet: {silentTeachers.slice(0, 3).map(t => `${t.first_name || ''} ${t.last_name || ''}`.trim()).join(', ')}{silentTeachers.length > 3 ? '…' : ''}</div>
+                        )}
+                    </section>
+
+                    <section className="ar-card">
+                        <div className="ar-card-head">
+                            <span className="ar-card-title"><span className="ar-card-ic"><TeamOutlined /></span>Batches</span>
+                            <span className="ar-card-note">{batchRows.length} with files</span>
+                        </div>
+                        <ul className="ar-bars">
+                            {batchRows.slice(0, 5).map(b => (
+                                <li key={b.id}>
+                                    <button type="button" className={batch === b.id ? 'is-on' : ''} onClick={() => setBatch(batch === b.id ? null : b.id)} title="Filter by this batch">
+                                        <span className="ar-bars-main">
+                                            <span className="ar-bars-top"><strong>{b.name}</strong><em>{b.n} {b.n === 1 ? 'file' : 'files'}</em></span>
+                                            <span className="ar-bars-track is-violet"><span style={{ width: `${(b.n / maxBatch) * 100}%` }} /></span>
+                                        </span>
+                                    </button>
+                                </li>
+                            ))}
+                            {batchRows.length === 0 && <li className="ar-none">No file is shared with a batch here.</li>}
+                        </ul>
+                        {(lib.unshared > 0 || bareBatches.length > 0) && (
+                            <div className="ar-card-foot ar-flags">
+                                {lib.unshared > 0 && <button type="button" className="ar-flag" onClick={() => setBatch('none')}><WarningOutlined /> {lib.unshared} {lib.unshared === 1 ? 'file isn\'t' : 'files aren\'t'} shared with any batch</button>}
+                                {bareBatches.length > 0 && (
+                                    <Tooltip title={bareBatches.map(b => b.name).join(', ')}>
+                                        <span className="ar-flag is-muted"><TeamOutlined /> {bareBatches.length} active {bareBatches.length === 1 ? 'batch has' : 'batches have'} no files</span>
+                                    </Tooltip>
+                                )}
+                            </div>
+                        )}
+                    </section>
+                </div>
+
+                {/* ── Files ── */}
+                <section className="rs-panel" aria-label="Files">
+                    <div className="rs-toolbar">
+                        <div className="rs-toolbar-title">{type === 'all' ? 'All files' : CATEGORIES[type].plural}<span className="rs-count">{list.length}</span></div>
+                        <div className="rs-filters">
+                            <Input className="rs-search" allowClear prefix={<SearchOutlined className="rs-muted" />} placeholder="Search files, teachers, batches" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search files" />
+                            <Select className="rs-filter" allowClear showSearch optionFilterProp="label" placeholder="All teachers" value={teacher} onChange={v => setTeacher(v ?? null)} options={teacherOptions} />
+                            <Select<number | 'none'> className="rs-filter" allowClear showSearch optionFilterProp="label" placeholder="All batches" value={batch ?? undefined} onChange={v => setBatch(v ?? null)} options={batchOptions} />
+                            <Select<Storage> className="ar-filter-s" value={storage} onChange={setStorage} aria-label="Storage"
+                                options={[{ value: 'all', label: 'Any storage' }, { value: 'cloud', label: 'Cloud' }, { value: 'local', label: 'Server' }]} />
+                            <DatePicker.RangePicker className="ar-range" value={range} format="MMM D, YYYY" allowClear placeholder={['Shared from', 'to']}
+                                disabledDate={d => d.isAfter(dayjs(), 'day')} onChange={v => setRange(v && v[0] && v[1] ? [v[0], v[1]] : null)} />
+                            <Select<SortKey> className="rs-sort" value={sort} onChange={setSort} aria-label="Sort"
+                                options={[{ value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' }, { value: 'name', label: 'Name (A–Z)' }, { value: 'size', label: 'Largest first' }]} />
+                            {!r.isMobile && (
+                                <Segmented<View> value={view} onChange={changeView} aria-label="Layout"
+                                    options={[{ value: 'list', icon: <UnorderedListOutlined />, title: 'List' }, { value: 'grid', icon: <AppstoreOutlined />, title: 'Grid' }]} />
+                            )}
+                            {hasFilters && <Button type="link" size="small" onClick={clearFilters}>Clear</Button>}
+                        </div>
                     </div>
 
-                    {/* File Type Distribution */}
-                    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', padding: 20 }}>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <FolderOutlined style={{ color: '#0891b2' }} /> File Type Distribution
+                    {list.length === 0 ? (
+                        <div className="rs-empty">
+                            <span className="rs-empty-art"><FolderOpenOutlined /></span>
+                            <strong>{resources.length === 0 ? 'No resources yet' : 'No files match these filters'}</strong>
+                            <span>{resources.length === 0 ? 'Files teachers upload will appear here.' : 'Try another type, teacher, batch or date.'}</span>
+                            {hasFilters && resources.length > 0 && <Button size="small" onClick={clearFilters}>Clear filters</Button>}
                         </div>
-                        {typeStats.length === 0 ? <Empty description="No data" /> : typeStats.map(([cat, count], i) => {
-                            const c = CAT[cat] || CAT.document;
-                            const pct = filtered.length ? Math.round((count / filtered.length) * 100) : 0;
-                            return (
-                                <div key={i} style={{ marginBottom: 12 }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                                        <Space size={6}><span style={{ color: c.color, fontSize: 12 }}>{c.icon}</span><Text style={{ fontSize: 12, fontWeight: 600 }}>{c.label}</Text></Space>
-                                        <Text type="secondary" style={{ fontSize: 11 }}>{count} ({pct}%)</Text>
+                    ) : view === 'grid' && !r.isMobile ? (
+                        <div className="rs-grid">
+                            {pageItems.map(res => {
+                                const names = batchNamesOf(res);
+                                return (
+                                    <article key={res.id} className={`rs-card rs-type-${categoryOf(res)}`} onClick={() => openPreview(res)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openPreview(res); }}>
+                                        <div className="rs-card-art">
+                                            <span className="rs-card-ext">{extOf(res)}</span>
+                                            {Date.now() - new Date(res.created_at).getTime() < NEW_MS && <span className="rs-badge-new">New</span>}
+                                            <span className="rs-card-icon">{CATEGORIES[categoryOf(res)].icon}</span>
+                                            <span className="rs-card-hover"><EyeOutlined /> Preview</span>
+                                        </div>
+                                        <div className="rs-card-body">
+                                            <div className="rs-card-title" title={res.title}>{res.title}</div>
+                                            <div className="rs-card-meta">{teacherName(res)} · {fmtSize(res.file_size)} · {fmt.date(res.created_at)}</div>
+                                        </div>
+                                        <div className="rs-card-foot">
+                                            <span className={`rs-card-batches${names.length ? '' : ' ar-amber'}`}><TeamOutlined /> {names.join(', ') || 'Not shared'}</span>
+                                            {actions(res)}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <ul className="rs-list">
+                            {!r.isMobile && <li className="rs-list-head" aria-hidden><span>File</span><span>Teacher · batches</span><span>Storage</span><span>Shared on</span><span /></li>}
+                            {pageItems.map(res => {
+                                const names = batchNamesOf(res);
+                                return (
+                                    <li key={res.id}>
+                                        <div className="rs-row" role="button" tabIndex={0} onClick={() => openPreview(res)} onKeyDown={e => { if (e.key === 'Enter') openPreview(res); }}>
+                                            <span className="rs-row-file">
+                                                <TypeTile res={res} />
+                                                <span className="rs-row-text">
+                                                    <span className="rs-row-title">{res.title}{Date.now() - new Date(res.created_at).getTime() < NEW_MS && <span className="rs-badge-new">New</span>}</span>
+                                                    <span className="rs-row-meta">{res.file_name} · {fmtSize(res.file_size)}{r.isMobile ? ` · ${teacherName(res)} · ${fmt.date(res.created_at)}` : ''}</span>
+                                                </span>
+                                            </span>
+                                            {!r.isMobile && (
+                                                <span className="ar-row-who">
+                                                    <span className="ar-row-teacher"><span className="ar-av is-sm">{initials(teacherName(res))}</span>{teacherName(res)}</span>
+                                                    <span className="rs-row-tags">
+                                                        {names.length ? names.slice(0, 2).map(b => <span key={b} className="rs-chip"><TeamOutlined /> {b}</span>) : <span className="rs-chip ar-chip-warn">Not shared</span>}
+                                                        {names.length > 2 && <Tooltip title={names.slice(2).join(', ')}><span className="rs-chip">+{names.length - 2}</span></Tooltip>}
+                                                    </span>
+                                                </span>
+                                            )}
+                                            {!r.isMobile && <span><StorageChip res={res} /></span>}
+                                            {!r.isMobile && <span className="rs-row-date"><span>{fmt.date(res.created_at)}</span><span className="rs-muted">{fmt.time(res.created_at)}</span></span>}
+                                            {actions(res)}
+                                        </div>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    )}
+
+                    {list.length > PAGE_SIZE && (
+                        <div className="rs-foot">
+                            <Pagination size="small" current={page} pageSize={PAGE_SIZE} total={list.length} onChange={p => { setPage(p); }} showSizeChanger={false} simple={r.isMobile}
+                                showTotal={r.isMobile ? undefined : (t, [a, b]) => `${a}–${b} of ${t}`} />
+                        </div>
+                    )}
+                </section>
+
+                {/* ── Preview ── */}
+                <Modal open={!!preview} onCancel={closePreview} footer={null} closable={false} centered={!fullscreen && !r.isMobile} destroyOnHidden
+                    width={fullscreen || r.isMobile ? '100%' : Math.min(1080, r.width - 64)}
+                    wrapClassName={`rs-preview ar-preview${fullscreen || r.isMobile ? ' is-full' : ''}`}
+                    styles={{ content: { padding: 0 }, body: { padding: 0 } }}>
+                    {preview && (
+                        <div className="rs-pv">
+                            <header className={`rs-pv-head rs-type-${categoryOf(preview)}`}>
+                                <TypeTile res={preview} />
+                                <div className="rs-pv-info">
+                                    <div className="rs-pv-title" title={preview.title}>{preview.title}</div>
+                                    <div className="rs-pv-meta">
+                                        {fmtSize(preview.file_size)} · {fmt.date(preview.created_at)} · <UserOutlined /> {teacherName(preview)}
+                                        {' · '}<TeamOutlined /> {batchNamesOf(preview).join(', ') || 'Not shared with a batch'}
+                                        {' · '}{isCloud(preview) ? 'Cloud' : 'Server'}
                                     </div>
-                                    <Progress percent={pct} showInfo={false} strokeColor={c.color} size="small" trailColor="#f1f5f9" />
                                 </div>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {/* Filter & Table Container */}
-                <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', boxShadow: '0 2px 12px rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 400 }}>
-                    <div style={{ padding: '16px 20px', borderBottom: '1px solid #f5f5fa', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <div style={{ width: 30, height: 30, borderRadius: 9, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', fontSize: 14 }}>
-                                <FolderOutlined />
+                                <div className="rs-pv-actions">
+                                    <Button type="primary" icon={busyId === preview.id ? <LoadingOutlined /> : <DownloadOutlined />} onClick={() => download(preview)}>{!r.isMobile && 'Download'}</Button>
+                                    <Tooltip title="Delete"><Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(preview)} aria-label="Delete" /></Tooltip>
+                                    {!r.isMobile && (
+                                        <Tooltip title={fullscreen ? 'Exit full screen' : 'Full screen'}>
+                                            <Button type="text" icon={fullscreen ? <CompressOutlined /> : <ExpandOutlined />} onClick={() => setFullscreen(f => !f)} aria-label={fullscreen ? 'Exit full screen' : 'Full screen'} />
+                                        </Tooltip>
+                                    )}
+                                    <Button type="text" icon={<CloseOutlined />} onClick={closePreview} aria-label="Close preview" />
+                                </div>
+                            </header>
+                            <div className={`rs-pv-body is-${categoryOf(preview)}`}>
+                                {previewFailed ? (
+                                    <div className="rs-pv-state"><ExclamationCircleOutlined /><strong>The preview could not be loaded</strong><span>You can still download the file.</span><Button type="primary" icon={<DownloadOutlined />} onClick={() => download(preview)}>Download</Button></div>
+                                ) : !previewUrl ? (
+                                    <div className="rs-pv-state"><LoadingOutlined /><span>Loading preview…</span></div>
+                                ) : categoryOf(preview) === 'pdf' ? (
+                                    <PdfViewer src={previewUrl} />
+                                ) : categoryOf(preview) === 'video' ? (
+                                    <video controls className="rs-pv-video" src={previewUrl} />
+                                ) : categoryOf(preview) === 'audio' ? (
+                                    <div className="rs-pv-audio"><span className="rs-pv-audio-art rs-type-audio"><SoundOutlined /></span><strong>{preview.title}</strong><audio controls src={previewUrl} /></div>
+                                ) : categoryOf(preview) === 'image' ? (
+                                    <img className="rs-pv-image" src={previewUrl} alt={preview.title} />
+                                ) : (
+                                    <div className="rs-pv-state"><FileTextOutlined /><strong>No preview for this file type</strong><span>Download the file to open it on your device.</span><Button type="primary" icon={<DownloadOutlined />} onClick={() => download(preview)}>Download</Button></div>
+                                )}
                             </div>
-                            <span style={{ fontSize: 15, fontWeight: 700, color: '#1e293b' }}>File Directory</span>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', background: '#f1f5f9', padding: '2px 10px', borderRadius: 12 }}>{filtered.length} matching files</span>
+                            {preview.description && <footer className="rs-pv-desc"><strong>About this file</strong><p>{preview.description}</p></footer>}
                         </div>
-                    </div>
-                    <div style={{ flex: 1, overflow: 'auto' }}>
-                        <Table columns={columns} dataSource={filtered} rowKey="id" loading={false} size="middle"
-                            pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `${t} resources`, style: { padding: '12px 20px', margin: 0 } }}
-                            locale={{ emptyText: <Empty description="No resources found" /> }} scroll={{ x: 1000 }} />
-                    </div>
-                </div>
+                    )}
+                </Modal>
             </div>
-
-            {/* Premium Preview Modal */}
-            <Modal
-                title={null}
-                open={!!previewResource}
-                onCancel={closePreview}
-                footer={null}
-                width={fullscreen ? '100vw' : 1000}
-                centered
-                closable={true}
-                closeIcon={
-                    <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', transition: 'all 0.2s', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.1)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1)'; }}
-                    >✕</div>
-                }
-                wrapClassName="preview-modal"
-                styles={{ body: { padding: 0, height: fullscreen ? '100vh' : '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-                style={{ top: fullscreen ? 0 : 20, maxWidth: fullscreen ? '100vw' : undefined, margin: fullscreen ? 0 : '', paddingBottom: fullscreen ? 0 : '' }}
-            >
-                {previewResource && (
-                    <>
-                        <div style={{ flexShrink: 0, background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', padding: '20px 60px 20px 28px', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
-                                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
-                                    {CAT[previewResource.category]?.icon || <FileTextOutlined />}
-                                </div>
-                                <div style={{ minWidth: 0 }}>
-                                    <div style={{ fontSize: 18, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{previewResource.title}</div>
-                                    <div style={{ fontSize: 12, opacity: 0.7, marginTop: 2 }}>{fmtSize(previewResource.file_size)} · Shared {dayjs(previewResource.created_at).format('MMM DD, YYYY')}</div>
-                                </div>
-                            </div>
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                <Button type="default" icon={<DownloadOutlined />} onClick={() => secureDownload(previewResource.id, previewResource.file_name)} style={{ background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600 }}>Download</Button>
-                                <Button type="text" icon={fullscreen ? <CompressOutlined /> : <ExpandOutlined />} onClick={() => setFullscreen(!fullscreen)} style={{ color: '#fff', background: 'rgba(255,255,255,0.1)', borderRadius: 8 }} />
-                            </div>
-                        </div>
-
-                        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', background: '#f8fafc', position: 'relative' }}>
-                            {!previewBlobUrl ? (
-                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Skeleton active paragraph={{ rows: 6 }} style={{ width: '60%' }} /></div>
-                            ) : previewBlobUrl === 'error' ? (
-                                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty description="Could not load preview" /></div>
-                            ) : (
-                                <div style={{
-                                    flex: 1,
-                                    width: '100%',
-                                    height: '100%',
-                                    overflow: 'hidden',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: previewResource.category === 'pdf' ? 'stretch' : 'center',
-                                    justifyContent: previewResource.category === 'pdf' ? 'flex-start' : 'center',
-                                }}>
-                                    {previewResource.category === 'pdf' && (
-                                        <PdfViewer src={previewBlobUrl} />
-                                    )}
-                                    {previewResource.category === 'video' && (
-                                        <video controls style={{ maxWidth: '100%', maxHeight: '100%', background: '#000', outline: 'none' }} src={previewBlobUrl} />
-                                    )}
-                                    {previewResource.category === 'audio' && (
-                                        <div style={{ padding: 48, textAlign: 'center', width: '100%', maxWidth: 500 }}>
-                                            <div style={{ width: 120, height: 120, borderRadius: '50%', background: '#ede9fe', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 56, margin: '0 auto 30px', boxShadow: '0 10px 25px rgba(139,92,246,0.2)' }}>
-                                                <SoundOutlined />
-                                            </div>
-                                            <audio controls style={{ width: '100%', height: 50 }} src={previewBlobUrl} />
-                                        </div>
-                                    )}
-                                    {previewResource.category === 'image' && (
-                                        <img src={previewBlobUrl} alt={previewResource.title} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-                                    )}
-                                    {previewResource.category === 'document' && (
-                                        <div style={{ padding: 60, textAlign: 'center' }}>
-                                            <DesktopOutlined style={{ fontSize: 64, color: '#94a3b8', marginBottom: 20 }} />
-                                            <div style={{ fontSize: 16, fontWeight: 600, color: '#1e293b', marginBottom: 8 }}>Preview not supported for this file type</div>
-                                            <div style={{ fontSize: 14, color: '#64748b', marginBottom: 24 }}>Please download the file to view its contents.</div>
-                                            <Button type="primary" size="large" icon={<DownloadOutlined />} onClick={() => secureDownload(previewResource.id, previewResource.file_name)} style={{ borderRadius: 8 }}>Download File</Button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            {previewResource.description && (
-                                <div style={{ flexShrink: 0, padding: '16px 24px', background: '#fff', borderTop: '1px solid #f1f5f9', fontSize: 13, color: '#4b5563', lineHeight: 1.5 }}>
-                                    <span style={{ fontWeight: 700, color: '#1e293b', marginRight: 8 }}>Description:</span>{previewResource.description}
-                                </div>
-                            )}
-                        </div>
-                    </>
-                )}
-            </Modal>
-
-            <style>{`
-                .preview-modal .ant-modal-close { top: 12px !important; right: 12px !important; width: auto !important; height: auto !important; z-index: 10 !important; }
-                .preview-modal .ant-modal-close-x { width: auto !important; height: auto !important; line-height: 1 !important; }
-                .preview-modal .ant-modal-header { display: none !important; }
-                .preview-modal .ant-modal-content { border-radius: ${fullscreen ? '0' : '16px'} !important; overflow: hidden !important; padding: 0 !important; }
-            `}</style>
-        </div>
+        </ConfigProvider>
     );
 };
 

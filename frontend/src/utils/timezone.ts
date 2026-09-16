@@ -54,6 +54,16 @@ function getTimezoneAbbr(tz: string, date: Date): string {
     }
 }
 
+/** The IANA zone timestamps are actually rendered in (profile zone, else the browser's). */
+export function resolveTimezone(timezone?: string | null): string {
+    return effectiveTz(timezone);
+}
+
+/** Short offset label for a zone, e.g. "GMT-4" — for dense UIs that state the zone once. */
+export function timezoneLabel(timezone?: string | null, at: Date = new Date()): string {
+    return getTimezoneAbbr(effectiveTz(timezone), at);
+}
+
 /**
  * Format an absolute timestamp in the given timezone.
  * Default output: "Sun, May 25, 2026, 5:00 PM · GMT-4"
@@ -96,6 +106,18 @@ export function formatTimeLocal(iso: string | Date, timezone?: string | null): s
         hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz,
     }).format(d);
     return `${time} ${getTimezoneAbbr(tz, d)}`;
+}
+
+/** Format in the user's zone with no offset suffix — for UIs that state the zone once. */
+export function formatPlain(
+    iso: string | Date | number | null | undefined,
+    timezone: string | null | undefined,
+    options: Intl.DateTimeFormatOptions,
+): string {
+    if (iso === null || iso === undefined || iso === '') return '';
+    const d = iso instanceof Date ? iso : new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-US', { ...options, timeZone: effectiveTz(timezone) }).format(d);
 }
 
 /** Detect the browser's timezone — useful as a default for new users. */

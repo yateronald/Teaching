@@ -1,120 +1,48 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useParams, useNavigate } from 'react-router-dom';
-import { Button, Spin, Modal, Input, Badge, Tooltip, Tag, App } from 'antd';
+import { useNavigate, useParams } from 'react-router-dom';
+import { App, Badge, Button, ConfigProvider, Input, Tooltip } from 'antd';
 import {
-  AudioMutedOutlined, VideoCameraOutlined,
-  PhoneOutlined, TeamOutlined, MessageOutlined,
-  LockOutlined, UnlockOutlined, UserDeleteOutlined, SoundOutlined,
-  LoadingOutlined, PlayCircleOutlined, FullscreenOutlined, FullscreenExitOutlined,
-  HighlightOutlined, BarChartOutlined, PlusOutlined, CheckOutlined, ShareAltOutlined,
-  SettingOutlined, SmileOutlined, EllipsisOutlined,
+  CheckCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined, LoadingOutlined, LockOutlined, PlusOutlined, StopOutlined,
 } from '@ant-design/icons';
 import {
   LiveKitRoom,
-  VideoTrack,
-  useParticipants,
-  useLocalParticipant,
-  useRoomContext,
-  useTracks,
-  TrackToggle,
   RoomAudioRenderer,
+  useConnectionQualityIndicator,
+  useConnectionState,
+  useLocalParticipant,
+  useMediaDeviceSelect,
+  useParticipants,
+  useRoomContext,
 } from '@livekit/components-react';
-import '@livekit/components-styles';
-import { Track, RoomEvent, VideoQuality } from 'livekit-client';
-import type { LocalTrackPublication, RemoteTrackPublication } from 'livekit-client';
-import { useAuth } from '../../contexts/AuthContext';
+import { RoomEvent, Track, VideoPresets, VideoQuality } from 'livekit-client';
+import type {
+  AudioCaptureOptions, LocalTrackPublication, Participant, RemoteTrackPublication, RoomOptions, VideoCaptureOptions,
+} from 'livekit-client';
 import { io as socketIO } from 'socket.io-client';
-import DeviceSettings from './DeviceSettings';
-import Whiteboard from './Whiteboard';
-import { playNotificationSound, playChatSound, playHandRaiseSound, playPollSound } from './meetingSounds';
-import { getSocketUrl } from '../../utils/socketUrl';
+import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
+import { getSocketUrl } from '../../utils/socketUrl';
+import DeviceSettings from './DeviceSettings';
+import MeetingStage, { QualityBars } from './MeetingStage';
+import type { LayoutMode } from './MeetingStage';
+import PreJoin, { loadMediaChoices, saveMediaChoices } from './PreJoin';
+import type { MediaChoices, PreJoinStatus } from './PreJoin';
+import Whiteboard from './Whiteboard';
+import { Ic, cleanDeviceLabel, colorFor, initials } from './meetingUi';
+import { playChatSound, playHandRaiseSound, playNotificationSound, playPollSound } from './meetingSounds';
+import './MeetingShell.css';
 import './MeetingRoom.css';
 
 const SOCKET_URL = getSocketUrl();
+const EMOJIS = ['👏', '❤️', '😂', '🎉', '🤔', '👍', '🔥', '😮', '💯', '🙌'];
+const POLL_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
+const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
-/**
- * Single tile inside the mobile "More options" drawer. A vertical icon
- * + label with a soft hover state and an optional active accent (used
- * for stateful actions like Recording / Lock / Whiteboard).
- *
- * Styling: dark glass tiles with a bright icon disc so the entire grid
- * stays readable on the dark drawer background.
- */
-const DrawerAction: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  accent?: string;
-  loading?: boolean;
-  badgeCount?: number;
-}> = ({ icon, label, onClick, active = false, accent, loading = false, badgeCount }) => {
-  const iconAccent = active ? (accent || '#a5b4fc') : '#e2e8f0';
-  const tileBg = active
-    ? `linear-gradient(135deg, ${(accent || '#6366f1')}26, ${(accent || '#6366f1')}40)`
-    : 'rgba(255,255,255,0.08)';
-  const tileBorder = active ? (accent || '#6366f1') : 'rgba(255,255,255,0.12)';
-  return (
-    <button
-      onClick={onClick}
-      disabled={loading}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'flex-start',
-        gap: 8,
-        padding: '14px 6px 12px',
-        background: tileBg,
-        border: `1px solid ${tileBorder}`,
-        borderRadius: 14,
-        cursor: loading ? 'wait' : 'pointer',
-        color: '#fff',
-        transition: 'all 0.15s',
-        minHeight: 92,
-        textAlign: 'center',
-      }}
-      onTouchStart={e => {
-        (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.95)';
-      }}
-      onTouchEnd={e => {
-        (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)';
-      }}
-    >
-      {/* Icon disc — bright background so the icon is always legible */}
-      <Badge count={badgeCount} size="small" offset={[6, -2]}>
-        <span style={{
-          width: 44,
-          height: 44,
-          borderRadius: 12,
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: active ? (accent || '#6366f1') : 'rgba(255,255,255,0.14)',
-          color: active ? '#fff' : iconAccent,
-          fontSize: 20,
-          boxShadow: active ? `0 4px 14px ${(accent || '#6366f1')}55` : 'none',
-        }}>
-          {loading ? <LoadingOutlined /> : icon}
-        </span>
-      </Badge>
-      <span style={{
-        fontSize: 11.5,
-        fontWeight: 600,
-        lineHeight: 1.2,
-        color: '#f1f5f9',
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        maxWidth: '100%',
-      }}>
-        {label}
-      </span>
-    </button>
-  );
-};
+type Socket = ReturnType<typeof socketIO>;
+type Phase = 'loading' | 'prejoin' | 'room' | 'ended' | 'locked' | 'kicked' | 'declined' | 'disconnected' | 'error';
+type Panel = 'people' | 'chat' | 'polls';
+type Menu = 'mic' | 'cam' | 'more' | 'reactions' | 'leave';
 
 interface MeetingData {
   id: number;
@@ -127,440 +55,416 @@ interface MeetingData {
   teacher_last_name: string;
   batch_name: string | null;
 }
-
-interface AdmissionRequest {
-  userId: number;
-  userName: string;
+interface AdmissionRequest { userId: number; userName: string; }
+interface ChatMsg { id: string; senderId?: string; sender: string; text: string; time: string; }
+interface PollVote { option_index: number; count: number | string; }
+interface ActivePoll { id: number; question: string; options: string[]; votes: PollVote[]; }
+interface ClosedPoll extends ActivePoll {
+  voters: { option_index: number; user_id: number; first_name: string; last_name: string }[];
+  totalVotes: number;
 }
+interface MenuItem { key: string; label: string; icon: React.ReactNode; onClick: () => void; active?: boolean; danger?: boolean; hint?: string; badge?: number; }
+
+const parseOptions = (raw: unknown): string[] => {
+  if (Array.isArray(raw)) return raw as string[];
+  if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return []; } }
+  return [];
+};
+const countOf = (votes: PollVote[], idx: number) => parseInt(String(votes.find(v => v.option_index === idx)?.count ?? 0)) || 0;
+const totalOf = (votes: PollVote[]) => votes.reduce((s, v) => s + (parseInt(String(v.count)) || 0), 0);
+const msgTime = (t: string) => {
+  const d = new Date(t);
+  return t.includes('T') && !isNaN(d.getTime()) ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : t;
+};
+
+/* ── Small self-updating pieces (keep the whole room from re-rendering every second) ── */
+const useTick = (ms: number) => {
+  const [, setN] = useState(0);
+  useEffect(() => {
+    const t = window.setInterval(() => setN(n => n + 1), ms);
+    return () => window.clearInterval(t);
+  }, [ms]);
+};
+const Clock: React.FC = () => {
+  useTick(15_000);
+  return <>{new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</>;
+};
+const Elapsed: React.FC<{ since: number }> = ({ since }) => {
+  useTick(1000);
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return <>{h ? `${h}:` : ''}{String(m).padStart(h ? 2 : 1, '0')}:{String(s % 60).padStart(2, '0')}</>;
+};
+
+/* ── Device list inside the mic / camera menus ── */
+const DeviceMenu: React.FC<{ kind: MediaDeviceKind; title: string; storeKey: keyof MediaChoices }> = ({ kind, title, storeKey }) => {
+  const room = useRoomContext();
+  const { devices, activeDeviceId, setActiveMediaDevice } = useMediaDeviceSelect({ kind, room });
+  return (
+    <div className="mr-menu-section">
+      <div className="mr-menu-title">{title}</div>
+      {devices.length === 0 && <div className="mr-menu-empty">No device found</div>}
+      {devices.map((d, i) => {
+        const active = d.deviceId === activeDeviceId;
+        return (
+          <button key={d.deviceId || i} type="button" className={`mr-menu-item${active ? ' is-active' : ''}`}
+            onClick={() => {
+              setActiveMediaDevice(d.deviceId)
+                .then(() => saveMediaChoices({ ...loadMediaChoices(), [storeKey]: d.deviceId }))
+                .catch(() => { /* device vanished — list refreshes itself */ });
+            }}>
+            <span className="mr-menu-ic">{active ? Ic.check : null}</span>
+            <span className="mr-menu-label">{cleanDeviceLabel(d.label) || `${title} ${i + 1}`}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ── Status screens around the call ── */
+const StatusScreen: React.FC<{ tone: string; icon: React.ReactNode; title: string; text: string; meetingTitle?: string; children?: React.ReactNode }> = ({ tone, icon, title, text, meetingTitle, children }) => (
+  <div className="ms-status">
+    <div className={`ms-card is-${tone}`}>
+      <div className="ms-icon">{icon}</div>
+      <h2 className="ms-title">{title}</h2>
+      <p className="ms-text">{text}</p>
+      {meetingTitle && <span className="ms-meeting">{Ic.cam}{meetingTitle}</span>}
+      <div className="ms-actions">{children}</div>
+    </div>
+  </div>
+);
 
 // ════════════════════════════════════════════════════════════
-// MAIN MEETING PAGE — handles join flow + room
+// MEETING PAGE — join flow (pre-join → waiting / lobby → room)
 // ════════════════════════════════════════════════════════════
 const MeetingPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { apiCall, user } = useAuth();
   const { message } = App.useApp();
-  const [meeting, setMeeting] = useState<MeetingData | null>(null);
-  const [phase, setPhase] = useState<'loading' | 'waiting' | 'lobby' | 'ended' | 'locked' | 'kicked' | 'not_ready' | 'pre-start' | 'room' | 'declined'>('loading');
-  const [token, setToken] = useState<string | null>(null);
-  const [livekitUrl, setLivekitUrl] = useState<string>('');
-  const [, setRoomName] = useState<string>('');
-  const socketRef = useRef<ReturnType<typeof socketIO> | null>(null);
 
-  // Fetch meeting data
+  const [meeting, setMeeting] = useState<MeetingData | null>(null);
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [preStatus, setPreStatus] = useState<PreJoinStatus>('idle');
+  const [conn, setConn] = useState<{ token: string; url: string } | null>(null);
+  const [roomChoices, setRoomChoices] = useState<MediaChoices | null>(null);
+  const [reload, setReload] = useState(0);
+  const [socket, setSocket] = useState<Socket | null>(null);
+
+  const choicesRef = useRef<MediaChoices>(loadMediaChoices());
+  const statusRef = useRef(preStatus);
+  statusRef.current = preStatus;
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
+  const leavingRef = useRef(false);
+
+  const meetingId = meeting?.id;
+  const isHost = !!meeting && meeting.teacher_id === user?.id;
+
+  // Load the meeting
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+    setPhase('loading');
     (async () => {
       try {
         const resp = await apiCall(`/meetings/${id}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          setMeeting(data);
-        } else {
-          message.error('Meeting not found');
+        if (cancelled) return;
+        if (!resp.ok) {
+          message.error('This meeting could not be found');
           navigate('/app/meetings');
+          return;
         }
+        const data: MeetingData = await resp.json();
+        setMeeting(data);
+        setPhase(data.status === 'ended' ? 'ended' : 'prejoin');
       } catch {
-        message.error('Failed to load meeting');
+        if (!cancelled) setPhase('error');
       }
     })();
-  }, [id, apiCall, navigate]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, reload]);
 
-  // Setup socket
-  useEffect(() => {
-    if (!meeting || !user) return;
-    const socket = socketIO(SOCKET_URL, { transports: ['websocket', 'polling'] });
-    socketRef.current = socket;
-
-    socket.emit('meeting:join-room', meeting.id);
-    socket.emit('user:join', user.id);
-
-    socket.on('meeting:started', () => {
-      // Meeting just started — try joining
-      handleJoin();
-    });
-
-    socket.on('meeting:admitted', (data: { meetingId: number; token: string; livekitUrl: string; roomName: string }) => {
-      if (data.meetingId === meeting.id) {
-        setToken(data.token);
-        setLivekitUrl(data.livekitUrl);
-        setRoomName(data.roomName);
-        setPhase('room');
-      }
-    });
-
-    socket.on('meeting:declined', (data: { meetingId: number }) => {
-      if (data.meetingId === meeting.id) setPhase('declined');
-    });
-
-    socket.on('meeting:ended', () => setPhase('ended'));
-    socket.on('meeting:kicked', () => setPhase('kicked'));
-
-    return () => { socket.disconnect(); };
-  }, [meeting, user]);
-
-  // Initial join attempt
-  useEffect(() => {
-    if (!meeting || !user) return;
-    const isHost = meeting.teacher_id === user.id;
-
-    if (isHost) {
-      if (meeting.status === 'waiting' || meeting.status === 'scheduled') {
-        setPhase('pre-start');
-      } else if (meeting.status === 'active') {
-        handleJoin();
-      } else if (meeting.status === 'ended') {
-        setPhase('ended');
-      }
-    } else {
-      handleJoin();
-    }
-  }, [meeting, user]);
+  const enterRoom = useCallback((token: string, url: string) => {
+    setRoomChoices({ ...choicesRef.current });
+    setConn({ token, url });
+    setPhase('room');
+  }, []);
 
   const handleJoin = useCallback(async () => {
     if (!id) return;
+    setPreStatus(s => (s === 'waiting' || s === 'lobby' ? s : 'joining'));
     try {
       const resp = await apiCall(`/meetings/${id}/join`, { method: 'POST' });
-      if (!resp.ok) { message.error('Failed to join'); return; }
+      if (!resp.ok) throw new Error(String(resp.status));
       const data = await resp.json();
-
       switch (data.action) {
-        case 'join':
-          setToken(data.token);
-          setLivekitUrl(data.livekitUrl);
-          setRoomName(data.roomName);
-          setPhase('room');
-          break;
-        case 'waiting':
-          setPhase('waiting');
-          break;
+        case 'join': enterRoom(data.token, data.livekitUrl); break;
+        case 'waiting': setPreStatus('waiting'); break;
         case 'lobby':
-          setPhase('lobby');
-          // Request admission via socket
-          if (socketRef.current && user && meeting) {
-            socketRef.current.emit('meeting:request-admission', {
-              meetingId: meeting.id,
-              userId: user.id,
-              userName: `${user.first_name} ${user.last_name}`,
-            });
-          }
+          setPreStatus('lobby');
+          socket?.emit('meeting:request-admission', {
+            meetingId: Number(id),
+            userId: user?.id,
+            userName: `${user?.first_name || ''} ${user?.last_name || ''}`.trim(),
+          });
           break;
-        case 'ended':
-          setPhase('ended');
-          break;
-        case 'locked':
-          setPhase('locked');
-          break;
-        case 'kicked':
-          setPhase('kicked');
-          break;
-        case 'not_ready':
-          setPhase('not_ready');
-          break;
-        default:
-          setPhase('loading');
+        case 'not_ready': setPreStatus('not_ready'); break;
+        case 'ended': setPhase('ended'); break;
+        case 'locked': setPhase('locked'); break;
+        case 'kicked': setPhase('kicked'); break;
+        default: setPreStatus('idle');
       }
-    } catch { message.error('Connection error'); }
-  }, [id, apiCall, user, meeting]);
+    } catch {
+      setPreStatus('idle');
+      message.error("Couldn't reach the class. Check your connection and try again.");
+    }
+  }, [id, apiCall, user, socket, enterRoom, message]);
+  const joinRef = useRef(handleJoin);
+  joinRef.current = handleJoin;
 
-  const handleStartMeeting = async () => {
+  const handleStart = async () => {
     if (!id) return;
+    setPreStatus('joining');
     try {
       const resp = await apiCall(`/meetings/${id}/start`, { method: 'POST' });
-      if (resp.ok) {
-        const data = await resp.json();
-        setToken(data.token);
-        setLivekitUrl(data.livekitUrl);
-        setRoomName(data.roomName);
-        setPhase('room');
-      } else {
-        const d = await resp.json();
-        message.error(d.error || 'Failed to start');
-      }
-    } catch { message.error('Failed to start meeting'); }
-  };
-
-  const handleLeaveMeeting = async () => {
-    if (id) await apiCall(`/meetings/${id}/leave`, { method: 'POST' }).catch(() => {});
-    navigate('/app/meetings');
-  };
-
-  const handleEndMeeting = async () => {
-    if (id) {
-      await apiCall(`/meetings/${id}/end`, { method: 'POST' });
-      navigate('/app/meetings');
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Could not start the class');
+      const data = await resp.json();
+      enterRoom(data.token, data.livekitUrl);
+    } catch (e: any) {
+      setPreStatus('idle');
+      message.error(e?.message || 'Could not start the class');
     }
   };
 
-  // ── Render based on phase ──
-  if (phase === 'loading' || !meeting) {
-    return (
-      <div className="meeting-status-screen">
-        <Spin indicator={<LoadingOutlined style={{ fontSize: 48, color: '#6366f1' }} />} />
-        <div className="meeting-status-title">Connecting...</div>
-      </div>
+  // Real-time events for this meeting
+  useEffect(() => {
+    if (!meetingId || !user?.id) return;
+    const s = socketIO(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    setSocket(s);
+    s.emit('meeting:join-room', meetingId);
+    s.emit('user:join', user.id);
+    const mine = (d?: { meetingId?: number }) => !d?.meetingId || Number(d.meetingId) === meetingId;
+
+    s.on('meeting:started', (d?: { meetingId?: number }) => {
+      if (!mine(d)) return;
+      setMeeting(m => (m ? { ...m, status: 'active' } : m));
+      if (statusRef.current === 'waiting') joinRef.current();
+    });
+    s.on('meeting:waiting', (d?: { meetingId?: number }) => { if (mine(d)) setMeeting(m => (m ? { ...m, status: 'waiting' } : m)); });
+    s.on('meeting:admitted', (d: { meetingId: number; token: string; livekitUrl: string }) => { if (mine(d)) enterRoom(d.token, d.livekitUrl); });
+    s.on('meeting:declined', (d?: { meetingId?: number }) => { if (mine(d)) setPhase('declined'); });
+    s.on('meeting:ended', (d?: { meetingId?: number }) => { if (mine(d) && !leavingRef.current) setPhase('ended'); });
+    s.on('meeting:kicked', (d?: { meetingId?: number }) => { if (mine(d)) setPhase('kicked'); });
+    return () => { s.disconnect(); setSocket(null); };
+  }, [meetingId, user?.id, enterRoom]);
+
+  const handleLeave = useCallback(async () => {
+    leavingRef.current = true;
+    if (id) await apiCall(`/meetings/${id}/leave`, { method: 'POST' }).catch(() => { });
+    navigate('/app/meetings');
+  }, [id, apiCall, navigate]);
+
+  const handleEnd = useCallback(async () => {
+    leavingRef.current = true;
+    if (id) await apiCall(`/meetings/${id}/end`, { method: 'POST' }).catch(() => { });
+    navigate('/app/meetings');
+  }, [id, apiCall, navigate]);
+
+  // LiveKit gave up reconnecting (or the room closed under us) — never drop the user on a blank page.
+  const onDisconnected = useCallback(() => {
+    if (leavingRef.current || phaseRef.current !== 'room') return;
+    if (id) apiCall(`/meetings/${id}/leave`, { method: 'POST' }).catch(() => { });
+    setPhase('disconnected');
+  }, [id, apiCall]);
+
+  const audioOpt = useMemo<AudioCaptureOptions | boolean>(() => {
+    if (!roomChoices?.audioEnabled) return false;
+    return roomChoices.audioDeviceId ? { deviceId: roomChoices.audioDeviceId } : true;
+  }, [roomChoices]);
+  const videoOpt = useMemo<VideoCaptureOptions | boolean>(() => {
+    if (!roomChoices?.videoEnabled) return false;
+    return { resolution: VideoPresets.h720.resolution, ...(roomChoices.videoDeviceId ? { deviceId: roomChoices.videoDeviceId } : {}) };
+  }, [roomChoices]);
+  const roomOptions = useMemo<RoomOptions>(() => ({
+    adaptiveStream: { pixelDensity: 'screen' },
+    dynacast: true,
+    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
+    publishDefaults: {
+      simulcast: true,
+      videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
+      // Sharper slides: higher bitrate, low frame rate.
+      screenShareEncoding: { maxBitrate: 3_000_000, maxFramerate: 15, priority: 'high' },
+    },
+    ...(roomChoices?.speakerDeviceId ? { audioOutput: { deviceId: roomChoices.speakerDeviceId } } : {}),
+  }), [roomChoices]);
+
+  const back = () => navigate('/app/meetings');
+  const shell = (node: React.ReactNode) => (
+    <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13, borderRadius: 8 } }}>{node}</ConfigProvider>
+  );
+  const title = meeting?.title;
+
+  if (phase === 'loading') {
+    return shell(<div className="ms-status"><div className="ms-loading"><LoadingOutlined /> Connecting to your class…</div></div>);
+  }
+  if (phase === 'error' || !meeting) {
+    return shell(
+      <StatusScreen tone="danger" icon={<ExclamationCircleOutlined />} title="We couldn't load this class"
+        text="Check your internet connection, then try again.">
+        <Button onClick={back}>Back to meetings</Button>
+        <Button type="primary" onClick={() => setReload(n => n + 1)}>Try again</Button>
+      </StatusScreen>,
     );
   }
-
-  if (phase === 'waiting') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">⏳</div>
-        <div className="meeting-status-title">Class hasn't started yet</div>
-        <div className="meeting-status-subtitle">You'll be admitted automatically when the teacher begins. Please wait...</div>
-        <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#6366f1' }} />} />
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Go Back</Button>
-      </div>
-    );
-  }
-
-  if (phase === 'not_ready') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">📅</div>
-        <div className="meeting-status-title">Meeting not ready</div>
-        <div className="meeting-status-subtitle">The teacher hasn't opened the meeting yet. Check back later.</div>
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Go Back</Button>
-      </div>
-    );
-  }
-
-  if (phase === 'lobby') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">🚪</div>
-        <div className="meeting-status-title">Waiting to be admitted</div>
-        <div className="meeting-status-subtitle">The teacher has been notified. Please wait for them to let you in.</div>
-        <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#6366f1' }} />} />
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Leave</Button>
-      </div>
-    );
-  }
-
-  if (phase === 'declined') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">❌</div>
-        <div className="meeting-status-title">Request declined</div>
-        <div className="meeting-status-subtitle">The teacher has declined your request to join this meeting.</div>
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Go Back</Button>
-      </div>
-    );
-  }
-
   if (phase === 'ended') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">✅</div>
-        <div className="meeting-status-title">Meeting has ended</div>
-        <div className="meeting-status-subtitle">{meeting.title}</div>
-        <Button type="primary" onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10, background: '#4338ca' }}>Back to Meetings</Button>
-      </div>
+    return shell(
+      <StatusScreen tone="success" icon={<CheckCircleOutlined />} title="This class has ended"
+        text="Thanks for joining. If it was recorded, the recording appears under Live meetings → Recordings." meetingTitle={title}>
+        <Button type="primary" onClick={back}>Back to meetings</Button>
+      </StatusScreen>,
     );
   }
-
   if (phase === 'locked') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">🔒</div>
-        <div className="meeting-status-title">Meeting is locked</div>
-        <div className="meeting-status-subtitle">The teacher has locked this meeting. No new participants can join.</div>
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Go Back</Button>
-      </div>
+    return shell(
+      <StatusScreen tone="warning" icon={<LockOutlined />} title="This class is locked"
+        text="The host locked the class, so no one new can join right now. Ask your teacher to unlock it." meetingTitle={title}>
+        <Button onClick={back}>Back to meetings</Button>
+        <Button type="primary" onClick={() => { setPhase('prejoin'); setPreStatus('idle'); }}>Try again</Button>
+      </StatusScreen>,
     );
   }
-
   if (phase === 'kicked') {
-    return (
-      <div className="meeting-status-screen">
-        <div className="meeting-status-icon">🚫</div>
-        <div className="meeting-status-title">You've been removed</div>
-        <div className="meeting-status-subtitle">The teacher has removed you from this meeting.</div>
-        <Button onClick={() => navigate('/app/meetings')} style={{ marginTop: 20, borderRadius: 10 }}>Go Back</Button>
-      </div>
+    return shell(
+      <StatusScreen tone="danger" icon={<StopOutlined />} title="You were removed from the class"
+        text="The host removed you from this class. Contact your teacher if you think this is a mistake." meetingTitle={title}>
+        <Button type="primary" onClick={back}>Back to meetings</Button>
+      </StatusScreen>,
+    );
+  }
+  if (phase === 'declined') {
+    return shell(
+      <StatusScreen tone="neutral" icon={<StopOutlined />} title="Your request was declined"
+        text="The host didn't let you into this class." meetingTitle={title}>
+        <Button type="primary" onClick={back}>Back to meetings</Button>
+      </StatusScreen>,
+    );
+  }
+  if (phase === 'disconnected') {
+    return shell(
+      <StatusScreen tone="warning" icon={<DisconnectOutlined />} title="You were disconnected"
+        text="Your connection to the class dropped. Check your internet, then rejoin." meetingTitle={title}>
+        <Button onClick={back}>Back to meetings</Button>
+        <Button type="primary" onClick={() => { setConn(null); setPreStatus('idle'); setPhase('prejoin'); }}>Rejoin</Button>
+      </StatusScreen>,
     );
   }
 
-  if (phase === 'pre-start') {
-    return (
-      <div className="meeting-prejoin">
-        <div className="prejoin-card">
-          {/* ── Brand strip ── */}
-          <div className="prejoin-strip">
-            <div className="prejoin-strip-icon">
-              <VideoCameraOutlined />
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div className="prejoin-eyebrow">Ready to start</div>
-              <div className="prejoin-title">{meeting.title}</div>
-            </div>
-          </div>
-
-          {/* ── Body: 2-column on desktop, stacked on mobile ── */}
-          <div className="prejoin-body">
-            {/* Left: live preview (controls overlaid) */}
-            <div className="prejoin-preview">
-              <DeviceSettings variant="preview-only" />
-            </div>
-            {/* Right: device selectors */}
-            <div className="prejoin-controls">
-              <DeviceSettings variant="controls-only" />
-            </div>
-          </div>
-
-          {/* ── Sticky action bar ── */}
-          <div className="prejoin-actions">
-            <Button onClick={() => navigate('/app/meetings')} size="large"
-              style={{ borderRadius: 10, height: 44, fontWeight: 600, paddingInline: 18 }}>
-              Cancel
-            </Button>
-            <Button type="primary" size="large" icon={<PlayCircleOutlined />} onClick={handleStartMeeting}
-              style={{
-                borderRadius: 10, height: 44, fontWeight: 700, fontSize: 15,
-                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                border: 'none',
-                boxShadow: '0 4px 14px rgba(34,197,94,0.32)',
-                paddingInline: 24, flex: 1,
-              }}>
-              Start Meeting
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── ROOM PHASE ──
-  // Render via React Portal so the meeting escapes the Layout's <Content>
-  // (sidebar offset, inner overflow:auto, etc.) and fills the entire
-  // viewport — like Microsoft Teams when you join a call. We also add a
-  // body class so the page can react (e.g. lock document scroll).
-  if (phase === 'room' && token && livekitUrl) {
+  if (phase === 'room' && conn && roomChoices) {
     return createPortal(
-      <LiveKitRoom
-        serverUrl={livekitUrl}
-        token={token}
-        connect={true}
-        audio={true}
-        video={true}
-        onDisconnected={handleLeaveMeeting}
-        // Screen-share publish defaults — pushes the encoder toward
-        // sharper text and more frequent keyframes when slides change.
-        // The track-level `contentHint` is set inside MeetingRoomUI
-        // once LiveKit publishes the local screenshare publication.
-        options={{
-          publishDefaults: {
-            // Enable simulcast so subscribers can pick a layer that
-            // matches their bandwidth — crucial after reconnects.
-            simulcast: true,
-            // Higher bitrate + 1080p target makes slide text legible.
-            screenShareEncoding: {
-              maxBitrate: 3_000_000, // 3 Mbps — clear text/slides
-              maxFramerate: 15,      // slides don't need 30/60fps
-              priority: 'high',
-            },
-          },
-          // Auto-upgrade subscription quality when bandwidth allows.
-          adaptiveStream: { pixelDensity: 'screen' },
-          dynacast: true,
-        }}
-        style={{ height: '100dvh', width: '100vw' }}
-      >
+      <LiveKitRoom serverUrl={conn.url} token={conn.token} connect audio={audioOpt} video={videoOpt}
+        options={roomOptions} onDisconnected={onDisconnected} style={{ height: '100dvh', width: '100vw' }}>
         <RoomAudioRenderer />
-        <MeetingRoomUI
-          meeting={meeting}
-          onLeave={handleLeaveMeeting}
-          onEnd={handleEndMeeting}
-          apiCall={apiCall}
-          socket={socketRef.current}
-          isHost={meeting.teacher_id === user?.id}
-        />
+        <MeetingRoomUI meeting={meeting} isHost={isHost} apiCall={apiCall} socket={socket} onLeave={handleLeave} onEnd={handleEnd} />
       </LiveKitRoom>,
-      document.body
+      document.body,
     );
   }
 
-  return null;
+  return shell(
+    <PreJoin
+      title={meeting.title}
+      hostName={`${meeting.teacher_first_name || ''} ${meeting.teacher_last_name || ''}`.trim()}
+      batchName={meeting.batch_name}
+      userName={`${user?.first_name || ''} ${user?.last_name || ''}`.trim() || 'You'}
+      isHost={isHost}
+      live={meeting.status === 'active'}
+      status={preStatus}
+      onChoicesChange={c => { choicesRef.current = c; }}
+      onJoin={c => {
+        choicesRef.current = c;
+        if (isHost && meeting.status !== 'active') handleStart();
+        else handleJoin();
+      }}
+      onCancel={back}
+    />,
+  );
 };
 
 // ════════════════════════════════════════════════════════════
-// MEETING ROOM UI (inside LiveKitRoom context)
+// MEETING ROOM (inside the LiveKit room context)
 // ════════════════════════════════════════════════════════════
-const MeetingRoomUI: React.FC<{
+interface RoomUIProps {
   meeting: MeetingData;
-  onLeave: () => void;
-  onEnd: () => void;
-  apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
-  socket: ReturnType<typeof socketIO> | null;
   isHost: boolean;
-}> = ({ meeting, onLeave, onEnd, apiCall, socket, isHost }) => {
-  const { message } = App.useApp();
-  const participants = useParticipants();
-  const localParticipant = useLocalParticipant();
+  apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
+  socket: Socket | null;
+  onLeave: () => Promise<void>;
+  onEnd: () => Promise<void>;
+}
+
+const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket, onLeave, onEnd }) => {
+  const { message, modal } = App.useApp();
+  const r = useResponsive();
+  const mobile = r.isMobile;
   const room = useRoomContext();
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<{ sender: string; text: string; time: string }[]>([]);
-  const [chatInput, setChatInput] = useState('');
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
-  const chatOpenRef = useRef(false);
-  const [admissionRequests, setAdmissionRequests] = useState<AdmissionRequest[]>([]);
-  const [participantsOpen, setParticipantsOpen] = useState(false);
-  const [announcement, setAnnouncement] = useState<string | null>(null);
-  const [isLocked, setIsLocked] = useState(meeting.is_locked);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+  const participants = useParticipants();
+  const lp = useLocalParticipant();
+  const me = lp.localParticipant;
+  const myIdentity = me.identity;
+  const myName = me.name || 'You';
+  const myId = parseInt(myIdentity);
+  const { quality } = useConnectionQualityIndicator({ participant: me });
+  const connState = String(useConnectionState()).toLowerCase();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const chatListRef = useRef<HTMLDivElement>(null);
+  const [joinedAt] = useState(() => Date.now());
+
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const panelRef = useRef(panel);
+  panelRef.current = panel;
+  const [menu, setMenu] = useState<Menu | null>(null);
+  const [layout, setLayout] = useState<LayoutMode>('auto');
+  const [pinned, setPinned] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [pollPanelOpen, setPollPanelOpen] = useState(false);
-  const [showEndConfirm, setShowEndConfirm] = useState(false);
-  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [handRaised, setHandRaised] = useState(false);
-  /** Mobile-only "More" drawer that holds secondary controls. */
-  const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
-  const responsive = useResponsive();
-  const isMobile = responsive.isMobile;
+  const [whiteboardOpen, setWhiteboardOpen] = useState(false);
+  const [confirm, setConfirm] = useState<'leave' | 'end' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [unread, setUnread] = useState(0);
+  const [chatToast, setChatToast] = useState<ChatMsg | null>(null);
+
+  const [admissions, setAdmissions] = useState<AdmissionRequest[]>([]);
+  const [peopleQuery, setPeopleQuery] = useState('');
   const [raisedHands, setRaisedHands] = useState<{ userId: number; userName: string }[]>([]);
-  const [floatingEmojis, setFloatingEmojis] = useState<{ id: number; emoji: string; sender: string }[]>([]);
-  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
-  const emojiIdRef = useRef(0);
+  const [handRaised, setHandRaised] = useState(false);
+
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const [announceOpen, setAnnounceOpen] = useState(false);
+  const [announceInput, setAnnounceInput] = useState('');
+  const [isLocked, setIsLocked] = useState(!!meeting.is_locked);
+  const [emojis, setEmojis] = useState<{ id: number; emoji: string; sender: string; x: number }[]>([]);
+  const emojiId = useRef(0);
+
   const [pollQuestion, setPollQuestion] = useState('');
   const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
-  const [activePoll, setActivePoll] = useState<{ id: number; question: string; options: string[]; votes: { option_index: number; count: number }[] } | null>(null);
+  const [activePoll, setActivePoll] = useState<ActivePoll | null>(null);
   const [myVote, setMyVote] = useState<number | null>(null);
-  const [closedPolls, setClosedPolls] = useState<{ id: number; question: string; options: string[]; votes: { option_index: number; count: number }[]; voters: { option_index: number; user_id: number; first_name: string; last_name: string }[]; totalVotes: number }[]>([]);
-  const [expandedPollDetails, setExpandedPollDetails] = useState<Set<number>>(new Set());
+  const [closedPolls, setClosedPolls] = useState<ClosedPoll[]>([]);
+  const [openPollDetails, setOpenPollDetails] = useState<Set<number>>(new Set());
 
-  const trackRefs = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false },
-    ],
-    { onlySubscribed: false }
-  );
+  const [recStartedAt, setRecStartedAt] = useState<number | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const isRecording = recStartedAt !== null;
 
-  // Separate screen share tracks from camera tracks
-  const screenShareTracks = trackRefs.filter(t => t.source === Track.Source.ScreenShare);
-  const cameraTracks = trackRefs.filter(t => t.source === Track.Source.Camera);
-  const hasScreenShare = screenShareTracks.length > 0;
-
-  // Fullscreen toggle
-  const toggleFullscreen = () => {
-    setIsFullscreen(prev => {
-      const next = !prev;
-      if (next) {
-        document.body.style.overflow = 'hidden';
-      } else {
-        document.body.style.overflow = '';
-      }
-      return next;
-    });
-  };
-
-  // Cleanup fullscreen + body lock on unmount.
-  // Adding `meeting-active` to <body> tells the Layout to hide its sidebar
-  // and lock the inner <Content> scroller while a call is in progress —
-  // mirrors the Microsoft Teams "in-call" full-window UX.
+  /* ── Page chrome: lock the page behind the call ── */
   useEffect(() => {
     document.body.classList.add('meeting-active');
     document.body.style.overflow = 'hidden';
@@ -570,74 +474,43 @@ const MeetingRoomUI: React.FC<{
     };
   }, []);
 
-  // ── Screen-share encoding optimizations ──
-  //
-  // Two classic WebRTC issues we tackle here:
-  //   (1) Slide-change delay: by default a screenshare track sends mostly
-  //       delta frames, so a sudden full-page change looks like it's
-  //       "patching" in for a second or two. Setting `contentHint = 'detail'`
-  //       on the track tells the browser encoder to prioritize spatial
-  //       fidelity and emit a fresh keyframe when content changes
-  //       drastically — which is exactly what slides do.
-  //   (2) Reconnect catch-up: after a network blip subscribers need a
-  //       keyframe to render the *current* screen state. We bump
-  //       subscription quality back to HIGH on `Reconnected` so the SFU
-  //       sends a fresh keyframe immediately.
+  useEffect(() => {
+    const onFs = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFs);
+    return () => document.removeEventListener('fullscreenchange', onFs);
+  }, []);
+  const canFullscreen = typeof document !== 'undefined' && !!document.fullscreenEnabled;
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => { });
+    else rootRef.current?.requestFullscreen?.().catch(() => { });
+  };
+
+  /* ── Screen-share quality ──
+     contentHint 'detail' makes the encoder favour sharp text and send a fresh keyframe on slide
+     changes; after a reconnect we re-request HIGH so the SFU sends a keyframe right away. */
   useEffect(() => {
     if (!room) return;
-
-    const applyContentHint = (pub: LocalTrackPublication | RemoteTrackPublication) => {
+    const hint = (pub: LocalTrackPublication | RemoteTrackPublication) => {
       if (pub.source !== Track.Source.ScreenShare) return;
-      const mediaTrack = pub.track?.mediaStreamTrack;
-      if (mediaTrack && mediaTrack.kind === 'video') {
-        try {
-          // `contentHint` is a writable property on MediaStreamTrack —
-          // 'detail' tells the encoder this is text-heavy / static-ish
-          // content, which yields sharper frames and faster keyframe
-          // delivery on content changes.
-          (mediaTrack as any).contentHint = 'detail';
-        } catch { /* not all browsers support it */ }
-      }
+      const mt = pub.track?.mediaStreamTrack;
+      if (mt && mt.kind === 'video') { try { (mt as any).contentHint = 'detail'; } catch { /* unsupported */ } }
     };
-
-    // When the local user starts sharing, set the hint right away.
-    const onLocalPublished = (pub: LocalTrackPublication) => applyContentHint(pub);
-    // When a remote user's screenshare arrives, mark our subscription
-    // quality as HIGH so the SFU sends us the top simulcast layer
-    // immediately (otherwise it can stay on LOW until we ask for more).
-    const onRemoteSubscribed = (_track: any, pub: RemoteTrackPublication) => {
+    const onLocalPublished = (pub: LocalTrackPublication) => hint(pub);
+    const onRemoteSubscribed = (_t: unknown, pub: RemoteTrackPublication) => {
       if (pub.source !== Track.Source.ScreenShare) return;
       try { pub.setSubscribed(true); } catch { /* ignore */ }
       try { (pub as any).setVideoQuality?.(VideoQuality.HIGH); } catch { /* ignore */ }
     };
-
-    // After a reconnect, walk every remote screenshare and re-request
-    // HIGH quality. The SFU treats this as a PLI request and sends a
-    // fresh keyframe, so the screen "catches up" instead of starting
-    // from a stale P-frame.
     const onReconnected = () => {
-      room.remoteParticipants.forEach(p => {
-        p.videoTrackPublications.forEach(pub => {
-          if (pub.source === Track.Source.ScreenShare) {
-            try { (pub as any).setVideoQuality?.(VideoQuality.HIGH); } catch { /* ignore */ }
-          }
-        });
-      });
-      // Also re-apply the local content hint in case the encoder reset.
-      room.localParticipant.trackPublications.forEach(pub => {
-        if (pub.kind === Track.Kind.Video) applyContentHint(pub);
-      });
+      room.remoteParticipants.forEach(p => p.videoTrackPublications.forEach(pub => {
+        if (pub.source === Track.Source.ScreenShare) { try { (pub as any).setVideoQuality?.(VideoQuality.HIGH); } catch { /* ignore */ } }
+      }));
+      room.localParticipant.trackPublications.forEach(pub => { if (pub.kind === Track.Kind.Video) hint(pub); });
     };
-
     room.on(RoomEvent.LocalTrackPublished, onLocalPublished);
     room.on(RoomEvent.TrackSubscribed, onRemoteSubscribed);
     room.on(RoomEvent.Reconnected, onReconnected);
-
-    // Apply hint to any tracks already published when we mount.
-    room.localParticipant.trackPublications.forEach(pub => {
-      if (pub.kind === Track.Kind.Video) applyContentHint(pub);
-    });
-
+    room.localParticipant.trackPublications.forEach(pub => { if (pub.kind === Track.Kind.Video) hint(pub); });
     return () => {
       room.off(RoomEvent.LocalTrackPublished, onLocalPublished);
       room.off(RoomEvent.TrackSubscribed, onRemoteSubscribed);
@@ -645,1343 +518,987 @@ const MeetingRoomUI: React.FC<{
     };
   }, [room]);
 
-  // Socket listeners
+  /* ── Socket events ── */
   useEffect(() => {
     if (!socket) return;
-
-    socket.on('meeting:admission-request', (data: AdmissionRequest) => {
-      if (isHost) {
-        setAdmissionRequests(prev => {
-          if (prev.find(r => r.userId === data.userId)) return prev;
-          return [...prev, data];
-        });
-        playNotificationSound();
-      }
-    });
-
-    socket.on('meeting:chat-message', (data: { sender: string; text: string; time: string }) => {
-      setChatMessages(prev => [...prev, data]);
-      if (!chatOpenRef.current) {
-        setUnreadChatCount(prev => prev + 1);
+    const onAdmission = (d: AdmissionRequest) => {
+      if (!isHost) return;
+      setAdmissions(prev => (prev.some(a => a.userId === d.userId) ? prev : [...prev, d]));
+      playNotificationSound();
+    };
+    const onChat = (d: Partial<ChatMsg>) => {
+      const m: ChatMsg = {
+        id: d.id || `${d.sender}-${Date.now()}-${Math.random()}`,
+        senderId: d.senderId,
+        sender: d.sender || 'Participant',
+        text: d.text || '',
+        time: d.time || new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, m]);
+      const isMine = m.senderId ? m.senderId === myIdentity : m.sender === myName;
+      if (panelRef.current !== 'chat' && !isMine) {
+        setUnread(n => n + 1);
+        setChatToast(m);
         playChatSound();
       }
-    });
-
-    socket.on('meeting:announcement', (data: { text: string }) => {
-      setAnnouncement(data.text);
-      playNotificationSound();
-      setTimeout(() => setAnnouncement(null), 8000);
-    });
-
-    socket.on('meeting:hand-raised', (data: { userId: number; userName: string }) => {
-      setRaisedHands(prev => {
-        if (prev.find(h => h.userId === data.userId)) return prev;
-        return [...prev, data];
-      });
+    };
+    const onAnnouncement = (d: { text: string }) => { setAnnouncement(d.text); playNotificationSound(); };
+    const onHandRaised = (d: { userId: number; userName: string }) => {
+      setRaisedHands(prev => (prev.some(h => h.userId === d.userId) ? prev : [...prev, d]));
       playHandRaiseSound();
-    });
-
-    socket.on('meeting:hand-lowered', (data: { userId: number }) => {
-      setRaisedHands(prev => prev.filter(h => h.userId !== data.userId));
-      // If it's my hand being lowered (e.g. teacher dismissed it), reset local state
-      const myId = parseInt(localParticipant.localParticipant.identity);
-      if (data.userId === myId) setHandRaised(false);
-    });
-
-    socket.on('meeting:reaction', (data: { emoji: string; senderName: string }) => {
-      const id = ++emojiIdRef.current;
-      setFloatingEmojis(prev => [...prev, { id, emoji: data.emoji, sender: data.senderName }]);
-      setTimeout(() => setFloatingEmojis(prev => prev.filter(e => e.id !== id)), 3000);
-    });
-
-    socket.on('meeting:lockChanged', (data: { isLocked: boolean }) => {
-      setIsLocked(data.isLocked);
-    });
-
-    socket.on('poll:created', (data: { id: number; question: string; options: unknown }) => {
-      let opts: string[] = [];
-      if (Array.isArray(data.options)) {
-        opts = data.options;
-      } else if (typeof data.options === 'string') {
-        try { opts = JSON.parse(data.options); } catch { opts = []; }
-      }
-      setActivePoll({ id: data.id, question: data.question, options: opts, votes: [] });
+    };
+    const onHandLowered = (d: { userId: number }) => {
+      setRaisedHands(prev => prev.filter(h => h.userId !== d.userId));
+      if (d.userId === myId) setHandRaised(false);
+    };
+    const onReaction = (d: { emoji: string; senderName: string }) => {
+      const eid = ++emojiId.current;
+      setEmojis(prev => [...prev.slice(-12), { id: eid, emoji: d.emoji, sender: d.senderName, x: 6 + Math.random() * 22 }]);
+      window.setTimeout(() => setEmojis(prev => prev.filter(e => e.id !== eid)), 3200);
+    };
+    const onLock = (d: { isLocked: boolean }) => setIsLocked(d.isLocked);
+    const onPollCreated = (d: { id: number; question: string; options: unknown }) => {
+      setActivePoll({ id: d.id, question: d.question, options: parseOptions(d.options), votes: [] });
       setMyVote(null);
-      if (!isHost) { setPollPanelOpen(true); playPollSound(); }
-    });
+      if (!isHost) { setPanel('polls'); playPollSound(); }
+    };
+    const onPollUpdated = (d: { pollId: number; votes: PollVote[] }) =>
+      setActivePoll(prev => (prev && prev.id === d.pollId ? { ...prev, votes: d.votes } : prev));
+    const onPollClosed = () => { setActivePoll(null); setMyVote(null); };
+    const onForceStop = (d: { stopped: number }) => { if (d?.stopped > 0) message.info('The host stopped the presentation.'); };
+    const onRecStarted = (d: { meetingId: number; startedAt: string }) => { if (d.meetingId === meeting.id) setRecStartedAt(new Date(d.startedAt).getTime()); };
+    const onRecStopped = (d: { meetingId: number }) => { if (d.meetingId === meeting.id) setRecStartedAt(null); };
 
-    socket.on('poll:updated', (data: { pollId: number; votes: { option_index: number; count: number }[] }) => {
-      setActivePoll(prev => prev && prev.id === data.pollId ? { ...prev, votes: data.votes } : prev);
-    });
-
-    socket.on('poll:closed', () => {
-      setActivePoll(null);
-      setMyVote(null);
-    });
-
-    // Host stopped a screen share — show toast on whoever was sharing.
-    socket.on('meeting:force-stop-share', (data: { stopped: number }) => {
-      if (data?.stopped > 0) {
-        message.info('A host stopped your screen share.');
-      }
-    });
-
+    socket.on('meeting:admission-request', onAdmission);
+    socket.on('meeting:chat-message', onChat);
+    socket.on('meeting:announcement', onAnnouncement);
+    socket.on('meeting:hand-raised', onHandRaised);
+    socket.on('meeting:hand-lowered', onHandLowered);
+    socket.on('meeting:reaction', onReaction);
+    socket.on('meeting:lockChanged', onLock);
+    socket.on('poll:created', onPollCreated);
+    socket.on('poll:updated', onPollUpdated);
+    socket.on('poll:closed', onPollClosed);
+    socket.on('meeting:force-stop-share', onForceStop);
+    socket.on('meeting:recording-started', onRecStarted);
+    socket.on('meeting:recording-stopped', onRecStopped);
     return () => {
-      socket.off('meeting:admission-request');
-      socket.off('meeting:chat-message');
-      socket.off('meeting:announcement');
-      socket.off('meeting:lockChanged');
-      socket.off('meeting:hand-raised');
-      socket.off('meeting:hand-lowered');
-      socket.off('meeting:reaction');
-      socket.off('poll:created');
-      socket.off('poll:updated');
-      socket.off('poll:closed');
-      socket.off('meeting:force-stop-share');
+      socket.off('meeting:admission-request', onAdmission);
+      socket.off('meeting:chat-message', onChat);
+      socket.off('meeting:announcement', onAnnouncement);
+      socket.off('meeting:hand-raised', onHandRaised);
+      socket.off('meeting:hand-lowered', onHandLowered);
+      socket.off('meeting:reaction', onReaction);
+      socket.off('meeting:lockChanged', onLock);
+      socket.off('poll:created', onPollCreated);
+      socket.off('poll:updated', onPollUpdated);
+      socket.off('poll:closed', onPollClosed);
+      socket.off('meeting:force-stop-share', onForceStop);
+      socket.off('meeting:recording-started', onRecStarted);
+      socket.off('meeting:recording-stopped', onRecStopped);
     };
-  }, [socket, isHost]);
+  }, [socket, isHost, meeting.id, myIdentity, myName, myId, message]);
 
-  const handleAdmit = async (userId: number) => {
-    await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify({ user_id: userId }) });
-    setAdmissionRequests(prev => prev.filter(r => r.userId !== userId));
-  };
-
-  const handleDecline = async (userId: number) => {
-    await apiCall(`/meetings/${meeting.id}/decline`, { method: 'POST', body: JSON.stringify({ user_id: userId }) });
-    setAdmissionRequests(prev => prev.filter(r => r.userId !== userId));
-  };
-
-  const handleToggleLock = async () => {
-    await apiCall(`/meetings/${meeting.id}/lock`, { method: 'POST' });
-  };
-
-  const handleCreatePoll = async () => {
-    const validOptions = pollOptions.filter(o => o.trim());
-    if (!pollQuestion.trim() || validOptions.length < 2) return;
-    const resp = await apiCall(`/meetings/${meeting.id}/polls`, {
-      method: 'POST',
-      body: JSON.stringify({ question: pollQuestion.trim(), options: validOptions }),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      // Set active poll locally for the teacher too
-      let opts: string[] = [];
-      if (Array.isArray(data.options)) opts = data.options;
-      else if (typeof data.options === 'string') { try { opts = JSON.parse(data.options); } catch { opts = validOptions; } }
-      else opts = validOptions;
-      setActivePoll({ id: data.id, question: data.question || pollQuestion.trim(), options: opts, votes: [] });
-      setMyVote(null);
-    }
-    setPollQuestion('');
-    setPollOptions(['', '']);
-  };
-
-  const handleVotePoll = async (optionIndex: number) => {
-    if (!activePoll) return;
-    await apiCall(`/meetings/polls/${activePoll.id}/vote`, {
-      method: 'POST',
-      body: JSON.stringify({ option_index: optionIndex }),
-    });
-    setMyVote(optionIndex);
-  };
-
-  const handleClosePoll = async () => {
-    if (!activePoll) return;
-    const resp = await apiCall(`/meetings/polls/${activePoll.id}/close`, {
-      method: 'POST',
-      body: JSON.stringify({ show_results: true }),
-    });
-    if (resp.ok) {
-      const data = await resp.json();
-      // Save to closed polls history with full details
-      setClosedPolls(prev => [{
-        id: data.id,
-        question: data.question,
-        options: data.options || activePoll.options,
-        votes: data.votes || activePoll.votes || [],
-        voters: data.voters || [],
-        totalVotes: data.totalVotes || 0,
-      }, ...prev]);
-    }
-    setActivePoll(null);
-    setMyVote(null);
-  };
-
-  const sendChat = () => {
-    if (!chatInput.trim() || !socket) return;
-    const msg = {
-      meetingId: meeting.id,
-      sender: localParticipant.localParticipant.name || 'You',
-      text: chatInput.trim(),
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-    socket.emit('meeting:chat-message', msg);
-    setChatInput('');
-  };
-
-  const [announcementInput, setAnnouncementInput] = useState('');
-  const [showAnnouncementInput, setShowAnnouncementInput] = useState(false);
-
-  // ── Recording state ──
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
-  const [recordingElapsed, setRecordingElapsed] = useState(0);
-  const [recordingLoading, setRecordingLoading] = useState(false);
-
-  useEffect(() => {
-    if (!isRecording || !recordingStartedAt) return;
-    const t = setInterval(() => setRecordingElapsed(Math.floor((Date.now() - recordingStartedAt) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [isRecording, recordingStartedAt]);
-
-  // Listen for recording events (so all participants see the indicator)
-  useEffect(() => {
-    if (!socket) return;
-    const onStarted = (data: { meetingId: number; startedAt: string }) => {
-      if (data.meetingId !== meeting.id) return;
-      setIsRecording(true);
-      setRecordingStartedAt(new Date(data.startedAt).getTime());
-      setRecordingElapsed(0);
-    };
-    const onStopped = (data: { meetingId: number }) => {
-      if (data.meetingId !== meeting.id) return;
-      setIsRecording(false);
-      setRecordingStartedAt(null);
-      setRecordingElapsed(0);
-    };
-    socket.on('meeting:recording-started', onStarted);
-    socket.on('meeting:recording-stopped', onStopped);
-    return () => {
-      socket.off('meeting:recording-started', onStarted);
-      socket.off('meeting:recording-stopped', onStopped);
-    };
-  }, [socket, meeting.id]);
-
-  // ── Hydrate recording state on mount ──
-  // Late joiners (students who arrive after the host started recording)
-  // never receive the `meeting:recording-started` socket event because
-  // it only fires once at the moment of start. Without an explicit
-  // fetch they would never see the recording indicator. Hit the
-  // dedicated state endpoint once on mount to get the current value.
+  // Late joiners never saw "recording-started" — ask once.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const resp = await apiCall(`/meetings/${meeting.id}/recording/state`);
         if (!resp.ok) return;
-        const data = await resp.json();
-        if (cancelled) return;
-        if (data?.isRecording && data?.startedAt) {
-          setIsRecording(true);
-          setRecordingStartedAt(new Date(data.startedAt).getTime());
-          setRecordingElapsed(Math.floor((Date.now() - new Date(data.startedAt).getTime()) / 1000));
-        }
-      } catch { /* ignore — falls back to socket events */ }
+        const d = await resp.json();
+        if (!cancelled && d?.isRecording && d?.startedAt) setRecStartedAt(new Date(d.startedAt).getTime());
+      } catch { /* socket events still update it */ }
     })();
     return () => { cancelled = true; };
   }, [apiCall, meeting.id]);
 
-  const toggleRecording = useCallback(async () => {
-    if (recordingLoading) return;
-    setRecordingLoading(true);
+  useEffect(() => {
+    if (!announcement) return;
+    const t = window.setTimeout(() => setAnnouncement(null), 9000);
+    return () => window.clearTimeout(t);
+  }, [announcement]);
+  useEffect(() => {
+    if (!chatToast) return;
+    const t = window.setTimeout(() => setChatToast(null), 4500);
+    return () => window.clearTimeout(t);
+  }, [chatToast]);
+  useEffect(() => {
+    const el = chatListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages.length, panel]);
+  useEffect(() => {
+    if (pinned && !participants.some(p => p.identity === pinned)) setPinned(null);
+  }, [participants, pinned]);
+
+  /* ── Media controls ── */
+  const toggleMic = useCallback(async () => {
+    const next = !lp.isMicrophoneEnabled;
     try {
-      if (isRecording) {
-        const r = await apiCall(`/meetings/${meeting.id}/recording/stop`, { method: 'POST' });
-        if (r.ok) {
-          message.success('Recording stopped — finalizing video');
-        } else {
-          const d = await r.json().catch(() => ({}));
-          message.error(d.error || 'Failed to stop recording');
-        }
-      } else {
-        const r = await apiCall(`/meetings/${meeting.id}/recording/start`, { method: 'POST' });
-        if (r.ok) {
-          message.success('Recording started');
-        } else if (r.status === 503) {
-          const d = await r.json().catch(() => ({}));
-          Modal.warning({
-            title: 'Recording unavailable',
-            content: d.message || 'Egress service is not configured on the LiveKit server. Please contact your administrator.',
-            okText: 'OK', centered: true,
-          });
-        } else {
-          const d = await r.json().catch(() => ({}));
-          message.error(d.error || 'Failed to start recording');
-        }
-      }
-    } catch (e) {
-      message.error('Network error');
-    } finally {
-      setRecordingLoading(false);
+      await me.setMicrophoneEnabled(next);
+      saveMediaChoices({ ...loadMediaChoices(), audioEnabled: next });
+    } catch (e: any) {
+      message.error(e?.name === 'NotAllowedError' ? 'Your browser is blocking the microphone. Allow it from the address bar.' : 'The microphone could not be switched.');
     }
-  }, [isRecording, recordingLoading, apiCall, meeting.id]);
+  }, [lp.isMicrophoneEnabled, me, message]);
 
-  const fmtRecTime = (s: number) => {
-    const m = Math.floor(s / 60);
-    const ss = s % 60;
-    return `${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  const toggleCam = useCallback(async () => {
+    const next = !lp.isCameraEnabled;
+    try {
+      await me.setCameraEnabled(next);
+      saveMediaChoices({ ...loadMediaChoices(), videoEnabled: next });
+    } catch (e: any) {
+      message.error(e?.name === 'NotAllowedError' ? 'Your browser is blocking the camera. Allow it from the address bar.' : 'The camera could not be switched.');
+    }
+  }, [lp.isCameraEnabled, me, message]);
+
+  const someoneElseSharing = participants.some(p => p.identity !== myIdentity && p.isScreenShareEnabled);
+  const iAmSharing = lp.isScreenShareEnabled;
+  const toggleShare = useCallback(async () => {
+    setMenu(null);
+    if (!iAmSharing && someoneElseSharing && !isHost) { message.info('Someone else is presenting. Ask them to stop first.'); return; }
+    if (!iAmSharing && typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
+      message.warning('Screen sharing is not supported on this device. Use a desktop browser.');
+      return;
+    }
+    try {
+      await me.setScreenShareEnabled(!iAmSharing);
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') return; // picker dismissed
+      message.error(err?.message || 'Could not share your screen');
+    }
+  }, [iAmSharing, someoneElseSharing, isHost, me, message]);
+
+  const forceStopShare = () => {
+    if (!socket) { message.error('Connection unavailable'); return; }
+    socket.emit('meeting:force-stop-share', { meetingId: meeting.id, userId: myId });
+    message.success('Presentation stopped');
   };
 
+  const toggleMicRef = useRef(toggleMic);
+  toggleMicRef.current = toggleMic;
+  const toggleCamRef = useRef(toggleCam);
+  toggleCamRef.current = toggleCam;
 
-  const sendAnnouncement = () => {
-    if (!announcementInput.trim() || !socket) return;
-    socket.emit('meeting:announcement', { meetingId: meeting.id, text: announcementInput.trim() });
-    setAnnouncementInput('');
-    setShowAnnouncementInput(false);
+  // Keyboard shortcuts (same as Google Meet): Ctrl/⌘ + D microphone, Ctrl/⌘ + E camera.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === 'd') { e.preventDefault(); toggleMicRef.current(); return; }
+      if (mod && k === 'e') { e.preventDefault(); toggleCamRef.current(); return; }
+      if (e.key === 'Escape') { setMenu(null); setSettingsOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Close menus on outside click
+  useEffect(() => {
+    if (!menu || mobile) return;
+    const onDown = (e: PointerEvent) => {
+      if (!(e.target as HTMLElement).closest('.mr-pop, .mr-pop-anchor')) setMenu(null);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [menu, mobile]);
+
+  /* ── Room actions ── */
+  const openPanel = (p: Panel, stay = false) => {
+    setMenu(null);
+    if (panel === p && !stay) { setPanel(null); return; }
+    setPanel(p);
+    if (p === 'chat') { setUnread(0); setChatToast(null); }
+    if (p === 'polls' && isHost) loadPollHistory();
   };
 
-  const toggleHandRaise = () => {
+  const sendChat = () => {
+    const text = chatInput.trim();
+    if (!text || !socket) return;
+    socket.emit('meeting:chat-message', {
+      meetingId: meeting.id,
+      id: `${myIdentity}-${Date.now()}`,
+      senderId: myIdentity,
+      sender: myName,
+      text,
+      time: new Date().toISOString(),
+    });
+    setChatInput('');
+  };
+
+  const toggleHand = () => {
     if (!socket) return;
-    if (handRaised) {
-      socket.emit('meeting:lower-hand', { meetingId: meeting.id, userId: parseInt(localParticipant.localParticipant.identity) });
-      setHandRaised(false);
-    } else {
-      socket.emit('meeting:raise-hand', { meetingId: meeting.id, userId: parseInt(localParticipant.localParticipant.identity), userName: localParticipant.localParticipant.name || 'Participant' });
-      setHandRaised(true);
-    }
+    if (handRaised) socket.emit('meeting:lower-hand', { meetingId: meeting.id, userId: myId });
+    else socket.emit('meeting:raise-hand', { meetingId: meeting.id, userId: myId, userName: myName });
+    setHandRaised(!handRaised);
   };
+  const lowerHand = (userId: number) => socket?.emit('meeting:lower-hand', { meetingId: meeting.id, userId });
+  const lowerAll = () => { raisedHands.forEach(h => lowerHand(h.userId)); setRaisedHands([]); };
 
   const sendEmoji = (emoji: string) => {
-    if (!socket) return;
-    socket.emit('meeting:reaction', { meetingId: meeting.id, emoji, senderName: localParticipant.localParticipant.name || 'Participant' });
-    setEmojiPickerOpen(false);
+    socket?.emit('meeting:reaction', { meetingId: meeting.id, emoji, senderName: myName });
+    if (mobile) setMenu(null);
   };
 
-  const EMOJI_OPTIONS = ['👏', '❤️', '😂', '🎉', '🤔', '👍', '🔥', '😮', '💯', '✋'];
+  const sendAnnouncement = () => {
+    const text = announceInput.trim();
+    if (!text || !socket) return;
+    socket.emit('meeting:announcement', { meetingId: meeting.id, text });
+    setAnnounceInput('');
+    setAnnounceOpen(false);
+  };
 
-  return (
-    <div className={`meeting-room ${isFullscreen ? 'meeting-fullscreen' : ''} ${hasScreenShare ? 'has-screenshare' : ''}`}>
-      {/* Floating emoji reactions */}
-      {floatingEmojis.map(fe => (
-        <div key={fe.id} className="floating-emoji">
-          <span className="floating-emoji-icon">{fe.emoji}</span>
-          <span className="floating-emoji-name">{fe.sender}</span>
-        </div>
-      ))}
+  const copyInvite = () => {
+    const url = `${window.location.origin}/app/meeting-join/${meeting.room_name}`;
+    navigator.clipboard.writeText(url).then(() => message.success('Invite link copied')).catch(() => message.info(url));
+  };
 
-      {/* Raised hands indicator */}
+  const handleAdmit = async (userId: number) => {
+    setAdmissions(prev => prev.filter(a => a.userId !== userId));
+    await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => { });
+  };
+  const handleDecline = async (userId: number) => {
+    setAdmissions(prev => prev.filter(a => a.userId !== userId));
+    await apiCall(`/meetings/${meeting.id}/decline`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => { });
+  };
+  const admitAll = () => admissions.forEach(a => handleAdmit(a.userId));
+
+  const toggleLock = async () => { await apiCall(`/meetings/${meeting.id}/lock`, { method: 'POST' }).catch(() => { }); };
+
+  const kick = (p: Participant) => {
+    modal.confirm({
+      title: `Remove ${p.name || 'this participant'}?`,
+      content: 'They will be disconnected and cannot rejoin this class.',
+      okText: 'Remove',
+      okButtonProps: { danger: true },
+      centered: true,
+      onOk: () => apiCall(`/meetings/${meeting.id}/kick`, { method: 'POST', body: JSON.stringify({ user_id: parseInt(p.identity) }) }),
+    });
+  };
+
+  const toggleRecording = useCallback(async () => {
+    if (recLoading) return;
+    setRecLoading(true);
+    try {
+      if (isRecording) {
+        const resp = await apiCall(`/meetings/${meeting.id}/recording/stop`, { method: 'POST' });
+        if (resp.ok) message.success('Recording stopped — the video is being prepared');
+        else message.error((await resp.json().catch(() => ({}))).error || 'Could not stop the recording');
+      } else {
+        const resp = await apiCall(`/meetings/${meeting.id}/recording/start`, { method: 'POST' });
+        if (resp.ok) message.success('Recording started');
+        else if (resp.status === 503) {
+          const d = await resp.json().catch(() => ({}));
+          modal.warning({ title: 'Recording is unavailable', content: d.message || 'Recording is not configured on the video server. Please contact your administrator.', centered: true });
+        } else message.error((await resp.json().catch(() => ({}))).error || 'Could not start the recording');
+      }
+    } catch {
+      message.error('Network error');
+    } finally {
+      setRecLoading(false);
+    }
+  }, [recLoading, isRecording, apiCall, meeting.id, message, modal]);
+
+  /* ── Polls ── */
+  const loadPollHistory = async () => {
+    try {
+      const resp = await apiCall(`/meetings/${meeting.id}/polls`);
+      if (!resp.ok) return;
+      const polls: Record<string, unknown>[] = (await resp.json()) || [];
+      const closed: ClosedPoll[] = polls.filter(p => !p.is_active).map(p => {
+        const votes = (p.votes || []) as PollVote[];
+        const tv = p.total_votes as { count: number } | undefined;
+        return {
+          id: p.id as number,
+          question: p.question as string,
+          options: parseOptions(p.options),
+          votes,
+          voters: [],
+          totalVotes: parseInt(String(tv?.count)) || totalOf(votes),
+        };
+      });
+      setClosedPolls(prev => {
+        const known = new Set(prev.map(p => p.id));
+        return [...prev, ...closed.filter(c => !known.has(c.id))];
+      });
+    } catch { /* history is optional */ }
+  };
+
+  const handleCreatePoll = async () => {
+    const options = pollOptions.map(o => o.trim()).filter(Boolean);
+    if (!pollQuestion.trim() || options.length < 2) return;
+    const resp = await apiCall(`/meetings/${meeting.id}/polls`, {
+      method: 'POST',
+      body: JSON.stringify({ question: pollQuestion.trim(), options }),
+    });
+    if (resp.ok) {
+      const d = await resp.json();
+      const opts = parseOptions(d.options);
+      setActivePoll({ id: d.id, question: d.question || pollQuestion.trim(), options: opts.length ? opts : options, votes: [] });
+      setMyVote(null);
+      setPollQuestion('');
+      setPollOptions(['', '']);
+    } else {
+      message.error('Could not publish the poll');
+    }
+  };
+
+  const handleVote = async (idx: number) => {
+    if (!activePoll) return;
+    setMyVote(idx);
+    const resp = await apiCall(`/meetings/polls/${activePoll.id}/vote`, { method: 'POST', body: JSON.stringify({ option_index: idx }) }).catch(() => null);
+    if (!resp || !resp.ok) { setMyVote(null); message.error('Your vote was not recorded. Try again.'); }
+  };
+
+  const handleClosePoll = async () => {
+    if (!activePoll) return;
+    const resp = await apiCall(`/meetings/polls/${activePoll.id}/close`, { method: 'POST', body: JSON.stringify({ show_results: true }) });
+    if (resp.ok) {
+      const d = await resp.json();
+      setClosedPolls(prev => [{
+        id: d.id,
+        question: d.question,
+        options: d.options || activePoll.options,
+        votes: d.votes || activePoll.votes || [],
+        voters: d.voters || [],
+        totalVotes: d.totalVotes || 0,
+      }, ...prev]);
+    }
+    setActivePoll(null);
+    setMyVote(null);
+  };
+
+  /* ── Derived ── */
+  const handIds = useMemo(() => new Set(raisedHands.map(h => String(h.userId))), [raisedHands]);
+  const pollsVisible = isHost || !!activePoll;
+  const teacherIdentity = String(meeting.teacher_id);
+  const reconnecting = connState.includes('reconnecting');
+  const connecting = connState === 'connecting';
+  const people = useMemo(() => {
+    const q = peopleQuery.trim().toLowerCase();
+    const rank = (p: Participant) => (p.identity === teacherIdentity ? 0 : p.identity === myIdentity ? 1 : 2);
+    return participants
+      .filter(p => !q || (p.name || '').toLowerCase().includes(q))
+      .sort((a, b) => rank(a) - rank(b) || (a.name || '').localeCompare(b.name || ''));
+  }, [participants, peopleQuery, teacherIdentity, myIdentity]);
+
+  const tip = (title: string, node: React.ReactElement) => (mobile ? node : <Tooltip title={title} mouseEnterDelay={0.4}>{node}</Tooltip>);
+
+  const layouts: { key: LayoutMode; label: string; icon: React.ReactNode }[] = [
+    { key: 'auto', label: 'Auto', icon: Ic.layout },
+    { key: 'grid', label: 'Tiled', icon: Ic.grid },
+    { key: 'spotlight', label: 'Spotlight', icon: Ic.spotlight },
+  ];
+  const chooseLayout = (l: LayoutMode) => { setLayout(l); if (l !== 'spotlight') setPinned(null); };
+
+  const moreItems: MenuItem[] = [
+    ...(mobile ? [
+      { key: 'share', label: iAmSharing ? 'Stop presenting' : 'Present screen', icon: iAmSharing ? Ic.shareStop : Ic.share, onClick: toggleShare, active: iAmSharing },
+      { key: 'people', label: 'People', icon: Ic.people, onClick: () => openPanel('people', true), badge: admissions.length },
+      { key: 'reactions', label: 'Reactions', icon: Ic.smile, onClick: () => setMenu('reactions') },
+      ...(pollsVisible ? [{ key: 'polls', label: activePoll ? 'Live poll' : 'Polls', icon: Ic.poll, onClick: () => openPanel('polls', true), active: !!activePoll }] : []),
+    ] : []),
+    { key: 'wb', label: whiteboardOpen ? 'Close whiteboard' : 'Whiteboard', icon: Ic.pen, onClick: () => setWhiteboardOpen(v => !v), active: whiteboardOpen },
+    { key: 'settings', label: 'Audio & video settings', icon: Ic.settings, onClick: () => setSettingsOpen(true) },
+    ...(isHost ? [
+      { key: 'rec', label: isRecording ? 'Stop recording' : 'Record class', icon: Ic.record, onClick: toggleRecording, active: isRecording, danger: isRecording, hint: recLoading ? 'Working…' : undefined },
+      { key: 'lock', label: isLocked ? 'Unlock class' : 'Lock class', icon: isLocked ? Ic.lock : Ic.unlock, onClick: toggleLock, active: isLocked, hint: isLocked ? 'No one new can join' : undefined },
+      { key: 'announce', label: 'Send an announcement', icon: Ic.megaphone, onClick: () => setAnnounceOpen(true) },
+      { key: 'invite', label: 'Copy invite link', icon: Ic.link, onClick: copyInvite },
+      ...(someoneElseSharing ? [{ key: 'stopshare', label: 'Stop the current presentation', icon: Ic.shareStop, onClick: forceStopShare, danger: true }] : []),
+    ] : []),
+    ...(mobile && canFullscreen ? [{ key: 'fs', label: isFullscreen ? 'Exit full screen' : 'Full screen', icon: isFullscreen ? Ic.shrink : Ic.expand, onClick: toggleFullscreen }] : []),
+  ];
+
+  const panelButton = (p: Panel, icon: React.ReactNode, label: string, extra?: React.ReactNode) => tip(label, (
+    <button type="button" className={`mr-ctl mr-ctl-ghost${panel === p ? ' is-active' : ''}`} onClick={() => openPanel(p)} aria-label={label} aria-pressed={panel === p}>
+      {icon}{extra}
+    </button>
+  ));
+
+  /* ── Panels ── */
+  const peopleView = (
+    <div className="mr-panel-body">
+      {participants.length > 6 && (
+        <Input className="mr-search" placeholder="Search people" allowClear value={peopleQuery} onChange={e => setPeopleQuery(e.target.value)} />
+      )}
+      {isHost && admissions.length > 0 && (
+        <section className="mr-sec">
+          <div className="mr-sec-head">
+            <span>Waiting to join <b>{admissions.length}</b></span>
+            {admissions.length > 1 && <button type="button" className="mr-link" onClick={admitAll}>Admit all</button>}
+          </div>
+          {admissions.map(a => (
+            <div key={a.userId} className="mr-person">
+              <span className="mr-person-avatar" style={{ background: colorFor(a.userName) }}>{initials(a.userName)}</span>
+              <span className="mr-person-name">{a.userName}</span>
+              <div className="mr-person-actions is-visible">
+                <Button size="small" type="primary" onClick={() => handleAdmit(a.userId)}>Admit</Button>
+                <Button size="small" onClick={() => handleDecline(a.userId)}>Deny</Button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {raisedHands.length > 0 && (
-        <div className="raised-hands-bar">
-          <span style={{ marginRight: 4 }}>✋</span>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-            {raisedHands.map((h, i) => (
-              <span key={h.userId} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'rgba(255,255,255,0.1)', padding: '2px 8px', borderRadius: 10, fontSize: 11 }}>
-                <span style={{ fontWeight: 800, color: '#fbbf24', fontSize: 10 }}>{i + 1}.</span>
-                {h.userName.split(' ')[0]}
+        <section className="mr-sec">
+          <div className="mr-sec-head">
+            <span>Raised hands <b>{raisedHands.length}</b></span>
+            {isHost && <button type="button" className="mr-link" onClick={lowerAll}>Lower all</button>}
+          </div>
+          {raisedHands.map((h, i) => {
+            const self = h.userId === myId;
+            return (
+              <div key={h.userId} className="mr-person">
+                <span className="mr-hand-order">{i + 1}</span>
+                <span className="mr-person-name">{h.userName}{self && <em> (You)</em>}</span>
+                {(isHost || self) && (
+                  <div className="mr-person-actions is-visible">
+                    <button type="button" className="mr-link" onClick={() => (self ? toggleHand() : lowerHand(h.userId))}>Lower</button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
+      <section className="mr-sec">
+        <div className="mr-sec-head"><span>In the class <b>{participants.length}</b></span></div>
+        {people.map(p => {
+          const name = p.name || 'Participant';
+          const host = p.identity === teacherIdentity;
+          const self = p.identity === myIdentity;
+          return (
+            <div key={p.sid} className="mr-person">
+              <span className="mr-person-avatar" style={{ background: colorFor(name) }}>{initials(name)}</span>
+              <span className="mr-person-name">
+                {name}{self && <em> (You)</em>}
+                {host && <span className="mr-tag">Host</span>}
               </span>
+              <span className="mr-person-state">
+                {handIds.has(p.identity) && <span className="is-hand" title="Hand raised">{Ic.hand}</span>}
+                {!p.isCameraEnabled && <span className="is-off" title="Camera off">{Ic.camOff}</span>}
+                <span className={p.isMicrophoneEnabled ? (p.isSpeaking ? 'is-talking' : '') : 'is-off'} title={p.isMicrophoneEnabled ? 'Microphone on' : 'Muted'}>
+                  {p.isMicrophoneEnabled ? Ic.mic : Ic.micOff}
+                </span>
+              </span>
+              <div className="mr-person-actions">
+                <button type="button" className={`mr-icon-btn is-sm${pinned === p.identity ? ' is-active' : ''}`}
+                  title={pinned === p.identity ? 'Unpin' : 'Pin to the main stage'} aria-label={pinned === p.identity ? `Unpin ${name}` : `Pin ${name}`}
+                  onClick={() => setPinned(pinned === p.identity ? null : p.identity)}>{Ic.pin}</button>
+                {isHost && !host && (
+                  <button type="button" className="mr-icon-btn is-sm is-danger" title="Remove from class" aria-label={`Remove ${name}`} onClick={() => kick(p)}>
+                    {Ic.close}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {people.length === 0 && <div className="mr-muted-line">No one matches “{peopleQuery}”.</div>}
+      </section>
+    </div>
+  );
+
+  const chatView = (
+    <div className="mr-chat">
+      <div className="mr-chat-list" ref={chatListRef}>
+        {messages.length === 0 ? (
+          <div className="mr-empty">
+            <span className="mr-empty-ic">{Ic.chat}</span>
+            <strong>No messages yet</strong>
+            <span>Messages are visible to everyone in the class and are not saved after it ends.</span>
+          </div>
+        ) : messages.map((m, i) => {
+          const prev = messages[i - 1];
+          const mine = m.senderId ? m.senderId === myIdentity : m.sender === myName;
+          const grouped = !!prev && prev.sender === m.sender && (prev.senderId || '') === (m.senderId || '');
+          return (
+            <div key={m.id} className={`mr-msg${mine ? ' is-mine' : ''}${grouped ? ' is-grouped' : ''}`}>
+              {!grouped && <div className="mr-msg-head"><b>{mine ? 'You' : m.sender}</b><time>{msgTime(m.time)}</time></div>}
+              <div className="mr-msg-bubble">{m.text}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mr-chat-input">
+        <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} placeholder="Send a message to everyone" value={chatInput} maxLength={1000}
+          onChange={e => setChatInput(e.target.value)}
+          onPressEnter={e => { if (!e.shiftKey) { e.preventDefault(); sendChat(); } }} />
+        <button type="button" className="mr-send" onClick={sendChat} disabled={!chatInput.trim()} aria-label="Send message">{Ic.send}</button>
+      </div>
+    </div>
+  );
+
+  const pollBars = (p: ActivePoll | ClosedPoll, total: number) => (p.options || []).map((opt, idx) => {
+    const n = countOf(p.votes || [], idx);
+    const pct = total > 0 ? Math.round((n / total) * 100) : 0;
+    return (
+      <div key={idx} className="mr-poll-row">
+        <div className="mr-poll-fill" style={{ width: `${pct}%`, background: `${POLL_COLORS[idx % POLL_COLORS.length]}33` }} />
+        <span className="mr-poll-letter" style={{ color: POLL_COLORS[idx % POLL_COLORS.length] }}>{String.fromCharCode(65 + idx)}</span>
+        <span className="mr-poll-opt-text">{opt}</span>
+        <span className="mr-poll-count">{n} · {pct}%</span>
+      </div>
+    );
+  });
+
+  const pollsView = (
+    <div className="mr-panel-body">
+      {!isHost && activePoll && (
+        <section className="mr-poll-card">
+          <span className="mr-poll-over">Live poll</span>
+          <div className="mr-poll-q">{activePoll.question}</div>
+          {myVote === null ? (
+            <div className="mr-poll-choices">
+              {(activePoll.options || []).map((opt, idx) => (
+                <button key={idx} type="button" className="mr-poll-choice" onClick={() => handleVote(idx)}>
+                  <span className="mr-poll-letter">{String.fromCharCode(65 + idx)}</span>
+                  <span>{opt}</span>
+                </button>
+              ))}
+              <span className="mr-muted-line">Choose one answer. Only the teacher sees the results.</span>
+            </div>
+          ) : (
+            <div className="mr-poll-done">
+              <span className="mr-poll-done-ic">{Ic.check}</span>
+              <strong>Vote submitted</strong>
+              <span>You answered <b>{(activePoll.options || [])[myVote] || 'your choice'}</b>.</span>
+            </div>
+          )}
+        </section>
+      )}
+      {!isHost && !activePoll && (
+        <div className="mr-empty">
+          <span className="mr-empty-ic">{Ic.poll}</span>
+          <strong>No poll right now</strong>
+          <span>When your teacher starts a poll, it opens here.</span>
+        </div>
+      )}
+
+      {isHost && activePoll && (() => {
+        const total = totalOf(activePoll.votes || []);
+        return (
+          <section className="mr-poll-card is-live">
+            <div className="mr-poll-card-head">
+              <span className="mr-poll-over"><i className="mr-live-dot" /> Live · {total} {total === 1 ? 'vote' : 'votes'}</span>
+              <Button size="small" danger onClick={handleClosePoll}>End poll</Button>
+            </div>
+            <div className="mr-poll-q">{activePoll.question}</div>
+            <div className="mr-poll-rows">{pollBars(activePoll, total)}</div>
+          </section>
+        );
+      })()}
+
+      {isHost && !activePoll && (
+        <section className="mr-poll-card">
+          <span className="mr-poll-over">New poll</span>
+          <Input className="mr-input" value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} placeholder="Ask a question" maxLength={200} />
+          <div className="mr-poll-form">
+            {pollOptions.map((opt, idx) => (
+              <div key={idx} className="mr-poll-form-row">
+                <span className="mr-poll-letter">{String.fromCharCode(65 + idx)}</span>
+                <Input className="mr-input" value={opt} maxLength={120} placeholder={`Option ${idx + 1}`}
+                  onChange={e => setPollOptions(prev => prev.map((o, i) => (i === idx ? e.target.value : o)))} />
+                {pollOptions.length > 2 && (
+                  <button type="button" className="mr-icon-btn is-sm" aria-label={`Remove option ${idx + 1}`}
+                    onClick={() => setPollOptions(prev => prev.filter((_, i) => i !== idx))}>{Ic.close}</button>
+                )}
+              </div>
             ))}
           </div>
-          {isHost && <button onClick={() => {
-            raisedHands.forEach(h => {
-              if (socket) socket.emit('meeting:lower-hand', { meetingId: meeting.id, userId: h.userId });
-            });
-            setRaisedHands([]);
-          }} className="raised-hands-clear">Dismiss all</button>}
-        </div>
-      )}
-
-      {/* Announcement banner */}
-      {announcement && (
-        <div className="meeting-announcement">
-          <SoundOutlined /> {announcement}
-          <button onClick={() => setAnnouncement(null)} className="announcement-close">×</button>
-        </div>
-      )}
-
-      {/* Announcement input bar (teacher only) */}
-      {showAnnouncementInput && (
-        <div className="announcement-input-bar">
-          <SoundOutlined style={{ color: '#f59e0b', fontSize: 16, flexShrink: 0 }} />
-          <Input
-            value={announcementInput}
-            onChange={e => setAnnouncementInput(e.target.value)}
-            onPressEnter={sendAnnouncement}
-            placeholder="Type an announcement for all participants..."
-            autoFocus
-            style={{ flex: 1, borderRadius: 8, background: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.15)', color: '#fff' }}
-          />
-          <Button type="primary" size="small" onClick={sendAnnouncement} disabled={!announcementInput.trim()}
-            style={{ borderRadius: 8, background: '#f59e0b', borderColor: '#f59e0b', fontWeight: 600 }}>
-            Send
-          </Button>
-          <button onClick={() => setShowAnnouncementInput(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 16, cursor: 'pointer', padding: '0 4px' }}>×</button>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="meeting-header">
-        <div className="meeting-header-left">
-          <div className="meeting-title">{meeting.title}</div>
-          <div className="meeting-meta">
-            {meeting.batch_name && <Tag style={{ borderRadius: 4, fontSize: 10, background: 'rgba(255,255,255,0.1)', color: '#94a3b8', border: 'none' }}>{meeting.batch_name}</Tag>}
-            <span className="meeting-participant-count"><TeamOutlined /> {participants.length}</span>
-            {isLocked && <Tag color="red" style={{ borderRadius: 4, fontSize: 10 }}>🔒 Locked</Tag>}
-            {isRecording && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: '3px 10px', borderRadius: 100,
-                background: 'rgba(239,68,68,0.18)',
-                border: '1px solid rgba(239,68,68,0.45)',
-                color: '#fca5a5', fontSize: 10.5, fontWeight: 700,
-                letterSpacing: 0.5,
-              }}>
-                <span style={{
-                  display: 'inline-block', width: 7, height: 7,
-                  borderRadius: '50%', background: '#ef4444',
-                  animation: 'rec-pulse 1.4s ease-in-out infinite',
-                }} />
-                REC {fmtRecTime(recordingElapsed)}
-              </span>
-            )}
+          <div className="mr-poll-form-actions">
+            <Button size="small" icon={<PlusOutlined />} disabled={pollOptions.length >= 8} onClick={() => setPollOptions(prev => [...prev, ''])}>Add option</Button>
+            <Button size="small" type="primary" onClick={handleCreatePoll}
+              disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}>Publish poll</Button>
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {isHost && admissionRequests.length > 0 && (
-            <Badge count={admissionRequests.length} offset={[-2, 2]}>
-              <Button size="small" onClick={() => setParticipantsOpen(true)}
-                style={{ borderRadius: 8, background: '#f59e0b', color: '#fff', border: 'none', fontWeight: 600, fontSize: 11 }}>
-                {admissionRequests.length} waiting
-              </Button>
-            </Badge>
-          )}
-          {isHost && (
-            <Tooltip title="Copy share link">
-              <button className="control-btn" onClick={() => {
-                const shareUrl = `${window.location.origin}/app/meeting-join/${meeting.room_name}`;
-                navigator.clipboard.writeText(shareUrl).then(() => message.success('Share link copied!')).catch(() => message.info(shareUrl));
-              }} style={{ width: 32, height: 32, fontSize: 14 }}>
-                <ShareAltOutlined />
-              </button>
-            </Tooltip>
-          )}
-          <Tooltip title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
-            <button className="control-btn" onClick={toggleFullscreen} style={{ width: 32, height: 32, fontSize: 14 }}>
-              {isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
-            </button>
-          </Tooltip>
-        </div>
-      </div>
+        </section>
+      )}
 
-      {/* Main content area */}
-      <div className="meeting-content">
-        {hasScreenShare ? (
-          /* ── PRESENTER LAYOUT: big screen share + small participant strip ── */
-          <div className="presenter-layout">
-            <div className="presenter-main">
-              {screenShareTracks.map((trackRef) => (
-                <div key={`${trackRef.participant.sid}-screen`} className="screen-share-tile">
-                  {trackRef.publication?.track && <VideoTrack trackRef={trackRef} />}
-                  <div className="video-overlay">
-                    <span className="video-name">
-                      <span className="screen-badge">Screen</span>
-                      {trackRef.participant.name || 'Participant'}
-                    </span>
-                  </div>
+      {isHost && closedPolls.length > 0 && (
+        <section className="mr-sec">
+          <div className="mr-sec-head"><span>Past polls <b>{closedPolls.length}</b></span></div>
+          {closedPolls.map(cp => {
+            const open = openPollDetails.has(cp.id);
+            return (
+              <div key={cp.id} className="mr-poll-hist">
+                <div className="mr-poll-hist-head">
+                  <span className="mr-poll-hist-q">{cp.question}</span>
+                  <span className="mr-poll-hist-n">{cp.totalVotes} {cp.totalVotes === 1 ? 'vote' : 'votes'}</span>
                 </div>
-              ))}
-            </div>
-            <div className="presenter-strip">
-              {cameraTracks.map((trackRef) => {
-                const p = trackRef.participant;
-                const isLocal = p.sid === localParticipant.localParticipant.sid;
-                const isTeacherTile = p.identity === String(meeting.teacher_id);
-                return (
-                  <div key={`${p.sid}-cam`} className={`strip-tile ${p.isSpeaking ? 'speaking' : ''}`}>
-                    {trackRef.publication?.track ? (
-                      <VideoTrack trackRef={trackRef} />
-                    ) : (
-                      <div className="video-placeholder">
-                        <div className="video-avatar small">{(p.name || '?')[0].toUpperCase()}</div>
+                <div className="mr-poll-rows">{pollBars(cp, cp.totalVotes)}</div>
+                {(cp.voters || []).length > 0 && (
+                  <button type="button" className="mr-link" onClick={() => setOpenPollDetails(prev => {
+                    const n = new Set(prev);
+                    if (n.has(cp.id)) n.delete(cp.id); else n.add(cp.id);
+                    return n;
+                  })}>{open ? 'Hide answers' : 'Show who answered what'}</button>
+                )}
+                {open && (
+                  <div className="mr-poll-voters">
+                    {cp.voters.map((v, vi) => (
+                      <div key={vi}>
+                        <span>{v.first_name} {v.last_name}</span>
+                        <b style={{ color: POLL_COLORS[v.option_index % POLL_COLORS.length] }}>{(cp.options || [])[v.option_index] || `Option ${v.option_index + 1}`}</b>
                       </div>
-                    )}
-                    <div className="strip-name">
-                      {isTeacherTile && <span className="host-badge">H</span>}
-                      {(p.name || '?').split(' ')[0]}{isLocal ? ' (You)' : ''}
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
+    </div>
+  );
+
+  /* ═══════════ RENDER ═══════════ */
+  return (
+    <ConfigProvider theme={{ token: { colorPrimary: '#059669', fontSize: 13, borderRadius: 8 } }}>
+      <div ref={rootRef} className={`mr${mobile ? ' is-mobile' : ''}${panel ? ' has-panel' : ''}`}>
+        {/* ── Top bar ── */}
+        <header className="mr-top">
+          <div className="mr-top-left">
+            <div className="mr-top-title">{meeting.title}</div>
+            <div className="mr-top-chips">
+              {isRecording && <span className="mr-rec"><i /> REC <Elapsed since={recStartedAt!} /></span>}
+              {isLocked && <span className="mr-chip">{Ic.lock} Locked</span>}
+              {meeting.batch_name && !mobile && <span className="mr-chip">{meeting.batch_name}</span>}
             </div>
           </div>
-        ) : (
-          /* ── GRID LAYOUT: equal tiles ──
-             Density class scales with participant count so 2 people get
-             huge tiles, 6 people share the screen evenly, 10+ pack tightly. */
-          <div className={`meeting-video-grid count-${cameraTracks.length <= 9 ? cameraTracks.length : 'many'}`}>
-            {cameraTracks.map((trackRef) => {
-              const p = trackRef.participant;
-              const isLocal = p.sid === localParticipant.localParticipant.sid;
-              const isTeacherTile = p.identity === String(meeting.teacher_id);
-              return (
-                <div key={`${p.sid}-${trackRef.source}`} className={`video-tile ${isTeacherTile ? 'teacher-tile' : ''} ${p.isSpeaking ? 'speaking' : ''}`}>
-                  {trackRef.publication?.track ? (
-                    <VideoTrack trackRef={trackRef} />
-                  ) : (
-                    <div className="video-placeholder">
-                      <div className="video-avatar">{(p.name || '?')[0].toUpperCase()}</div>
-                    </div>
-                  )}
-                  <div className="video-overlay">
-                    <span className="video-name">
-                      {isTeacherTile && <span className="host-badge">Host</span>}
-                      {p.name || 'Participant'}
-                      {isLocal && ' (You)'}
-                    </span>
-                    <div className="video-indicators">
-                      {p.isMicrophoneEnabled === false && <AudioMutedOutlined style={{ color: '#ef4444', fontSize: 12 }} />}
-                      {p.isCameraEnabled === false && <VideoCameraOutlined style={{ color: '#ef4444', fontSize: 12 }} />}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="mr-top-right">
+            {raisedHands.length > 0 && (
+              <button type="button" className="mr-hands-chip" onClick={() => openPanel('people', true)}>
+                {Ic.hand}<span>{raisedHands.length}</span>
+              </button>
+            )}
+            {tip(`Your connection: ${quality}`, <span className="mr-quality"><QualityBars q={quality} /></span>)}
+            <span className="mr-timer"><Elapsed since={joinedAt} /></span>
+            {isHost && !mobile && tip('Copy invite link', <button type="button" className="mr-icon-btn" onClick={copyInvite} aria-label="Copy invite link">{Ic.link}</button>)}
+            {canFullscreen && !mobile && tip(isFullscreen ? 'Exit full screen' : 'Full screen', (
+              <button type="button" className="mr-icon-btn" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}>
+                {isFullscreen ? Ic.shrink : Ic.expand}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        {reconnecting && <div className="mr-banner is-warn"><LoadingOutlined /> Connection lost — reconnecting…</div>}
+        {announceOpen && (
+          <div className="mr-banner is-input">
+            <span className="mr-banner-ic">{Ic.megaphone}</span>
+            <Input className="mr-input" autoFocus value={announceInput} maxLength={200} placeholder="Type an announcement for everyone…"
+              onChange={e => setAnnounceInput(e.target.value)} onPressEnter={sendAnnouncement} />
+            <Button size="small" type="primary" disabled={!announceInput.trim()} onClick={sendAnnouncement}>Send</Button>
+            <button type="button" className="mr-icon-btn is-sm" onClick={() => setAnnounceOpen(false)} aria-label="Cancel announcement">{Ic.close}</button>
           </div>
         )}
-      </div>
 
-      {/* Control Bar */}
-      <div className={`meeting-controls${isMobile ? ' meeting-controls--mobile' : ''}`}>
-        <div className="controls-left">
-          <TrackToggle source={Track.Source.Microphone} className="control-btn" />
-          <TrackToggle source={Track.Source.Camera} className="control-btn" />
-          <TrackToggle source={Track.Source.ScreenShare} className="control-btn screen-share-btn" data-mobile-secondary />
-        </div>
-        <div className="controls-center">
-          <Tooltip title="Chat">
-            <Badge count={unreadChatCount} size="small">
-              <button className="control-btn" onClick={() => {
-                const opening = !chatOpen;
-                setChatOpen(opening);
-                chatOpenRef.current = opening;
-                if (opening) setUnreadChatCount(0);
-              }}>
-                <MessageOutlined />
-              </button>
-            </Badge>
-          </Tooltip>
-          <Tooltip title="Participants">
-            <button className="control-btn" data-mobile-secondary onClick={() => setParticipantsOpen(!participantsOpen)}>
-              <TeamOutlined />
-            </button>
-          </Tooltip>
-          {isHost && (
-            <>
-              <Tooltip title={isLocked ? 'Unlock Meeting' : 'Lock Meeting'}>
-                <button className="control-btn" data-mobile-secondary onClick={handleToggleLock}>
-                  {isLocked ? <LockOutlined style={{ color: '#ef4444' }} /> : <UnlockOutlined />}
-                </button>
-              </Tooltip>
-              <Tooltip title={isRecording ? `Stop recording (${fmtRecTime(recordingElapsed)})` : 'Start recording'}>
-                <button
-                  className={`control-btn ${isRecording ? 'recording-btn-active' : 'recording-btn-idle'}`}
-                  data-mobile-secondary
-                  onClick={toggleRecording}
-                  disabled={recordingLoading}
-                  style={{
-                    minWidth: 'auto',
-                    padding: isRecording ? '0 12px' : '0 12px',
-                    background: isRecording ? 'rgba(239,68,68,0.22)' : 'rgba(239,68,68,0.12)',
-                    borderColor: '#ef4444',
-                    color: isRecording ? '#fca5a5' : '#ef4444',
-                    fontWeight: 700,
-                  }}
-                >
-                  {recordingLoading ? <LoadingOutlined /> : (
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{
-                        display: 'inline-block', width: 9, height: 9,
-                        borderRadius: '50%', background: '#ef4444',
-                        animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
-                      }} />
-                      <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4 }}>
-                        {isRecording ? fmtRecTime(recordingElapsed) : 'REC'}
-                      </span>
-                    </span>
-                  )}
-                </button>
-              </Tooltip>
-              <Tooltip title="Announcement">
-                <button className={`control-btn ${showAnnouncementInput ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setShowAnnouncementInput(!showAnnouncementInput)}>
-                  <SoundOutlined />
-                </button>
-              </Tooltip>
-              <Tooltip title="Create Poll">
-                <button className="control-btn" data-mobile-secondary onClick={async () => {
-                  const opening = !pollPanelOpen;
-                  setPollPanelOpen(opening);
-                  if (opening && isHost) {
-                    // Fetch poll history from backend
-                    try {
-                      const resp = await apiCall(`/meetings/${meeting.id}/polls`);
-                      if (resp.ok) {
-                        const polls = await resp.json();
-                        const closed = (polls || []).filter((p: Record<string, unknown>) => !p.is_active).map((p: Record<string, unknown>) => {
-                          let opts: string[] = [];
-                          const rawOpts = p.options;
-                          if (Array.isArray(rawOpts)) opts = rawOpts as string[];
-                          else if (typeof rawOpts === 'string') { try { opts = JSON.parse(rawOpts); } catch { opts = []; } }
-                          const votes = (p.votes || []) as { option_index: number; count: number }[];
-                          const tv = p.total_votes as { count: number } | undefined;
-                          return {
-                            id: p.id as number, question: p.question as string, options: opts, votes,
-                            voters: [] as { option_index: number; user_id: number; first_name: string; last_name: string }[],
-                            totalVotes: parseInt(String(tv?.count)) || votes.reduce((s, v) => s + (parseInt(String(v.count)) || 0), 0),
-                          };
-                        });
-                        if (closed.length > 0) {
-                          setClosedPolls(prev => {
-                            const existingIds = new Set(prev.map(pp => pp.id));
-                            const newOnes = closed.filter((c: { id: number }) => !existingIds.has(c.id));
-                            return [...prev, ...newOnes];
-                          });
-                        }
-                      }
-                    } catch { /* ignore */ }
-                  }
-                }}>
-                  <BarChartOutlined />
-                </button>
-              </Tooltip>
-            </>
-          )}
-          {activePoll && !isHost && (
-            <Tooltip title="Active Poll">
-              <button className="control-btn" data-mobile-secondary onClick={() => setPollPanelOpen(!pollPanelOpen)} style={{ color: '#f59e0b' }}>
-                <BarChartOutlined />
-              </button>
-            </Tooltip>
-          )}
-          <Tooltip title={handRaised ? 'Lower Hand' : 'Raise Hand'}>
-            <button className={`control-btn ${handRaised ? 'hand-raised-btn' : ''}`} onClick={toggleHandRaise}
-              style={handRaised ? { background: 'rgba(245,158,11,0.25)', borderColor: '#f59e0b', color: '#fbbf24' } : {}}>
-              <span style={{ fontSize: 16 }}>✋</span>
-            </button>
-          </Tooltip>
-          <Tooltip title="Emoji Reaction">
-            <div style={{ position: 'relative' }} data-mobile-secondary>
-              <button className="control-btn" onClick={() => setEmojiPickerOpen(!emojiPickerOpen)}>
-                <SmileOutlined />
-              </button>
-              {emojiPickerOpen && (
-                <div className="emoji-picker-popup">
-                  {EMOJI_OPTIONS.map(e => (
-                    <button key={e} className="emoji-pick-btn" onClick={() => sendEmoji(e)}>{e}</button>
-                  ))}
+        <div className="mr-body">
+          <main className="mr-main">
+            <MeetingStage
+              teacherIdentity={teacherIdentity}
+              raisedHands={handIds}
+              layout={layout}
+              pinned={pinned}
+              onPin={setPinned}
+              onShowPeople={() => openPanel('people', true)}
+              onStopShare={toggleShare}
+              aloneHint={isHost ? 'Your students will appear here as they join.' : 'Others will appear here as they join.'}
+            />
+
+            {whiteboardOpen && (
+              <div className="mr-wb">
+                <div className="mr-wb-head">
+                  <span className="mr-wb-title">{Ic.pen} Whiteboard</span>
+                  <span className="mr-wb-note">{isHost ? 'Only you see this board — present your screen to show it to the class.' : 'Personal board — only you see it.'}</span>
+                  <button type="button" className="mr-icon-btn is-light" onClick={() => setWhiteboardOpen(false)} aria-label="Close whiteboard">{Ic.close}</button>
                 </div>
-              )}
-            </div>
-          </Tooltip>
-          <Tooltip title="Whiteboard">
-            <button className={`control-btn ${whiteboardOpen ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setWhiteboardOpen(!whiteboardOpen)}>
-              <HighlightOutlined />
-            </button>
-          </Tooltip>
-          <Tooltip title="Audio & Video Settings">
-            <button className={`control-btn ${settingsOpen ? 'active-btn' : ''}`} data-mobile-secondary onClick={() => setSettingsOpen(!settingsOpen)}>
-              <SettingOutlined />
-            </button>
-          </Tooltip>
-
-          {/* Mobile-only "More" button — opens a drawer that mirrors the
-              secondary controls so the bottom bar stays clean. No Tooltip
-              wrapper here: on touch devices the tap triggers BOTH the
-              tooltip AND the click, which leaves a stale "More options"
-              bubble floating on top of the drawer. */}
-          {isMobile && (
-            <button
-              className="control-btn control-btn--more"
-              onClick={() => setMoreDrawerOpen(true)}
-              aria-label="More options"
-            >
-              <Badge dot={isRecording || pollPanelOpen || whiteboardOpen} color="red">
-                <EllipsisOutlined style={{ fontSize: 18 }} />
-              </Badge>
-            </button>
-          )}
-        </div>
-        <div className="controls-right">
-          {isHost ? (
-            <button className="control-btn end-btn" onClick={() => setShowEndConfirm(true)}>
-              <PhoneOutlined />{!isMobile && <> End</>}
-            </button>
-          ) : (
-            <button className="control-btn leave-btn" onClick={() => setShowLeaveConfirm(true)}>
-              <PhoneOutlined />{!isMobile && <> Leave</>}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Mobile More bottom sheet ──
-          Custom portal-rendered sheet (instead of antd Drawer) because:
-          1. The meeting room itself is mounted via createPortal to
-             document.body at z-index 9999 — antd's Drawer was rendering
-             inside that portal and inheriting pointer-event quirks.
-          2. We control the exact stacking and pointer-events here so
-             every action button reliably receives clicks.
-          3. The sheet escapes ALL parent containers via its own portal
-             to document.body. */}
-      {isMobile && moreDrawerOpen && createPortal(
-        <div
-          // Outer backdrop — tapping it closes the sheet, just like a
-          // typical bottom-sheet pattern.
-          onClick={() => setMoreDrawerOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(2, 6, 23, 0.55)',
-            zIndex: 100000, // above the meeting room (9999) and any side panels
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'flex-end',
-            animation: 'meeting-sheet-fade 0.18s ease-out',
-            // Make sure the entire backdrop is interactive — this was
-            // the key bug with the previous Drawer impl.
-            pointerEvents: 'auto',
-          }}
-        >
-          <div
-            // Stop propagation so taps inside the sheet don't bubble up
-            // to the backdrop (which would close it).
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'linear-gradient(180deg, #1e293b 0%, #0f172a 100%)',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              boxShadow: '0 -10px 40px rgba(0, 0, 0, 0.45)',
-              color: '#fff',
-              animation: 'meeting-sheet-slide 0.22s ease-out',
-              maxHeight: '85dvh',
-              overflowY: 'auto',
-              WebkitOverflowScrolling: 'touch',
-              pointerEvents: 'auto',
-            }}
-          >
-            {/* Header with grabber bar */}
-            <div style={{ padding: '12px 18px 0' }}>
-              <div style={{
-                width: 40, height: 4, borderRadius: 999,
-                background: 'rgba(255,255,255,0.25)',
-                margin: '0 auto 12px',
-              }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', letterSpacing: -0.2 }}>
-                  More options
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setMoreDrawerOpen(false)}
-                  aria-label="Close"
-                  style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    background: 'rgba(255,255,255,0.1)',
-                    color: '#fff', fontSize: 18, fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    pointerEvents: 'auto',
-                  }}
-                >
-                  ✕
-                </button>
+                <div className="mr-wb-body"><Whiteboard /></div>
               </div>
-            </div>
+            )}
 
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 10,
-              padding: '0 16px',
-              paddingBottom: 'calc(24px + env(safe-area-inset-bottom))',
-            }}>
-              {/* Screen share */}
-              {(() => {
-                const lp = localParticipant?.localParticipant;
-                const iAmSharing = !!lp?.isScreenShareEnabled;
-                const someoneElseSharing = hasScreenShare && !iAmSharing;
-                return (
-                  <DrawerAction
-                    icon={<ShareAltOutlined />}
-                    label={iAmSharing ? 'Stop My Share' : 'Share Screen'}
-                    active={iAmSharing}
-                    accent={iAmSharing ? '#ef4444' : '#22c55e'}
-                    onClick={async () => {
-                      setMoreDrawerOpen(false);
-                      if (!lp) return;
-                      if (someoneElseSharing && !isHost) {
-                        message.info('Another participant is sharing. Wait for them to stop first.');
-                        return;
-                      }
-                      // Mobile browsers don't support getDisplayMedia()
-                      // for tab/screen capture — Chrome on Android, Safari
-                      // on iOS, Firefox mobile all return undefined.
-                      // Without this check, lp.setScreenShareEnabled()
-                      // throws a generic error that gets swallowed and
-                      // the user sees nothing happen.
-                      if (!iAmSharing && (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== 'function')) {
-                        message.warning('Screen sharing is not supported on this device. Please use a desktop browser.');
-                        return;
-                      }
-                      try {
-                        await lp.setScreenShareEnabled(!iAmSharing);
-                      } catch (err: any) {
-                        console.error('Screen share toggle failed:', err);
-                        // NotAllowedError: user dismissed the picker —
-                        // not an actual error, no need to scare them.
-                        if (err?.name === 'NotAllowedError') return;
-                        message.error(err?.message || 'Could not toggle screen share');
-                      }
-                    }}
-                  />
-                );
-              })()}
-              {/* Host-only stop-other-share */}
-              {isHost && hasScreenShare && !localParticipant?.localParticipant?.isScreenShareEnabled && (
-                <DrawerAction
-                  icon={<ShareAltOutlined />}
-                  label="Stop Their Share"
-                  active={true}
-                  accent="#ef4444"
-                  onClick={() => {
-                    setMoreDrawerOpen(false);
-                    if (!socket) {
-                      message.error('Connection unavailable');
-                      return;
-                    }
-                    socket.emit('meeting:force-stop-share', {
-                      meetingId: meeting.id,
-                      userId: parseInt(localParticipant.localParticipant.identity),
-                    });
-                    message.success('Requested stop on screen share');
-                  }}
-                />
-              )}
-              <DrawerAction
-                icon={<TeamOutlined />}
-                label="Participants"
-                badgeCount={participants.length}
-                active={participantsOpen}
-                onClick={() => { setParticipantsOpen(true); setMoreDrawerOpen(false); }}
-              />
-              <DrawerAction
-                icon={<HighlightOutlined />}
-                label="Whiteboard"
-                active={whiteboardOpen}
-                onClick={() => { setWhiteboardOpen(!whiteboardOpen); setMoreDrawerOpen(false); }}
-              />
-              <DrawerAction
-                icon={<SmileOutlined />}
-                label="Reactions"
-                active={emojiPickerOpen}
-                onClick={() => { setEmojiPickerOpen(true); setMoreDrawerOpen(false); }}
-              />
-              <DrawerAction
-                icon={<SettingOutlined />}
-                label="Settings"
-                active={settingsOpen}
-                onClick={() => { setSettingsOpen(!settingsOpen); setMoreDrawerOpen(false); }}
-              />
-              {isHost && (
-                <>
-                  <DrawerAction
-                    icon={isLocked ? <LockOutlined /> : <UnlockOutlined />}
-                    label={isLocked ? 'Unlock' : 'Lock'}
-                    active={isLocked}
-                    accent={isLocked ? '#ef4444' : undefined}
-                    onClick={() => { handleToggleLock(); setMoreDrawerOpen(false); }}
-                  />
-                  <DrawerAction
-                    icon={<span style={{
-                      display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
-                      background: '#ef4444',
-                      animation: isRecording ? 'rec-pulse 1.4s ease-in-out infinite' : 'none',
-                    }} />}
-                    label={isRecording ? `Recording ${fmtRecTime(recordingElapsed)}` : 'Record'}
-                    active={isRecording}
-                    accent="#ef4444"
-                    loading={recordingLoading}
-                    onClick={() => { toggleRecording(); setMoreDrawerOpen(false); }}
-                  />
-                  <DrawerAction
-                    icon={<SoundOutlined />}
-                    label="Announce"
-                    active={showAnnouncementInput}
-                    onClick={() => { setShowAnnouncementInput(!showAnnouncementInput); setMoreDrawerOpen(false); }}
-                  />
-                  <DrawerAction
-                    icon={<BarChartOutlined />}
-                    label="Polls"
-                    active={pollPanelOpen}
-                    onClick={() => { setPollPanelOpen(!pollPanelOpen); setMoreDrawerOpen(false); }}
-                  />
-                </>
-              )}
-              {activePoll && !isHost && (
-                <DrawerAction
-                  icon={<BarChartOutlined />}
-                  label="Active Poll"
-                  accent="#f59e0b"
-                  onClick={() => { setPollPanelOpen(true); setMoreDrawerOpen(false); }}
-                />
-              )}
-            </div>
-          </div>
+            {announcement && (
+              <div className="mr-announce" role="status">
+                <span className="mr-announce-ic">{Ic.megaphone}</span>
+                <div><strong>Announcement</strong><p>{announcement}</p></div>
+                <button type="button" className="mr-icon-btn is-sm" onClick={() => setAnnouncement(null)} aria-label="Dismiss announcement">{Ic.close}</button>
+              </div>
+            )}
 
-          <style>{`
-            @keyframes meeting-sheet-fade {
-              from { opacity: 0; }
-              to   { opacity: 1; }
-            }
-            @keyframes meeting-sheet-slide {
-              from { transform: translateY(100%); }
-              to   { transform: translateY(0); }
-            }
-          `}</style>
-        </div>,
-        document.body
-      )}
+            {isHost && admissions.length > 0 && panel !== 'people' && (
+              <div className="mr-toast mr-toast-admit" role="status">
+                <span className="mr-person-avatar" style={{ background: colorFor(admissions[0].userName) }}>{initials(admissions[0].userName)}</span>
+                <div className="mr-toast-text">
+                  <strong>{admissions[0].userName}</strong>
+                  <span>wants to join{admissions.length > 1 ? ` · +${admissions.length - 1} more` : ''}</span>
+                </div>
+                <div className="mr-toast-actions">
+                  <Button size="small" onClick={() => (admissions.length > 1 ? openPanel('people', true) : handleDecline(admissions[0].userId))}>
+                    {admissions.length > 1 ? 'View all' : 'Deny'}
+                  </Button>
+                  <Button size="small" type="primary" onClick={() => handleAdmit(admissions[0].userId)}>Admit</Button>
+                </div>
+              </div>
+            )}
 
-      {/* ── Mobile-only Reactions picker ──
-          On desktop the emoji picker lives as a popup anchored to the
-          smile button in the control bar. That button has
-          [data-mobile-secondary] which CSS hides on mobile, so the
-          popup never paints on phones. We render a separate centered
-          bottom-sheet picker via portal so users on mobile can still
-          react. */}
-      {isMobile && emojiPickerOpen && createPortal(
-        <div
-          onClick={() => setEmojiPickerOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 100001,
-            background: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            animation: 'meeting-sheet-fade 180ms ease-out',
-          }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              width: '100%',
-              maxWidth: 520,
-              background: '#1f2937',
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              padding: '20px 16px calc(28px + env(safe-area-inset-bottom))',
-              boxShadow: '0 -10px 40px rgba(0,0,0,0.4)',
-              animation: 'meeting-sheet-slide 220ms cubic-bezier(0.32,0.72,0.34,1)',
-              pointerEvents: 'auto',
-            }}
-          >
-            <div style={{ width: 40, height: 4, borderRadius: 4, background: 'rgba(255,255,255,0.18)', margin: '0 auto 16px' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 8px 14px' }}>
-              <span style={{ color: '#fff', fontFamily: 'Manrope, Inter, sans-serif', fontWeight: 700, fontSize: 16 }}>
-                Send a reaction
-              </span>
-              <button
-                type="button"
-                onClick={() => setEmojiPickerOpen(false)}
-                aria-label="Close"
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  border: 'none', background: 'rgba(255,255,255,0.12)',
-                  color: '#fff', fontSize: 16, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                ✕
+            {chatToast && panel !== 'chat' && (
+              <button type="button" className="mr-toast mr-toast-chat" onClick={() => openPanel('chat', true)}>
+                <span className="mr-person-avatar" style={{ background: colorFor(chatToast.sender) }}>{initials(chatToast.sender)}</span>
+                <span className="mr-toast-text"><strong>{chatToast.sender}</strong><span>{chatToast.text}</span></span>
               </button>
-            </div>
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: 10,
-              padding: '0 8px',
-            }}>
-              {EMOJI_OPTIONS.map(e => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => sendEmoji(e)}
-                  style={{
-                    height: 56,
-                    borderRadius: 14,
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    background: 'rgba(255,255,255,0.06)',
-                    color: '#fff',
-                    fontSize: 28,
-                    cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'transform 120ms ease, background 120ms ease',
-                  }}
-                  onTouchStart={ev => { (ev.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
-                  onTouchEnd={ev => { (ev.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+            )}
 
-      {/* Chat Panel */}
-      {chatOpen && (
-        <div className="meeting-side-panel chat-panel">
-          <div className="side-panel-header">
-            <span>Chat</span>
-            <button onClick={() => { setChatOpen(false); chatOpenRef.current = false; }} className="side-panel-close">×</button>
-          </div>
-          <div className="chat-messages">
-            {chatMessages.map((msg, i) => (
-              <div key={i} className="chat-message">
-                <span className="chat-sender">{msg.sender}</span>
-                <span className="chat-time">{msg.time}</span>
-                <div className="chat-text">{msg.text}</div>
+            {emojis.map(e => (
+              <div key={e.id} className="mr-emoji" style={{ left: `${e.x}%` }} aria-hidden>
+                <span className="mr-emoji-glyph">{e.emoji}</span>
+                <span className="mr-emoji-name">{e.sender}</span>
               </div>
             ))}
-          </div>
-          <div className="chat-input-row">
-            <Input value={chatInput} onChange={e => setChatInput(e.target.value)} onPressEnter={sendChat}
-              placeholder="Type a message..." style={{ borderRadius: 8, flex: 1 }} />
-            <Button type="primary" onClick={sendChat} style={{ borderRadius: 8, background: '#4338ca' }}>Send</Button>
-          </div>
-        </div>
-      )}
 
-      {/* Participants Panel */}
-      {participantsOpen && (
-        <div className="meeting-side-panel participants-panel">
-          <div className="side-panel-header">
-            <span>Participants ({participants.length})</span>
-            <button onClick={() => setParticipantsOpen(false)} className="side-panel-close">×</button>
-          </div>
-          {/* Admission requests */}
-          {isHost && admissionRequests.length > 0 && (
-            <div className="admission-section">
-              <div className="admission-title">Waiting to join ({admissionRequests.length})</div>
-              {admissionRequests.map(req => (
-                <div key={req.userId} className="admission-item">
-                  <span className="admission-name">{req.userName}</span>
-                  <div className="admission-actions">
-                    <Button size="small" type="primary" onClick={() => handleAdmit(req.userId)}
-                      style={{ borderRadius: 6, background: '#22c55e', borderColor: '#22c55e', fontSize: 11 }}>Admit</Button>
-                    <Button size="small" danger onClick={() => handleDecline(req.userId)}
-                      style={{ borderRadius: 6, fontSize: 11 }}>Decline</Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="participants-list">
-            {participants.map(p => {
-              const isTeacherP = p.identity === String(meeting.teacher_id);
-              return (
-                <div key={p.sid} className="participant-item">
-                  <div className="participant-avatar">{(p.name || '?')[0].toUpperCase()}</div>
-                  <div className="participant-info">
-                    <span className="participant-name">{p.name || 'Participant'}</span>
-                    {isTeacherP && <Tag style={{ borderRadius: 4, fontSize: 9, background: '#eef2ff', color: '#4338ca', border: 'none', marginLeft: 4 }}>Host</Tag>}
-                  </div>
-                  <div className="participant-indicators">
-                    {p.isMicrophoneEnabled === false && <AudioMutedOutlined style={{ color: '#ef4444', fontSize: 11 }} />}
-                    {p.isCameraEnabled === false && <VideoCameraOutlined style={{ color: '#ef4444', fontSize: 11 }} />}
-                  </div>
-                  {isHost && !isTeacherP && (
-                    <Tooltip title="Remove">
-                      <Button type="text" size="small" danger icon={<UserDeleteOutlined />}
-                        onClick={async () => {
-                          Modal.confirm({
-                            title: 'Remove Participant',
-                            content: `Remove ${p.name} from the meeting?`,
-                            okText: 'Remove', okType: 'danger',
-                            onOk: () => apiCall(`/meetings/${meeting.id}/kick`, { method: 'POST', body: JSON.stringify({ user_id: parseInt(p.identity) }) }),
-                          });
-                        }}
-                        style={{ borderRadius: 4, width: 24, height: 24 }} />
-                    </Tooltip>
+            {connecting && <div className="mr-connecting"><LoadingOutlined /> Connecting to the class…</div>}
+          </main>
+
+          {panel && (
+            <aside className="mr-panel" aria-label="Side panel">
+              <div className="mr-panel-head">
+                <div className="mr-tabs" role="tablist">
+                  <button type="button" role="tab" aria-selected={panel === 'people'} className={panel === 'people' ? 'is-active' : ''} onClick={() => openPanel('people', true)}>
+                    People <b>{participants.length}</b>{admissions.length > 0 && <i className="mr-dot" />}
+                  </button>
+                  <button type="button" role="tab" aria-selected={panel === 'chat'} className={panel === 'chat' ? 'is-active' : ''} onClick={() => openPanel('chat', true)}>
+                    Chat{unread > 0 && <b className="is-alert">{unread}</b>}
+                  </button>
+                  {pollsVisible && (
+                    <button type="button" role="tab" aria-selected={panel === 'polls'} className={panel === 'polls' ? 'is-active' : ''} onClick={() => openPanel('polls', true)}>
+                      Polls{activePoll && <i className="mr-dot" />}
+                    </button>
                   )}
                 </div>
-              );
-            })}
-          </div>
+                <button type="button" className="mr-icon-btn" onClick={() => setPanel(null)} aria-label="Close panel">{Ic.close}</button>
+              </div>
+              {panel === 'people' && peopleView}
+              {panel === 'chat' && chatView}
+              {panel === 'polls' && pollsView}
+            </aside>
+          )}
         </div>
-      )}
 
-      {/* Poll Panel */}
-      {pollPanelOpen && (
-        <div className="meeting-side-panel poll-panel">
-          <div className="side-panel-header">
-            <span>📊 {isHost ? 'Polls' : 'Live Poll'}</span>
-            <button onClick={() => setPollPanelOpen(false)} className="side-panel-close">×</button>
+        {/* ── Control bar ── */}
+        <footer className="mr-bar">
+          <div className="mr-bar-side mr-bar-left">
+            {!r.isCompact && (
+              <>
+                <span className="mr-clock"><Clock /></span>
+                <span className="mr-bar-sep" />
+                <span className="mr-bar-title">{meeting.title}</span>
+              </>
+            )}
           </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
 
-            {/* ── STUDENT VIEW: voting UI ── */}
-            {!isHost && activePoll && (
-              <div style={{ padding: 16, borderRadius: 12, background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.15)' }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#f1f5f9', marginBottom: 12, lineHeight: 1.4 }}>
-                  {activePoll.question}
+          <div className="mr-bar-center">
+            <div className="mr-split mr-pop-anchor">
+              {tip(`${lp.isMicrophoneEnabled ? 'Turn off' : 'Turn on'} microphone (Ctrl + D)`, (
+                <button type="button" className={`mr-ctl${lp.isMicrophoneEnabled ? '' : ' is-off'}`} onClick={toggleMic}
+                  aria-label={lp.isMicrophoneEnabled ? 'Turn off microphone' : 'Turn on microphone'} aria-pressed={!lp.isMicrophoneEnabled}>
+                  {lp.isMicrophoneEnabled ? Ic.mic : Ic.micOff}
+                </button>
+              ))}
+              {!mobile && (
+                <button type="button" className={`mr-ctl-caret${menu === 'mic' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'mic' ? null : 'mic')} aria-label="Audio devices">
+                  {Ic.chevronUp}
+                </button>
+              )}
+              {menu === 'mic' && !mobile && (
+                <div className="mr-pop mr-pop-devices" role="menu">
+                  <DeviceMenu kind="audioinput" title="Microphone" storeKey="audioDeviceId" />
+                  {canPickSpeaker && <DeviceMenu kind="audiooutput" title="Speaker" storeKey="speakerDeviceId" />}
+                  <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
                 </div>
-                {myVote === null ? (
-                  /* Not voted yet — show clickable options */
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {(activePoll.options || []).map((opt, idx) => (
-                      <button key={idx} onClick={() => handleVotePoll(idx)}
-                        style={{
-                          padding: '12px 14px', borderRadius: 10, border: '1.5px solid rgba(99,102,241,0.3)',
-                          background: 'rgba(255,255,255,0.04)', color: '#e2e8f0', fontSize: 13, fontWeight: 600,
-                          cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
-                          display: 'flex', alignItems: 'center', gap: 10,
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(99,102,241,0.15)'; e.currentTarget.style.borderColor = '#6366f1'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; e.currentTarget.style.borderColor = 'rgba(99,102,241,0.3)'; }}
-                      >
-                        <span style={{ width: 24, height: 24, borderRadius: 6, background: 'rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#818cf8', flexShrink: 0 }}>
-                          {String.fromCharCode(65 + idx)}
-                        </span>
-                        {opt}
-                      </button>
-                    ))}
-                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 4, textAlign: 'center' }}>Click an option to vote</div>
-                  </div>
-                ) : (
-                  /* Already voted — just show confirmation, no results */
-                  <div style={{ textAlign: 'center', padding: '16px 0' }}>
-                    <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(34,197,94,0.1)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                      <CheckOutlined style={{ color: '#22c55e', fontSize: 22 }} />
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', marginBottom: 4 }}>Vote submitted!</div>
-                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Your response has been recorded</div>
-                    <div style={{ padding: '8px 14px', borderRadius: 8, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <CheckOutlined style={{ color: '#6366f1', fontSize: 11 }} />
-                      <span style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 600 }}>
-                        {(activePoll.options || [])[myVote] || 'Your choice'}
-                      </span>
-                    </div>
+              )}
+            </div>
+
+            <div className="mr-split mr-pop-anchor">
+              {tip(`${lp.isCameraEnabled ? 'Turn off' : 'Turn on'} camera (Ctrl + E)`, (
+                <button type="button" className={`mr-ctl${lp.isCameraEnabled ? '' : ' is-off'}`} onClick={toggleCam}
+                  aria-label={lp.isCameraEnabled ? 'Turn off camera' : 'Turn on camera'} aria-pressed={!lp.isCameraEnabled}>
+                  {lp.isCameraEnabled ? Ic.cam : Ic.camOff}
+                </button>
+              ))}
+              {!mobile && (
+                <button type="button" className={`mr-ctl-caret${menu === 'cam' ? ' is-open' : ''}`} onClick={() => setMenu(menu === 'cam' ? null : 'cam')} aria-label="Cameras">
+                  {Ic.chevronUp}
+                </button>
+              )}
+              {menu === 'cam' && !mobile && (
+                <div className="mr-pop mr-pop-devices" role="menu">
+                  <DeviceMenu kind="videoinput" title="Camera" storeKey="videoDeviceId" />
+                  <button type="button" className="mr-menu-link" onClick={() => { setMenu(null); setSettingsOpen(true); }}>{Ic.settings} Audio & video settings</button>
+                </div>
+              )}
+            </div>
+
+            {!mobile && tip(iAmSharing ? 'Stop presenting' : 'Present your screen', (
+              <button type="button" className={`mr-ctl${iAmSharing ? ' is-active' : ''}`} onClick={toggleShare} aria-label={iAmSharing ? 'Stop presenting' : 'Present your screen'}>
+                {iAmSharing ? Ic.shareStop : Ic.share}
+              </button>
+            ))}
+
+            {!mobile && (
+              <div className="mr-pop-anchor">
+                {tip('Send a reaction', (
+                  <button type="button" className={`mr-ctl${menu === 'reactions' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'reactions' ? null : 'reactions')} aria-label="Send a reaction">
+                    {Ic.smile}
+                  </button>
+                ))}
+                {menu === 'reactions' && (
+                  <div className="mr-pop mr-pop-emoji" role="menu">
+                    {EMOJIS.map(e => <button key={e} type="button" onClick={() => sendEmoji(e)} aria-label={`React ${e}`}>{e}</button>)}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Student: no active poll */}
-            {!isHost && !activePoll && (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>No active poll</div>
-                <div style={{ fontSize: 11, marginTop: 4 }}>The teacher will publish a poll when ready</div>
-              </div>
+            {tip(handRaised ? 'Lower your hand' : 'Raise your hand', (
+              <button type="button" className={`mr-ctl${handRaised ? ' is-hand' : ''}`} onClick={toggleHand} aria-label={handRaised ? 'Lower your hand' : 'Raise your hand'} aria-pressed={handRaised}>
+                {Ic.hand}
+              </button>
+            ))}
+
+            {mobile && (
+              <button type="button" className={`mr-ctl${panel === 'chat' ? ' is-active' : ''}`} onClick={() => openPanel('chat')} aria-label="Chat">
+                <Badge count={unread} size="small" offset={[4, -4]}>{Ic.chat}</Badge>
+              </button>
             )}
 
-            {/* ── TEACHER VIEW: results + create form ── */}
-            {isHost && activePoll && (
-              <div style={{ padding: 12, borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)', marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#818cf8', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>Active Poll</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9', marginBottom: 10 }}>{activePoll.question}</div>
-                {(activePoll.options || []).map((opt, idx) => {
-                  const voteCount = parseInt(String((activePoll.votes || []).find(v => v.option_index === idx)?.count || 0));
-                  const totalVotes = (activePoll.votes || []).reduce((s, v) => s + (parseInt(String(v.count)) || 0), 0);
-                  const pct = totalVotes > 0 ? Math.round((voteCount / totalVotes) * 100) : 0;
-                  return (
-                    <div key={idx} style={{ padding: '6px 10px', borderRadius: 8, marginBottom: 3, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', position: 'relative', overflow: 'hidden' }}>
-                      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, background: 'rgba(99,102,241,0.12)', transition: 'width 0.3s' }} />
-                      <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 12, color: '#e2e8f0' }}>{opt}</span>
-                        <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 700 }}>{voteCount} ({pct}%)</span>
-                      </div>
-                    </div>
-                  );
-                })}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                  <span style={{ fontSize: 10, color: '#64748b' }}>
-                    {(activePoll.votes || []).reduce((s, v) => s + (parseInt(String(v.count)) || 0), 0)} total votes
-                  </span>
-                  <Button size="small" danger onClick={handleClosePoll} style={{ borderRadius: 6, fontSize: 11 }}>Close Poll</Button>
-                </div>
-              </div>
-            )}
-
-            {/* Create poll (host only) */}
-            {isHost && (
-              <div style={{ padding: 12, borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>Create New Poll</div>
-                <Input value={pollQuestion} onChange={e => setPollQuestion(e.target.value)} placeholder="Question..." style={{ borderRadius: 6, marginBottom: 8, background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }} />
-                {pollOptions.map((opt, idx) => (
-                  <Input key={idx} value={opt} onChange={e => { const n = [...pollOptions]; n[idx] = e.target.value; setPollOptions(n); }}
-                    placeholder={`Option ${idx + 1}`} style={{ borderRadius: 6, marginBottom: 4, background: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)', color: '#e2e8f0' }} />
-                ))}
-                <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                  <Button size="small" icon={<PlusOutlined />} onClick={() => setPollOptions([...pollOptions, ''])}
-                    style={{ borderRadius: 6, fontSize: 11, color: '#94a3b8', borderColor: 'rgba(255,255,255,0.1)' }}>Add Option</Button>
-                  <Button size="small" type="primary" onClick={handleCreatePoll}
-                    disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}
-                    style={{ borderRadius: 6, fontSize: 11, background: '#6366f1', borderColor: '#6366f1' }}>Publish</Button>
-                </div>
-              </div>
-            )}
-
-            {/* Closed polls history (teacher only) */}
-            {isHost && closedPolls.length > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Poll History</div>
-                {closedPolls.map((cp) => {
-                  const isExpanded = expandedPollDetails.has(cp.id);
-                  return (
-                    <div key={cp.id} style={{ padding: 10, borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', flex: 1 }}>{cp.question}</div>
-                        <span style={{ fontSize: 9, color: '#64748b', background: 'rgba(255,255,255,0.06)', padding: '2px 6px', borderRadius: 4, flexShrink: 0 }}>
-                          {cp.totalVotes} votes
-                        </span>
-                      </div>
-                      {/* Horizontal bar chart — all bars proportional */}
-                      <div style={{ display: 'flex', gap: 3, height: 28, borderRadius: 6, overflow: 'hidden', marginBottom: 6 }}>
-                        {(cp.options || []).map((_opt, idx) => {
-                          const voteCount = parseInt(String((cp.votes || []).find(v => v.option_index === idx)?.count || 0));
-                          const pct = cp.totalVotes > 0 ? Math.round((voteCount / cp.totalVotes) * 100) : 0;
-                          const colors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
-                          const bg = colors[idx % colors.length];
-                          if (pct === 0) return null;
-                          return (
-                            <div key={idx} style={{ flex: pct, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: pct > 8 ? 'auto' : 0, transition: 'flex 0.3s' }}>
-                              {pct >= 15 && <span style={{ fontSize: 9, color: '#fff', fontWeight: 700 }}>{pct}%</span>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {/* Legend */}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
-                        {(cp.options || []).map((opt, idx) => {
-                          const voteCount = parseInt(String((cp.votes || []).find(v => v.option_index === idx)?.count || 0));
-                          const pct = cp.totalVotes > 0 ? Math.round((voteCount / cp.totalVotes) * 100) : 0;
-                          const colors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
-                          return (
-                            <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 2, background: colors[idx % colors.length], flexShrink: 0 }} />
-                              <span style={{ fontSize: 10, color: '#cbd5e1' }}>{opt}</span>
-                              <span style={{ fontSize: 9, color: '#64748b', fontWeight: 700 }}>{voteCount} ({pct}%)</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {/* More Details button */}
-                      <button
-                        onClick={() => setExpandedPollDetails(prev => { const n = new Set(prev); if (n.has(cp.id)) n.delete(cp.id); else n.add(cp.id); return n; })}
-                        style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: 10, fontWeight: 700, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
-                      >
-                        {isExpanded ? '▲ Hide Details' : '▼ More Details — Participant Responses'}
+            <div className="mr-pop-anchor">
+              {tip('More options', (
+                <button type="button" className={`mr-ctl${menu === 'more' ? ' is-active' : ''}`} onClick={() => setMenu(menu === 'more' ? null : 'more')} aria-label="More options">
+                  <Badge dot={isRecording || (mobile && admissions.length > 0)} offset={[-2, 2]}>{Ic.more}</Badge>
+                </button>
+              ))}
+              {menu === 'more' && !mobile && (
+                <div className="mr-pop mr-pop-more" role="menu">
+                  <div className="mr-menu-title">Layout</div>
+                  <div className="mr-layouts">
+                    {layouts.map(l => (
+                      <button key={l.key} type="button" className={layout === l.key ? 'is-active' : ''} onClick={() => chooseLayout(l.key)}>
+                        {l.icon}<span>{l.label}</span>
                       </button>
-                      {/* Expanded: participant list with their answers */}
-                      {isExpanded && (
-                        <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', marginBottom: 6 }}>Participant Responses</div>
-                          {(cp.voters || []).length === 0 ? (
-                            <div style={{ fontSize: 10, color: '#64748b', fontStyle: 'italic' }}>No votes recorded</div>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              {(cp.voters || []).map((v, vi) => {
-                                const colors = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
-                                const optColor = colors[v.option_index % colors.length];
-                                return (
-                                  <div key={vi} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.02)' }}>
-                                    <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 600 }}>{v.first_name} {v.last_name}</span>
-                                    <span style={{ fontSize: 10, color: optColor, fontWeight: 700, background: `${optColor}15`, padding: '1px 8px', borderRadius: 4 }}>
-                                      {(cp.options || [])[v.option_index] || `Option ${v.option_index + 1}`}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                    ))}
+                  </div>
+                  <div className="mr-menu-sep" />
+                  {moreItems.map(it => (
+                    <button key={it.key} type="button" className={`mr-menu-item${it.active ? ' is-active' : ''}${it.danger ? ' is-danger' : ''}`}
+                      onClick={() => { setMenu(null); it.onClick(); }}>
+                      <span className="mr-menu-ic">{it.icon}</span>
+                      <span className="mr-menu-label">{it.label}</span>
+                      {it.hint && <span className="mr-menu-hint">{it.hint}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mr-pop-anchor">
+              {tip(isHost ? 'Leave or end the class' : 'Leave the class', (
+                <button type="button" className="mr-ctl mr-ctl-leave" aria-label={isHost ? 'Leave or end the class' : 'Leave the class'}
+                  onClick={() => (isHost ? setMenu(menu === 'leave' ? null : 'leave') : setConfirm('leave'))}>
+                  {Ic.leave}
+                </button>
+              ))}
+              {menu === 'leave' && (
+                <div className="mr-pop mr-pop-leave" role="menu">
+                  <button type="button" onClick={() => { setMenu(null); setConfirm('leave'); }}>
+                    <strong>Leave class</strong><span>The class keeps running without you</span>
+                  </button>
+                  <button type="button" className="is-danger" onClick={() => { setMenu(null); setConfirm('end'); }}>
+                    <strong>End class for everyone</strong><span>Everyone is disconnected</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="mr-bar-side mr-bar-right">
+            {!mobile && (
+              <>
+                {panelButton('people', Ic.people, 'People', (
+                  <span className="mr-ctl-count">{participants.length}{admissions.length > 0 && <i className="mr-dot" />}</span>
+                ))}
+                {panelButton('chat', Ic.chat, 'Chat', unread > 0 ? <span className="mr-ctl-badge">{unread > 9 ? '9+' : unread}</span> : undefined)}
+                {pollsVisible && panelButton('polls', Ic.poll, activePoll ? 'Live poll' : 'Polls', activePoll ? <i className="mr-dot mr-ctl-dot" /> : undefined)}
+              </>
             )}
           </div>
-        </div>
-      )}
+        </footer>
 
-      {/* Device Settings Panel */}
-      {settingsOpen && (
-        <div className="meeting-side-panel settings-panel">
-          <div className="side-panel-header">
-            <span>⚙️ Audio & Video</span>
-            <button onClick={() => setSettingsOpen(false)} className="side-panel-close">×</button>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: 12 }}>
-            <DeviceSettings compact dark />
-          </div>
-        </div>
-      )}
-
-      {/* Whiteboard */}
-      {whiteboardOpen && (
-        <div className="whiteboard-overlay">
-          <div className="whiteboard-header">
-            <span style={{ fontWeight: 700, fontSize: 14, color: '#1e293b' }}>📝 Whiteboard</span>
-            <button onClick={() => setWhiteboardOpen(false)} className="side-panel-close" style={{ color: '#475569', fontSize: 20 }}>×</button>
-          </div>
-          <div className="whiteboard-container">
-            <Whiteboard />
-          </div>
-        </div>
-      )}
-
-      {/* End Meeting Confirmation */}
-      {showEndConfirm && (
-        <div className="meeting-confirm-overlay">
-          <div className="meeting-confirm-dialog">
-            <div style={{ fontSize: 36, marginBottom: 12 }}>{actionLoading ? '⏳' : '⚠️'}</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>
-              {actionLoading ? 'Ending Meeting...' : 'End Meeting?'}
+        {/* ── Mobile sheets ── */}
+        {mobile && menu === 'more' && (
+          <div className="mr-sheet-backdrop" onClick={() => setMenu(null)}>
+            <div className="mr-sheet" onClick={e => e.stopPropagation()} role="dialog" aria-label="More options">
+              <div className="mr-sheet-grab" />
+              <div className="mr-sheet-head">
+                <strong>More options</strong>
+                <button type="button" className="mr-icon-btn" onClick={() => setMenu(null)} aria-label="Close">{Ic.close}</button>
+              </div>
+              <div className="mr-layouts">
+                {layouts.map(l => (
+                  <button key={l.key} type="button" className={layout === l.key ? 'is-active' : ''} onClick={() => chooseLayout(l.key)}>
+                    {l.icon}<span>{l.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mr-sheet-grid">
+                {moreItems.map(it => (
+                  <button key={it.key} type="button" className={`mr-sheet-item${it.active ? ' is-active' : ''}${it.danger ? ' is-danger' : ''}`}
+                    onClick={() => { setMenu(null); it.onClick(); }}>
+                    <span className="mr-sheet-ic"><Badge count={it.badge} size="small" offset={[6, -4]}>{it.icon}</Badge></span>
+                    <span>{it.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
-              {actionLoading ? 'Closing all connections and saving attendance...' : <>This will end the meeting for <strong>all participants</strong>. Everyone will be disconnected.</>}
+          </div>
+        )}
+        {mobile && menu === 'reactions' && (
+          <div className="mr-sheet-backdrop" onClick={() => setMenu(null)}>
+            <div className="mr-sheet" onClick={e => e.stopPropagation()} role="dialog" aria-label="Send a reaction">
+              <div className="mr-sheet-grab" />
+              <div className="mr-sheet-head">
+                <strong>Send a reaction</strong>
+                <button type="button" className="mr-icon-btn" onClick={() => setMenu(null)} aria-label="Close">{Ic.close}</button>
+              </div>
+              <div className="mr-emoji-grid">
+                {EMOJIS.map(e => <button key={e} type="button" onClick={() => sendEmoji(e)} aria-label={`React ${e}`}>{e}</button>)}
+              </div>
             </div>
-            {!actionLoading && (
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <Button size="large" onClick={() => setShowEndConfirm(false)} style={{ borderRadius: 10, height: 42, paddingInline: 24, fontWeight: 600 }}>
-                  Cancel
-                </Button>
-                <Button size="large" danger type="primary" loading={actionLoading} onClick={async () => { setActionLoading(true); await onEnd(); }} style={{ borderRadius: 10, height: 42, paddingInline: 24, fontWeight: 700, background: '#ef4444', borderColor: '#ef4444' }}>
-                  End Meeting
+          </div>
+        )}
+
+        {settingsOpen && <DeviceSettings onClose={() => setSettingsOpen(false)} />}
+
+        {confirm && (
+          <div className="mr-dialog-backdrop" onClick={() => !busy && setConfirm(null)}>
+            <div className="mr-dialog mr-confirm" role="alertdialog" aria-modal="true" onClick={e => e.stopPropagation()}>
+              <span className={`mr-confirm-ic${confirm === 'end' ? ' is-danger' : ''}`}>{Ic.leave}</span>
+              <h3>{confirm === 'end' ? 'End the class for everyone?' : 'Leave the class?'}</h3>
+              <p>
+                {confirm === 'end'
+                  ? 'Everyone will be disconnected and attendance will be saved.'
+                  : 'You can rejoin from Live meetings while the class is running.'}
+              </p>
+              <div className="mr-confirm-actions">
+                <Button onClick={() => setConfirm(null)} disabled={busy}>Cancel</Button>
+                <Button type="primary" danger loading={busy} onClick={async () => { setBusy(true); await (confirm === 'end' ? onEnd() : onLeave()); }}>
+                  {confirm === 'end' ? 'End class' : 'Leave'}
                 </Button>
               </div>
-            )}
-            {actionLoading && <Spin indicator={<LoadingOutlined style={{ fontSize: 24, color: '#6366f1' }} />} />}
-          </div>
-        </div>
-      )}
-
-      {/* Leave Meeting Confirmation */}
-      {showLeaveConfirm && (
-        <div className="meeting-confirm-overlay">
-          <div className="meeting-confirm-dialog">
-            <div style={{ fontSize: 36, marginBottom: 12 }}>👋</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: '#1e293b', marginBottom: 6 }}>Leave Meeting?</div>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
-              You will be disconnected from the meeting. The meeting will continue for other participants.
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-              <Button size="large" onClick={() => setShowLeaveConfirm(false)} disabled={actionLoading} style={{ borderRadius: 10, height: 42, paddingInline: 24, fontWeight: 600 }}>
-                Stay
-              </Button>
-              <Button size="large" type="primary" loading={actionLoading} onClick={async () => { setActionLoading(true); await onLeave(); }} style={{ borderRadius: 10, height: 42, paddingInline: 24, fontWeight: 700, background: '#f59e0b', borderColor: '#f59e0b' }}>
-                Leave
-              </Button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </ConfigProvider>
   );
 };
 

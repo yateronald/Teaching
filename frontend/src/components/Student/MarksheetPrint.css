@@ -1,0 +1,325 @@
+/* ══════════════════════════════════════════
+   PRINTABLE MARKSHEET — "Academic Report"
+   Hidden on screen. When printing, everything in <body> except the
+   portal root is hidden, so only this A4 document is printed / saved.
+══════════════════════════════════════════ */
+
+.msp-root { display: none; }
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body:has(> .msp-root) > *:not(.msp-root) { display: none !important; }
+  .msp-root { display: block; }
+}
+
+.msp {
+  --navy: #14224f;
+  --navy-soft: #2a3a6b;
+  --wine: #7c1d34;
+  --red: #b3262d;
+  --gold: #b8955a;
+  --gold-deep: #94733a;
+  --gold-light: #e6d6b0;
+  --paper: #faf7f1;
+  --ink: #1b2233;
+  --muted: #6b7080;
+  --line: #e7e2d7;
+
+  position: relative;
+  padding-left: 6mm;
+  color: var(--ink);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.msp-serif { font-family: 'Playfair Display', Georgia, 'Times New Roman', serif; }
+
+.msp-tone-good { --tone: #2f7a45; --tone-bg: #e6f2e8; }
+.msp-tone-fair { --tone: #93700f; --tone-bg: #f6eed6; }
+.msp-tone-weak { --tone: #b25d1c; --tone-bg: #f8e9da; }
+.msp-tone-fail { --tone: #a3222b; --tone-bg: #f7e3e3; }
+
+/* ── Page decorations (position: fixed repeats them on every printed page) ── */
+.msp-edge {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 2.4mm;
+}
+.msp-edge i { flex: 1; }
+.msp-edge i:nth-child(1) { background: var(--navy); }
+.msp-edge i:nth-child(2) { background: #fff; }
+.msp-edge i:nth-child(3) { background: var(--red); }
+
+.msp-watermark {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 150mm;
+  height: 150mm;
+  transform: translate(-50%, -50%);
+  fill: none;
+  stroke: var(--navy);
+  stroke-width: 0.6;
+  opacity: 0.06;
+  pointer-events: none;
+}
+.msp > :not(.msp-edge):not(.msp-watermark) { position: relative; }
+
+/* ── Letterhead band ── */
+.msp-band {
+  display: flex;
+  align-items: center;
+  gap: 5mm;
+  padding: 4mm 6mm;
+  border-radius: 2.5mm;
+  background: var(--navy);
+  box-shadow: inset 0 0 0 1.2mm var(--navy), inset 0 0 0 1.5mm var(--gold);
+  color: #fff;
+}
+.msp-band-logo { flex-shrink: 0; padding: 1.2mm 2mm; border-radius: 1.8mm; background: #fff; }
+/* The logo file has a lot of transparent margin: crop to the artwork. */
+.msp-logo { position: relative; width: 26mm; height: 13.5mm; overflow: hidden; }
+.msp-logo img { position: absolute; left: -4.4mm; top: -10.8mm; width: 34.6mm; max-width: none; }
+.msp-band-name { font-size: 15pt; font-weight: 700; line-height: 1.1; letter-spacing: 0.01em; }
+.msp-band-name span { color: var(--gold-light); }
+.msp-band-tag { margin-top: 1.2mm; font-size: 6.8pt; letter-spacing: 0.2em; text-transform: uppercase; color: rgba(255, 255, 255, 0.72); }
+.msp-band-right { margin-left: auto; text-align: right; white-space: nowrap; }
+.msp-band-kicker { font-size: 6.8pt; letter-spacing: 0.26em; text-transform: uppercase; color: var(--gold-light); }
+.msp-band-ref { margin-top: 1mm; font-size: 10pt; font-weight: 600; letter-spacing: 0.04em; }
+
+.msp-tricolor { display: flex; height: 0.9mm; margin: 1.4mm 2.5mm 0; }
+.msp-tricolor i { flex: 1; }
+.msp-tricolor i:nth-child(1) { background: var(--navy); }
+.msp-tricolor i:nth-child(2) { background: var(--line); }
+.msp-tricolor i:nth-child(3) { background: var(--red); }
+
+/* ── Hero ── */
+.msp-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40mm;
+  align-items: center;
+  gap: 8mm;
+  margin: 7mm 0 6mm;
+  break-inside: avoid;
+}
+.msp-kicker { font-size: 7.5pt; font-weight: 600; letter-spacing: 0.26em; text-transform: uppercase; color: var(--gold-deep); }
+.msp-hero h1 { margin: 2mm 0 0; font-size: 28pt; font-weight: 700; line-height: 1.05; letter-spacing: -0.01em; color: var(--navy); }
+.msp-hero-sub { margin: 2.5mm 0 0; font-size: 12pt; font-style: italic; font-weight: 500; color: var(--wine); }
+.msp-hero-sub strong { font-style: normal; font-weight: 700; }
+.msp-hero-rule { width: 24mm; margin-top: 4mm; border-top: 1.2pt solid var(--gold); }
+
+/* Grade seal */
+.msp-seal { display: block; width: 40mm; height: 40mm; }
+.msp-seal-edge { fill: var(--navy); }
+.msp-seal-ring { fill: none; stroke: var(--gold); stroke-width: 1.2; }
+.msp-seal-text {
+  fill: var(--gold-light);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+.msp-seal-disc { fill: #fff; }
+.msp-seal-inner { fill: none; stroke: var(--gold); stroke-width: 0.8; }
+.msp-seal-grade {
+  fill: var(--tone, var(--navy));
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 50px;
+  font-weight: 700;
+}
+.msp-seal-caption {
+  fill: var(--muted);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* ── Details strip ── */
+.msp-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr 0.5fr 1.35fr 1.75fr;
+  margin: 0;
+  border-top: 1pt solid var(--navy);
+  border-bottom: 0.6pt solid var(--line);
+  break-inside: avoid;
+}
+.msp-info > div { min-width: 0; padding: 3mm 3.5mm; border-left: 0.6pt solid var(--line); }
+.msp-info > div:first-child { padding-left: 0; border-left: 0; }
+.msp-info dt { font-size: 6.5pt; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.msp-info dd { margin: 1mm 0 0; font-size: 9.2pt; font-weight: 600; color: var(--ink); }
+.msp-nowrap { white-space: nowrap; }
+
+/* ── Sections ── */
+.msp-sec { display: flex; align-items: baseline; gap: 3mm; margin: 8mm 0 3.5mm; break-after: avoid; }
+.msp-sec-no { font-family: 'Playfair Display', Georgia, serif; font-size: 11pt; font-style: italic; font-weight: 500; color: var(--gold-deep); }
+.msp-sec h2 { margin: 0; font-size: 15pt; font-weight: 700; color: var(--navy); }
+.msp-sec::after { content: ''; flex: 1; border-top: 0.6pt solid var(--gold); transform: translateY(-1mm); }
+
+/* Metrics */
+.msp-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); break-inside: avoid; }
+.msp-metric { min-width: 0; padding: 0 4mm; border-left: 0.6pt solid var(--gold-light); }
+.msp-metric:first-child { padding-left: 0; border-left: 0; }
+.msp-metric-label { font-size: 6.6pt; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.msp-metric-value {
+  margin-top: 1mm;
+  font-size: 19pt;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--navy);
+  white-space: nowrap;
+}
+.msp-metric-value small { font-size: 10pt; font-weight: 600; color: var(--muted); }
+.msp-metric-sub { font-size: 7.5pt; color: var(--muted); }
+
+/* ── Assessment table ── */
+.msp-table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.msp-table thead { display: table-header-group; }
+.msp-table tfoot { display: table-row-group; }
+.msp-table tr { break-inside: avoid; }
+.msp-table th {
+  padding: 2mm 3mm;
+  border-bottom: 2.4pt double var(--gold);
+  font-size: 6.8pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-align: left;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.msp-table td { padding: 2.1mm 3mm; border-bottom: 0.6pt solid var(--line); vertical-align: middle; }
+.msp-table tbody tr:nth-child(even) td { background: rgba(250, 247, 241, 0.85); }
+.msp-table .msp-c { text-align: center; white-space: nowrap; }
+.msp-table .msp-r { text-align: right; white-space: nowrap; }
+.msp-table .msp-idx { width: 9mm; text-align: center; color: var(--gold-deep); }
+.msp-table td.msp-idx { font-style: italic; }
+.msp-eval { font-weight: 500; }
+
+.msp-score { display: inline-flex; align-items: center; gap: 2mm; }
+.msp-score-track { width: 14mm; height: 1.2mm; overflow: hidden; border-radius: 1mm; background: var(--line); }
+.msp-score-track > span { display: block; height: 100%; background: var(--tone); }
+.msp-score b { min-width: 11mm; font-weight: 600; text-align: right; }
+
+.msp-grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 7.5mm;
+  height: 7.5mm;
+  border: 0.8pt solid var(--tone);
+  border-radius: 50%;
+  background: var(--tone-bg);
+  color: var(--tone);
+  font-size: 8.5pt;
+  font-weight: 700;
+}
+.msp-grade-pending {
+  width: auto;
+  padding: 0 2.5mm;
+  border: 0.6pt dashed #aab0bd;
+  border-radius: 4mm;
+  background: none;
+  color: var(--muted);
+  font-size: 7.5pt;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.msp-table tfoot td {
+  padding: 3mm;
+  border-bottom: 0;
+  background: var(--navy);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 7pt;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.msp-total { display: flex; align-items: baseline; justify-content: space-between; gap: 6mm; }
+.msp-table tfoot td span {
+  margin-left: 2mm;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 11pt;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: #fff;
+}
+
+.msp-empty { padding: 6mm; border: 0.6pt dashed var(--gold-light); text-align: center; color: var(--muted); }
+.msp-note { margin: 2.5mm 0 0; font-size: 8pt; font-style: italic; color: var(--muted); }
+
+/* ── Grading scale ── */
+.msp-scalebox { position: relative; padding-top: 6mm; break-inside: avoid; }
+.msp-marker {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 7pt;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  color: var(--navy);
+}
+.msp-marker::after {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 0.5mm auto 0;
+  border-left: 1.3mm solid transparent;
+  border-right: 1.3mm solid transparent;
+  border-top: 1.6mm solid var(--navy);
+}
+.msp-scalebar { display: flex; height: 7mm; overflow: hidden; border-radius: 1.2mm; }
+.msp-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.4mm;
+  min-width: 0;
+  border-left: 0.8pt solid #fff;
+  background: var(--tone-bg);
+  color: var(--tone);
+  font-size: 7pt;
+  white-space: nowrap;
+}
+.msp-seg:first-child { border-left: 0; }
+.msp-seg strong { font-size: 9.5pt; }
+.msp-scale-foot { position: relative; height: 4mm; margin-top: 1mm; font-size: 6.5pt; color: var(--muted); }
+.msp-scale-foot span { position: absolute; top: 0; }
+.msp-scale-foot span:nth-child(1) { left: 0; }
+.msp-scale-foot span:nth-child(2) { transform: translateX(-50%); }
+.msp-scale-foot span:nth-child(3) { right: 0; }
+
+/* ── Footer ── */
+.msp-foot { margin-top: 9mm; break-inside: avoid; }
+.msp-foot-rule { display: flex; align-items: center; gap: 3mm; }
+.msp-foot-rule::before,
+.msp-foot-rule::after { content: ''; flex: 1; border-top: 0.6pt solid var(--gold); }
+.msp-flag { display: inline-flex; width: 7.5mm; height: 2.4mm; border: 0.4pt solid var(--gold-light); }
+.msp-flag i { flex: 1; }
+.msp-flag i:nth-child(1) { background: var(--navy); }
+.msp-flag i:nth-child(2) { background: #fff; }
+.msp-flag i:nth-child(3) { background: var(--red); }
+.msp-foot-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6mm;
+  margin-top: 2mm;
+  font-size: 6.6pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}

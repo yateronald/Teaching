@@ -1,0 +1,575 @@
+# Plan d'Implémentation : Plateforme SaaS Multi-Tenant d'Enseignement du Français
+
+## Vue d'Ensemble
+
+Ce plan décompose l'implémentation de la plateforme SaaS multi-tenant en étapes incrémentales. Chaque tâche construit sur les précédentes, en commençant par l'infrastructure (monorepo, base de données, multi-tenant) puis les modules métier (auth, utilisateurs, lots, quiz, etc.), le frontend, et enfin la sécurité et les tâches planifiées. Le langage d'implémentation est TypeScript sur toute la stack (NestJS backend, Next.js frontend).
+
+## Tâches
+
+- [x] 1. Scaffolding du monorepo et configuration de base
+  - [x] 1.1 Initialiser la structure monorepo avec les dossiers `apps/backend`, `apps/frontend`, `packages/shared`
+    - Configurer le workspace npm/pnpm avec les dépendances partagées
+    - Initialiser le projet NestJS dans `apps/backend` avec TypeScript strict
+    - Initialiser le projet Next.js App Router dans `apps/frontend` avec TypeScript
+    - Créer le package `packages/shared` avec les types, constantes et validateurs partagés
+    - _Exigences : 18.6_
+  - [x] 1.2 Configurer les dépendances et outils de développement
+    - Installer et configurer ESLint, Prettier, tsconfig partagé
+    - Configurer les scripts de build et dev dans le workspace root
+    - _Exigences : 18.1, 18.3_
+  - [x] 1.3 Définir les types et constantes partagés dans `packages/shared`
+    - Créer les enums partagés : `PlanType`, `TenantStatus`, `UserRole`, `Locale`, `DemoRequestStatus`
+    - Créer les interfaces partagées : `Tenant`, `User`, `Batch`, `Quiz`, etc.
+    - Créer les constantes : niveaux de français (A1-C2), limites de fichiers, durées de cache
+    - _Exigences : 18.6, 2.1, 5.2_
+
+- [x] 2. Configuration de la base de données et Prisma multi-schéma
+  - [x] 2.1 Créer le schéma Prisma public (`prisma/schemas/public.prisma`)
+    - Définir les modèles : `SuperAdmin`, `Tenant`, `Subscription`, `Plan`, `DemoRequest`, `AuditLog`
+    - Configurer les enums : `PlanType`, `TenantStatus`, `SubscriptionInterval`, `Locale`, `DemoRequestStatus`
+    - Ajouter les index sur les colonnes fréquemment interrogées (slug, status, dates)
+    - _Exigences : 1.3, 2.1, 14.2, 21.5_
+  - [x] 2.2 Créer le schéma Prisma tenant (`prisma/schemas/tenant.prisma`)
+    - Définir les modèles : `User`, `Batch`, `BatchStudent`, `BatchTimetable`, `Quiz`, `Question`, `QuestionOption`, `QuizBatch`, `QuizSubmission`, `StudentAnswer`, `QuizReminderSent`, `Resource`, `Schedule`, `ClassSession`, `Attendance`, `EmailChangeRequest`, `PasswordResetRequest`, `TenantSetting`
+    - Ajouter les index et contraintes d'unicité (email, username, clés composites)
+    - _Exigences : 1.4, 6.6, 8.1, 9.1, 10.1, 11.1, 16.5, 17.2, 21.5_
+  - [x] 2.3 Implémenter le service Prisma public (`prisma/prisma.service.ts`)
+    - Créer le service NestJS pour les opérations sur le schéma public
+    - Configurer le pool de connexions PostgreSQL
+    - _Exigences : 1.3, 1.7_
+  - [x] 2.4 Implémenter le service Prisma multi-tenant (`prisma/tenant-prisma.service.ts`)
+    - Créer le service request-scoped qui configure dynamiquement le `search_path` vers le schéma du tenant
+    - Implémenter la méthode `getClient()` avec `SET search_path TO "{schema}", public`
+    - _Exigences : 1.2, 1.7_
+  - [x] 2.5 Créer le script de migration pour la création dynamique de schémas tenant
+    - Implémenter une fonction qui crée un nouveau schéma PostgreSQL et applique les migrations du schéma tenant
+    - _Exigences : 1.1_
+  - [x] 2.6 Écrire le test property-based pour l'isolation des données multi-tenant
+    - **Propriété 1 : Isolation des Données Multi-Tenant**
+    - Générer des paires de tenants avec des données, exécuter des requêtes CRUD dans le contexte d'un tenant et vérifier qu'aucune donnée de l'autre tenant n'est accessible
+    - **Valide : Exigences 1.1, 1.2, 1.4, 19.4**
+
+- [x] 3. Infrastructure multi-tenant (résolveur, middleware, cache)
+  - [x] 3.1 Implémenter le middleware de résolution de tenant (`tenants/tenant-resolver.middleware.ts`)
+    - Extraire le slug du sous-domaine depuis l'en-tête `Host` ou `X-Tenant-Slug`
+    - Lookup dans Redis (TTL 5 min), fallback vers PostgreSQL
+    - Vérifier le statut du tenant (actif, suspendu, inexistant)
+    - Injecter `tenant` et `tenantSchema` dans l'objet `Request`
+    - _Exigences : 1.2, 1.5, 1.6, 21.2_
+  - [x] 3.2 Configurer le service Redis (`common/redis.service.ts`)
+    - Initialiser la connexion Redis avec ioredis
+    - Implémenter les méthodes get/set/del avec sérialisation JSON et TTL
+    - _Exigences : 18.5, 21.1, 21.2_
+  - [x] 3.3 Implémenter l'invalidation du cache tenant
+    - Invalider le cache Redis lors de la modification du branding ou du statut d'un tenant
+    - _Exigences : 21.6_
+  - [x] 3.4 Écrire le test property-based pour la résolution de tenant déterministe
+    - **Propriété 2 : Résolution de Tenant Déterministe**
+    - Générer des slugs aléatoires (valides et invalides) et vérifier la cohérence de la résolution avec et sans cache
+    - **Valide : Exigences 1.2, 4.1**
+
+- [x] 4. Point de contrôle — Vérifier que l'infrastructure de base fonctionne
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+
+- [x] 5. Module d'authentification
+  - [x] 5.1 Implémenter le module Auth backend NestJS (`modules/auth/`)
+    - Créer `auth.module.ts`, `auth.controller.ts`, `auth.service.ts`
+    - Implémenter le login avec vérification des identifiants, statut du compte et statut du tenant
+    - Hacher les mots de passe avec bcrypt (facteur de coût 12)
+    - Implémenter le verrouillage de compte après 5 échecs consécutifs (30 min)
+    - Implémenter la détection de mot de passe temporaire et forcer le changement
+    - Implémenter l'expiration des mots de passe après 90 jours
+    - _Exigences : 5.1, 5.3, 5.4, 5.5, 5.7, 5.8_
+  - [x] 5.2 Implémenter le guard JWT et le guard RBAC (`common/guards/`)
+    - Créer `JwtAuthGuard` : vérifier le token JWT et la correspondance tenant
+    - Créer `RolesGuard` : vérifier que le rôle de l'utilisateur est autorisé
+    - Créer les décorateurs `@Roles()`, `@AdminOnly()`, `@TeacherOnly()`, `@CurrentUser()`
+    - _Exigences : 5.2, 5.9, 19.9_
+  - [x] 5.3 Configurer NextAuth.js côté frontend (`apps/frontend/src/app/api/auth/`)
+    - Configurer le provider Credentials avec appel au backend NestJS
+    - Configurer les sessions JWT avec les claims tenant (tenantId, tenantSlug, role)
+    - Implémenter la redirection vers la page de connexion du tenant à l'expiration du token
+    - _Exigences : 5.1, 5.10_
+  - [x] 5.4 Implémenter les DTOs de validation pour l'authentification
+    - Créer `LoginDto`, `ChangePasswordDto`, `ForceChangePasswordDto` avec class-validator
+    - _Exigences : 18.7_
+  - [x] 5.5 Écrire le test property-based pour la sécurité des mots de passe
+    - **Propriété 8 : Sécurité des Mots de Passe**
+    - Générer des mots de passe aléatoires, vérifier le hachage bcrypt, simuler des séquences d'échecs de connexion et vérifier le verrouillage
+    - **Valide : Exigences 5.4, 5.5, 13.6**
+  - [x] 5.6 Écrire le test property-based pour le contrôle d'accès RBAC
+    - **Propriété 4 : Contrôle d'Accès Basé sur les Rôles (RBAC)**
+    - Générer des combinaisons aléatoires (utilisateur, rôle, endpoint) et vérifier que seuls les rôles autorisés obtiennent un accès
+    - **Valide : Exigences 5.2, 6.7**
+  - [x] 5.7 Écrire le test property-based pour la validation des mots de passe
+    - **Propriété 17 : Validation des Mots de Passe**
+    - Générer des mots de passe aléatoires (valides et invalides) et vérifier l'acceptation/rejet selon les critères (8 chars, majuscule, minuscule, chiffre)
+    - **Valide : Exigences 13.6**
+
+- [x] 6. Module de réinitialisation et changement de mot de passe
+  - [x] 6.1 Implémenter le service de réinitialisation de mot de passe (`modules/auth/password-reset.service.ts`)
+    - Générer un code OTP à 6 chiffres avec validité de 15 minutes
+    - Limiter à 3 tentatives de saisie du code OTP
+    - Envoyer l'email de confirmation après changement réussi
+    - Mettre à jour la date d'expiration du mot de passe à 90 jours
+    - _Exigences : 13.1, 13.2, 13.3, 13.4, 13.6_
+  - [x] 6.2 Implémenter le changement d'email avec vérification OTP
+    - Envoyer un code OTP à la nouvelle adresse email
+    - Valider le code et mettre à jour l'email
+    - _Exigences : 13.5, 16.4_
+
+- [x] 7. Module de gestion des tenants
+  - [x] 7.1 Implémenter le CRUD des tenants (`modules/tenants/`)
+    - Créer `tenants.module.ts`, `tenants.controller.ts`, `tenants.service.ts`
+    - Implémenter la création de tenant : validation du slug unique, création du schéma PostgreSQL, configuration du branding initial, envoi de l'email admin
+    - Implémenter la modification du tenant : branding, sous-domaine (vérification unicité), statut
+    - Implémenter la suspension, réactivation et suppression (avec archivage si abonnement actif)
+    - _Exigences : 3.3, 3.4, 3.5, 3.7, 4.1, 4.6_
+  - [x] 7.2 Implémenter les DTOs et validations pour les tenants
+    - Créer `CreateTenantDto`, `UpdateTenantDto`, `UpdateBrandingDto` avec class-validator
+    - Valider le format du slug (`/^[a-z0-9-]+$/`), les couleurs hex, les URLs de logo
+    - _Exigences : 18.7, 4.1_
+  - [x] 7.3 Implémenter le chargement dynamique du branding
+    - Endpoint GET pour récupérer le branding du tenant courant
+    - Cache Redis du branding (TTL 1 heure)
+    - Branding par défaut si aucune personnalisation configurée
+    - _Exigences : 4.2, 4.3, 4.5, 21.1_
+  - [x] 7.4 Implémenter les statistiques d'utilisation par tenant
+    - Endpoint pour le Super Admin : nombre d'utilisateurs, lots, quiz créés par tenant
+    - _Exigences : 3.6_
+
+- [x] 8. Module de gestion des abonnements et intégration Stripe
+  - [x] 8.1 Implémenter le module Subscriptions (`modules/subscriptions/`)
+    - Créer `subscriptions.module.ts`, `subscriptions.controller.ts`, `subscriptions.service.ts`
+    - Implémenter la création d'abonnement Stripe (mensuel/annuel) lors de la création du tenant
+    - Implémenter la gestion de la période de grâce (15 jours après expiration)
+    - Implémenter la suspension automatique après expiration de la période de grâce
+    - _Exigences : 2.1, 2.4, 2.5, 2.6, 2.7_
+  - [x] 8.2 Implémenter le contrôleur de webhooks Stripe (`subscriptions/stripe-webhook.controller.ts`)
+    - Gérer les événements : `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.deleted`
+    - Vérifier la signature du webhook Stripe
+    - Implémenter le traitement idempotent des événements
+    - _Exigences : 2.7, 2.8_
+  - [x] 8.3 Implémenter le guard de vérification de formule (`common/guards/plan.guard.ts`)
+    - Créer un guard qui vérifie la formule du tenant et bloque l'accès aux fonctionnalités Full pour les tenants Lite
+    - _Exigences : 2.2, 2.3_
+  - [x] 8.4 Écrire le test property-based pour l'enforcement des formules
+    - **Propriété 3 : Enforcement des Formules d'Abonnement**
+    - Générer des tenants avec des plans aléatoires et vérifier que les endpoints protégés retournent 403 pour les plans non autorisés
+    - **Valide : Exigences 2.2, 2.3, 6.7, 7.2**
+  - [x] 8.5 Écrire le test property-based pour le cycle de vie des abonnements
+    - **Propriété 9 : Cycle de Vie des Abonnements**
+    - Générer des séquences aléatoires de transitions d'état et vérifier que seules les transitions valides sont acceptées
+    - **Valide : Exigences 2.4, 2.5**
+  - [x] 8.6 Écrire le test property-based pour l'idempotence des webhooks Stripe
+    - **Propriété 13 : Idempotence des Webhooks Stripe**
+    - Générer des événements Stripe simulés, les traiter deux fois et vérifier que l'état est identique
+    - **Valide : Exigences 2.7, 2.8**
+
+- [x] 9. Point de contrôle — Vérifier les modules tenant, auth et abonnements
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+
+- [x] 10. Module de gestion des utilisateurs
+  - [x] 10.1 Implémenter le CRUD des utilisateurs (`modules/users/`)
+    - Créer `users.module.ts`, `users.controller.ts`, `users.service.ts`
+    - Implémenter la création d'utilisateur (Admin crée Enseignant/Étudiant) avec génération de mot de passe temporaire
+    - Implémenter la liste, recherche, modification et désactivation des comptes
+    - Implémenter la réinitialisation de mot de passe par l'Admin
+    - Valider l'unicité de l'email et du username au sein du tenant
+    - Avertissement si suppression d'un enseignant assigné à des lots actifs
+    - _Exigences : 6.1, 6.2, 6.3, 6.4, 6.5, 6.6_
+  - [x] 10.2 Implémenter la gestion directe des étudiants en Formule Lite
+    - Permettre à l'Enseignant de gérer ses étudiants directement sans couche Admin
+    - Masquer les fonctionnalités Admin pour les tenants Lite
+    - _Exigences : 6.7_
+  - [x] 10.3 Implémenter le profil utilisateur (`modules/users/profile.controller.ts`)
+    - Endpoint GET/PATCH pour consulter et modifier le profil (prénom, nom, username)
+    - Changement d'email direct pour Admin, avec OTP pour Enseignant/Étudiant
+    - Validation de l'unicité du username et email lors de la modification
+    - _Exigences : 16.1, 16.2, 16.3, 16.4, 16.5_
+  - [x] 10.4 Écrire le test property-based pour l'unicité des identifiants
+    - **Propriété 15 : Unicité des Identifiants par Tenant**
+    - Tenter de créer des utilisateurs avec des emails/usernames dupliqués dans le même tenant et vérifier le rejet
+    - **Valide : Exigences 6.6, 16.5**
+
+- [x] 11. Module de gestion des lots (Batches)
+  - [x] 11.1 Implémenter le CRUD des lots (`modules/batches/`)
+    - Créer `batches.module.ts`, `batches.controller.ts`, `batches.service.ts`
+    - Implémenter la création de lot : nom, enseignant, niveau (A1-C2), dates, mode, fuseau horaire, lien réunion
+    - Implémenter l'inscription/désinscription d'étudiants avec envoi d'email de notification
+    - Implémenter l'assignation d'enseignant avec envoi d'email de notification
+    - _Exigences : 7.1, 7.3, 7.4, 7.5_
+  - [x] 11.2 Implémenter la configuration d'emploi du temps récurrent par lot
+    - CRUD des `BatchTimetable` : jours de la semaine, heures de début/fin
+    - _Exigences : 7.6_
+  - [x] 11.3 Implémenter la page d'insights par lot
+    - Endpoint retournant : nombre d'étudiants, taux de présence moyen, nombre de quiz, scores moyens
+    - _Exigences : 7.7_
+
+- [x] 12. Module de gestion des quiz
+  - [x] 12.1 Implémenter le CRUD des quiz (`modules/quizzes/`)
+    - Créer `quizzes.module.ts`, `quizzes.controller.ts`, `quizzes.service.ts`
+    - Implémenter la création de quiz : titre, description, instructions, durée, dates, total des points
+    - Implémenter la gestion des questions : choix multiple, vrai/faux, texte libre
+    - Implémenter la gestion des options de réponse avec marquage des réponses correctes
+    - Implémenter l'ordre aléatoire des questions et options
+    - _Exigences : 8.1, 8.2, 8.3_
+  - [x] 12.2 Implémenter la publication et l'assignation des quiz
+    - Publier un quiz et envoyer les notifications par email aux étudiants des lots assignés
+    - Assigner un quiz à des lots (Full) ou à des étudiants individuels (Lite)
+    - _Exigences : 8.5, 8.12_
+  - [x] 12.3 Implémenter la passation de quiz par l'étudiant
+    - Endpoint de démarrage de quiz avec timer
+    - Sauvegarde automatique des réponses en cours (auto-save)
+    - Soumission automatique à l'expiration du temps
+    - _Exigences : 8.4, 8.6_
+  - [x] 12.4 Implémenter la correction automatique et le calcul des scores
+    - Correction automatique pour choix multiple et vrai/faux
+    - Calcul du score total, score max et pourcentage
+    - _Exigences : 8.7_
+  - [x] 12.5 Implémenter les vues de résultats
+    - Vue enseignant : liste des soumissions avec étudiant, score, pourcentage, temps, statut
+    - Vue étudiant : détail des réponses correctes/incorrectes
+    - Relevé de notes (marksheet) récapitulatif
+    - _Exigences : 8.8, 8.9, 8.10_
+  - [x] 12.6 Écrire le test property-based pour l'intégrité des scores de quiz
+    - **Propriété 5 : Intégrité du Calcul des Scores de Quiz**
+    - Générer des quiz avec des questions aléatoires, simuler des réponses et vérifier la cohérence du calcul
+    - **Valide : Exigences 8.7**
+  - [x] 12.7 Écrire le test property-based pour la correction automatique
+    - **Propriété 6 : Correction Automatique des Questions Objectives**
+    - Générer des questions avec des options correctes aléatoires, simuler des réponses correctes et incorrectes, vérifier la notation
+    - **Valide : Exigences 8.7**
+
+- [x] 13. Point de contrôle — Vérifier les modules utilisateurs, lots et quiz
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+
+- [x] 14. Module de gestion des ressources pédagogiques et stockage
+  - [x] 14.1 Implémenter le service de stockage S3/R2 (`modules/storage/storage.service.ts`)
+    - Configurer le client S3 (compatible R2)
+    - Implémenter upload avec préfixe tenant (`{tenantSlug}/{uuid}-{filename}`)
+    - Implémenter la génération d'URLs signées avec durée de validité limitée
+    - Implémenter la suppression de fichiers
+    - Valider le type MIME et la taille (max 50 Mo) avant téléversement
+    - _Exigences : 20.1, 20.2, 20.3, 20.4, 20.5, 9.3_
+  - [x] 14.2 Implémenter le CRUD des ressources (`modules/resources/`)
+    - Créer `resources.module.ts`, `resources.controller.ts`, `resources.service.ts`
+    - Implémenter le téléversement de ressource : titre, description, fichier, lot assigné
+    - Valider les types de fichiers acceptés (PDF, DOC, DOCX, PPT, PPTX, XLS, XLSX)
+    - Implémenter la consultation et le téléchargement par les étudiants (URLs signées)
+    - Implémenter la suppression (fichier S3 + entrée BDD)
+    - Partage direct avec étudiants individuels en Formule Lite
+    - _Exigences : 9.1, 9.2, 9.4, 9.5, 9.6, 9.7_
+  - [x] 14.3 Implémenter le suivi de l'espace de stockage par tenant
+    - Mettre à jour `storageUsedBytes` lors de chaque upload/suppression
+    - Vérifier la limite de stockage avant chaque upload
+    - _Exigences : 20.6_
+  - [x] 14.4 Écrire le test property-based pour l'isolation du stockage fichiers
+    - **Propriété 12 : Isolation du Stockage Fichiers par Tenant**
+    - Vérifier que les clés de stockage commencent par le slug du tenant et que l'accès cross-tenant est refusé
+    - **Valide : Exigences 20.2, 20.3**
+
+- [x] 15. Module de gestion des emplois du temps et planification
+  - [x] 15.1 Implémenter le CRUD des cours planifiés (`modules/schedules/`)
+    - Créer `schedules.module.ts`, `schedules.controller.ts`, `schedules.service.ts`
+    - Implémenter la création de cours : titre, description, dates/heures, lot, mode, lieu/lien
+    - Implémenter la modification et l'annulation avec envoi d'emails de notification
+    - Implémenter la génération automatique de sessions à partir des emplois du temps récurrents
+    - Planification pour étudiants individuels en Formule Lite
+    - _Exigences : 10.1, 10.3, 10.4, 10.6, 10.7_
+  - [x] 15.2 Implémenter la vue calendrier (données API)
+    - Endpoint retournant les cours planifiés pour une période donnée (semaine/mois)
+    - Filtrage par lot, enseignant ou étudiant selon le rôle
+    - _Exigences : 10.2_
+
+- [x] 16. Module de présence (Attendance)
+  - [x] 16.1 Implémenter le système de présence (`modules/attendance/`)
+    - Créer `attendance.module.ts`, `attendance.controller.ts`, `attendance.service.ts`
+    - Implémenter le démarrage de session avec génération de code d'accès à 6 chiffres
+    - Implémenter l'envoi du code par email aux étudiants du lot
+    - Implémenter le pointage étudiant : validation du code, vérification de la fenêtre de validité, enregistrement avec horodatage
+    - Refuser les codes expirés ou invalides avec message d'erreur explicatif
+    - Implémenter la fin de session : marquer automatiquement les absents
+    - _Exigences : 11.1, 11.2, 11.3, 11.4, 11.5_
+  - [x] 16.2 Implémenter les statistiques de présence
+    - Statistiques par lot, par étudiant et par période (taux de présence, tendances)
+    - _Exigences : 11.6_
+  - [x] 16.3 Implémenter les paramètres de présence configurables par l'Admin
+    - Longueur du code, durée d'expiration, tolérance retard, fin automatique de session
+    - Stocker dans la table `TenantSetting` avec valeurs par défaut
+    - _Exigences : 11.7, 17.1, 17.2, 17.3, 17.4_
+  - [x] 16.4 Écrire le test property-based pour l'intégrité du système de présence
+    - **Propriété 7 : Intégrité du Système de Présence**
+    - Générer des sessions avec des codes et fenêtres de validité aléatoires, simuler des tentatives de pointage
+    - **Valide : Exigences 11.1, 11.3, 11.4**
+
+- [x] 17. Point de contrôle — Vérifier les modules ressources, emplois du temps et présence
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+
+- [x] 18. Module d'emails transactionnels
+  - [x] 18.1 Implémenter le service d'emails (`modules/email/`)
+    - Créer `email.module.ts`, `email.service.ts`, `template.engine.ts`
+    - Intégrer le service d'envoi (Brevo/SendGrid) avec configuration par variables d'environnement
+    - Implémenter la file d'attente d'emails avec retry (3 tentatives, délai exponentiel)
+    - Journaliser les erreurs d'envoi
+    - _Exigences : 12.4, 12.5_
+  - [x] 18.2 Créer les templates HTML d'emails bilingues
+    - Créer les templates responsives pour : bienvenue, réinitialisation mot de passe, notification quiz, rappel quiz, notification cours, rappel cours, modification cours, annulation cours, inscription lot, code de présence, planification démo
+    - Intégrer le branding du tenant (logo, couleurs, nom) dans chaque template
+    - Supporter les deux locales (FR/EN) avec sélection basée sur la préférence utilisateur
+    - Inclure un lien de désinscription dans les emails non critiques
+    - _Exigences : 12.1, 12.2, 12.3, 12.6_
+  - [x] 18.3 Écrire le test property-based pour le branding dans les emails
+    - **Propriété 11 : Branding par Tenant dans les Emails**
+    - Générer des tenants avec des brandings distincts, déclencher l'envoi d'emails et vérifier le contenu HTML
+    - **Valide : Exigences 12.2, 4.3**
+
+- [x] 19. Internationalisation (i18n) — Backend et Frontend
+  - [x] 19.1 Configurer l'i18n backend (`apps/backend/src/i18n/`)
+    - Créer les fichiers de traduction `fr.json` et `en.json` pour les messages d'erreur API et les labels métier
+    - Implémenter le service `I18nService` qui résout la locale depuis la requête (header `Accept-Language` ou préférence utilisateur)
+    - _Exigences : 18.8, 23.1, 23.2_
+  - [x] 19.2 Configurer next-intl côté frontend (`apps/frontend/`)
+    - Installer et configurer `next-intl` avec les locales `fr` et `en`
+    - Créer les fichiers de messages `messages/fr.json` et `messages/en.json`
+    - Configurer le middleware i18n avec `defaultLocale: 'fr'` et `localePrefix: 'as-needed'`
+    - _Exigences : 23.1, 23.2, 23.4_
+  - [x] 19.3 Implémenter les traductions complètes FR/EN
+    - Traduire tous les labels UI, messages d'erreur, placeholders, boutons, menus de navigation
+    - Localiser les formats de date, heure et nombres selon la locale
+    - _Exigences : 23.3, 23.5_
+  - [x] 19.4 Écrire le test property-based pour le support bilingue complet
+    - **Propriété 10 : Support Bilingue Complet (Français/Anglais)**
+    - Parcourir toutes les clés de traduction et vérifier qu'elles existent dans les deux locales sans valeur vide
+    - **Valide : Exigences 23.1, 23.2, 18.8**
+
+- [x] 20. Configuration du frontend — Layout, middleware tenant et branding
+  - [x] 20.1 Implémenter le middleware Next.js de résolution tenant et locale (`middleware.ts`)
+    - Extraire le slug du sous-domaine depuis le header `Host`
+    - Résoudre le tenant via appel API backend
+    - Rediriger vers /404 si tenant inexistant, /suspended si suspendu
+    - Injecter les infos tenant dans les headers de la réponse
+    - Chaîner avec le middleware next-intl
+    - _Exigences : 1.2, 1.5, 1.6, 4.2_
+  - [x] 20.2 Implémenter le TenantProvider et le chargement dynamique du branding (`lib/tenant-context.tsx`)
+    - Créer le contexte React `TenantContext` avec les données de branding
+    - Injecter les CSS variables (`--primary`, `--secondary`) depuis le branding du tenant
+    - Appliquer le branding par défaut si aucune personnalisation
+    - _Exigences : 4.2, 4.3, 4.5_
+  - [x] 20.3 Créer le layout principal avec navigation adaptée au rôle (`app/[locale]/layout.tsx`)
+    - Implémenter le layout avec en-tête affichant le logo et nom du tenant
+    - Implémenter la navigation latérale adaptée au rôle (menus différents pour Admin, Enseignant, Étudiant)
+    - Intégrer le sélecteur de langue FR/EN
+    - _Exigences : 15.4, 15.5_
+  - [x] 20.4 Configurer le client API frontend (`lib/api-client.ts`)
+    - Créer un client HTTP (fetch/axios) avec injection automatique du token JWT et du header tenant
+    - Gérer les erreurs 401 (redirection login) et 403 (page non autorisée)
+    - _Exigences : 5.10, 19.9_
+
+- [x] 21. Pages frontend — Authentification
+  - [x] 21.1 Implémenter la page de connexion (`app/[locale]/(auth)/login/page.tsx`)
+    - Formulaire de connexion avec email/username et mot de passe
+    - Affichage du branding du tenant (logo, couleurs, nom)
+    - Lien vers la réinitialisation de mot de passe
+    - Gestion des erreurs (compte verrouillé, désactivé, tenant suspendu)
+    - _Exigences : 5.3, 5.5, 5.6, 4.3_
+  - [x] 21.2 Implémenter la page de changement de mot de passe forcé
+    - Formulaire de changement de mot de passe pour les mots de passe temporaires ou expirés
+    - Validation des critères de complexité côté client
+    - _Exigences : 5.7, 5.8, 13.6_
+  - [x] 21.3 Implémenter la page de réinitialisation de mot de passe
+    - Étape 1 : saisie de l'email, envoi du code OTP
+    - Étape 2 : saisie du code OTP
+    - Étape 3 : saisie du nouveau mot de passe
+    - _Exigences : 13.1, 13.2, 13.3_
+
+- [x] 22. Pages frontend — Tableaux de bord par rôle
+  - [x] 22.1 Implémenter le tableau de bord Admin (`app/[locale]/(dashboard)/admin/page.tsx`)
+    - Afficher : nombre d'enseignants, étudiants, lots actifs, quiz récents, taux de présence global
+    - _Exigences : 15.1_
+  - [x] 22.2 Implémenter le tableau de bord Enseignant (`app/[locale]/(dashboard)/teacher/page.tsx`)
+    - Afficher : lots assignés, prochains cours, quiz en cours, taux de présence, démos assignées
+    - _Exigences : 15.2_
+  - [x] 22.3 Implémenter le tableau de bord Étudiant (`app/[locale]/(dashboard)/student/page.tsx`)
+    - Afficher : lots, prochains cours, quiz à passer, derniers résultats, taux de présence personnel
+    - _Exigences : 15.3_
+
+- [x] 23. Pages frontend — Gestion des utilisateurs
+  - [x] 23.1 Implémenter les pages de gestion des utilisateurs (Admin)
+    - Liste des utilisateurs avec recherche, filtrage et pagination
+    - Formulaire de création d'utilisateur (Enseignant/Étudiant)
+    - Page de détail/modification d'un utilisateur
+    - Actions : désactiver, réinitialiser mot de passe
+    - _Exigences : 6.1, 6.2, 6.3, 6.4, 6.5_
+  - [x] 23.2 Implémenter la page de profil utilisateur
+    - Affichage et modification du profil (prénom, nom, username)
+    - Changement d'email avec modal OTP pour Enseignant/Étudiant
+    - _Exigences : 16.1, 16.2, 16.3, 16.4_
+
+- [x] 24. Pages frontend — Gestion des lots
+  - [x] 24.1 Implémenter les pages de gestion des lots
+    - Liste des lots avec filtrage par niveau, enseignant, statut
+    - Formulaire de création/modification de lot
+    - Page de détail du lot avec liste des étudiants inscrits
+    - Inscription/désinscription d'étudiants
+    - Page d'insights du lot (statistiques)
+    - _Exigences : 7.1, 7.3, 7.7_
+
+- [x] 25. Pages frontend — Système de quiz
+  - [x] 25.1 Implémenter le constructeur de quiz (Enseignant)
+    - Formulaire de création de quiz avec métadonnées
+    - Interface d'ajout de questions (choix multiple, vrai/faux, texte libre)
+    - Gestion des options de réponse et marquage des réponses correctes
+    - Configuration de l'ordre aléatoire et de la soumission automatique
+    - _Exigences : 8.1, 8.2, 8.3, 8.4_
+  - [x] 25.2 Implémenter l'interface de passation de quiz (Étudiant)
+    - Affichage des questions avec timer
+    - Sauvegarde automatique des réponses
+    - Soumission manuelle ou automatique à l'expiration
+    - _Exigences : 8.4, 8.6_
+  - [x] 25.3 Implémenter les pages de résultats de quiz
+    - Vue enseignant : tableau des soumissions avec scores
+    - Vue étudiant : détail des réponses avec corrections
+    - Relevé de notes (marksheet)
+    - _Exigences : 8.8, 8.9, 8.10_
+
+- [x] 26. Point de contrôle — Vérifier les pages frontend principales
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+
+- [x] 27. Pages frontend — Ressources, emplois du temps et présence
+  - [x] 27.1 Implémenter les pages de gestion des ressources
+    - Liste des ressources avec filtrage par lot
+    - Formulaire de téléversement avec validation du type et de la taille
+    - Téléchargement via URLs signées
+    - _Exigences : 9.1, 9.2, 9.3, 9.5_
+  - [x] 27.2 Implémenter les pages d'emploi du temps et calendrier
+    - Vue calendrier (semaine/mois) avec les cours planifiés
+    - Formulaire de création/modification de cours
+    - Configuration des emplois du temps récurrents
+    - _Exigences : 10.1, 10.2, 10.6_
+  - [x] 27.3 Implémenter les pages de présence
+    - Interface enseignant : démarrage de session, affichage du code d'accès, fin de session
+    - Interface étudiant : saisie du code d'accès pour pointer
+    - Tableau de statistiques de présence
+    - _Exigences : 11.1, 11.3, 11.6_
+
+- [x] 28. Page d'accueil publique et système de demandes de démo
+  - [x] 28.1 Implémenter la landing page publique (`app/[locale]/(public)/page.tsx`)
+    - Présentation des fonctionnalités de la plateforme
+    - Présentation des formules d'abonnement (Full et Lite)
+    - Formulaire de demande de démo
+    - Rendu SSR pour le SEO
+    - _Exigences : 14.1, 21.3_
+  - [x] 28.2 Implémenter le module backend de demandes de démo (`modules/demo-requests/`)
+    - Créer `demo-requests.module.ts`, `demo-requests.controller.ts`, `demo-requests.service.ts`
+    - Implémenter la soumission de demande avec collecte des informations (nom, email, téléphone, pays, niveaux, objectifs, disponibilités, fuseau horaire)
+    - Enregistrer avec statut "nouveau" et notifier le Super Admin
+    - _Exigences : 14.2, 14.3_
+  - [x] 28.3 Implémenter la gestion des demandes de démo (Super Admin)
+    - Liste des demandes avec filtrage par statut
+    - Assignation d'un enseignant et planification de démo avec lien de réunion
+    - Envoi d'email de confirmation au prospect et à l'enseignant
+    - Statistiques : total, par statut, cette semaine, ce mois
+    - _Exigences : 14.4, 14.5, 14.6, 14.7_
+
+- [x] 29. Tableau de bord Super Admin
+  - [x] 29.1 Implémenter le tableau de bord Super Admin (`app/[locale]/(dashboard)/super-admin/page.tsx`)
+    - Afficher : nombre total de tenants, revenus mensuels, abonnements actifs, tenants en période de grâce
+    - _Exigences : 3.1_
+  - [x] 29.2 Implémenter les pages de gestion des tenants (Super Admin)
+    - Liste des tenants avec : nom, sous-domaine, formule, statut, dates
+    - Formulaire de création de tenant
+    - Page de détail avec modification du branding et des paramètres
+    - Actions : suspendre, réactiver, supprimer (avec confirmation si abonnement actif)
+    - Statistiques d'utilisation par tenant
+    - _Exigences : 3.2, 3.3, 3.4, 3.5, 3.6, 3.7_
+  - [x] 29.3 Implémenter la page de gestion des demandes de démo (Super Admin)
+    - Interface de gestion des demandes de démo avec les fonctionnalités du module backend
+    - _Exigences : 14.4, 14.7_
+
+- [x] 30. Sécurité renforcée
+  - [x] 30.1 Implémenter le rate limiting (`common/guards/throttle.guard.ts`)
+    - Rate limiting global : 100 requêtes/minute par IP
+    - Rate limiting renforcé sur les endpoints d'authentification : 10 requêtes/minute par IP
+    - Utiliser Redis comme store pour le rate limiting
+    - _Exigences : 19.3, 5.9_
+  - [x] 30.2 Implémenter les en-têtes de sécurité HTTP et CORS
+    - Configurer Helmet avec : Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security
+    - Configurer CORS par tenant (autoriser uniquement le sous-domaine du tenant)
+    - Configurer les cookies de session : HttpOnly, Secure, SameSite=Strict
+    - _Exigences : 19.1, 19.2, 19.6, 19.8_
+  - [x] 30.3 Implémenter la validation et la sanitisation des entrées
+    - Configurer les pipes de validation NestJS globaux avec class-validator
+    - Implémenter la sanitisation des entrées contre XSS
+    - S'assurer que toutes les requêtes Prisma utilisent des requêtes paramétrées
+    - _Exigences : 18.7, 19.4, 19.5_
+  - [x] 30.4 Implémenter le journal d'audit (`common/interceptors/audit.interceptor.ts`)
+    - Journaliser les événements de sécurité : connexions, échecs, modifications de rôle, accès non autorisés
+    - Stocker dans la table `AuditLog` du schéma public
+    - _Exigences : 19.7_
+  - [x] 30.5 Implémenter le filtre d'erreurs centralisé (`common/filters/http-exception.filter.ts`)
+    - Gestion centralisée des erreurs avec codes standardisés
+    - Messages localisés en français et anglais selon la locale de la requête
+    - Ne pas révéler de détails d'implémentation dans les erreurs 401
+    - _Exigences : 18.8, 19.9_
+  - [x] 30.6 Écrire le test property-based pour le rate limiting
+    - **Propriété 14 : Rate Limiting**
+    - Simuler des rafales de requêtes depuis des IPs aléatoires et vérifier que le rate limiting se déclenche au bon seuil
+    - **Valide : Exigences 19.3**
+
+- [x] 31. Tâches planifiées (CRON)
+  - [x] 31.1 Implémenter le module scheduler (`modules/scheduler/`)
+    - Créer `scheduler.module.ts`, `scheduler.service.ts`
+    - Configurer le module `@nestjs/schedule` avec les tâches CRON
+    - Journaliser l'exécution de chaque tâche (succès, erreur, nombre d'éléments traités)
+    - _Exigences : 22.6_
+  - [x] 31.2 Implémenter la tâche de fin automatique des sessions expirées
+    - Exécution toutes les 5 minutes
+    - Terminer les sessions dont l'heure de fin est dépassée
+    - Marquer comme absents les étudiants n'ayant pas pointé
+    - _Exigences : 22.1, 11.8_
+  - [x] 31.3 Implémenter la tâche de rappels de quiz
+    - Exécution quotidienne
+    - Envoyer des rappels aux étudiants dont les quiz expirent dans les 24 heures
+    - _Exigences : 22.2, 8.11_
+  - [x] 31.4 Implémenter la tâche de rappels de cours
+    - Envoyer un rappel 1 heure avant le début de chaque cours
+    - _Exigences : 22.3, 10.5_
+  - [x] 31.5 Implémenter la tâche de vérification des abonnements
+    - Exécution quotidienne
+    - Vérifier les abonnements expirés, appliquer les périodes de grâce ou suspensions
+    - _Exigences : 22.4, 2.4, 2.5_
+  - [x] 31.6 Implémenter la tâche de réconciliation des quiz en retard
+    - Marquer comme soumis les quiz dont la date limite est dépassée
+    - _Exigences : 22.5_
+  - [x] 31.7 Écrire le test property-based pour la fin automatique des sessions
+    - **Propriété 18 : Fin Automatique des Sessions Expirées**
+    - Créer des sessions avec des heures de fin dans le passé, exécuter le scheduler et vérifier les statuts
+    - **Valide : Exigences 11.8, 22.1**
+
+- [x] 32. Pagination côté serveur
+  - [x] 32.1 Implémenter un intercepteur de pagination générique (`common/interceptors/pagination.interceptor.ts`)
+    - Créer un décorateur `@Paginated()` pour les endpoints de liste
+    - Implémenter la pagination avec offset/limit, maximum 50 éléments par page
+    - Retourner les métadonnées de pagination (total, page, pageSize, totalPages)
+    - Appliquer à toutes les listes : utilisateurs, lots, quiz, ressources, demandes de démo
+    - _Exigences : 21.4_
+  - [x] 32.2 Écrire le test property-based pour la cohérence de la pagination
+    - **Propriété 16 : Cohérence de la Pagination**
+    - Générer des ensembles de données de taille aléatoire, paginer et vérifier la complétude et l'absence de doublons
+    - **Valide : Exigences 21.4**
+
+- [x] 33. Point de contrôle final — Intégration complète
+  - S'assurer que tous les tests passent, demander à l'utilisateur si des questions se posent.
+  - Vérifier que toutes les exigences sont couvertes par l'implémentation.
+  - Vérifier que le branding du tenant s'applique correctement sur toutes les pages et emails.
+  - Vérifier que le support bilingue FR/EN fonctionne sur toute la stack.
+
+## Notes
+
+- Les tâches marquées avec `*` sont optionnelles et peuvent être ignorées pour un MVP plus rapide
+- Chaque tâche référence les exigences spécifiques pour la traçabilité
+- Les points de contrôle permettent une validation incrémentale
+- Les tests property-based valident les propriétés de correction universelles définies dans le document de conception
+- Les tests unitaires valident les cas spécifiques et les cas limites
+- Le langage d'implémentation est TypeScript sur toute la stack (NestJS + Next.js)

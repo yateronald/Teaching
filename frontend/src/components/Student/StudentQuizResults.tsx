@@ -1,1000 +1,909 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Table, Select, Button, Alert, Input, Segmented, Pagination, Tooltip, Skeleton, ConfigProvider, Empty, Drawer, DatePicker } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
 import {
-    Table, Button, Modal, Row, Col,
-    Progress, Alert, Empty, Tooltip, Collapse, Skeleton,
-    Select, DatePicker
-} from 'antd';
+    SearchOutlined, LockOutlined, RightOutlined, CloseOutlined, CheckOutlined,
+    CheckCircleFilled, CloseCircleFilled, MinusCircleFilled, ExclamationCircleFilled, SoundOutlined,
+    CalendarOutlined, UserOutlined, TeamOutlined,
+    TrophyOutlined, CheckCircleOutlined, AimOutlined, FieldTimeOutlined, FileDoneOutlined, GlobalOutlined,
+} from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
+import type { Dayjs } from 'dayjs';
+import { useAuth } from '../../contexts/AuthContext';
+import useResponsive from '../../hooks/useResponsive';
+import { headerHeight } from '../Layout/layoutMetrics';
+import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
+import { GRADE_BANDS, PASS_MARK, bandFor, gradeFromPercent, toneFor } from '../../utils/grading';
+import './StudentQuizResults.css';
 
 const { RangePicker } = DatePicker;
-import {
-    TrophyOutlined,
-    ClockCircleOutlined,
-    CheckCircleOutlined,
-    EyeOutlined,
-    CalendarOutlined,
-    FileTextOutlined,
-    BarChartOutlined,
-    LockOutlined,
-} from '@ant-design/icons';
-import { useAuth } from '../../contexts/AuthContext';
-import { useSearchParams } from 'react-router-dom';
-import dayjs from 'dayjs';
-import { formatLocal } from '../../utils/timezone';
-import type { ColumnsType } from 'antd/es/table';
-import KpiCard from '../Common/KpiCard';
-import PageHeader from '../Common/PageHeader';
-import useResponsive from '../../hooks/useResponsive';
 
+/* ── API shapes (numeric columns can arrive as strings from Postgres) ── */
+interface ApiResult {
+    id: number; quiz_id: number; quiz_title: string; quiz_description?: string | null;
+    batch_name: string | null; end_date?: string | null; results_locked?: boolean;
+    score: number | string | null; max_score: number | string | null; percentage: number | string | null;
+    time_taken: number | string | null; submitted_at: string | null;
+    total_questions: number | string | null; correct_answers: number | string | null;
+    teacher_first_name?: string | null; teacher_last_name?: string | null;
+}
 
-/* ── Types ── */
-interface QuizResult {
-    id: number; quiz_id: number; quiz_title: string; quiz_description: string;
-    batch_name: string; end_date?: string | null; results_locked?: boolean;
-    score: number | null; max_score: number | null; percentage: number | null;
-    time_taken: number; submitted_at: string;
-    status: 'submitted' | 'auto_submitted' | 'graded';
-    total_questions: number | null; correct_answers: number | null;
-    teacher_feedback?: string;
-    teacher_first_name?: string;
-    teacher_last_name?: string;
+interface AudioClip { id: number; audio_order: number; max_plays: number; has_audio: boolean; duration_seconds?: number | null; }
+
+interface DetailQuestion {
+    id: number; question_text: string; question_type: string;
+    points?: number | string | null; score?: number | string | null; is_correct?: boolean | null;
+    student_answer?: string | null; answer_text?: string | null; correct_answer?: string | null;
+    audio_clip_id?: number | null; teacher_feedback?: string | null;
+    options?: { id: number; option_text: string; is_correct: boolean }[];
+    selected_options?: number[] | string | null;
 }
-interface AudioClipInfo {
-    id: number; duration_seconds?: number; audio_order: number; max_plays: number; has_audio: boolean;
+
+interface Detail {
+    quiz: { id: number; title: string; description?: string | null };
+    submission: {
+        id: number; score: number | string; max_score: number | string; percentage: number | string;
+        time_taken: number; submitted_at: string; teacher_feedback?: string | null;
+    };
+    questions: DetailQuestion[];
+    audio_clips?: AudioClip[];
 }
-interface DetailedResult {
-    quiz: { id: number; title: string; description: string; total_marks: number; duration_minutes: number; };
-    submission: { id: number; score: number; max_score: number; percentage: number; time_taken: number; submitted_at: string; teacher_feedback?: string; };
-    questions: Array<{
-        id: number; question_text: string; question_type: string; points: number;
-        student_answer?: string; correct_answer?: string; is_correct?: boolean;
-        score?: number; teacher_feedback?: string; audio_clip_id?: number | null;
-        options?: Array<{ id: number; option_text: string; is_correct: boolean }>;
-        selected_options?: number[] | string;
-    }>;
-    audio_clips?: AudioClipInfo[];
+
+/** One submission. A quiz shared by several of the student's batches comes back once per batch; we merge those. */
+interface ResultRow {
+    key: string; quizId: number; title: string;
+    batches: string[]; teacher: string | null;
+    locked: boolean; releaseAt: string | null;
+    score: number | null; maxScore: number | null; pct: number | null;
+    correct: number | null; questions: number | null;
+    timeSecs: number; submittedAt: string | null;
 }
+
+type QStatus = 'correct' | 'partial' | 'incorrect' | 'unanswered';
+type SortKey = 'newest' | 'oldest' | 'best' | 'worst';
+type GradeFilter = 'A' | 'B' | 'C' | 'D' | 'F' | 'pending';
+type ReviewFilter = 'all' | 'review' | 'correct';
+
+interface ReviewState { row: ResultRow; status: 'loading' | 'ready' | 'error'; data?: Detail; error?: string; }
 
 /* ── Helpers ── */
-const scoreColor = (pct: number) => {
-    if (pct >= 80) return '#22c55e';
-    if (pct >= 60) return '#f59e0b';
-    return '#ef4444';
+const PAGE_SIZE = 12;
+
+const toNum = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
 };
-const gradeText = (pct: number) => {
-    if (pct >= 90) return 'A+';
-    if (pct >= 80) return 'A';
-    if (pct >= 70) return 'B';
-    if (pct >= 60) return 'C';
-    if (pct >= 50) return 'D';
-    return 'F';
+const PCT = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+const NUM = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const fmtPct = (v: number | null) => (v == null ? '—' : `${PCT.format(v)}%`);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const fmtDuration = (secs: number) => {
+    const s = Math.max(0, Math.round(secs));
+    if (s < 60) return `${s}s`;
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), rest = s % 60;
+    if (h > 0) return m ? `${h}h ${m}m` : `${h}h`;
+    return rest ? `${m}m ${rest}s` : `${m}m`;
 };
-const qScoreColor = (score?: number, points?: number) => {
-    const s = Number(score || 0), p = Number(points || 0);
-    if (p <= 0) return '#94a3b8';
-    if (s <= 0) return '#ef4444';
-    return (s / p) * 100 >= 100 ? '#22c55e' : '#f59e0b';
-};
-const fmtTime = (secs: number) => {
-    const m = Math.floor(secs / 60), s = secs % 60;
-    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+const isGraded = (r: ResultRow) => !r.locked && r.pct != null;
+
+const normalize = (raw: ApiResult[]): ResultRow[] => {
+    const bySubmission = new Map<string, ResultRow>();
+    for (const r of raw) {
+        const key = String(r.id);
+        const batch = r.batch_name || 'Unassigned';
+        const existing = bySubmission.get(key);
+        if (existing) {
+            if (!existing.batches.includes(batch)) existing.batches.push(batch);
+            continue;
+        }
+        const locked = !!r.results_locked;
+        bySubmission.set(key, {
+            key,
+            quizId: r.quiz_id,
+            title: r.quiz_title || 'Untitled quiz',
+            batches: [batch],
+            teacher: [r.teacher_first_name, r.teacher_last_name].filter(Boolean).join(' ') || null,
+            locked,
+            releaseAt: locked ? r.end_date ?? null : null,
+            score: locked ? null : toNum(r.score),
+            maxScore: locked ? null : toNum(r.max_score),
+            pct: locked ? null : toNum(r.percentage),
+            correct: locked ? null : toNum(r.correct_answers),
+            questions: toNum(r.total_questions),
+            timeSecs: toNum(r.time_taken) ?? 0,
+            submittedAt: r.submitted_at,
+        });
+    }
+    return Array.from(bySubmission.values());
 };
 
-/* ── Pill ── */
-const Pill = ({ color, text }: { color: string; text: string }) => {
-    const map: Record<string, { bg: string; fg: string }> = {
-        green: { bg: '#dcfce7', fg: '#15803d' },
-        amber: { bg: '#fffbeb', fg: '#b45309' },
-        red:   { bg: '#fff1f2', fg: '#ef4444' },
-        indigo:{ bg: '#eef2ff', fg: '#4338ca' },
-        gray:  { bg: '#f1f5f9', fg: '#64748b' },
+const isMcq = (q: DetailQuestion) => q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
+const parseSelected = (v: DetailQuestion['selected_options']): number[] => {
+    if (Array.isArray(v)) return v.map(Number);
+    if (typeof v === 'string' && v) {
+        try { const p = JSON.parse(v); return Array.isArray(p) ? p.map(Number) : []; } catch { return []; }
+    }
+    return [];
+};
+// The API fills `student_answer` only for MCQ / yes-no; free-text answers live in `answer_text`.
+const answerText = (q: DetailQuestion) => String(q.student_answer ?? q.answer_text ?? '').trim();
+const questionStatus = (q: DetailQuestion): QStatus => {
+    const answered = isMcq(q) ? parseSelected(q.selected_options).length > 0 : answerText(q) !== '';
+    if (!answered) return 'unanswered';
+    const pts = toNum(q.points) ?? 0, s = toNum(q.score) ?? 0;
+    if (pts > 0) return s >= pts ? 'correct' : s > 0 ? 'partial' : 'incorrect';
+    return q.is_correct ? 'correct' : 'incorrect';
+};
+const STATUS_LABEL: Record<QStatus, string> = { correct: 'Correct', partial: 'Partly correct', incorrect: 'Incorrect', unanswered: 'Not answered' };
+const STATUS_ICON: Record<QStatus, React.ReactNode> = {
+    correct: <CheckCircleFilled />, partial: <ExclamationCircleFilled />, incorrect: <CloseCircleFilled />, unanswered: <MinusCircleFilled />,
+};
+
+/* ── Small presentational pieces ── */
+const ScoreCell = ({ pct }: { pct: number }) => (
+    <div className={`qr-score qr-tone-${toneFor(pct)}`}>
+        <span className="qr-score-bar" aria-hidden><span style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} /></span>
+        <span className="qr-score-value">{fmtPct(pct)}</span>
+    </div>
+);
+const GradeBadge = ({ pct }: { pct: number }) => (
+    <span className={`qr-grade qr-tone-${toneFor(pct)}`}>{gradeFromPercent(pct)}</span>
+);
+
+/** Circular average-score gauge; colour comes from the parent's .qr-tone-* class. */
+const Ring = ({ pct }: { pct: number | null }) => {
+    const radius = 38;
+    const circumference = 2 * Math.PI * radius;
+    const value = Math.min(100, Math.max(0, pct ?? 0));
+    return (
+        <div className="qr-ring">
+            <svg viewBox="0 0 92 92" aria-hidden>
+                <circle cx="46" cy="46" r={radius} className="qr-ring-track" />
+                <circle cx="46" cy="46" r={radius} className="qr-ring-fill"
+                    strokeDasharray={circumference} strokeDashoffset={circumference * (1 - value / 100)} />
+            </svg>
+            <div className="qr-ring-value">
+                <strong>{pct != null ? `${Math.round(pct)}%` : '—'}</strong>
+                <span>average</span>
+            </div>
+        </div>
+    );
+};
+
+const StatTile: React.FC<{ icon: React.ReactNode; label: string; value: React.ReactNode; note?: React.ReactNode; bar?: number | null }> = ({
+    icon, label, value, note, bar,
+}) => (
+    <div className="qr-tile">
+        <div className="qr-tile-icon">{icon}</div>
+        <div className="qr-tile-body">
+            <div className="qr-tile-label">{label}</div>
+            <div className="qr-tile-value">{value}</div>
+            {bar != null && <div className="qr-tile-bar"><span style={{ width: `${Math.min(100, Math.max(0, bar))}%` }} /></div>}
+            {note && <div className="qr-tile-note">{note}</div>}
+        </div>
+    </div>
+);
+
+/* ══════════════════════════════
+   REVIEW PANEL (drawer content)
+══════════════════════════════ */
+interface ReviewItem { q: DetailQuestion; no: number; status: QStatus; }
+type ReviewGroup = { kind: 'audio'; clip: AudioClip; items: ReviewItem[] } | { kind: 'single'; item: ReviewItem };
+
+const ReviewPanel: React.FC<{
+    review: ReviewState;
+    audioUrls: Record<number, string>;
+    onClose: () => void;
+    onRetry: () => void;
+    fmtDate: (iso: string | null) => string;
+    fmtClock: (iso: string | null) => string;
+    tzLabel: string;
+}> = ({ review, audioUrls, onClose, onRetry, fmtDate, fmtClock, tzLabel }) => {
+    const [filter, setFilter] = useState<ReviewFilter>('all');
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const { row, data } = review;
+
+    const model = useMemo(() => {
+        if (!data) return null;
+        const clips = data.audio_clips ?? [];
+        const byClip = new Map<number, DetailQuestion[]>();
+        data.questions.forEach(q => {
+            if (!q.audio_clip_id) return;
+            if (!byClip.has(q.audio_clip_id)) byClip.set(q.audio_clip_id, []);
+            byClip.get(q.audio_clip_id)!.push(q);
+        });
+        // Listening questions stay together under their clip; numbering follows the display order.
+        const groups: ReviewGroup[] = [];
+        const items: ReviewItem[] = [];
+        const seen = new Set<number>();
+        let no = 0;
+        const make = (q: DetailQuestion) => {
+            const item = { q, no: ++no, status: questionStatus(q) };
+            items.push(item);
+            return item;
+        };
+        data.questions.forEach(q => {
+            if (q.audio_clip_id) {
+                if (seen.has(q.audio_clip_id)) return;
+                seen.add(q.audio_clip_id);
+                const clip = clips.find(c => c.id === q.audio_clip_id) ?? { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false };
+                groups.push({ kind: 'audio', clip, items: (byClip.get(q.audio_clip_id) ?? []).map(make) });
+            } else {
+                groups.push({ kind: 'single', item: make(q) });
+            }
+        });
+        return { groups, items };
+    }, [data]);
+
+    const correctCount = model?.items.filter(i => i.status === 'correct').length ?? 0;
+    const reviewCount = (model?.items.length ?? 0) - correctCount;
+    const visible = (i: ReviewItem) => filter === 'all' || (filter === 'correct' ? i.status === 'correct' : i.status !== 'correct');
+
+    const jumpTo = (item: ReviewItem) => {
+        const go = () => bodyRef.current?.querySelector(`#qr-q-${item.q.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!visible(item)) { setFilter('all'); requestAnimationFrame(() => requestAnimationFrame(go)); }
+        else go();
     };
-    const c = map[color] || map.gray;
-    return <span style={{ fontSize: 11, fontWeight: 700, color: c.fg, background: c.bg, borderRadius: 20, padding: '3px 10px', whiteSpace: 'nowrap' }}>{text}</span>;
+
+    const renderItem = (item: ReviewItem) => {
+        const { q, no, status } = item;
+        const pts = toNum(q.points) ?? 0;
+        const got = toNum(q.score) ?? 0;
+        const selected = parseSelected(q.selected_options);
+        return (
+            <article key={q.id} id={`qr-q-${q.id}`} className={`qr-q is-${status}`}>
+                <header className="qr-q-head">
+                    <span className="qr-q-no">Question {no}</span>
+                    <span className="qr-q-status">{STATUS_ICON[status]} {STATUS_LABEL[status]}</span>
+                    <span className="qr-q-pts">{NUM.format(got)} / {NUM.format(pts)} pts</span>
+                </header>
+                <p className="qr-q-text">{q.question_text}</p>
+                {isMcq(q) && q.options?.length ? (
+                    <ul className="qr-options">
+                        {q.options.map(o => {
+                            const picked = selected.includes(o.id);
+                            const cls = o.is_correct ? (picked ? 'is-hit' : 'is-missed') : picked ? 'is-wrong' : '';
+                            return (
+                                <li key={o.id} className={`qr-option ${cls}`}>
+                                    <span className="qr-option-mark">{o.is_correct ? <CheckOutlined /> : picked ? <CloseOutlined /> : null}</span>
+                                    <span className="qr-option-text">{o.option_text}</span>
+                                    {picked && <span className="qr-option-tag">Your answer</span>}
+                                    {!picked && o.is_correct && <span className="qr-option-tag">Correct answer</span>}
+                                </li>
+                            );
+                        })}
+                    </ul>
+                ) : (
+                    <div className="qr-answers">
+                        <div>
+                            <div className="qr-answer-label">Your answer</div>
+                            <div className={`qr-answer-box ${status === 'correct' ? 'is-good' : status === 'unanswered' ? '' : 'is-bad'}`}>
+                                {answerText(q) || <em>No answer given</em>}
+                            </div>
+                        </div>
+                        {q.correct_answer && status !== 'correct' && (
+                            <div>
+                                <div className="qr-answer-label">Correct answer</div>
+                                <div className="qr-answer-box is-good">{q.correct_answer}</div>
+                            </div>
+                        )}
+                    </div>
+                )}
+                {q.teacher_feedback && (
+                    <div className="qr-q-feedback"><strong>Teacher feedback</strong>{q.teacher_feedback}</div>
+                )}
+            </article>
+        );
+    };
+
+    const pct = row.pct ?? toNum(data?.submission.percentage) ?? 0;
+    const time = data?.submission.time_taken ?? row.timeSecs;
+
+    return (
+        <div className="qr-review">
+            <header className="qr-review-head">
+                <div className="qr-review-head-bar">
+                    <span className="qr-review-kicker">Quiz review</span>
+                    <Button type="text" size="small" icon={<CloseOutlined />} onClick={onClose} aria-label="Close review" />
+                </div>
+                <h2 className="qr-review-title">{data?.quiz.title ?? row.title}</h2>
+                <ul className="qr-review-meta">
+                    {row.batches.map(b => <li key={b} className="qr-chip"><TeamOutlined /> {b}</li>)}
+                    {row.teacher && <li><UserOutlined /> {row.teacher}</li>}
+                    {row.submittedAt && (
+                        <li>
+                            <CalendarOutlined /> {fmtDate(row.submittedAt)} at {fmtClock(row.submittedAt)}
+                            <span className="qr-muted">{tzLabel}</span>
+                        </li>
+                    )}
+                </ul>
+            </header>
+
+            <div className="qr-review-body" ref={bodyRef}>
+                {review.status === 'loading' && (
+                    <div className="qr-pad"><Skeleton active paragraph={{ rows: 3 }} /><Skeleton active paragraph={{ rows: 5 }} /></div>
+                )}
+                {review.status === 'error' && (
+                    <div className="qr-pad">
+                        <Alert type="error" showIcon message="Couldn't load this review" description={review.error}
+                            action={<Button size="small" onClick={onRetry}>Retry</Button>} />
+                    </div>
+                )}
+                {review.status === 'ready' && data && model && (
+                    <>
+                        <section className={`qr-review-summary qr-tone-${toneFor(pct)}`}>
+                            <div className="qr-review-grade">{gradeFromPercent(pct)}</div>
+                            <div className="qr-review-score">
+                                <div className="qr-review-pct">{fmtPct(pct)}</div>
+                                <div className="qr-meter" aria-hidden>
+                                    <span style={{ width: `${Math.min(100, pct)}%` }} />
+                                    <i style={{ left: `${PASS_MARK}%` }} />
+                                </div>
+                                <div className="qr-meter-caption">{pct >= PASS_MARK ? 'Above' : 'Below'} the {PASS_MARK}% pass mark</div>
+                            </div>
+                            <dl className="qr-review-facts">
+                                <div><dt>Points</dt><dd>{NUM.format(toNum(data.submission.score) ?? 0)} / {NUM.format(toNum(data.submission.max_score) ?? 0)}</dd></div>
+                                <div><dt>Correct</dt><dd>{correctCount} / {model.items.length}</dd></div>
+                                <div><dt>Time</dt><dd>{fmtDuration(time)}</dd></div>
+                            </dl>
+                        </section>
+
+                        {data.submission.teacher_feedback && (
+                            <div className="qr-review-feedback">
+                                <strong>Teacher feedback</strong>
+                                {data.submission.teacher_feedback}
+                            </div>
+                        )}
+
+                        <div className="qr-review-toolbar">
+                            <Segmented<ReviewFilter>
+                                size="small"
+                                value={filter}
+                                onChange={setFilter}
+                                options={[
+                                    { value: 'all', label: `All ${model.items.length}` },
+                                    { value: 'review', label: `To review ${reviewCount}` },
+                                    { value: 'correct', label: `Correct ${correctCount}` },
+                                ]}
+                            />
+                            <div className="qr-nav" aria-label="Jump to question">
+                                {model.items.map(it => (
+                                    <button key={it.q.id} type="button" className={`qr-nav-item is-${it.status}`}
+                                        onClick={() => jumpTo(it)} title={`Question ${it.no}: ${STATUS_LABEL[it.status]}`}>
+                                        {it.no}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="qr-questions" onCopy={e => e.preventDefault()} onContextMenu={e => e.preventDefault()}>
+                            {model.groups.map((g, gi) => {
+                                if (g.kind === 'single') return visible(g.item) ? renderItem(g.item) : null;
+                                const shown = g.items.filter(visible);
+                                if (shown.length === 0) return null;
+                                const got = g.items.reduce((s, i) => s + (toNum(i.q.score) ?? 0), 0);
+                                const max = g.items.reduce((s, i) => s + (toNum(i.q.points) ?? 0), 0);
+                                return (
+                                    <section key={`clip-${g.clip.id}`} className="qr-audio">
+                                        <header className="qr-audio-head">
+                                            <SoundOutlined />
+                                            <strong>Listening passage {g.clip.audio_order || gi + 1}</strong>
+                                            <span>{plural(g.items.length, 'question')} · {NUM.format(got)} / {NUM.format(max)} pts</span>
+                                        </header>
+                                        {g.clip.has_audio && (audioUrls[g.clip.id] ? (
+                                            <audio className="qr-audio-player" controls controlsList="nodownload noplaybackrate"
+                                                src={audioUrls[g.clip.id]} onContextMenu={e => e.preventDefault()} />
+                                        ) : (
+                                            <div className="qr-audio-loading">Loading audio…</div>
+                                        ))}
+                                        <div className="qr-audio-items">{shown.map(renderItem)}</div>
+                                    </section>
+                                );
+                            })}
+                            {model.items.every(i => !visible(i)) && (
+                                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                    description={filter === 'review' ? 'Nothing to review. Every question is correct.' : 'No correct answers in this quiz yet.'} />
+                            )}
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
 };
 
-/* ══════════════════════════════════
+/* ══════════════════════════════
    MAIN COMPONENT
-══════════════════════════════════ */
+══════════════════════════════ */
 const StudentQuizResults: React.FC = () => {
-    const responsive = useResponsive();
-    const [results, setResults] = useState<QuizResult[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [detailModalVisible, setDetailModalVisible] = useState(false);
-    const [selectedResult, setSelectedResult] = useState<DetailedResult | null>(null);
-    const [loadingQuizId, setLoadingQuizId] = useState<number | null>(null);
-    const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
     const { apiCall, user } = useAuth();
-    // Render quiz timestamps in the student's saved profile timezone.
-    const tz = user?.timezone || 'UTC';
-    const fmtDay = (iso?: string | null) =>
-        iso ? formatLocal(iso, tz, {
-            month: 'short', day: '2-digit', year: 'numeric',
-            weekday: undefined, hour: undefined, minute: undefined, hour12: undefined,
-        }) : '—';
-    const fmtTimeOnly = (iso?: string | null) =>
-        iso ? formatLocal(iso, tz, {
-            hour: '2-digit', minute: '2-digit', hour12: false,
-            weekday: undefined, year: undefined, month: undefined, day: undefined,
-        }) : '—';
-    const fmtFull = (iso?: string | null) =>
-        iso ? formatLocal(iso, tz, {
-            month: 'short', day: '2-digit', year: 'numeric',
-            hour: '2-digit', minute: '2-digit', hour12: false,
-            weekday: undefined,
-        }) : '—';
-    const fmtCompact = (iso?: string | null) =>
-        iso ? formatLocal(iso, tz, {
-            month: 'short', day: '2-digit',
-            hour: '2-digit', minute: '2-digit', hour12: false,
-            weekday: undefined, year: undefined,
-        }) : '—';
+    const r = useResponsive();
+    const zone = resolveTimezone(user?.timezone);
 
-    // Filter states
-    const [batchFilter, setBatchFilter] = useState<string | null>(null);
-    const [teacherFilter, setTeacherFilter] = useState<string | null>(null);
-    const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
-    const [gradeFilter, setGradeFilter] = useState<string | null>(null);
+    const [rows, setRows] = useState<ResultRow[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [search, setSearch] = useState('');
+    const [batch, setBatch] = useState<string | null>(null);
+    const [teacher, setTeacher] = useState<string | null>(null);
+    const [grade, setGrade] = useState<GradeFilter | null>(null);
+    const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
+    const [sort, setSort] = useState<SortKey>('newest');
+    const [page, setPage] = useState(1);
+    const [review, setReview] = useState<ReviewState | null>(null);
+    const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
+    const audioRef = useRef<Record<number, string>>({});
+    const reviewSeq = useRef(0);
+    const lastReview = useRef<ReviewState | null>(null);
+    if (review) lastReview.current = review; // keeps drawer content during its close animation
 
-    useEffect(() => { fetchQuizResults(); }, []);
-
-    // Deep-link: ?focus=<submissionId> from grade_published notification —
-    // pulse-highlight the matching row.
     const [searchParams] = useSearchParams();
     const focusId = searchParams.get('focus');
-    useEffect(() => {
-        if (!focusId || loading) return;
-        const idNum = Number(focusId);
-        if (!Number.isFinite(idNum)) return;
-        const tid = setTimeout(() => {
-            const el = document.querySelector(`[data-focus-id="${idNum}"]`) as HTMLElement | null;
-            if (el) {
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                el.classList.add('focus-pulse');
-                setTimeout(() => el.classList.remove('focus-pulse'), 2500);
-            }
-        }, 250);
-        return () => clearTimeout(tid);
-    }, [focusId, loading, results]);
 
-    const fetchQuizResults = async () => {
+    /* ── Dates in the student's timezone. The zone label is shown once (page subtitle,
+          review header) instead of being repeated after every date and time. ── */
+    const fmt = useMemo(() => {
+        const make = (opts: Intl.DateTimeFormatOptions, locale = 'en-US') => {
+            const f = new Intl.DateTimeFormat(locale, { timeZone: zone, ...opts });
+            return (iso: string | null) => {
+                if (!iso) return '';
+                const d = new Date(iso);
+                return isNaN(d.getTime()) ? '' : f.format(d);
+            };
+        };
+        return {
+            date: make({ month: 'short', day: 'numeric', year: 'numeric' }),
+            clock: make({ hour: '2-digit', minute: '2-digit', hour12: false }, 'en-GB'),
+            day: make({ year: 'numeric', month: '2-digit', day: '2-digit' }, 'en-CA'), // YYYY-MM-DD, for date filtering
+        };
+    }, [zone]);
+    const fmtDate = (iso: string | null) => fmt.date(iso) || '—';
+    const fmtClock = fmt.clock;
+    const dayKey = fmt.day;
+    const tzLabel = timezoneLabel(zone);
+
+    /* ── Data ── */
+    const fetchResults = useCallback(async () => {
+        setLoading(true); setError(null);
         try {
-            const r = await apiCall('/quizzes/student/results');
-            if (r.ok) { const d = await r.json(); setResults((d.results || []) as QuizResult[]); }
-        } catch { /* silent */ }
+            const res = await apiCall('/quizzes/student/results');
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body?.error || 'Failed to load results');
+            setRows(normalize(Array.isArray(body?.results) ? body.results : []));
+        } catch (e: any) { setError(e?.message || 'Failed to load results'); }
         finally { setLoading(false); }
-    };
+    }, [apiCall]);
 
-    const fetchDetailedResult = async (quizId: number) => {
-        setLoadingQuizId(quizId);
-        try {
-            const r = await apiCall(`/quizzes/${quizId}/student-results`);
-            if (r.ok) {
-                const data = await r.json();
-                setSelectedResult(data);
-                setDetailModalVisible(true);
-                // Preload audio blobs
-                const clips: AudioClipInfo[] = (data.audio_clips || []).filter((c: AudioClipInfo) => c.has_audio);
-                if (clips.length > 0) {
-                    const urls: Record<number, string> = {};
-                    await Promise.all(clips.map(async (clip) => {
-                        try {
-                            const ar = await apiCall(`/quizzes/audio/${clip.id}/stream`);
-                            if (ar.ok) {
-                                const j = await ar.json();
-                                if (j.audioData) {
-                                    const bc = atob(j.audioData), ba = new Uint8Array(bc.length);
-                                    for (let i = 0; i < bc.length; i++) ba[i] = bc.charCodeAt(i);
-                                    urls[clip.id] = URL.createObjectURL(new Blob([ba], { type: j.contentType || 'audio/wav' }));
-                                }
-                            }
-                        } catch (e) { console.warn(`Audio ${clip.id}`, e); }
-                    }));
-                    setAudioUrls(urls);
-                }
+    useEffect(() => { fetchResults(); }, [fetchResults]);
+
+    /* ── Filters ── */
+    const batchOptions = useMemo(() => Array.from(new Set(rows.flatMap(x => x.batches))).sort().map(v => ({ value: v, label: v })), [rows]);
+    const teacherOptions = useMemo(() => Array.from(new Set(rows.map(x => x.teacher).filter((t): t is string => !!t))).sort().map(v => ({ value: v, label: v })), [rows]);
+    const hasFilters = !!(search.trim() || batch || teacher || grade || range?.[0] || range?.[1]);
+
+    const list = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        const from = range?.[0]?.format('YYYY-MM-DD');
+        const to = range?.[1]?.format('YYYY-MM-DD');
+        const filtered = rows.filter(row => {
+            if (q && !row.title.toLowerCase().includes(q) && !row.batches.some(b => b.toLowerCase().includes(q))) return false;
+            if (batch && !row.batches.includes(batch)) return false;
+            if (teacher && row.teacher !== teacher) return false;
+            if (grade === 'pending' && isGraded(row)) return false;
+            if (grade && grade !== 'pending' && (!isGraded(row) || bandFor(row.pct as number).label !== grade)) return false;
+            if (from || to) {
+                if (!row.submittedAt) return false;
+                const k = dayKey(row.submittedAt);
+                if (from && k < from) return false;
+                if (to && k > to) return false;
             }
-        } catch { /* silent */ }
-        finally { setLoadingQuizId(null); }
-    };
-
-    const getQuestionStatus = (q: DetailedResult['questions'][number]) => {
-        const isMcq = q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
-        if (isMcq) {
-            const s = Number(q.score || 0), p = Number(q.points || 0);
-            const color = qScoreColor(q.score, q.points);
-            const text = p > 0 ? (s <= 0 ? 'Incorrect' : s >= p ? 'Correct' : 'Partial') : 'Incorrect';
-            return { color, text, correct: s >= p };
-        }
-        return { color: q.is_correct ? '#22c55e' : '#ef4444', text: q.is_correct ? 'Correct' : 'Incorrect', correct: !!q.is_correct };
-    };
-
-    /* ── Stats ── */
-    const availableBatches = React.useMemo(() => {
-        const set = new Set<string>();
-        results.forEach(r => {
-            if (r.batch_name) set.add(r.batch_name);
-        });
-        return Array.from(set).map(name => ({ value: name, label: name }));
-    }, [results]);
-
-    const availableTeachers = React.useMemo(() => {
-        const set = new Set<string>();
-        results.forEach(r => {
-            const tName = `${r.teacher_first_name || ''} ${r.teacher_last_name || ''}`.trim();
-            if (tName) set.add(tName);
-        });
-        return Array.from(set).map(name => ({ value: name, label: name }));
-    }, [results]);
-
-    const availableGrades = React.useMemo(() => {
-        const set = new Set<string>();
-        results.forEach(r => {
-            if (r.percentage != null && !r.results_locked) {
-                set.add(gradeText(Number(r.percentage)));
-            }
-        });
-        const order = ['A+', 'A', 'B', 'C', 'D', 'F'];
-        return Array.from(set).sort((a, b) => order.indexOf(a) - order.indexOf(b)).map(g => ({ value: g, label: `Grade ${g}` }));
-    }, [results]);
-
-    const filteredResults = React.useMemo(() => {
-        return results.filter(r => {
-            if (batchFilter && r.batch_name !== batchFilter) return false;
-            const tName = `${r.teacher_first_name || ''} ${r.teacher_last_name || ''}`.trim();
-            if (teacherFilter && tName !== teacherFilter) return false;
-            if (dateRange && dateRange[0] && dateRange[1]) {
-                const sDate = dayjs(r.submitted_at);
-                if (sDate.isBefore(dateRange[0].startOf('day')) || sDate.isAfter(dateRange[1].endOf('day'))) {
-                    return false;
-                }
-            }
-            if (gradeFilter && (!r.percentage && r.percentage !== 0 || r.results_locked || gradeText(Number(r.percentage)) !== gradeFilter)) return false;
             return true;
         });
-    }, [results, batchFilter, teacherFilter, dateRange, gradeFilter]);
+        const time = (x: ResultRow) => (x.submittedAt ? new Date(x.submittedAt).getTime() : 0);
+        const score = (x: ResultRow) => (isGraded(x) ? (x.pct as number) : -1);
+        return filtered.sort((a, b) => {
+            if (sort === 'oldest') return time(a) - time(b);
+            if (sort === 'best') return score(b) - score(a) || time(b) - time(a);
+            if (sort === 'worst') {
+                // Locked results (no score yet) go last rather than first.
+                const sa = isGraded(a) ? score(a) : 101, sb = isGraded(b) ? score(b) : 101;
+                return sa - sb || time(b) - time(a);
+            }
+            return time(b) - time(a);
+        });
+    }, [rows, search, batch, teacher, grade, range, sort, dayKey]);
 
-    const unlocked = filteredResults.filter(r => !r.results_locked);
-    const valid = unlocked.filter(r => Number(r.max_score || 0) > 0);
-    const sumS = valid.reduce((s, r) => s + Number(r.score || 0), 0);
-    const sumM = valid.reduce((s, r) => s + Number(r.max_score || 0), 0);
-    const avgScore = sumM > 0 ? Math.round((sumS / sumM) * 100) : 0;
-    const bestScore = unlocked.length > 0 ? Math.max(...unlocked.map(r => Number(r.percentage || 0))) : 0;
-    const totalTime = filteredResults.reduce((s, r) => s + Number(r.time_taken || 0), 0);
-    const avgTimeSecs = filteredResults.length > 0 ? Math.round(totalTime / filteredResults.length) : 0;
+    useEffect(() => { setPage(1); }, [search, batch, teacher, grade, range, sort]);
+
+    const stats = useMemo(() => {
+        let graded = 0, pending = 0, passed = 0, pts = 0, max = 0, correct = 0, questions = 0, time = 0;
+        let best: ResultRow | null = null;
+        let lastAt: string | null = null;
+        for (const row of list) {
+            time += row.timeSecs;
+            if (row.submittedAt && (!lastAt || row.submittedAt > lastAt)) lastAt = row.submittedAt;
+            if (!isGraded(row)) { pending++; continue; }
+            graded++;
+            if ((row.pct as number) >= PASS_MARK) passed++;
+            pts += row.score ?? 0;
+            max += row.maxScore ?? 0;
+            if (row.correct != null && row.questions) { correct += row.correct; questions += row.questions; }
+            if (!best || (row.pct as number) > (best.pct as number)) best = row;
+        }
+        return {
+            graded, pending, passed, correct, questions, time, lastAt,
+            best: best as ResultRow | null,
+            average: max > 0 ? (pts / max) * 100 : null,
+            passRate: graded > 0 ? (passed / graded) * 100 : null,
+            accuracy: questions > 0 ? (correct / questions) * 100 : null,
+            avgTime: list.length ? time / list.length : 0,
+        };
+    }, [list]);
+
+    /* ── Deep link from a "grade published" notification: ?focus=<submissionId> ── */
+    useEffect(() => {
+        if (!focusId || loading) return;
+        const idx = list.findIndex(x => x.key === focusId);
+        if (idx < 0) return;
+        setPage(Math.floor(idx / PAGE_SIZE) + 1);
+        const t = setTimeout(() => {
+            const el = document.querySelector(`[data-focus-id="${focusId}"]`);
+            if (!el) return;
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('qr-focus');
+            setTimeout(() => el.classList.remove('qr-focus'), 2600);
+        }, 350);
+        return () => clearTimeout(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusId, loading]);
+
+    /* ── Review drawer ── */
+    const revokeAudio = useCallback(() => {
+        Object.values(audioRef.current).forEach(u => URL.revokeObjectURL(u));
+        audioRef.current = {};
+        setAudioUrls({});
+    }, []);
+    useEffect(() => () => { Object.values(audioRef.current).forEach(u => URL.revokeObjectURL(u)); }, []);
+
+    const loadAudio = async (detail: Detail, seq: number) => {
+        const clips = (detail.audio_clips ?? []).filter(c => c.has_audio);
+        await Promise.all(clips.map(async clip => {
+            try {
+                const res = await apiCall(`/quizzes/audio/${clip.id}/stream`);
+                if (!res.ok) return;
+                const j = await res.json();
+                if (!j.audioData || seq !== reviewSeq.current) return;
+                const bin = atob(j.audioData);
+                const bytes = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                const url = URL.createObjectURL(new Blob([bytes], { type: j.contentType || 'audio/wav' }));
+                if (seq !== reviewSeq.current) { URL.revokeObjectURL(url); return; }
+                audioRef.current[clip.id] = url;
+                setAudioUrls(prev => ({ ...prev, [clip.id]: url }));
+            } catch { /* audio is optional in the review */ }
+        }));
+    };
+
+    const openReview = async (row: ResultRow) => {
+        if (row.locked) return;
+        const seq = ++reviewSeq.current;
+        revokeAudio();
+        setReview({ row, status: 'loading' });
+        try {
+            const res = await apiCall(`/quizzes/${row.quizId}/student-results`);
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body?.error || 'Failed to load review');
+            if (seq !== reviewSeq.current) return;
+            setReview({ row, status: 'ready', data: body as Detail });
+            loadAudio(body as Detail, seq);
+        } catch (e: any) {
+            if (seq === reviewSeq.current) setReview({ row, status: 'error', error: e?.message || 'Failed to load review' });
+        }
+    };
+
+    const closeReview = () => {
+        reviewSeq.current++;
+        setReview(null);
+        revokeAudio();
+    };
+
+    const clearFilters = () => { setSearch(''); setBatch(null); setTeacher(null); setGrade(null); setRange(null); };
 
     /* ── Columns ── */
-    const columns: ColumnsType<QuizResult> = [
+    const LOCK_SPAN = 3; // Correct + Score + Grade
+    const hideWhenLocked = (row: ResultRow) => ({ colSpan: row.locked ? 0 : 1 });
+    const columns: ColumnsType<ResultRow> = [
         {
-            title: 'QUIZ', key: 'quiz', width: 260, fixed: 'left',
-            render: (_, r) => (
+            title: 'Quiz', key: 'quiz',
+            render: (_, row) => (
                 <div>
-                    <div style={{ fontWeight: 700, color: '#1a1d2e', fontSize: 13.5, marginBottom: 3 }}>{r.quiz_title}</div>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#eef2ff', borderRadius: 20, padding: '2px 8px' }}>
-                        <FileTextOutlined style={{ fontSize: 10, color: '#6366f1' }} />
-                        <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 600 }}>{r.batch_name}</span>
-                    </div>
-                    {r.results_locked && (
-                        <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, background: '#fffbeb', borderRadius: 20, padding: '2px 8px', marginLeft: 4 }}>
-                            <LockOutlined style={{ fontSize: 10, color: '#b45309' }} />
-                            <span style={{ fontSize: 11, color: '#b45309', fontWeight: 600 }}>Locked until {fmtCompact(r.end_date)}</span>
-                        </div>
+                    <div className="qr-cell-title" title={row.title}>{row.title}</div>
+                    <div className="qr-cell-meta">{[row.batches.join(', '), row.teacher].filter(Boolean).join(' · ')}</div>
+                </div>
+            ),
+        },
+        {
+            title: 'Submitted', key: 'submitted', width: 136,
+            sorter: true, sortDirections: ['descend', 'ascend'],
+            sortOrder: sort === 'newest' ? 'descend' : sort === 'oldest' ? 'ascend' : null,
+            render: (_, row) => row.submittedAt ? (
+                <div>
+                    <div>{fmtDate(row.submittedAt)}</div>
+                    <div className="qr-cell-meta">{fmtClock(row.submittedAt)}</div>
+                </div>
+            ) : <span className="qr-muted">—</span>,
+        },
+        { title: 'Time', key: 'time', width: 84, align: 'right', render: (_, row) => fmtDuration(row.timeSecs) },
+        {
+            title: 'Correct', key: 'correct', width: 92, align: 'right',
+            onCell: row => (row.locked ? { colSpan: LOCK_SPAN, className: 'qr-cell-locked' } : {}),
+            render: (_, row) => row.locked ? (
+                <span className="qr-pill"><LockOutlined /> {row.releaseAt ? `Results released ${fmtDate(row.releaseAt)}` : 'Awaiting release'}</span>
+            ) : row.correct != null && row.questions ? `${row.correct} / ${row.questions}` : <span className="qr-muted">—</span>,
+        },
+        {
+            title: 'Score', key: 'score', width: 168, align: 'right', onCell: hideWhenLocked,
+            sorter: true, sortDirections: ['descend', 'ascend'],
+            sortOrder: sort === 'best' ? 'descend' : sort === 'worst' ? 'ascend' : null,
+            render: (_, row) => row.pct != null ? (
+                <div>
+                    <ScoreCell pct={row.pct} />
+                    {row.score != null && row.maxScore != null && (
+                        <div className="qr-cell-meta">{NUM.format(row.score)} / {NUM.format(row.maxScore)} pts</div>
                     )}
                 </div>
-            ),
+            ) : null,
         },
         {
-            title: 'SCORE', key: 'score', width: 140,
-            render: (_, r) => r.results_locked ? (
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>Hidden</span>
-            ) : (
-                <div>
-                    <div style={{ fontSize: 15, fontWeight: 800, color: scoreColor(Number(r.percentage || 0)) }}>{Number(r.percentage || 0).toFixed(1)}%</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{Number(r.score || 0).toFixed(1)}/{Number(r.max_score || 0).toFixed(1)} pts</div>
-                    <Pill color={Number(r.percentage || 0) >= 50 ? 'green' : 'red'} text={gradeText(Number(r.percentage || 0))} />
-                </div>
-            )
+            title: 'Grade', key: 'grade', width: 72, align: 'center', onCell: hideWhenLocked,
+            render: (_, row) => row.pct != null ? <GradeBadge pct={row.pct} /> : null,
         },
         {
-            title: 'PERFORMANCE', key: 'performance', width: 180,
-            render: (_, r) => r.results_locked ? (
-                <span style={{ fontSize: 12, color: '#94a3b8' }}>—</span>
-            ) : (
-                <div>
-                    <Progress percent={Number(r.percentage || 0)} size="small" strokeColor={scoreColor(Number(r.percentage || 0))} showInfo={false} strokeLinecap="round" />
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
-                        {Number(r.correct_answers || 0)}/{Number(r.total_questions || 0)} correct
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'TIME', key: 'time_taken', width: 110,
-            render: (_, r) => (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <ClockCircleOutlined style={{ color: '#6366f1', fontSize: 13 }} />
-                    <span style={{ fontSize: 13, color: '#4b5563', fontWeight: 600 }}>{fmtTime(r.time_taken)}</span>
-                </div>
-            ),
-        },
-        {
-            title: 'SUBMITTED', key: 'submitted_at', width: 150,
-            render: (_, r) => (
-                <div>
-                    <div style={{ fontSize: 13, color: '#1a1d2e', fontWeight: 600 }}>{fmtDay(r.submitted_at)}</div>
-                    <div style={{ fontSize: 11, color: '#94a3b8' }}>{fmtTimeOnly(r.submitted_at)}</div>
-                </div>
-            ),
-        },
-        {
-            title: 'ACTIONS', key: 'actions', width: 140, fixed: 'right',
-            render: (_, r) => (
-                <Tooltip title={r.results_locked ? 'Results available after quiz ends' : 'View detailed results'}>
-                    <Button size="small" icon={<EyeOutlined />}
-                        loading={loadingQuizId === r.quiz_id}
-                        disabled={!!r.results_locked}
-                        onClick={() => !r.results_locked && fetchDetailedResult(r.quiz_id)}
-                        style={{ borderRadius: 8, borderColor: '#e0e7ff', color: '#6366f1', background: '#f4f3ff', fontWeight: 600, height: 30 }}>
-                        Details
-                    </Button>
+            title: '', key: 'action', width: 104, align: 'right',
+            render: (_, row) => row.locked ? (
+                <Tooltip title="Available once the quiz closes">
+                    <Button size="small" type="text" disabled icon={<LockOutlined />}>Locked</Button>
                 </Tooltip>
+            ) : (
+                <Button size="small" className="qr-review-btn"
+                    loading={review?.row.key === row.key && review.status === 'loading'}
+                    onClick={e => { e.stopPropagation(); openReview(row); }}>
+                    Review <RightOutlined />
+                </Button>
             ),
         },
     ];
 
-    /* ── Loading skeleton ── */
+    /* ═══════════ LOADING ═══════════ */
     if (loading) return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            <div style={{ marginBottom: 24 }}><Skeleton.Input active style={{ width: 200, height: 26, borderRadius: 8 }} /><div style={{ marginTop: 6 }}><Skeleton.Input active style={{ width: 140, height: 13, borderRadius: 6 }} /></div></div>
-            <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
-                {[1,2,3,4].map(i => (
-                    <Col xs={24} sm={12} md={6} key={i}>
-                        <div style={{ borderRadius: 16, padding: '20px 22px', background: '#fff', border: '1px solid #f0f0f8', display: 'flex', alignItems: 'center', gap: 16, boxShadow: '0 2px 12px rgba(99,102,241,0.07)' }}>
-                            <Skeleton.Avatar active size={46} shape="square" style={{ borderRadius: 13 }} />
-                            <div style={{ flex: 1 }}><Skeleton.Input active style={{ width: '70%', height: 11, borderRadius: 4, marginBottom: 8 }} block /><Skeleton.Input active style={{ width: 44, height: 26, borderRadius: 6 }} /></div>
-                        </div>
-                    </Col>
-                ))}
-            </Row>
-            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #f0f0f8', flex: 1, overflow: 'hidden', boxShadow: '0 2px 12px rgba(99,102,241,0.07)' }}>
-                {[1,2,3,4,5].map(i => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', borderBottom: '1px solid #f8f8fc' }}>
-                        <div style={{ flex: 3 }}><Skeleton.Input active style={{ width: '60%', height: 13, borderRadius: 5, marginBottom: 5 }} block /><Skeleton.Input active style={{ width: '30%', height: 11, borderRadius: 5 }} block /></div>
-                        <Skeleton.Input active style={{ width: 70, height: 20, borderRadius: 20 }} />
-                        <Skeleton.Input active style={{ width: 80, height: 20, borderRadius: 5 }} />
-                        <Skeleton.Button active size="small" style={{ width: 65, height: 28, borderRadius: 8 }} />
-                    </div>
-                ))}
+        <div className="qr" aria-busy="true">
+            <div className="qr-header">
+                <div>
+                    <Skeleton.Input active size="small" style={{ width: 80, height: 12 }} />
+                    <div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 220, height: 24 }} /></div>
+                </div>
             </div>
+            <div className="qr-overview qr-overview-loading"><Skeleton active avatar={{ size: 76 }} title={false} paragraph={{ rows: 3 }} /></div>
+            <div className="qr-card" style={{ padding: 20 }}><Skeleton active title={false} paragraph={{ rows: 8 }} /></div>
         </div>
     );
 
-    /* ── Render ── */
+    /* ═══════════ RENDER ═══════════ */
+    const pageRows = list.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const panel = review ?? lastReview.current;
+
+    const emptyState = (
+        <div className="qr-empty">
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={rows.length === 0 ? 'No results yet. Your quiz results will appear here once you submit a quiz.' : 'No results match these filters.'}>
+                {rows.length > 0 && hasFilters && <Button size="small" onClick={clearFilters}>Clear filters</Button>}
+            </Empty>
+        </div>
+    );
+
     return (
-        <div className="student-portal" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            /* On mobile, let the page flow with content height instead of
-               forcing 100% — the inner table card was clipping rows. */
-            height: responsive.isMobile ? 'auto' : '100%',
-            minHeight: responsive.isMobile ? 'auto' : '100%',
-        }}>
+        <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13 } }}>
+            <div className="qr">
 
-            {/* Header */}
-            <PageHeader
-                title="My Results"
-                subtitle={`${filteredResults.length} quiz result${filteredResults.length !== 1 ? 's' : ''} · avg score ${avgScore}%`}
-                icon={<TrophyOutlined />}
-                accent="#10b981"
-            />
-
-            {/* Filters */}
-            <div style={{
-                background: '#fff',
-                borderRadius: 16,
-                border: '1px solid #f0f0f8',
-                padding: responsive.isMobile ? '12px 14px' : responsive.isCompact ? '12px 16px' : '14px 20px',
-                marginBottom: responsive.isCompact ? 14 : 20,
-                display: 'flex',
-                gap: responsive.isMobile ? 8 : 12,
-                flexWrap: 'wrap',
-                boxShadow: '0 2px 12px rgba(99,102,241,0.06)',
-            }}>
-                <RangePicker
-                    value={dateRange}
-                    onChange={(dates: any) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                    style={{ borderRadius: 8, flex: responsive.isMobile ? '1 1 100%' : undefined }}
-                    allowClear
-                />
-                <Select
-                    value={batchFilter}
-                    onChange={setBatchFilter}
-                    allowClear
-                    placeholder="All Batches"
-                    style={{ width: responsive.isMobile ? '100%' : 220 }}
-                    options={availableBatches}
-                    showSearch
-                    optionFilterProp="label"
-                />
-                <Select
-                    value={teacherFilter}
-                    onChange={setTeacherFilter}
-                    allowClear
-                    placeholder="All Teachers"
-                    style={{ width: responsive.isMobile ? 'calc(50% - 4px)' : 220 }}
-                    options={availableTeachers}
-                    showSearch
-                    optionFilterProp="label"
-                />
-                <Select
-                    value={gradeFilter}
-                    onChange={setGradeFilter}
-                    allowClear
-                    placeholder="All Grades"
-                    style={{ width: responsive.isMobile ? 'calc(50% - 4px)' : 140 }}
-                    options={availableGrades}
-                />
-            </div>
-
-            {/* KPI Cards */}
-            <Row gutter={responsive.isCompact ? [12, 12] : [16, 16]} style={{ marginBottom: responsive.isCompact ? 14 : 20, flexShrink: 0 }}>
-                <Col xs={12} sm={12} md={6}>
-                    <KpiCard label="Total Quizzes"   value={filteredResults.length}               icon={<FileTextOutlined />}   accent="#6366f1" />
-                </Col>
-                <Col xs={12} sm={12} md={6}>
-                    <KpiCard label="Average Score"   value={avgScore}  suffix="%"         icon={<BarChartOutlined />}   accent="#10b981" />
-                </Col>
-                <Col xs={12} sm={12} md={6}>
-                    <KpiCard label="Best Score"      value={Math.round(bestScore)} suffix="%" icon={<TrophyOutlined />} accent="#f59e0b" />
-                </Col>
-                <Col xs={12} sm={12} md={6}>
-                    <KpiCard label="Avg Time Spent"  value={fmtTime(avgTimeSecs)}          icon={<ClockCircleOutlined />} accent="#0ea5e9" sub={`per quiz · ${fmtTime(totalTime)} total`} />
-                </Col>
-            </Row>
-
-            {/* Table card */}
-            <div style={{
-                background: '#fff',
-                borderRadius: 16,
-                border: '1px solid #f0f0f8',
-                boxShadow: '0 2px 12px rgba(99,102,241,0.07)',
-                flex: responsive.isMobile ? 'none' : 1,
-                overflow: 'hidden',
-                display: 'flex',
-                flexDirection: 'column',
-                minHeight: 0,
-            }}>
-
-                {/* Table header bar */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: responsive.isMobile ? '12px 14px' : '14px 20px', borderBottom: '1px solid #f0f0f8', flexShrink: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 10, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: 15 }}>
-                            <BarChartOutlined />
-                        </div>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e' }}>Results History</span>
+                {/* ── Header ── */}
+                <header className="qr-header">
+                    <div>
+                        <div className="qr-overline">Results</div>
+                        <h1 className="qr-title">Quiz results</h1>
+                        <ul className="qr-header-meta">
+                            <li>
+                                <FileDoneOutlined />
+                                {hasFilters && list.length !== rows.length ? `${list.length} of ${plural(rows.length, 'result')}` : plural(list.length, 'result')}
+                            </li>
+                            {stats.pending > 0 && <li><LockOutlined /> {stats.pending} awaiting release</li>}
+                            {stats.lastAt && <li><CalendarOutlined /> Last submitted {fmtDate(stats.lastAt)}</li>}
+                            <li><GlobalOutlined /> Times in {tzLabel}</li>
+                        </ul>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#6366f1', borderRadius: 20, padding: '3px 12px' }}>
-                        {filteredResults.length} total
-                    </span>
-                </div>
+                    {hasFilters && <Button size="small" onClick={clearFilters}>Clear filters</Button>}
+                </header>
 
-                {/* Table body — desktop table, mobile card stack */}
-                <div style={{
-                    flex: responsive.isMobile ? 'none' : 1,
-                    overflow: responsive.isMobile ? 'visible' : 'hidden',
-                    padding: responsive.isMobile ? 12 : 0,
-                }}>
-                    {filteredResults.length === 0 ? (
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 220, padding: '40px 20px' }}>
-                            <Empty description={<span style={{ color: '#94a3b8', fontSize: 13 }}>No quiz results yet. Complete some quizzes first!</span>} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                {error && (
+                    <Alert type="error" showIcon message="Couldn't load your results" description={error}
+                        action={<Button size="small" onClick={fetchResults}>Retry</Button>} />
+                )}
+
+                {/* ── Summary (follows the active filters) ── */}
+                <section className="qr-overview" aria-label="Summary">
+                    <div className={`qr-hero${stats.average != null ? ` qr-tone-${toneFor(stats.average)}` : ''}`}>
+                        <Ring pct={stats.average} />
+                        <div className="qr-hero-text">
+                            <div className="qr-hero-label">Average score</div>
+                            <div className="qr-hero-grade">
+                                {stats.average != null ? <>Grade <GradeBadge pct={stats.average} /></> : 'No grades yet'}
+                            </div>
                         </div>
-                    ) : responsive.isMobile ? (
-                        /* ── Mobile: card stack ── */
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {filteredResults.map((r) => {
-                                const pct = Number(r.percentage || 0);
-                                const isLocked = !!r.results_locked;
-                                return (
-                                    <div
-                                        key={r.id}
-                                        data-focus-id={r.id}
-                                        style={{
-                                            background: '#fff',
-                                            border: '1px solid #f0f0f8',
-                                            borderRadius: 14,
-                                            padding: 14,
-                                            boxShadow: '0 1px 3px rgba(15,23,42,0.04)',
-                                        }}
-                                    >
-                                        {/* Title + batch */}
-                                        <div style={{ marginBottom: 10 }}>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: '#1a1d2e', marginBottom: 4, lineHeight: 1.3 }}>
-                                                {r.quiz_title}
-                                            </div>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                                <span style={{
-                                                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                    padding: '2px 9px', borderRadius: 999,
-                                                    background: '#eef2ff', color: '#6366f1',
-                                                    fontSize: 10.5, fontWeight: 700,
-                                                }}>
-                                                    <FileTextOutlined style={{ fontSize: 9 }} />
-                                                    {r.batch_name}
-                                                </span>
-                                                {isLocked && (
-                                                    <span style={{
-                                                        display: 'inline-flex', alignItems: 'center', gap: 4,
-                                                        padding: '2px 9px', borderRadius: 999,
-                                                        background: '#fffbeb', color: '#b45309',
-                                                        fontSize: 10.5, fontWeight: 700,
-                                                    }}>
-                                                        <LockOutlined style={{ fontSize: 9 }} />
-                                                        Locked until {fmtCompact(r.end_date)}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {isLocked ? (
-                                            <div style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', marginBottom: 10 }}>
-                                                Score will appear after the quiz closes.
-                                            </div>
-                                        ) : (
-                                            <>
-                                                {/* Score row */}
-                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                                    <div>
-                                                        <span style={{ fontSize: 22, fontWeight: 800, color: scoreColor(pct), lineHeight: 1 }}>
-                                                            {pct.toFixed(1)}%
-                                                        </span>
-                                                        <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
-                                                            {Number(r.score || 0).toFixed(1)}/{Number(r.max_score || 0).toFixed(1)} pts
-                                                        </span>
-                                                    </div>
-                                                    <Pill color={pct >= 50 ? 'green' : 'red'} text={gradeText(pct)} />
-                                                </div>
-                                                <Progress percent={pct} size="small" strokeColor={scoreColor(pct)} showInfo={false} strokeLinecap="round" />
-                                                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4, marginBottom: 10 }}>
-                                                    {Number(r.correct_answers || 0)}/{Number(r.total_questions || 0)} correct
-                                                </div>
-                                            </>
-                                        )}
-
-                                        {/* Meta + action */}
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontSize: 11, color: '#64748b', flex: 1 }}>
-                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                                    <ClockCircleOutlined style={{ color: '#6366f1' }} />
-                                                    {fmtTime(r.time_taken)}
-                                                </span>
-                                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                                    <CalendarOutlined style={{ color: '#94a3b8' }} />
-                                                    {fmtDay(r.submitted_at)} · {fmtTimeOnly(r.submitted_at)}
-                                                </span>
-                                            </div>
-                                            <Button
-                                                size="middle"
-                                                icon={<EyeOutlined />}
-                                                loading={loadingQuizId === r.quiz_id}
-                                                disabled={isLocked}
-                                                onClick={() => !isLocked && fetchDetailedResult(r.quiz_id)}
-                                                style={{
-                                                    borderRadius: 10,
-                                                    borderColor: '#e0e7ff',
-                                                    color: '#6366f1',
-                                                    background: '#f4f3ff',
-                                                    fontWeight: 700,
-                                                    height: 36,
-                                                    paddingInline: 14,
-                                                }}
-                                            >
-                                                Details
-                                            </Button>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ) : (
-                        <Table
-                            columns={columns}
-                            dataSource={filteredResults}
-                            rowKey="id"
-                            loading={loading}
-                            pagination={false}
-                            scroll={{ y: 'calc(100vh - 370px)', x: 'max-content' }}
-                            size={responsive.isCompact ? 'small' : 'middle'}
-                            rowClassName={() => 'result-row'}
-                            onRow={(r) => ({
-                                'data-focus-id': r.id,
-                            } as any)}
+                    </div>
+                    <div className="qr-tiles">
+                        <StatTile
+                            icon={<TrophyOutlined />}
+                            label="Best score"
+                            value={fmtPct(stats.best?.pct ?? null)}
+                            note={stats.best ? <span title={stats.best.title}>Achieved in “{stats.best.title}”</span> : 'No graded quiz yet'}
                         />
-                    )}
-                </div>
-            </div>
+                        <StatTile
+                            icon={<CheckCircleOutlined />}
+                            label="Quizzes passed"
+                            value={<>{stats.passed} <small>/ {stats.graded}</small></>}
+                            bar={stats.passRate}
+                            note={stats.passRate != null ? `${Math.round(stats.passRate)}% pass rate` : 'No graded quiz yet'}
+                        />
+                        <StatTile
+                            icon={<AimOutlined />}
+                            label="Accuracy"
+                            value={stats.accuracy != null ? `${Math.round(stats.accuracy)}%` : '—'}
+                            bar={stats.accuracy}
+                            note={stats.questions ? `${stats.correct} of ${stats.questions} questions correct` : 'No answers yet'}
+                        />
+                        <StatTile
+                            icon={<FieldTimeOutlined />}
+                            label="Time spent"
+                            value={fmtDuration(stats.time)}
+                            note={list.length ? `${fmtDuration(stats.avgTime)} per quiz on average` : '—'}
+                        />
+                    </div>
+                </section>
 
-            {/* ── Detail Modal ── */}
-            <Modal
-                title={null}
-                open={detailModalVisible}
-                onCancel={() => { setDetailModalVisible(false); setSelectedResult(null); Object.values(audioUrls).forEach(u => URL.revokeObjectURL(u)); setAudioUrls({}); }}
-                footer={null}
-                width={responsive.isMobile ? '100vw' : (responsive.isCompact ? '95vw' : 960)}
-                centered={!responsive.isMobile}
-                closable={true}
-                destroyOnHidden
-                closeIcon={
-                    <div style={{ width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff', transition: 'all 0.2s', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                        onMouseEnter={e => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1.1)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.2)'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.transform = 'scale(1)'; }}
-                    >✕</div>
-                }
-                wrapClassName="result-detail-modal"
-                styles={{
-                    mask: { backdropFilter: 'blur(6px)', background: 'rgba(2, 6, 23, 0.6)' },
-                    content: {
-                        padding: 0,
-                        borderRadius: responsive.isMobile ? 0 : 16,
-                        overflow: 'hidden',
-                    },
-                    body: {
-                        padding: 0,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        overflow: 'hidden',
-                        height: responsive.isMobile ? '100dvh' : 'min(86vh, 760px)',
-                    },
-                }}
-            >
-                {selectedResult && (
-                    <>
-                        {/* ═══ FIXED HEADER SECTION ═══ */}
-                        <div style={{ flexShrink: 0 }}>
-                            {/* Gradient banner */}
-                            <div style={{
-                                background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%)',
-                                padding: responsive.isMobile ? '12px 44px 12px 16px' : '22px 52px 22px 28px',
-                                color: '#fff',
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: responsive.isMobile ? 10 : 18, gap: 10 }}>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: responsive.isMobile ? 15 : 20, fontWeight: 800, marginBottom: 2, lineHeight: 1.25, wordBreak: 'break-word' }}>{selectedResult.quiz.title}</div>
-                                        <div style={{ fontSize: responsive.isMobile ? 10.5 : 11, opacity: 0.85 }}>
-                                            <CalendarOutlined style={{ marginRight: 5 }} />
-                                            {fmtFull(selectedResult.submission.submitted_at)}
-                                            {!responsive.isMobile && selectedResult.quiz.description && <span style={{ marginLeft: 12, opacity: 0.7 }}>· {selectedResult.quiz.description.length > 60 ? selectedResult.quiz.description.slice(0, 60) + '…' : selectedResult.quiz.description}</span>}
-                                        </div>
-                                    </div>
-                                    {/* Grade badge — smaller on mobile */}
-                                    <div style={{ textAlign: 'center', flexShrink: 0 }}>
-                                        <div style={{
-                                            width: responsive.isMobile ? 38 : 56,
-                                            height: responsive.isMobile ? 38 : 56,
-                                            borderRadius: responsive.isMobile ? 10 : 16,
-                                            background: 'rgba(255,255,255,0.2)',
-                                            backdropFilter: 'blur(8px)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            fontSize: responsive.isMobile ? 16 : 24,
-                                            fontWeight: 900,
-                                            margin: '0 auto',
-                                        }}>
-                                            {gradeText(selectedResult.submission.percentage)}
-                                        </div>
-                                        {!responsive.isMobile && (
-                                            <div style={{ fontSize: 9, fontWeight: 600, marginTop: 4, opacity: 0.8, textTransform: 'uppercase', letterSpacing: 0.6 }}>Grade</div>
-                                        )}
-                                    </div>
-                                </div>
+                {/* ── Results ── */}
+                <section className="qr-card" aria-label="Results">
+                    <div className="qr-toolbar">
+                        <Input
+                            className="qr-search"
+                            prefix={<SearchOutlined className="qr-muted" />}
+                            placeholder="Search quizzes"
+                            allowClear
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            aria-label="Search quizzes"
+                        />
+                        {batchOptions.length > 1 && (
+                            <Select className="qr-filter" allowClear placeholder="All batches" value={batch} onChange={v => setBatch(v ?? null)}
+                                options={batchOptions} aria-label="Filter by batch" />
+                        )}
+                        {teacherOptions.length > 1 && (
+                            <Select className="qr-filter" allowClear placeholder="All teachers" value={teacher} onChange={v => setTeacher(v ?? null)}
+                                options={teacherOptions} aria-label="Filter by teacher" />
+                        )}
+                        <Select<GradeFilter>
+                            className="qr-filter qr-filter-sm" allowClear placeholder="Any grade" value={grade ?? undefined}
+                            onChange={v => setGrade(v ?? null)} aria-label="Filter by grade"
+                            options={[
+                                ...GRADE_BANDS.map(b => ({ value: b.label, label: `${b.label} · ${b.range}%` })),
+                                { value: 'pending' as const, label: 'Awaiting release' },
+                            ]}
+                        />
+                        <RangePicker className="qr-range" value={range} onChange={v => setRange(v)} allowEmpty={[true, true]} />
+                        <Select<SortKey>
+                            className="qr-filter qr-sort" value={sort} onChange={setSort} aria-label="Sort results"
+                            options={[
+                                { value: 'newest', label: 'Newest first' },
+                                { value: 'oldest', label: 'Oldest first' },
+                                { value: 'best', label: 'Highest score' },
+                                { value: 'worst', label: 'Lowest score' },
+                            ]}
+                        />
+                    </div>
 
-                                {/* Score KPIs — mobile: compact inline row, desktop: 4-card grid */}
-                                {responsive.isMobile ? (
-                                    <div style={{
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        gap: 6,
-                                        background: 'rgba(255,255,255,0.12)',
-                                        backdropFilter: 'blur(6px)',
-                                        borderRadius: 10,
-                                        padding: '8px 10px',
-                                    }}>
-                                        {[
-                                            { label: 'Score',     value: `${selectedResult.submission.percentage.toFixed(1)}%` },
-                                            { label: 'Points',    value: `${Number(selectedResult.submission.score).toFixed(1)}/${Number(selectedResult.submission.max_score).toFixed(1)}` },
-                                            { label: 'Time',      value: fmtTime(selectedResult.submission.time_taken) },
-                                            { label: 'Questions', value: `${selectedResult.questions.length}` },
-                                        ].map((item, i, arr) => (
-                                            <React.Fragment key={item.label}>
-                                                <div style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
-                                                    <div style={{ fontSize: 8.5, fontWeight: 700, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 1 }}>{item.label}</div>
-                                                    <div style={{ fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
+                    {list.length === 0 ? emptyState : !r.isMobile ? (
+                        <Table<ResultRow>
+                            className="qr-table"
+                            columns={columns}
+                            dataSource={list}
+                            rowKey="key"
+                            tableLayout="fixed"
+                            scroll={{ x: 900 }}
+                            sticky={{ offsetHeader: headerHeight(r.isMobile) }}
+                            size="middle"
+                            showSorterTooltip={false}
+                            rowClassName={row => (row.locked ? 'qr-row-locked' : 'qr-row-link')}
+                            onRow={row => ({
+                                onClick: () => openReview(row),
+                                'data-focus-id': row.key,
+                            } as React.HTMLAttributes<HTMLElement>)}
+                            onChange={(_p, _f, sorter, extra) => {
+                                if (extra.action !== 'sort') return;
+                                const s = Array.isArray(sorter) ? sorter[0] : sorter;
+                                if (!s?.order) setSort('newest');
+                                else if (s.columnKey === 'score') setSort(s.order === 'descend' ? 'best' : 'worst');
+                                else setSort(s.order === 'descend' ? 'newest' : 'oldest');
+                            }}
+                            pagination={{
+                                current: page, pageSize: PAGE_SIZE, onChange: setPage,
+                                hideOnSinglePage: true, showSizeChanger: false, size: 'small',
+                                showTotal: (total, [from, to]) => `${from}–${to} of ${total}`,
+                            }}
+                        />
+                    ) : (
+                        <>
+                            <ul className="qr-list">
+                                {pageRows.map(row => (
+                                    <li key={row.key} data-focus-id={row.key}>
+                                        <button type="button" className="qr-list-item" disabled={row.locked} onClick={() => openReview(row)}>
+                                            <div className="qr-list-main">
+                                                <div className="qr-cell-title">{row.title}</div>
+                                                <div className="qr-cell-meta">
+                                                    {[row.batches.join(', '), row.submittedAt && fmtDate(row.submittedAt), fmtDuration(row.timeSecs)].filter(Boolean).join(' · ')}
                                                 </div>
-                                                {i < arr.length - 1 && <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.25)', flexShrink: 0 }} />}
-                                            </React.Fragment>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-                                        {[
-                                            { icon: <TrophyOutlined />, label: 'Score', value: `${selectedResult.submission.percentage.toFixed(1)}%` },
-                                            { icon: <CheckCircleOutlined />, label: 'Points', value: `${Number(selectedResult.submission.score).toFixed(2)} / ${Number(selectedResult.submission.max_score).toFixed(2)}` },
-                                            { icon: <ClockCircleOutlined />, label: 'Time Taken', value: fmtTime(selectedResult.submission.time_taken) },
-                                            { icon: <FileTextOutlined />, label: 'Questions', value: `${selectedResult.questions.length}` },
-                                        ].map(item => (
-                                            <div key={item.label} style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(6px)', borderRadius: 12, padding: '10px 14px', textAlign: 'center' }}>
-                                                <div style={{ fontSize: 16, opacity: 0.8, marginBottom: 3 }}>{item.icon}</div>
-                                                <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.7, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 3 }}>{item.label}</div>
-                                                <div style={{ fontSize: 16, fontWeight: 800 }}>{item.value}</div>
+                                                {row.locked ? (
+                                                    <div className="qr-cell-meta"><LockOutlined /> {row.releaseAt ? `Results released ${fmtDate(row.releaseAt)}` : 'Awaiting release'}</div>
+                                                ) : row.correct != null && row.questions ? (
+                                                    <div className="qr-cell-meta">{row.correct}/{row.questions} correct · {NUM.format(row.score ?? 0)}/{NUM.format(row.maxScore ?? 0)} pts</div>
+                                                ) : null}
                                             </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Overall performance bar */}
-                            <div style={{ padding: responsive.isMobile ? '8px 16px 10px' : '14px 28px', background: '#f8f7ff', borderBottom: '1px solid #f0f0f8' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: responsive.isMobile ? 4 : 6 }}>
-                                    <span style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>Overall Performance</span>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <span style={{ fontSize: responsive.isMobile ? 13 : 14, fontWeight: 800, color: scoreColor(selectedResult.submission.percentage) }}>{selectedResult.submission.percentage.toFixed(1)}%</span>
-                                        {(() => {
-                                            const correct = selectedResult.questions.filter(q => {
-                                                const s = Number(q.score || 0), p = Number(q.points || 0);
-                                                return p > 0 && s >= p;
-                                            }).length;
-                                            return <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{correct}/{selectedResult.questions.length} correct</span>;
-                                        })()}
-                                    </div>
-                                </div>
-                                <Progress percent={selectedResult.submission.percentage} strokeColor={scoreColor(selectedResult.submission.percentage)} showInfo={false} strokeLinecap="round" trailColor="#e0e7ff" size={{ height: responsive.isMobile ? 7 : 10 }} />
-                            </div>
-
-                            {/* Teacher feedback (still fixed) */}
-                            {selectedResult.submission.teacher_feedback && (
-                                <div style={{ padding: responsive.isMobile ? '10px 16px 0' : '0 28px', paddingTop: responsive.isMobile ? 10 : 12 }}>
-                                    <Alert
-                                        message={<span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: responsive.isMobile ? 12 : 14 }}>Teacher Feedback</span>}
-                                        description={<span style={{ fontSize: responsive.isMobile ? 12 : 14 }}>{selectedResult.submission.teacher_feedback}</span>}
-                                        type="info"
-                                        showIcon
-                                        style={{ borderRadius: 12, border: '1px solid #c7d2fe' }}
-                                    />
+                                            <div className="qr-list-side">
+                                                {row.pct != null && (
+                                                    <>
+                                                        <span className="qr-list-pct">{fmtPct(row.pct)}</span>
+                                                        <GradeBadge pct={row.pct} />
+                                                    </>
+                                                )}
+                                                {!row.locked && <RightOutlined className="qr-muted" />}
+                                            </div>
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                            {list.length > PAGE_SIZE && (
+                                <div className="qr-foot">
+                                    <Pagination simple size="small" current={page} pageSize={PAGE_SIZE} total={list.length} onChange={setPage} />
                                 </div>
                             )}
+                        </>
+                    )}
+                </section>
 
-                            {/* Question section header (fixed) */}
-                            <div style={{ padding: responsive.isMobile ? '10px 16px 0' : '14px 28px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <div style={{ width: responsive.isMobile ? 26 : 30, height: responsive.isMobile ? 26 : 30, borderRadius: 9, background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1', fontSize: responsive.isMobile ? 12 : 14 }}>
-                                        <FileTextOutlined />
-                                    </div>
-                                    <span style={{ fontWeight: 700, color: '#1a1d2e', fontSize: responsive.isMobile ? 13 : 14 }}>Question-wise Review</span>
-                                </div>
-                                <span style={{ fontSize: 11, fontWeight: 700, background: '#eef2ff', color: '#6366f1', borderRadius: 20, padding: '3px 12px' }}>
-                                    {selectedResult.questions.length} questions
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* ═══ SCROLLABLE QUESTION SECTION ═══ */}
-                        <div style={{ flex: 1, overflowY: 'auto', padding: responsive.isMobile ? '8px 14px 16px' : '12px 28px 24px', minHeight: 0 }} onContextMenu={e => e.preventDefault()} onCopy={e => e.preventDefault()}>
-                            {(() => {
-                                const questions = selectedResult.questions;
-                                const audioClips: AudioClipInfo[] = selectedResult.audio_clips || [];
-                                type QGroup = { type: 'audio'; clipId: number; clip: AudioClipInfo; questions: typeof questions } | { type: 'independent'; question: typeof questions[0] };
-                                const groups: QGroup[] = [];
-                                const audioMap = new Map<number, typeof questions>();
-                                questions.forEach(q => { if (q.audio_clip_id) { if (!audioMap.has(q.audio_clip_id)) audioMap.set(q.audio_clip_id, []); audioMap.get(q.audio_clip_id)!.push(q); } });
-                                const seen = new Set<number>();
-                                questions.forEach(q => {
-                                    if (q.audio_clip_id && !seen.has(q.audio_clip_id)) {
-                                        seen.add(q.audio_clip_id);
-                                        const clip = audioClips.find(c => c.id === q.audio_clip_id) || { id: q.audio_clip_id, audio_order: 0, max_plays: 0, has_audio: false };
-                                        groups.push({ type: 'audio', clipId: q.audio_clip_id, clip, questions: audioMap.get(q.audio_clip_id) || [] });
-                                    } else if (!q.audio_clip_id) {
-                                        groups.push({ type: 'independent', question: q });
-                                    }
-                                });
-                                let gIdx = 0;
-
-                                const renderQ = (q: typeof questions[0], idx: number) => {
-                                    const st = getQuestionStatus(q);
-                                    const isMcq = q.question_type === 'mcq_single' || q.question_type === 'mcq_multiple';
-                                    const scorePct = Number(q.points) > 0 ? (Number(q.score || 0) / Number(q.points)) * 100 : 0;
-                                    return (
-                                        <Collapse.Panel
-                                            key={`q-${q.id}`}
-                                            header={
-                                                <div style={{ width: '100%' }}>
-                                                    {responsive.isMobile ? (
-                                                        // Mobile: pills on a row above question text — keeps the question
-                                                        // line full-width and the pills stay tap-friendly.
-                                                        <>
-                                                            <div style={{ display: 'flex', gap: 5, marginBottom: 6, flexWrap: 'wrap' }}>
-                                                                <span style={{ fontSize: 10, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 999, padding: '2px 8px' }}>
-                                                                    {st.correct ? '✓ ' : '✗ '}{st.text}
-                                                                </span>
-                                                                <span style={{ fontSize: 10, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 999, padding: '2px 8px' }}>
-                                                                    {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
-                                                                </span>
-                                                            </div>
-                                                            <div style={{ fontSize: 12.5, color: '#1a1d2e', lineHeight: 1.45 }}>
-                                                                <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 5, fontSize: 13 }}>Q{idx}.</span>
-                                                                {q.question_text}
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                                            <div style={{ flex: 1, fontSize: 13, color: '#1a1d2e', lineHeight: 1.5 }}>
-                                                                <span style={{ fontWeight: 800, color: '#6366f1', marginRight: 6, fontSize: 14 }}>Q{idx}.</span>
-                                                                {q.question_text}
-                                                            </div>
-                                                            <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
-                                                                <span style={{ fontSize: 11, fontWeight: 700, color: st.correct ? '#15803d' : '#ef4444', background: st.correct ? '#dcfce7' : '#fff1f2', borderRadius: 20, padding: '3px 10px' }}>
-                                                                    {st.correct ? '✓ ' : '✗ '}{st.text}
-                                                                </span>
-                                                                <span style={{ fontSize: 11, fontWeight: 700, color: '#4b5563', background: '#f1f5f9', borderRadius: 20, padding: '3px 10px' }}>
-                                                                    {Number(q.score ?? 0) % 1 === 0 ? Number(q.score ?? 0) : Number(q.score ?? 0).toFixed(2)}/{Number(q.points) % 1 === 0 ? Number(q.points) : Number(q.points).toFixed(2)} pts
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    {/* Mini progress for each question */}
-                                                    <div style={{ marginTop: responsive.isMobile ? 5 : 6 }}>
-                                                        <Progress percent={scorePct} size={{ height: 4 }} strokeColor={st.correct ? '#22c55e' : scorePct > 0 ? '#f59e0b' : '#ef4444'} showInfo={false} strokeLinecap="round" trailColor="#f1f5f9" />
-                                                    </div>
-                                                </div>
-                                            }
-                                        >
-                                            <div style={{ padding: '4px 0' }}>
-                                                {isMcq && q.options && q.options.length > 0 ? (() => {
-                                                    let selIds: number[] = [];
-                                                    try { if (Array.isArray(q.selected_options)) selIds = q.selected_options as number[]; else if (q.selected_options) { const p = JSON.parse(q.selected_options as string); if (Array.isArray(p)) selIds = p; } } catch { selIds = []; }
-                                                    const selOpts = q.options.filter(o => selIds.includes(o.id));
-                                                    return (
-                                                        <div>
-                                                            <div style={{ marginBottom: responsive.isMobile ? 8 : 10 }}>
-                                                                <div style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: responsive.isMobile ? 4 : 6 }}>Your Answer</div>
-                                                                {selOpts.length > 0 ? (
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: responsive.isMobile ? 4 : 6 }}>
-                                                                        {selOpts.map(o => (
-                                                                            <span key={o.id} style={{ fontSize: responsive.isMobile ? 11.5 : 12, fontWeight: 600, color: o.is_correct ? '#15803d' : '#ef4444', background: o.is_correct ? '#dcfce7' : '#fff1f2', borderRadius: 8, padding: responsive.isMobile ? '4px 10px' : '5px 12px', border: `1px solid ${o.is_correct ? '#bbf7d0' : '#fecdd3'}` }}>
-                                                                                {o.is_correct ? '✓ ' : '✗ '}{o.option_text}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : <span style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic' }}>No answer provided</span>}
-                                                            </div>
-                                                            {q.options.some(o => o.is_correct) && (
-                                                                <div>
-                                                                    <div style={{ fontSize: responsive.isMobile ? 10 : 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: responsive.isMobile ? 4 : 6 }}>Correct Answer</div>
-                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: responsive.isMobile ? 4 : 6 }}>
-                                                                        {q.options.filter(o => o.is_correct).map(o => (
-                                                                            <span key={`c-${o.id}`} style={{ fontSize: responsive.isMobile ? 11.5 : 12, fontWeight: 600, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: responsive.isMobile ? '4px 10px' : '5px 12px', border: '1px solid #bbf7d0' }}>
-                                                                                ✓ {o.option_text}
-                                                                            </span>
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })() : (
-                                                    <div>
-                                                        {q.student_answer && (
-                                                            <div style={{ marginBottom: 8 }}>
-                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Your Answer</div>
-                                                                <div style={{ fontSize: 13, color: '#1a1d2e', background: '#f8fafc', borderRadius: 8, padding: '8px 12px', border: '1px solid #f1f5f9' }}>{q.student_answer}</div>
-                                                            </div>
-                                                        )}
-                                                        {q.correct_answer && q.student_answer !== q.correct_answer && (
-                                                            <div>
-                                                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Correct Answer</div>
-                                                                <div style={{ fontSize: 13, color: '#15803d', background: '#dcfce7', borderRadius: 8, padding: '8px 12px', border: '1px solid #bbf7d0' }}>{q.correct_answer}</div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                                {q.teacher_feedback && (
-                                                    <div style={{ marginTop: 10, background: '#fffbeb', borderRadius: 10, padding: '10px 14px', border: '1px solid #fde68a' }}>
-                                                        <div style={{ fontSize: 11, fontWeight: 700, color: '#b45309', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>Teacher Feedback</div>
-                                                        <div style={{ fontSize: 12, color: '#4b5563', fontStyle: 'italic' }}>{q.teacher_feedback}</div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </Collapse.Panel>
-                                    );
-                                };
-
-                                return (
-                                    <div>
-                                        {groups.map((group, gi) => {
-                                            if (group.type === 'independent') {
-                                                gIdx++;
-                                                return <Collapse accordion bordered={false} style={{ background: '#fafafa', marginBottom: responsive.isMobile ? 6 : 8, borderRadius: 12, border: '1px solid #f0f0f8' }} key={`ind-${group.question.id}`}>{renderQ(group.question, gIdx)}</Collapse>;
-                                            }
-                                            const qs = group.questions;
-                                            const pts = qs.reduce((s, q) => s + Number(q.score || 0), 0);
-                                            const max = qs.reduce((s, q) => s + Number(q.points || 0), 0);
-                                            const pct = max > 0 ? Math.round((pts / max) * 100) : 0;
-                                            return (
-                                                <div key={`audio-${group.clipId}`} style={{ marginBottom: responsive.isMobile ? 10 : 14, borderRadius: responsive.isMobile ? 12 : 14, overflow: 'hidden', border: '1.5px solid #06b6d4', boxShadow: '0 2px 12px rgba(6,182,212,0.1)' }}>
-                                                    <div style={{ background: 'linear-gradient(135deg,#0891b2,#22d3ee)', padding: responsive.isMobile ? '10px 12px' : '14px 18px', color: '#fff' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: responsive.isMobile ? 8 : 10, marginBottom: responsive.isMobile ? 6 : 8 }}>
-                                                            <div style={{ width: responsive.isMobile ? 28 : 34, height: responsive.isMobile ? 28 : 34, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: responsive.isMobile ? 13 : 16 }}>🎧</div>
-                                                            <div style={{ minWidth: 0, flex: responsive.isMobile ? 1 : undefined }}>
-                                                                <div style={{ fontWeight: 700, fontSize: responsive.isMobile ? 12.5 : 14 }}>Audio {group.clip.audio_order || gi + 1}</div>
-                                                                <div style={{ fontSize: responsive.isMobile ? 10 : 11, opacity: 0.8 }}>{qs.length} question{qs.length > 1 ? 's' : ''}</div>
-                                                            </div>
-                                                            <div style={{ marginLeft: responsive.isMobile ? 0 : 'auto', display: 'flex', gap: responsive.isMobile ? 5 : 8 }}>
-                                                                {[{ label: 'Points', val: `${pts.toFixed(pts % 1 ? 2 : 0)}/${max.toFixed(max % 1 ? 2 : 0)}` }, { label: 'Score', val: `${pct}%` }].map(it => (
-                                                                    <div key={it.label} style={{ background: 'rgba(255,255,255,0.15)', borderRadius: responsive.isMobile ? 6 : 8, padding: responsive.isMobile ? '3px 8px' : '4px 12px', textAlign: 'center' }}>
-                                                                        <div style={{ fontSize: responsive.isMobile ? 9 : 10, opacity: 0.7 }}>{it.label}</div>
-                                                                        <div style={{ fontWeight: 700, fontSize: responsive.isMobile ? 11.5 : 13 }}>{it.val}</div>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                        </div>
-                                                        {audioUrls[group.clipId] && (
-                                                            <audio controls controlsList="nodownload noplaybackrate" onContextMenu={e => e.preventDefault()} src={audioUrls[group.clipId]}
-                                                                style={{ width: '100%', height: responsive.isMobile ? 28 : 32, borderRadius: 8, filter: 'invert(1) hue-rotate(180deg)', opacity: 0.9 }} />
-                                                        )}
-                                                    </div>
-                                                    <div style={{ background: '#f0fdfa', padding: responsive.isMobile ? '6px 8px' : '10px 14px' }}>
-                                                        <Collapse accordion bordered={false} style={{ background: 'transparent' }}>
-                                                            {qs.map(q => { gIdx++; return renderQ(q, gIdx); })}
-                                                        </Collapse>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })()}
-                        </div>
-                    </>
-                )}
-            </Modal>
-
-            <style>{`
-                .result-row:hover td { background: #f8f7ff !important; }
-                .ant-table-thead > tr > th { background: #fafafa !important; font-weight: 700 !important; color: #4b5563 !important; font-size: 11px !important; text-transform: uppercase !important; letter-spacing: 0.5px !important; }
-                .ant-table-cell { border-bottom: 1px solid #f5f5fc !important; }
-
-                .focus-pulse {
-                    animation: focus-pulse-anim 2.5s ease-out;
-                    scroll-margin-top: 100px;
-                }
-                @keyframes focus-pulse-anim {
-                    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.5), 0 0 0 0 rgba(99,102,241,0.3); background-color: rgba(99,102,241,0.10); }
-                    30%  { box-shadow: 0 0 0 6px rgba(99,102,241,0.2), 0 0 0 12px rgba(99,102,241,0.05); }
-                    100% { box-shadow: 0 0 0 0 transparent; background-color: transparent; }
-                }
-            `}</style>
-            <style>{`
-                .result-detail-modal .ant-modal-close { top: 8px !important; right: 8px !important; width: auto !important; height: auto !important; z-index: 10 !important; }
-                .result-detail-modal .ant-modal-close-x { width: auto !important; height: auto !important; line-height: 1 !important; }
-                .result-detail-modal .ant-modal-header { display: none !important; }
-                .result-detail-modal .ant-modal-content { border-radius: 16px; overflow: hidden !important; padding: 0 !important; }
-
-                /* Mobile fullscreen — edge-to-edge, no rounded corners */
-                @media (max-width: 768px) {
-                    .result-detail-modal { padding-bottom: 0 !important; max-width: 100vw !important; top: 0 !important; }
-                    .result-detail-modal .ant-modal { max-width: 100vw !important; margin: 0 !important; padding-bottom: 0 !important; top: 0 !important; }
-                    .result-detail-modal .ant-modal-content { border-radius: 0 !important; height: 100dvh; max-height: 100dvh; }
-                    .result-detail-modal .ant-modal-body { height: 100dvh !important; max-height: 100dvh !important; }
-
-                    /* Tighter Collapse panels on mobile so the question list reads
-                       compact and the modal scroll body has more room. */
-                    .result-detail-modal .ant-collapse > .ant-collapse-item > .ant-collapse-header {
-                        padding: 10px 12px !important;
-                    }
-                    .result-detail-modal .ant-collapse-content > .ant-collapse-content-box {
-                        padding: 8px 12px 12px !important;
-                    }
-                }
-            `}</style>
-        </div>
+                {/* ── Review drawer ── */}
+                <Drawer
+                    open={!!review}
+                    onClose={closeReview}
+                    placement="right"
+                    width={r.isMobile ? '100%' : 680}
+                    closable={false}
+                    destroyOnHidden
+                    rootClassName="qr-drawer"
+                    styles={{ body: { padding: 0 } }}
+                >
+                    {panel && (
+                        <ReviewPanel
+                            key={panel.row.key}
+                            review={panel}
+                            audioUrls={audioUrls}
+                            onClose={closeReview}
+                            onRetry={() => openReview(panel.row)}
+                            fmtDate={fmtDate}
+                            fmtClock={fmtClock}
+                            tzLabel={tzLabel}
+                        />
+                    )}
+                </Drawer>
+            </div>
+        </ConfigProvider>
     );
 };
 
