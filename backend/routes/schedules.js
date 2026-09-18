@@ -17,9 +17,12 @@ router.get('/', authenticateToken, async (req, res) => {
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
-                s.batch_id, s.location_mode, s.location, s.link, s.status,
+                s.batch_id, s.location_mode, s.location,
+                CASE WHEN s.meeting_id IS NOT NULL THEN CONCAT('/app/meeting/', s.meeting_id) ELSE s.link END AS link,
+                s.status, s.meeting_id,
                 b.name as batch_name, b.french_level,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name,
+                COALESCE(u.first_name, tu.first_name) as teacher_first_name,
+                COALESCE(u.last_name, tu.last_name) as teacher_last_name,
                 CASE
                     WHEN s.status = 'cancelled' THEN 'cancelled'
                     WHEN s.status = 'completed' THEN 'completed'
@@ -32,21 +35,24 @@ router.get('/', authenticateToken, async (req, res) => {
             FROM schedules s
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
+            LEFT JOIN users tu ON s.teacher_id = tu.id
         `;
         let params = [];
         let conditions = [];
         
         // Role-based filtering
         if (req.user.role === 'teacher') {
-            conditions.push('b.teacher_id = ?');
-            params.push(req.user.id);
+            conditions.push('(b.teacher_id = ? OR s.teacher_id = ?)');
+            params.push(req.user.id, req.user.id);
         } else if (req.user.role === 'student') {
             conditions.push(`
-                s.batch_id IN (
+                (s.batch_id IN (
                     SELECT batch_id FROM batch_students WHERE student_id = ?
-                )
+                ) OR s.meeting_id IN (
+                    SELECT id FROM meetings WHERE ? = ANY(trusted_user_ids)
+                ))
             `);
-            params.push(req.user.id);
+            params.push(req.user.id, req.user.id);
         }
         
         // Additional filters
@@ -87,25 +93,31 @@ router.get('/:id', authenticateToken, async (req, res) => {
         let sql = `
             SELECT 
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
-                s.batch_id, s.location_mode, s.location, s.link, s.status,
+                s.batch_id, s.location_mode, s.location,
+                CASE WHEN s.meeting_id IS NOT NULL THEN CONCAT('/app/meeting/', s.meeting_id) ELSE s.link END AS link,
+                s.status, s.meeting_id,
                 b.name as batch_name, b.french_level,
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name
+                COALESCE(u.first_name, tu.first_name) as teacher_first_name,
+                COALESCE(u.last_name, tu.last_name) as teacher_last_name
             FROM schedules s
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
+            LEFT JOIN users tu ON s.teacher_id = tu.id
             WHERE s.id = ?
         `;
         let params = [id];
         
         // Add access control
         if (req.user.role === 'teacher') {
-            sql += ' AND b.teacher_id = ?';
-            params.push(req.user.id);
+            sql += ' AND (b.teacher_id = ? OR s.teacher_id = ?)';
+            params.push(req.user.id, req.user.id);
         } else if (req.user.role === 'student') {
-            sql += ` AND s.batch_id IN (
+            sql += ` AND (s.batch_id IN (
                 SELECT batch_id FROM batch_students WHERE student_id = ?
-            )`;
-            params.push(req.user.id);
+            ) OR s.meeting_id IN (
+                SELECT id FROM meetings WHERE ? = ANY(trusted_user_ids)
+            ))`;
+            params.push(req.user.id, req.user.id);
         }
         
         const schedule = await req.db.get(sql, params);

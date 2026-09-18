@@ -1,0 +1,25 @@
+/* Exam content protection (see useExamGuard.ts) — active only while an exam screen is open. */
+html.exam-guard body {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+html.exam-guard :is(input, textarea, select, [contenteditable=""], [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+html.exam-guard :is(img, video, audio, svg) {
+  -webkit-user-drag: none;
+}
+
+@media print {
+  html.exam-guard body > * { display: none !important; }
+  html.exam-guard body::after {
+    content: 'Printing is disabled during exams.';
+    display: block;
+    padding: 48px;
+    font: 600 18px/1.4 system-ui, sans-serif;
+    text-align: center;
+  }
+}

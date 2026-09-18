@@ -3,7 +3,7 @@ import { Button, ConfigProvider, DatePicker, Drawer, Dropdown, Input, Segmented,
 import type { ColumnsType } from 'antd/es/table';
 import {
     BarChartOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseCircleOutlined, CloseOutlined,
-    DownloadOutlined, ReloadOutlined, RiseOutlined, SearchOutlined, TeamOutlined, UserOutlined, WarningOutlined,
+    DownloadOutlined, EnvironmentOutlined, ReloadOutlined, RiseOutlined, SearchOutlined, TeamOutlined, UserOutlined, VideoCameraOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -18,10 +18,17 @@ import './AttendanceManagement.css';
 /* ══════════════════════════════════════════
    ATTENDANCE — every figure on this page comes from the same list of held
    sessions for the chosen period, so the KPIs, charts and tables always agree.
+   A session is either an in-person class (code check-in) or a live online
+   class (joining the meeting counts; more than 10 min after the start = late).
 ══════════════════════════════════════════ */
 
+type Kind = 'class' | 'meeting';
 interface Session {
     session_id: number;
+    kind?: Kind;
+    meeting_code?: string;
+    is_live?: boolean;
+    guest_count?: number;
     schedule_title?: string;
     batch_id?: number;
     batch_name: string;
@@ -51,12 +58,17 @@ interface StudentRow {
     present_count: number;
     attendance_rate: number;
     last_attendance_date?: string | null;
+    online_sessions?: number;
+    online_attended?: number;
 }
-interface RosterEntry { student_id: number; student_name: string; email: string; status: string; check_in_time?: string | null; }
-interface HistoryEntry { session_id: number; starts_at: string; ends_at?: string; batch_name: string; teacher_name: string; status: string; check_in_time?: string | null; }
+interface RosterEntry { student_id: number; student_name: string; email: string; status: string; check_in_time?: string | null; minutes?: number | null; connections?: number; }
+interface GuestEntry { user_id: number; name: string; email: string; role: string; check_in_time?: string | null; minutes?: number | null; }
+interface Roster { list: RosterEntry[]; guests: GuestEntry[]; }
+interface HistoryEntry { session_id: number; kind?: Kind; starts_at: string; ends_at?: string; batch_name: string; teacher_name: string; status: string; check_in_time?: string | null; minutes?: number | null; }
 interface Option { id: number; name?: string; first_name?: string; last_name?: string; email?: string; }
 
 type Period = '7d' | '30d' | '90d' | 'all' | 'custom';
+type KindFilter = 'all' | Kind;
 type Tab = 'sessions' | 'students' | 'batches' | 'teachers';
 type Tone = 'good' | 'warn' | 'bad' | 'none';
 interface Agg { sessions: number; enrolled: number; attended: number; present: number; late: number; absent: number; }
@@ -76,6 +88,14 @@ const pct = (a: number, b: number) => (b > 0 ? (a * 100) / b : 0);
 const fmtPct = (v: number | null | undefined) => (v == null || Number.isNaN(v) ? '—' : `${Math.round(v)}%`);
 const fmtNum = (v: number) => v.toLocaleString('en-US');
 const attendedOf = (s: Session) => (s.present_count || 0) + (s.late_count || 0);
+const kindOf = (s: { kind?: Kind }): Kind => s.kind || 'class';
+const keyOf = (s: { kind?: Kind; session_id: number }) => `${kindOf(s)}-${s.session_id}`;
+const minutesText = (m?: number | null) => (m == null ? '' : m < 1 ? 'under 1 min' : m < 60 ? `${Math.round(m)} min` : `${Math.floor(m / 60)} h ${String(Math.round(m % 60)).padStart(2, '0')}`);
+const KindTag: React.FC<{ kind: Kind }> = ({ kind }) => (
+    kind === 'meeting'
+        ? <span className="at-kind is-online"><VideoCameraOutlined /> Online</span>
+        : <span className="at-kind"><EnvironmentOutlined /> In person</span>
+);
 const startIso = (s: Session) => s.starts_at || s.session_date;
 const emptyAgg = (): Agg => ({ sessions: 0, enrolled: 0, attended: 0, present: 0, late: 0, absent: 0 });
 const addTo = (a: Agg, s: Session) => {
@@ -254,6 +274,7 @@ const AttendanceManagement: React.FC = () => {
     const [batchId, setBatchId] = useState<number | null>(null);
     const [teacherId, setTeacherId] = useState<number | null>(null);
     const [studentId, setStudentId] = useState<number | null>(null);
+    const [kind, setKind] = useState<KindFilter>('all');
 
     const [sessions, setSessions] = useState<Session[]>([]);
     const [prevSessions, setPrevSessions] = useState<Session[] | null>(null);
@@ -270,7 +291,7 @@ const AttendanceManagement: React.FC = () => {
     const [query, setQuery] = useState('');
     const [rankMode, setRankMode] = useState<'low' | 'high'>('low');
     const [sessionOpen, setSessionOpen] = useState<Session | null>(null);
-    const [roster, setRoster] = useState<Record<number, RosterEntry[] | 'error'>>({});
+    const [roster, setRoster] = useState<Record<string, Roster | 'error'>>({});
     const [rosterFilter, setRosterFilter] = useState<'all' | 'present' | 'late' | 'absent'>('all');
     const [studentOpen, setStudentOpen] = useState<StudentRow | null>(null);
     const [history, setHistory] = useState<{ key: string; list: HistoryEntry[] | null; error?: boolean }>({ key: '', list: null });
@@ -296,6 +317,7 @@ const AttendanceManagement: React.FC = () => {
         if (batchId) base.set('batch_id', String(batchId));
         if (teacherId && isAdmin) base.set('teacher_id', String(teacherId));
         if (studentId) base.set('student_id', String(studentId));
+        if (kind !== 'all') base.set('kind', kind);
         const cur = new URLSearchParams(base);
         const prev = new URLSearchParams(base);
         if (window_) {
@@ -321,7 +343,7 @@ const AttendanceManagement: React.FC = () => {
         } finally {
             if (id === reqId.current) { setLoading(false); setRefreshing(false); }
         }
-    }, [apiCall, batchId, teacherId, studentId, isAdmin, window_]);
+    }, [apiCall, batchId, teacherId, studentId, kind, isAdmin, window_]);
 
     useEffect(() => { setRefreshing(true); load(); }, [load]);
 
@@ -342,14 +364,15 @@ const AttendanceManagement: React.FC = () => {
 
     /* ── session roster + student history on demand ── */
     useEffect(() => {
-        if (!sessionOpen || roster[sessionOpen.session_id]) return;
-        const sid = sessionOpen.session_id;
+        if (!sessionOpen || roster[keyOf(sessionOpen)]) return;
+        const key = keyOf(sessionOpen);
+        const live = kindOf(sessionOpen) === 'meeting';
         (async () => {
             try {
-                const res = await apiCall(`/attendance/session-details-simple/${sid}`);
+                const res = await apiCall(live ? `/attendance/meeting-roster/${sessionOpen.session_id}` : `/attendance/session-details-simple/${sessionOpen.session_id}`);
                 const d = res.ok ? await res.json() : null;
-                setRoster(p => ({ ...p, [sid]: d ? listOf<RosterEntry>(d, 'details') : 'error' }));
-            } catch { setRoster(p => ({ ...p, [sid]: 'error' })); }
+                setRoster(p => ({ ...p, [key]: d ? { list: listOf<RosterEntry>(d, 'details'), guests: listOf<GuestEntry>(d, 'guests') } : 'error' }));
+            } catch { setRoster(p => ({ ...p, [key]: 'error' })); }
         })();
     }, [sessionOpen, roster, apiCall]);
 
@@ -357,6 +380,7 @@ const AttendanceManagement: React.FC = () => {
         if (!studentOpen) return;
         const q = new URLSearchParams();
         q.set('batch_id', String(studentOpen.batch_id));
+        if (kind !== 'all') q.set('kind', kind);
         if (window_) { q.set('date_from', window_.from.format('YYYY-MM-DD')); q.set('date_to', window_.to.format('YYYY-MM-DD')); }
         const key = `${studentOpen.id}?${q}`;
         if (history.key === key) return;
@@ -368,19 +392,23 @@ const AttendanceManagement: React.FC = () => {
                 setHistory({ key, list: listOf<HistoryEntry>(await res.json(), 'sessions') });
             } catch { setHistory({ key, list: [], error: true }); }
         })();
-    }, [studentOpen, window_, history.key, apiCall]);
+    }, [studentOpen, window_, kind, history.key, apiCall]);
 
     /* ═══════════ DERIVED ═══════════ */
-    const total = useMemo(() => sessions.reduce(addTo, emptyAgg()), [sessions]);
-    const prevTotal = useMemo(() => (prevSessions ? prevSessions.reduce(addTo, emptyAgg()) : null), [prevSessions]);
+    // A live class that is still running is listed, but only counts once it ends (students can still join).
+    const settled = useMemo(() => sessions.filter(s => !s.is_live), [sessions]);
+    const liveNow = sessions.length - settled.length;
+    const total = useMemo(() => settled.reduce(addTo, emptyAgg()), [settled]);
+    const prevTotal = useMemo(() => (prevSessions ? prevSessions.filter(s => !s.is_live).reduce(addTo, emptyAgg()) : null), [prevSessions]);
     const rate = total.enrolled ? pct(total.attended, total.enrolled) : null;
     const prevRate = prevTotal && prevTotal.enrolled ? pct(prevTotal.attended, prevTotal.enrolled) : null;
     const delta = rate != null && prevRate != null ? Math.round(rate - prevRate) : null;
-    const silent = useMemo(() => sessions.filter(s => s.total_students > 0 && attendedOf(s) === 0).length, [sessions]);
+    const silent = useMemo(() => settled.filter(s => s.total_students > 0 && attendedOf(s) === 0).length, [settled]);
+    const onlineCount = useMemo(() => settled.filter(s => kindOf(s) === 'meeting').length, [settled]);
 
     const trend = useMemo<TrendPoint[]>(() => {
-        if (!sessions.length) return [];
-        const keyed = sessions.map(s => ({ s, k: dayKey(startIso(s), tz) }));
+        if (!settled.length) return [];
+        const keyed = settled.map(s => ({ s, k: dayKey(startIso(s), tz) }));
         const keys = keyed.map(e => e.k).sort();
         const first = dayjs(window_ ? window_.from.format('YYYY-MM-DD') : keys[0]);
         const last = dayjs(window_ ? window_.to.format('YYYY-MM-DD') : keys[keys.length - 1]);
@@ -405,21 +433,21 @@ const AttendanceManagement: React.FC = () => {
             p.attended += attendedOf(s);
         });
         return Array.from(map.values()).map(p => ({ ...p, rate: p.enrolled ? pct(p.attended, p.enrolled) : null }));
-    }, [sessions, tz, window_]);
+    }, [settled, tz, window_]);
 
     const weekdays = useMemo(() => {
         const aggs = WEEKDAYS.map(d => ({ d, a: emptyAgg() }));
-        sessions.forEach(s => { const d = dayjs(dayKey(startIso(s), tz)).day(); addTo(aggs.find(x => x.d === d)!.a, s); });
+        settled.forEach(s => { const d = dayjs(dayKey(startIso(s), tz)).day(); addTo(aggs.find(x => x.d === d)!.a, s); });
         const list = aggs.map(({ d, a }) => ({ d, sessions: a.sessions, rate: a.enrolled ? pct(a.attended, a.enrolled) : null }));
         const withData = list.filter(x => x.rate != null && x.sessions >= 2);
         const best = withData.length ? withData.reduce((m, x) => (x.rate! > m.rate! ? x : m)) : null;
         const worst = withData.length > 1 ? withData.reduce((m, x) => (x.rate! < m.rate! ? x : m)) : null;
         return { list, best, worst };
-    }, [sessions, tz]);
+    }, [settled, tz]);
 
     const batchRows = useMemo(() => {
         const map = new Map<string, { id?: number; name: string; teacher: string; teacher_id?: number; a: Agg; last: string }>();
-        sessions.forEach(s => {
+        settled.forEach(s => {
             const k = s.batch_id != null ? `id${s.batch_id}` : `n${s.batch_name}`;
             let row = map.get(k);
             if (!row) { row = { id: s.batch_id, name: s.batch_name, teacher: s.teacher_name, teacher_id: s.teacher_id, a: emptyAgg(), last: startIso(s) }; map.set(k, row); }
@@ -433,11 +461,11 @@ const AttendanceManagement: React.FC = () => {
             students: b.id != null ? enrolled.get(b.id) || 0 : 0,
             rate: b.a.enrolled ? pct(b.a.attended, b.a.enrolled) : null,
         }));
-    }, [sessions, students]);
+    }, [settled, students]);
 
     const teacherRows = useMemo(() => {
         const map = new Map<string, { id?: number; name: string; a: Agg; batches: Set<string>; silent: number }>();
-        sessions.forEach(s => {
+        settled.forEach(s => {
             const k = s.teacher_id != null ? `id${s.teacher_id}` : `n${s.teacher_name}`;
             let row = map.get(k);
             if (!row) { row = { id: s.teacher_id, name: s.teacher_name, a: emptyAgg(), batches: new Set(), silent: 0 }; map.set(k, row); }
@@ -447,7 +475,7 @@ const AttendanceManagement: React.FC = () => {
         });
         return Array.from(map.values()).map(t => ({ ...t, batchCount: t.batches.size, rate: t.a.enrolled ? pct(t.a.attended, t.a.enrolled) : null }))
             .sort((a, b) => b.a.sessions - a.a.sessions);
-    }, [sessions]);
+    }, [settled]);
 
     const ranked = useMemo(() => {
         const list = batchRows.filter(b => b.rate != null);
@@ -473,28 +501,29 @@ const AttendanceManagement: React.FC = () => {
     const tzLabel = timezoneLabel(user?.timezone);
 
     const periodText = window_ ? `${window_.from.format('MMM D')} – ${window_.to.format('MMM D, YYYY')}` : 'All recorded sessions';
-    const hasFilters = !!(batchId || teacherId || studentId);
-    const clearFilters = () => { setBatchId(null); setTeacherId(null); setStudentId(null); };
+    const hasFilters = !!(batchId || teacherId || studentId || kind !== 'all');
+    const clearFilters = () => { setBatchId(null); setTeacherId(null); setStudentId(null); setKind('all'); };
     const focusTables = (t: Tab) => { setTab(t); setQuery(''); tablesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
 
     const exportSessions = () => {
         if (!sessions.length) { msg.info('There are no sessions to export for this period.'); return; }
         downloadCsv(`attendance-sessions_${dayjs().format('YYYY-MM-DD')}.csv`, [
-            ['Date', 'Time', 'Batch', 'Teacher', 'Expected', 'Present', 'Late', 'Absent', 'Attendance %'],
-            ...sessions.map(s => [dayKey(startIso(s), tz), timeText(s), s.batch_name, s.teacher_name, s.total_students, s.present_count, s.late_count, s.absent_count, Math.round(s.attendance_percentage || 0)]),
+            ['Date', 'Time', 'Type', 'Batch', 'Teacher', 'Expected', 'Present', 'Late', 'Absent', 'Attendance %', 'Guests'],
+            ...sessions.map(s => [dayKey(startIso(s), tz), timeText(s), kindOf(s) === 'meeting' ? 'Online' : 'In person', s.batch_name, s.teacher_name, s.total_students, s.present_count, s.late_count, s.absent_count, Math.round(s.attendance_percentage || 0), s.guest_count || 0]),
         ]);
     };
     const exportStudents = () => {
         if (!students.length) { msg.info('There are no students to export for this period.'); return; }
         downloadCsv(`attendance-students_${dayjs().format('YYYY-MM-DD')}.csv`, [
-            ['Student', 'Email', 'Batch', 'Sessions', 'Attended', 'Missed', 'Attendance %', 'Last class'],
-            ...students.map(s => [`${s.first_name} ${s.last_name}`, s.email, s.batch_name, s.total_sessions, s.present_count, Math.max(0, s.total_sessions - s.present_count), Math.round(s.attendance_rate || 0), s.last_attendance_date ? dayjs(s.last_attendance_date).format('YYYY-MM-DD') : '']),
+            ['Student', 'Email', 'Batch', 'Sessions', 'Attended', 'Missed', 'Attendance %', 'Online sessions', 'Online attended', 'Last class'],
+            ...students.map(s => [`${s.first_name} ${s.last_name}`, s.email, s.batch_name, s.total_sessions, s.present_count, Math.max(0, s.total_sessions - s.present_count), Math.round(s.attendance_rate || 0), s.online_sessions ?? 0, s.online_attended ?? 0, s.last_attendance_date ? dayjs(s.last_attendance_date).format('YYYY-MM-DD') : '']),
         ]);
     };
 
     /* ═══════════ TABLE COLUMNS ═══════════ */
     const sessionStatus = (s: Session) => {
-        if (s.total_students > 0 && attendedOf(s) === 0) return <span className="at-pill is-bad">No check-ins</span>;
+        if (s.is_live) return <span className="at-pill is-live"><i />Live now</span>;
+        if (s.total_students > 0 && attendedOf(s) === 0) return <span className="at-pill is-bad">{kindOf(s) === 'meeting' ? 'No one joined' : 'No check-ins'}</span>;
         if (s.session_started) return <span className="at-pill is-good">Held</span>;
         if (s.code_generated) return <span className="at-pill is-info">Code issued</span>;
         return <span className="at-pill">Not started</span>;
@@ -508,6 +537,7 @@ const AttendanceManagement: React.FC = () => {
                 <span className="at-cell-2">
                     <strong>{dateText(startIso(s), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</strong>
                     <em>{timeText(s)}</em>
+                    <KindTag kind={kindOf(s)} />
                 </span>
             ),
         },
@@ -517,20 +547,20 @@ const AttendanceManagement: React.FC = () => {
             render: (_, s) => <span className="at-cell-2"><strong>{s.batch_name}</strong><em>{s.teacher_name}</em></span>,
         },
         {
-            title: 'Check-ins', key: 'counts', width: 210,
+            title: 'Attended', key: 'counts', width: 230,
             render: (_, s) => (
                 <span className="at-counts">
                     <span className="is-present" title="Present"><CheckCircleOutlined /> {s.present_count}</span>
                     <span className={`is-late${s.late_count ? '' : ' is-zero'}`} title="Late"><ClockCircleOutlined /> {s.late_count}</span>
-                    <span className={`is-absent${s.absent_count ? '' : ' is-zero'}`} title="Absent"><CloseCircleOutlined /> {s.absent_count}</span>
-                    <em>of {s.total_students}</em>
+                    {!s.is_live && <span className={`is-absent${s.absent_count ? '' : ' is-zero'}`} title="Absent"><CloseCircleOutlined /> {s.absent_count}</span>}
+                    <em>{s.is_live ? 'joined so far, ' : ''}of {s.total_students}{s.guest_count ? ` · +${s.guest_count} guest${s.guest_count === 1 ? '' : 's'}` : ''}</em>
                 </span>
             ),
         },
         {
             title: 'Attendance', key: 'rate', width: 170,
             sorter: (a, b) => (a.attendance_percentage || 0) - (b.attendance_percentage || 0),
-            render: (_, s) => <RateBar value={s.attendance_percentage} hasData={s.total_students > 0} />,
+            render: (_, s) => <RateBar value={s.attendance_percentage} hasData={s.total_students > 0 && !s.is_live} />,
         },
         { title: 'Status', key: 'status', width: 120, render: (_, s) => sessionStatus(s) },
     ];
@@ -548,9 +578,15 @@ const AttendanceManagement: React.FC = () => {
         },
         { title: 'Batch', dataIndex: 'batch_name', key: 'batch', ellipsis: true, width: 190, sorter: (a, b) => (a.batch_name || '').localeCompare(b.batch_name || '') },
         {
-            title: 'Attended', key: 'att', width: 130, align: 'center',
+            title: 'Attended', key: 'att', width: 150, align: 'center',
             sorter: (a, b) => (a.total_sessions - a.present_count) - (b.total_sessions - b.present_count),
-            render: (_, s) => <span className="at-frac"><strong>{s.present_count}</strong>/{s.total_sessions}{s.total_sessions - s.present_count > 0 && <em>{s.total_sessions - s.present_count} missed</em>}</span>,
+            render: (_, s) => (
+                <span className="at-frac">
+                    <strong>{s.present_count}</strong>/{s.total_sessions}
+                    {s.total_sessions - s.present_count > 0 && <em>{s.total_sessions - s.present_count} missed</em>}
+                    {!!s.online_sessions && <em className="at-online-line"><VideoCameraOutlined /> {s.online_attended ?? 0}/{s.online_sessions} online</em>}
+                </span>
+            ),
         },
         {
             title: 'Attendance', key: 'rate', width: 170, defaultSortOrder: 'ascend',
@@ -579,8 +615,8 @@ const AttendanceManagement: React.FC = () => {
         { title: 'Batches', key: 'batches', width: 100, align: 'center', sorter: (a, b) => a.batchCount - b.batchCount, render: (_, t) => t.batchCount },
         { title: 'Sessions held', key: 'sessions', width: 130, align: 'center', sorter: (a, b) => a.a.sessions - b.a.sessions, render: (_, t) => t.a.sessions },
         {
-            title: 'No check-ins', key: 'silent', width: 130, align: 'center', sorter: (a, b) => a.silent - b.silent,
-            render: (_, t) => (t.silent ? <Tooltip title="Sessions where no student checked in — the code may not have been shared."><span className="at-pill is-bad">{t.silent}</span></Tooltip> : <span className="at-muted">0</span>),
+            title: 'No attendance', key: 'silent', width: 140, align: 'center', sorter: (a, b) => a.silent - b.silent,
+            render: (_, t) => (t.silent ? <Tooltip title="Sessions where no student checked in or joined — the code or link may not have been shared."><span className="at-pill is-bad">{t.silent}</span></Tooltip> : <span className="at-muted">0</span>),
         },
         { title: 'Attendance', key: 'rate', width: 170, sorter: (a, b) => (a.rate ?? -1) - (b.rate ?? -1), render: (_, t) => <RateBar value={t.rate} hasData={t.rate != null} /> },
     ];
@@ -600,8 +636,10 @@ const AttendanceManagement: React.FC = () => {
     const mobile = r.width < 768;
     const sticky = { offsetHeader: headerHeight(r.isMobile) };
     const rateTone = toneOf(rate, rate != null);
-    const sessionRoster = sessionOpen ? roster[sessionOpen.session_id] : undefined;
-    const rosterList = Array.isArray(sessionRoster) ? sessionRoster : [];
+    const sessionRoster = sessionOpen ? roster[keyOf(sessionOpen)] : undefined;
+    const rosterList = sessionRoster && sessionRoster !== 'error' ? sessionRoster.list : [];
+    const rosterGuests = sessionRoster && sessionRoster !== 'error' ? sessionRoster.guests : [];
+    const openLive = !!sessionOpen && kindOf(sessionOpen) === 'meeting';
     const rosterCounts = { present: rosterList.filter(x => x.status === 'present').length, late: rosterList.filter(x => x.status === 'late').length, absent: rosterList.filter(x => x.status !== 'present' && x.status !== 'late').length };
     const hist = history.list;
     const histChrono = hist ? [...hist].reverse() : [];
@@ -636,6 +674,11 @@ const AttendanceManagement: React.FC = () => {
                         options={[{ value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }, { value: '90d', label: '90 days' }, { value: 'all', label: 'All time' }]} />
                     <DatePicker.RangePicker className="at-range" value={range} allowClear format="MMM D, YYYY" disabledDate={d => d.isAfter(dayjs(), 'day')}
                         onChange={v => { if (v && v[0] && v[1]) { setRange([v[0], v[1]]); setPeriod('custom'); } else { setRange(null); setPeriod('30d'); } }} />
+                    <Segmented className="at-kindseg" value={kind} onChange={v => setKind(v as KindFilter)} options={[
+                        { value: 'all', label: 'All sessions' },
+                        { value: 'class', label: <span className="at-seg-ic"><EnvironmentOutlined /> In person</span> },
+                        { value: 'meeting', label: <span className="at-seg-ic"><VideoCameraOutlined /> Online</span> },
+                    ]} />
                     <span className="at-filters-sep" />
                     <Select className="at-f" allowClear showSearch optionFilterProp="label" placeholder="All batches" value={batchId} onChange={v => setBatchId(v ?? null)}
                         options={batchOpts.map(b => ({ value: b.id, label: personLabel(b) }))} />
@@ -669,11 +712,17 @@ const AttendanceManagement: React.FC = () => {
                             <span className="at-kpi-ic is-indigo"><CalendarOutlined /></span>
                             <span className="at-kpi-label">Sessions held</span>
                             <strong className="at-kpi-value">{fmtNum(total.sessions)}</strong>
-                            <span className="at-kpi-sub">{silent ? <span className="at-red">{silent} with no check-ins</span> : `${batchRows.length} ${batchRows.length === 1 ? 'batch' : 'batches'} · ${teacherRows.length} ${teacherRows.length === 1 ? 'teacher' : 'teachers'}`}</span>
+                            <span className="at-kpi-sub">
+                                {liveNow > 0 && <><span className="at-live-note"><i />{liveNow} live now</span>{' · '}</>}
+                                {kind === 'all' && onlineCount > 0 && onlineCount < total.sessions
+                                    ? <>{fmtNum(total.sessions - onlineCount)} in person · {fmtNum(onlineCount)} online</>
+                                    : silent ? <span className="at-red">{silent} with no attendance</span>
+                                        : `${batchRows.length} ${batchRows.length === 1 ? 'batch' : 'batches'} · ${teacherRows.length} ${teacherRows.length === 1 ? 'teacher' : 'teachers'}`}
+                            </span>
                         </button>
                         <div className="at-kpi">
                             <span className="at-kpi-ic is-green"><CheckCircleOutlined /></span>
-                            <span className="at-kpi-label">Check-ins</span>
+                            <span className="at-kpi-label">Attended</span>
                             <strong className="at-kpi-value">{fmtNum(total.attended)}</strong>
                             <span className="at-kpi-sub">of {fmtNum(total.enrolled)} expected{total.late ? ` · ${total.late} late` : ''}</span>
                         </div>
@@ -695,7 +744,7 @@ const AttendanceManagement: React.FC = () => {
                         <section className="at-card at-empty">
                             <span className="at-empty-ic"><CalendarOutlined /></span>
                             <strong>No sessions in this period</strong>
-                            <span>Attendance appears here once teachers start classes. Try a longer period{hasFilters ? ' or clear the filters' : ''}.</span>
+                            <span>Attendance appears here once teachers hold classes or live online classes. Try a longer period{hasFilters ? ' or clear the filters' : ''}.</span>
                             <div className="at-empty-actions">
                                 {period !== 'all' && <Button onClick={() => { setPeriod('all'); setRange(null); }}>Show all time</Button>}
                                 {hasFilters && <Button onClick={clearFilters}>Clear filters</Button>}
@@ -809,12 +858,13 @@ const AttendanceManagement: React.FC = () => {
                         {tab === 'sessions' && (mobile ? (
                             <div className="at-mlist">
                                 {visSessions.slice(0, 60).map(s => (
-                                    <button key={s.session_id} type="button" className="at-mcard" onClick={() => { setRosterFilter('all'); setSessionOpen(s); }}>
+                                    <button key={keyOf(s)} type="button" className="at-mcard" onClick={() => { setRosterFilter('all'); setSessionOpen(s); }}>
                                         <span className="at-mcard-top"><strong>{s.batch_name}</strong>{sessionStatus(s)}</span>
                                         <em>{dateText(startIso(s), { weekday: 'short', month: 'short', day: 'numeric' })} · {timeText(s)} · {s.teacher_name}</em>
+                                        <KindTag kind={kindOf(s)} />
                                         <span className="at-mcard-bottom">
                                             <span className="at-counts"><span className="is-present"><CheckCircleOutlined /> {s.present_count}</span><span className="is-late"><ClockCircleOutlined /> {s.late_count}</span><span className="is-absent"><CloseCircleOutlined /> {s.absent_count}</span></span>
-                                            <RateBar value={s.attendance_percentage} hasData={s.total_students > 0} compact />
+                                            <RateBar value={s.attendance_percentage} hasData={s.total_students > 0 && !s.is_live} compact />
                                         </span>
                                     </button>
                                 ))}
@@ -822,7 +872,7 @@ const AttendanceManagement: React.FC = () => {
                                 {visSessions.length === 0 && <div className="at-muted-line">No session matches.</div>}
                             </div>
                         ) : (
-                            <Table<Session> rowKey="session_id" size="middle" columns={sessionCols} dataSource={visSessions} sticky={sticky} scroll={{ x: 860 }}
+                            <Table<Session> rowKey={keyOf} size="middle" columns={sessionCols} dataSource={visSessions} sticky={sticky} scroll={{ x: 860 }}
                                 pagination={{ pageSize: 15, showSizeChanger: false, hideOnSinglePage: true, showTotal: t => `${t} sessions` }}
                                 onRow={s => ({ onClick: () => { setRosterFilter('all'); setSessionOpen(s); }, className: 'at-clickable' })}
                                 locale={{ emptyText: <div className="at-muted-line">No session matches.</div> }} />
@@ -886,10 +936,17 @@ const AttendanceManagement: React.FC = () => {
                         <div className="at-detail">
                             <div className="at-dh">
                                 <div className="at-dh-top">
-                                    <span className="at-overline">Session</span>
+                                    <span className="at-overline">{openLive ? 'Live online class' : 'In-person class'}</span>
                                     <button type="button" className="at-dclose" onClick={() => setSessionOpen(null)} aria-label="Close"><CloseOutlined /></button>
                                 </div>
                                 <h3>{sessionOpen.batch_name}</h3>
+                                {openLive && (
+                                    <p className="at-dh-live">
+                                        {sessionOpen.is_live ? <span className="at-pill is-live"><i />Live now</span> : <KindTag kind="meeting" />}
+                                        {sessionOpen.meeting_code && <code>{sessionOpen.meeting_code}</code>}
+                                        <span>Present = joined within 10 min of the start</span>
+                                    </p>
+                                )}
                                 <p>{dateText(startIso(sessionOpen), { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} · {timeText(sessionOpen)}</p>
                                 <p className="at-dh-sub">{sessionOpen.teacher_name}{sessionOpen.schedule_title ? ` · ${sessionOpen.schedule_title}` : ''}</p>
                                 <div className="at-dh-stats">
@@ -906,7 +963,7 @@ const AttendanceManagement: React.FC = () => {
                             <div className="at-dsec">
                                 <div className="at-dsec-head">
                                     <h4>Roster</h4>
-                                    {Array.isArray(sessionRoster) && sessionRoster.length > 0 && (
+                                    {rosterList.length > 0 && (
                                         <Segmented size="small" value={rosterFilter} onChange={v => setRosterFilter(v as typeof rosterFilter)} options={[
                                             { value: 'all', label: `All ${rosterList.length}` },
                                             { value: 'present', label: `Present ${rosterCounts.present}` },
@@ -925,13 +982,32 @@ const AttendanceManagement: React.FC = () => {
                                                 .map(x => (
                                                     <li key={x.student_id}>
                                                         <span className={`at-av is-${x.status === 'present' ? 'good' : x.status === 'late' ? 'warn' : 'bad'}`}>{initials(x.student_name)}</span>
-                                                        <span className="at-cell-2"><strong>{x.student_name}</strong><em>{x.check_in_time ? `Checked in ${formatTimeLocal(x.check_in_time, user?.timezone)}` : x.email}</em></span>
+                                                        <span className="at-cell-2"><strong>{x.student_name}</strong><em>{x.check_in_time
+                                                            ? openLive
+                                                                ? `Joined ${formatTimeLocal(x.check_in_time, user?.timezone)}${x.minutes != null ? ` · ${minutesText(x.minutes)} in class` : ''}${x.connections && x.connections > 1 ? ` · ${x.connections} connections` : ''}`
+                                                                : `Checked in ${formatTimeLocal(x.check_in_time, user?.timezone)}`
+                                                            : x.email}</em></span>
                                                         {statusPill(x.status)}
                                                     </li>
                                                 ))}
                                         </ul>
                                     )}
                             </div>
+
+                            {openLive && rosterGuests.length > 0 && (
+                                <div className="at-dsec">
+                                    <div className="at-dsec-head"><h4>Guests <span className="at-muted">· not counted in the rate</span></h4></div>
+                                    <ul className="at-roster">
+                                        {rosterGuests.map(g => (
+                                            <li key={g.user_id}>
+                                                <span className="at-av is-guest">{initials(g.name)}</span>
+                                                <span className="at-cell-2"><strong>{g.name}</strong><em>{g.check_in_time ? `Joined ${formatTimeLocal(g.check_in_time, user?.timezone)}` : g.email}{g.minutes != null ? ` · ${minutesText(g.minutes)} in class` : ''}</em></span>
+                                                <span className="at-pill is-info">{g.role === 'teacher' ? 'Teacher' : g.role === 'admin' ? 'Admin' : 'Guest'}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
 
                             {sessionOpen.batch_id != null && (
                                 <div className="at-dactions">
@@ -974,7 +1050,7 @@ const AttendanceManagement: React.FC = () => {
                                     <h4>Last {Math.min(30, hist.length)} sessions</h4>
                                     <div className="at-strip">
                                         {histChrono.slice(-30).map(h => (
-                                            <Tooltip key={h.session_id} title={`${dateText(h.starts_at, { month: 'short', day: 'numeric' })} · ${h.status === 'present' ? 'Present' : h.status === 'late' ? 'Late' : 'Absent'}`}>
+                                            <Tooltip key={keyOf(h)} title={`${dateText(h.starts_at, { month: 'short', day: 'numeric' })} · ${kindOf(h) === 'meeting' ? 'Online · ' : ''}${h.status === 'present' ? 'Present' : h.status === 'late' ? 'Late' : 'Absent'}`}>
                                                 <span className={`is-${h.status === 'present' ? 'good' : h.status === 'late' ? 'warn' : 'bad'}`} />
                                             </Tooltip>
                                         ))}
@@ -991,10 +1067,11 @@ const AttendanceManagement: React.FC = () => {
                                     : (
                                         <ul className="at-hist">
                                             {hist.map(h => (
-                                                <li key={h.session_id}>
+                                                <li key={keyOf(h)}>
                                                     <span className="at-cell-2">
                                                         <strong>{dateText(h.starts_at, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</strong>
-                                                        <em>{timeText(h)}{h.check_in_time ? ` · in at ${formatTimeLocal(h.check_in_time, user?.timezone)}` : ''}</em>
+                                                        <em>{timeText(h)}{h.check_in_time ? ` · ${kindOf(h) === 'meeting' ? 'joined' : 'in'} at ${formatTimeLocal(h.check_in_time, user?.timezone)}` : ''}{h.minutes ? ` · ${minutesText(h.minutes)}` : ''}</em>
+                                                        <KindTag kind={kindOf(h)} />
                                                     </span>
                                                     {statusPill(h.status)}
                                                 </li>

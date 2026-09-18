@@ -169,8 +169,10 @@
   .ant-select { width: 100% !important; min-width: 0 !important; }
   .ant-picker { width: 100% !important; }
 
-  /* Modals — near full screen */
-  .ant-modal { max-width: 98vw !important; margin: 8px !important; }
+  /* Modals — near full screen. Relative to the dialog's container (not 100vw) and with
+     auto side margins: a centred (inline-block) dialog that is even slightly wider than
+     the screen wraps onto a new line below the fold and looks like it never opened. */
+  .ant-modal { max-width: calc(100% - 16px) !important; margin: 8px auto !important; }
 
   /* Hide column titles on very narrow tables — pages opt-in via .compact-on-mobile */
   .compact-on-mobile .ant-table-thead { display: none !important; }
@@ -468,3 +470,10 @@ body[style*="overflow"] .ant-layout-content {
   inset: 0 !important;
 }
 
+
+/* Placeholder while a lazily loaded page arrives (thin progress line, no layout shift). */
+.app-route-loading { position: fixed; top: 0; left: 0; right: 0; z-index: 3000; height: 3px; overflow: hidden; background: transparent; }
+.app-route-loading::after { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; border-radius: 3px; background: #4f46e5; animation: app-route-loading 1.1s ease-in-out infinite; }
+.app-route-loading.is-inner { position: sticky; }
+@keyframes app-route-loading { from { left: -35%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .app-route-loading::after { animation: none; left: 0; width: 100%; opacity: 0.4; } }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import { Dropdown, Button, Tooltip, Drawer } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -27,6 +27,8 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import NotificationBell from '../Notifications/NotificationBell';
 import useResponsive from '../../hooks/useResponsive';
+import { useActiveMeeting } from '../../hooks/useActiveMeeting';
+import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
 import './Layout.css';
 
 /* ══════════════════════════════════════════
@@ -223,9 +225,22 @@ interface SidebarProps {
     /** Rendered inside the mobile drawer. */
     inDrawer?: boolean;
     onClose?: () => void;
+    showLiveIndicator?: boolean;
+    activeMeetingTitle?: string | null;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ role, collapsed, activeKey, user, token, onLogout, inDrawer = false, onClose }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+    role,
+    collapsed,
+    activeKey,
+    user,
+    token,
+    onLogout,
+    inDrawer = false,
+    onClose,
+    showLiveIndicator = false,
+    activeMeetingTitle,
+}) => {
     const meta = ROLE_META[role];
     const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Account';
 
@@ -259,21 +274,51 @@ const Sidebar: React.FC<SidebarProps> = ({ role, collapsed, activeKey, user, tok
                         <ul>
                             {group.items.map(item => {
                                 const active = item.key === activeKey;
+                                const isLiveMeeting = item.key === '/app/meetings';
+                                const isLive = isLiveMeeting && showLiveIndicator;
+                                const liveTip = activeMeetingTitle
+                                    ? `🔴 Live now: ${activeMeetingTitle} · Click to join`
+                                    : '🔴 Live class in progress · Click to join';
+                                const tip = isLive ? liveTip : item.label;
+
                                 const link = (
                                     <Link
                                         to={item.key}
-                                        className={`al-item${active ? ' is-active' : ''}`}
+                                        className={`al-item${active ? ' is-active' : ''}${isLive ? ' al-item-live' : ''}`}
                                         aria-current={active ? 'page' : undefined}
-                                        aria-label={collapsed ? item.label : undefined}
+                                        aria-label={collapsed ? tip : undefined}
                                         onClick={onClose}
                                     >
-                                        <span className="al-item-icon">{item.icon}</span>
+                                        <span className="al-item-icon">
+                                            {item.icon}
+                                            {isLive && (
+                                                <span className="al-live-icon-beacon" aria-hidden>
+                                                    <span className="al-live-icon-ping" />
+                                                    <span className="al-live-icon-core" />
+                                                </span>
+                                            )}
+                                        </span>
                                         {!collapsed && <span className="al-item-label">{item.label}</span>}
+                                        {!collapsed && isLive && (
+                                            <span className="al-live-badge" aria-label="Class is live">
+                                                <span className="al-live-badge-dot">
+                                                    <span className="al-live-badge-ping" />
+                                                    <span className="al-live-badge-core" />
+                                                </span>
+                                                <span className="al-live-badge-text">LIVE</span>
+                                            </span>
+                                        )}
                                     </Link>
                                 );
                                 return (
                                     <li key={item.key}>
-                                        {collapsed ? <Tooltip title={item.label} placement="right">{link}</Tooltip> : link}
+                                        {collapsed ? (
+                                            <Tooltip title={tip} placement="right">{link}</Tooltip>
+                                        ) : isLive ? (
+                                            <Tooltip title={tip} placement="right">{link}</Tooltip>
+                                        ) : (
+                                            link
+                                        )}
                                     </li>
                                 );
                             })}
@@ -322,10 +367,21 @@ const Layout: React.FC = () => {
     const { user, logout, isAdmin, isTeacher, token } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
+    const { hasActiveMeeting, activeMeeting } = useActiveMeeting();
 
     const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : 'student';
     const meta = ROLE_META[role];
     const isMobile = r.shouldUseDrawer;
+
+    // Check if user is currently inside any live meeting page/room
+    const isMeetingRoute =
+        location.pathname === '/app/meetings' ||
+        location.pathname.startsWith('/app/meeting/') ||
+        location.pathname.startsWith('/app/meeting-join/') ||
+        location.pathname.startsWith('/app/meeting-attendance');
+
+    // Only show the live pulse/badge when an active meeting exists and user is elsewhere in the app
+    const showLiveIndicator = hasActiveMeeting && !isMeetingRoute;
 
     // Below 1280px the sidebar starts as an icon rail; above it, the user's last choice wins.
     const [collapsed, setCollapsed] = useState(() => r.shouldCollapseSidebar || (readCollapsePref() ?? false));
@@ -393,10 +449,21 @@ const Layout: React.FC = () => {
                         onLogout={handleLogout}
                         inDrawer
                         onClose={() => setDrawerOpen(false)}
+                        showLiveIndicator={showLiveIndicator}
+                        activeMeetingTitle={activeMeeting?.title}
                     />
                 </Drawer>
             ) : (
-                <Sidebar role={role} collapsed={collapsed} activeKey={activeKey} user={user} token={token} onLogout={handleLogout} />
+                <Sidebar
+                    role={role}
+                    collapsed={collapsed}
+                    activeKey={activeKey}
+                    user={user}
+                    token={token}
+                    onLogout={handleLogout}
+                    showLiveIndicator={showLiveIndicator}
+                    activeMeetingTitle={activeMeeting?.title}
+                />
             )}
 
             <header className="al-header">
@@ -427,6 +494,7 @@ const Layout: React.FC = () => {
 
                 <div className="al-header-actions">
                     <NotificationBell variant="light" />
+                    {(isTeacher || isAdmin) && <MeetingLobbyWatcher />}
                     <Dropdown
                         trigger={['click']}
                         placement="bottomRight"
@@ -460,7 +528,10 @@ const Layout: React.FC = () => {
 
             <div className="al-main">
                 <main id="al-main" className="al-content" tabIndex={-1}>
-                    <Outlet />
+                    {/* Pages are loaded on demand: keep the shell on screen while one loads. */}
+                    <Suspense fallback={<div className="app-route-loading is-inner" role="status" aria-label="Loading" />}>
+                        <Outlet />
+                    </Suspense>
                 </main>
             </div>
         </div>

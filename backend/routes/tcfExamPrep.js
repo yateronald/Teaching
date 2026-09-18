@@ -3287,6 +3287,73 @@ const EXPRESSION_BY_TYPE = {
 };
 const NOT_ASSIGNED = Object.freeze({ is_assigned: false, is_expired: false });
 
+/**
+ * The student's own track record on a list of practice items, in one query:
+ * completed attempts, best score, last attempt, and (writing) an attempt still
+ * open plus the theme of task 3, which is what tells combinations apart.
+ * Scores: writing and speaking on 20, listening in TCF points (0–699).
+ */
+const LEAF_PROGRESS_SQL = {
+  ee_combinaison: `
+    SELECT l.id,
+           (SELECT NULLIF(TRIM(t.question_text), '') FROM tcf_ee_taches t WHERE t.combinaison_id = l.id AND t.task_number = 3 LIMIT 1) AS theme,
+           COALESCE(s.attempts, 0) AS attempts, s.best, s.last_at, COALESCE(s.running, false) AS running
+      FROM unnest($2::int[]) AS l(id)
+      LEFT JOIN (
+        SELECT combinaison_id,
+               COUNT(*) FILTER (WHERE status = 'completed')::int AS attempts,
+               MAX(average_score) FILTER (WHERE status = 'completed') AS best,
+               MAX(COALESCE(submitted_at, started_at)) FILTER (WHERE status = 'completed') AS last_at,
+               bool_or(status IN ('in_progress', 'error')) AS running
+          FROM tcf_ee_simulations WHERE student_id = $1 AND combinaison_id = ANY($2::int[])
+         GROUP BY combinaison_id
+      ) s ON s.combinaison_id = l.id`,
+  eo_partie: `
+    SELECT l.id, NULL AS theme, COALESCE(s.attempts, 0) AS attempts, s.best, s.last_at, false AS running
+      FROM unnest($2::int[]) AS l(id)
+      LEFT JOIN (
+        SELECT partie_id, COUNT(*)::int AS attempts, MAX(overall_score) AS best, MAX(completed_at) AS last_at
+          FROM eo_simulations WHERE user_id = $1 AND status = 'completed' AND partie_id = ANY($2::int[])
+         GROUP BY partie_id
+      ) s ON s.partie_id = l.id`,
+  co_series: `
+    SELECT l.id, NULL AS theme, COALESCE(s.attempts, 0) AS attempts, s.best, s.last_at, false AS running
+      FROM unnest($2::int[]) AS l(id)
+      LEFT JOIN (
+        SELECT series_id, COUNT(*)::int AS attempts, MAX(earned_points) AS best, MAX(completed_at) AS last_at
+          FROM tcf_co_quiz_attempts WHERE student_id = $1 AND completed_at IS NOT NULL AND series_id = ANY($2::int[])
+         GROUP BY series_id
+      ) s ON s.series_id = l.id`,
+};
+
+async function attachLeafProgress(db, studentId, leaves) {
+  const type = leaves[0]?.type;
+  const sql = LEAF_PROGRESS_SQL[type];
+  if (!sql || !leaves.length) return leaves;
+  try {
+    const rows = await db.all(sql, [studentId, leaves.map(l => l.content_id)]);
+    const byId = new Map(rows.map(r => [Number(r.id), r]));
+    return leaves.map(l => {
+      const r = byId.get(Number(l.content_id));
+      if (!r) return l;
+      return {
+        ...l,
+        theme: r.theme || null,
+        progress: {
+          attempts: Number(r.attempts) || 0,
+          best: r.best == null ? null : Number(r.best),
+          last_at: r.last_at || null,
+          running: !!r.running,
+        },
+      };
+    });
+  } catch (err) {
+    // Progress is a convenience: never let it break the list itself.
+    console.error('attachLeafProgress failed:', err.message);
+    return leaves;
+  }
+}
+
 /** "content_type:content_id" → { is_assigned, is_expired } for direct and batch assignments. */
 async function loadStudentAssignmentMap(db, studentId) {
   const rows = await db.all(`
@@ -3508,7 +3575,7 @@ router.get('/student/content-tree/children', async (req, res) => {
       }));
     }
 
-    res.json(children);
+    res.json(await attachLeafProgress(req.db, req.user.id, children));
   } catch (error) {
     console.error('GET /student/content-tree/children error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -4180,61 +4247,112 @@ router.get('/admin/co/analytics/batch/:batchId', async (req, res) => {
 });
 
 // ============================================================
-// EXPRESSION ÉCRITE — SIMULATION
+// EXPRESSION ÉCRITE — SIMULATION (TCF Canada, 60 minutes, 3 tâches)
+//
+// The server owns the clock: the deadline is started_at + the sum of the task
+// durations, drafts are autosaved against it, and a copy sent after the grace
+// period is replaced by the last draft saved in time. Correction is done by the
+// shared exam evaluator (double correction, official scale, CEFR + NCLC).
 // ============================================================
-const { getAIEECorrectionService } = require('../services/aiEECorrectionService');
+const eeEvaluator = require('../services/examEvaluator');
+const { hasColumn: eeHasColumn } = require('../services/schemaFeatures');
+const EE_SUBMIT_GRACE_SECONDS = 60;
+const EE_DRAFT_GRACE_SECONDS = 30;
+const EE_MAX_ANSWER_CHARS = 6000;
+const EE_MAX_EVALUATION_ATTEMPTS = 5;
+const eeEvaluating = new Set();
 
-// GET /ee/simulation/combinaison/:id — get combinaison + tâches for simulation
+const EE_TYPE_LABEL = { message_court: 'Message', narration: 'Récit et impressions', argumentation: 'Point de vue argumenté' };
+const EE_T3_CONSIGNE = 'Lisez les deux documents. Rédigez un texte en deux parties : présentez et comparez objectivement les deux points de vue (40 à 60 mots), puis donnez votre opinion de façon argumentée (80 à 120 mots).';
+
+/** One task as the candidate sees it. T3 documents are stored as two paragraphs of prompt_text. */
+function eeTaskView(t) {
+  let documents = [t.argument_text_1, t.argument_text_2].filter(s => s && String(s).trim());
+  let consigne = String(t.prompt_text || '').trim();
+  let lead = null;
+  if (t.task_number === 3 || t.task_type === 'argumentation') {
+    if (!documents.length) {
+      const paragraphs = consigne.split(/\n\s*\n|\n/).map(s => s.trim()).filter(Boolean);
+      // A few sujets open with their title on its own line.
+      if (paragraphs.length >= 3 && paragraphs[0].length < 140) lead = paragraphs.shift().replace(/^[«"\s]+|[»"\s]+$/g, '');
+      documents = paragraphs.length >= 2 ? [paragraphs[0], paragraphs.slice(1).join('\n')] : paragraphs;
+    }
+    consigne = EE_T3_CONSIGNE;
+  }
+  return {
+    id: t.id,
+    task_number: t.task_number,
+    task_type: t.task_type,
+    task_type_label: EE_TYPE_LABEL[t.task_type] || 'Tâche',
+    title: t.task_number === 3 ? (String(t.question_text || '').trim().replace(/\.$/, '') || lead || null) : null,
+    consigne,
+    documents,
+    // Kept for older clients.
+    prompt_text: t.prompt_text,
+    question_text: t.question_text,
+    argument_text_1: documents[0] || null,
+    argument_text_2: documents[1] || null,
+    min_words: t.min_words,
+    max_words: t.max_words,
+    duration_minutes: t.duration_minutes,
+  };
+}
+
+async function eeLoadTasks(db, combinaisonId, withCorrection = false) {
+  return db.all(
+    `SELECT id, task_number, task_type, prompt_text, question_text, argument_text_1, argument_text_2,
+            min_words, max_words, duration_minutes${withCorrection ? ', correction_text' : ''}
+       FROM tcf_ee_taches WHERE combinaison_id = $1 ORDER BY task_number ASC`, [combinaisonId]);
+}
+
+const EE_REMAINING_SQL = `EXTRACT(EPOCH FROM (started_at + make_interval(secs => COALESCE(total_duration_seconds, 3600)) - CURRENT_TIMESTAMP))::int`;
+
+/** Simulation row + clock computed by the database (no client clock or timezone involved). */
+async function eeLoadOwn(db, id, studentId) {
+  return db.get(`SELECT *, ${EE_REMAINING_SQL} AS remaining_seconds FROM tcf_ee_simulations WHERE id = $1 AND student_id = $2`, [id, studentId]);
+}
+
+async function eeLoadRunning(db, studentId, combinaisonId) {
+  return db.get(
+    `SELECT id, status, task1_answer, task2_answer, task3_answer, ${EE_REMAINING_SQL} AS remaining_seconds
+       FROM tcf_ee_simulations WHERE student_id = $1 AND combinaison_id = $2 AND status IN ('in_progress', 'error')
+      ORDER BY started_at DESC LIMIT 1`, [studentId, combinaisonId]);
+}
+
+const eeAnswersOf = (row) => [row.task1_answer || '', row.task2_answer || '', row.task3_answer || ''];
+const eeClean = (answers) => [0, 1, 2].map(i => String((Array.isArray(answers) ? answers[i] : '') || '').replace(/\r\n/g, '\n').slice(0, EE_MAX_ANSWER_CHARS));
+const eeWords = (answers) => answers.reduce((n, a) => n + eeEvaluator.wordCount(a), 0);
+
+// GET /ee/simulation/combinaison/:id — tasks, attempts and any attempt still running
 router.get('/ee/simulation/combinaison/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const studentId = req.user.id;
-
-    const hasAccess = await checkExamAccess(req.db, studentId, 'ee_combinaison', id);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied: Exam content is not assigned or has expired.' });
+    if (!await checkExamAccess(req.db, studentId, 'ee_combinaison', id)) {
+      return res.status(403).json({ error: 'Ce contenu ne vous est pas attribué ou votre accès a expiré.' });
     }
-
     const comb = await req.db.get(
       `SELECT c.id, c.name, c.display_order, m.month_name, y.year
-       FROM tcf_ee_combinaisons c
-       JOIN tcf_ee_months m ON c.month_id = m.id
-       JOIN tcf_ee_years y ON m.year_id = y.id
-       WHERE c.id = $1`, [id]
-    );
-    if (!comb) return res.status(404).json({ error: 'Combinaison not found' });
+         FROM tcf_ee_combinaisons c JOIN tcf_ee_months m ON c.month_id = m.id JOIN tcf_ee_years y ON m.year_id = y.id
+        WHERE c.id = $1`, [id]);
+    if (!comb) return res.status(404).json({ error: 'Combinaison introuvable.' });
 
-    const taches = await req.db.all(
-      `SELECT id, task_number, task_type, prompt_text, question_text, argument_text_1, argument_text_2, min_words, max_words, duration_minutes
-       FROM tcf_ee_taches WHERE combinaison_id = $1 ORDER BY task_number ASC`, [id]
-    );
-
-    // Count previous attempts by this student
-    const countRow = await req.db.get(
-      `SELECT COUNT(*) as attempt_count FROM tcf_ee_simulations WHERE student_id = $1 AND combinaison_id = $2 AND status = 'completed'`,
-      [studentId, id]
-    );
-
-    // Total duration = sum of all tasks' duration_minutes
-    const totalDurationMinutes = taches.reduce((sum, t) => sum + (t.duration_minutes || 0), 0);
-
+    const [taches, countRow, running] = await Promise.all([
+      eeLoadTasks(req.db, id),
+      req.db.get(`SELECT COUNT(*)::int AS n FROM tcf_ee_simulations WHERE student_id = $1 AND combinaison_id = $2 AND status = 'completed'`, [studentId, id]),
+      eeLoadRunning(req.db, studentId, id),
+    ]);
     res.json({
       combinaison: comb,
-      taches: taches.map(t => ({
-        id: t.id,
-        task_number: t.task_number,
-        task_type: t.task_type,
-        task_type_label: t.task_type === 'message_court' ? 'Message Court' : t.task_type === 'narration' ? 'Narration' : 'Argumentation',
-        prompt_text: t.prompt_text,
-        question_text: t.question_text,
-        argument_text_1: t.argument_text_1,
-        argument_text_2: t.argument_text_2,
-        min_words: t.min_words,
-        max_words: t.max_words,
-        duration_minutes: t.duration_minutes,
-      })),
-      total_duration_minutes: totalDurationMinutes,
-      attempt_count: countRow?.attempt_count || 0,
+      taches: taches.map(eeTaskView),
+      total_duration_minutes: taches.reduce((sum, t) => sum + (t.duration_minutes || 0), 0) || 60,
+      attempt_count: countRow?.n || 0,
+      in_progress: running ? {
+        simulation_id: running.id,
+        status: running.status,
+        remaining_seconds: Math.max(0, running.remaining_seconds),
+        words: eeWords(eeAnswersOf(running)),
+      } : null,
     });
   } catch (error) {
     console.error('GET /ee/simulation/combinaison/:id error:', error);
@@ -4242,206 +4360,158 @@ router.get('/ee/simulation/combinaison/:id', async (req, res) => {
   }
 });
 
-// POST /ee/simulation/start — create a new simulation record
+// POST /ee/simulation/start — resume the running attempt or open a new one (1 credit)
 router.post('/ee/simulation/start', async (req, res) => {
   try {
     const studentId = req.user.id;
-    const { combinaison_id, total_duration_seconds } = req.body;
-
-    if (!combinaison_id) return res.status(400).json({ error: 'combinaison_id is required' });
-
-    const hasAccess = await checkExamAccess(req.db, studentId, 'ee_combinaison', combinaison_id);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied: Exam content is not assigned or has expired.' });
+    const combinaisonId = Number(req.body?.combinaison_id);
+    if (!combinaisonId) return res.status(400).json({ error: 'combinaison_id is required' });
+    if (!await checkExamAccess(req.db, studentId, 'ee_combinaison', combinaisonId)) {
+      return res.status(403).json({ error: 'Ce contenu ne vous est pas attribué ou votre accès a expiré.' });
     }
+    const taches = await eeLoadTasks(req.db, combinaisonId);
+    if (!taches.length) return res.status(404).json({ error: 'Cette combinaison ne contient aucune tâche.' });
 
-    // Verify combinaison exists
-    const comb = await req.db.get('SELECT id FROM tcf_ee_combinaisons WHERE id = $1', [combinaison_id]);
-    if (!comb) return res.status(404).json({ error: 'Combinaison not found' });
-
-    // Check for any in-progress simulation for this student+combinaison.
-    // Resuming an in-progress simulation does NOT consume a credit.
-    const existing = await req.db.get(
-      `SELECT id FROM tcf_ee_simulations WHERE student_id = $1 AND combinaison_id = $2 AND status = 'in_progress'`,
-      [studentId, combinaison_id]
-    );
-    if (existing) {
-      return res.json({ simulation_id: existing.id, resumed: true });
+    const running = await eeLoadRunning(req.db, studentId, combinaisonId);
+    if (running && running.status === 'error') {
+      // Written and handed in, but the correction failed: correct it again, no new credit.
+      return res.json({ simulation_id: running.id, resumed: true, needs_correction: true, answers: eeAnswersOf(running), remaining_seconds: 0 });
     }
+    if (running && running.remaining_seconds > 0) {
+      return res.json({ simulation_id: running.id, resumed: true, answers: eeAnswersOf(running), remaining_seconds: running.remaining_seconds });
+    }
+    if (running && !req.body?.force_new) {
+      const words = eeWords(eeAnswersOf(running));
+      if (words > 0) return res.status(409).json({ error: 'EXPIRED_ATTEMPT', simulation_id: running.id, words });
+    }
+    if (running) await req.db.run(`UPDATE tcf_ee_simulations SET status = 'abandoned' WHERE id = $1`, [running.id]);
 
-    // Consume 1 EE credit before starting a NEW simulation. If the student
-    // has 0 credits, return 402 with a clear message and DO NOT create the row.
     const aiCredits = require('../services/aiCreditService');
     try {
-      await aiCredits.consumeCredit(req.db, studentId, 'ee', {
-        reason: 'ee_attempt',
-        related_entity_type: 'tcf_ee_simulation',
-        related_entity_id: null, // we'll know the id only after insert; that's fine
-      });
+      await aiCredits.consumeCredit(req.db, studentId, 'ee', { reason: 'ee_attempt', related_entity_type: 'tcf_ee_simulation', related_entity_id: null });
     } catch (creditErr) {
       if (creditErr.code === 'INSUFFICIENT_CREDITS') {
-        return res.status(402).json({
-          error: 'INSUFFICIENT_CREDITS',
-          credit_type: 'ee',
-          message: 'You are out of Expression Écrite credits. Please contact your administrator for more credits.',
-        });
+        return res.status(402).json({ error: 'INSUFFICIENT_CREDITS', credit_type: 'ee', message: 'Vous n’avez plus de crédits d’expression écrite.' });
       }
-      console.error('[ee/simulation/start] credit consume failed:', creditErr);
-      return res.status(500).json({ error: 'Failed to consume credit' });
+      throw creditErr;
     }
-
+    // The duration comes from the tasks, never from the client.
+    const totalSeconds = (taches.reduce((sum, t) => sum + (t.duration_minutes || 0), 0) || 60) * 60;
     const result = await req.db.run(
       `INSERT INTO tcf_ee_simulations (student_id, combinaison_id, total_duration_seconds, status)
-       VALUES ($1, $2, $3, 'in_progress') RETURNING id`,
-      [studentId, combinaison_id, total_duration_seconds || 3600]
-    );
-
-    res.status(201).json({ simulation_id: result.rows[0].id, resumed: false });
+       VALUES ($1, $2, $3, 'in_progress') RETURNING id`, [studentId, combinaisonId, totalSeconds]);
+    res.status(201).json({ simulation_id: result.rows[0].id, resumed: false, answers: ['', '', ''], remaining_seconds: totalSeconds });
   } catch (error) {
     console.error('POST /ee/simulation/start error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Impossible de démarrer la simulation.' });
   }
 });
 
-// POST /ee/simulation/:id/submit — submit answers and trigger AI correction
-router.post('/ee/simulation/:id/submit', async (req, res) => {
+// PUT /ee/simulation/:id/draft — autosave (refused once the time is over)
+router.put('/ee/simulation/:id/draft', async (req, res) => {
   try {
-    const { id } = req.params;
-    const studentId = req.user.id;
-    const { answers, time_used_seconds } = req.body;
-    // answers = [{ task_number: 1, answer: "..." }, ...]
+    const sim = await eeLoadOwn(req.db, req.params.id, req.user.id);
+    if (!sim) return res.status(404).json({ error: 'Simulation introuvable.' });
+    if (sim.status !== 'in_progress') return res.status(409).json({ error: 'Cette simulation n’est plus modifiable.' });
+    if (sim.remaining_seconds < -EE_DRAFT_GRACE_SECONDS) return res.status(409).json({ error: 'TIME_OVER', remaining_seconds: 0 });
+    const [a1, a2, a3] = eeClean(req.body?.answers);
+    await req.db.run('UPDATE tcf_ee_simulations SET task1_answer = $1, task2_answer = $2, task3_answer = $3 WHERE id = $4', [a1, a2, a3, sim.id]);
+    res.json({ saved_at: new Date().toISOString(), remaining_seconds: Math.max(0, sim.remaining_seconds) });
+  } catch (error) {
+    console.error('PUT /ee/simulation/:id/draft error:', error);
+    res.status(500).json({ error: 'La sauvegarde a échoué.' });
+  }
+});
 
-    // Verify simulation belongs to this student
-    const sim = await req.db.get(
-      `SELECT id, combinaison_id, status FROM tcf_ee_simulations WHERE id = $1 AND student_id = $2`,
-      [id, studentId]
-    );
-    if (!sim) return res.status(404).json({ error: 'Simulation not found' });
-    if (sim.status === 'completed') return res.status(409).json({ error: 'Simulation already completed' });
-
-    // Get tâches for this combinaison
-    const taches = await req.db.all(
-      `SELECT id, task_number, task_type, prompt_text, question_text, argument_text_1, argument_text_2, min_words, max_words
-       FROM tcf_ee_taches WHERE combinaison_id = $1 ORDER BY task_number ASC`,
-      [sim.combinaison_id]
-    );
-
-    // Map answers to tasks
-    const tasksForAI = taches.map(t => {
-      const ans = answers?.find(a => a.task_number === t.task_number);
-      return {
-        task_number: t.task_number,
-        task_type: t.task_type,
-        prompt_text: t.prompt_text,
-        argument_text_1: t.argument_text_1,
-        argument_text_2: t.argument_text_2,
-        min_words: t.min_words,
-        max_words: t.max_words,
-        answer: ans?.answer || '',
-      };
-    });
-
-    // Save answers + mark as correcting
-    const task1Ans = tasksForAI.find(t => t.task_number === 1)?.answer || '';
-    const task2Ans = tasksForAI.find(t => t.task_number === 2)?.answer || '';
-    const task3Ans = tasksForAI.find(t => t.task_number === 3)?.answer || '';
-
-    await req.db.run(
-      `UPDATE tcf_ee_simulations SET
-        task1_answer = $1, task2_answer = $2, task3_answer = $3,
-        time_used_seconds = $4, submitted_at = CURRENT_TIMESTAMP, status = 'correcting'
-       WHERE id = $5`,
-      [task1Ans, task2Ans, task3Ans, time_used_seconds || 0, id]
-    );
-
-    // Call AI correction
-    const aiService = getAIEECorrectionService();
-    if (!aiService.isConfigured) {
-      await req.db.run(`UPDATE tcf_ee_simulations SET status = 'error' WHERE id = $1`, [id]);
-      return res.status(503).json({ error: 'AI correction service is not configured.' });
+// POST /ee/simulation/:id/submit — hand in the copy and correct it (also retries a failed correction)
+router.post('/ee/simulation/:id/submit', async (req, res) => {
+  const simId = Number(req.params.id);
+  let locked = false;
+  try {
+    const sim = await eeLoadOwn(req.db, simId, req.user.id);
+    if (!sim) return res.status(404).json({ error: 'Simulation introuvable.' });
+    if (sim.status === 'completed') return res.json({ simulation_id: simId, status: 'completed' });
+    if (!['in_progress', 'error', 'correcting'].includes(sim.status)) return res.status(409).json({ error: 'Cette simulation ne peut plus être soumise.' });
+    if (eeEvaluating.has(simId)) return res.status(409).json({ error: 'La correction est déjà en cours.' });
+    const hasReport = await eeHasColumn(req.db, 'tcf_ee_simulations', 'evaluation');
+    if (hasReport && Number(sim.evaluation_attempts || 0) >= EE_MAX_EVALUATION_ATTEMPTS) {
+      return res.status(429).json({ error: 'Nombre maximal de tentatives de correction atteint. Contactez votre enseignant.' });
     }
+    if (!eeEvaluator.isConfigured()) return res.status(503).json({ error: 'Le service de correction n’est pas configuré.' });
 
+    // A copy sent in time (or within the grace period) is taken as sent; after that, the last draft saved in time counts.
+    const inTime = sim.status === 'in_progress' && sim.remaining_seconds >= -EE_SUBMIT_GRACE_SECONDS;
+    const answers = inTime && Array.isArray(req.body?.answers) ? eeClean(req.body.answers) : eeAnswersOf(sim);
+    const totalSeconds = Number(sim.total_duration_seconds) || 3600;
+    const timeUsed = Math.min(totalSeconds, Math.max(0, totalSeconds - Math.max(0, sim.remaining_seconds)));
+
+    eeEvaluating.add(simId);
+    locked = true;
+    await req.db.run(
+      `UPDATE tcf_ee_simulations SET task1_answer = $1, task2_answer = $2, task3_answer = $3,
+              time_used_seconds = COALESCE(NULLIF(time_used_seconds, 0), $4), submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP), status = 'correcting'
+        WHERE id = $5`, [answers[0], answers[1], answers[2], timeUsed, simId]);
+    if (hasReport) await req.db.run('UPDATE tcf_ee_simulations SET evaluation_attempts = COALESCE(evaluation_attempts, 0) + 1 WHERE id = $1', [simId]);
+
+    const taches = (await eeLoadTasks(req.db, sim.combinaison_id)).map(eeTaskView);
     try {
-      const result = await aiService.correctWriting(tasksForAI);
-
-      // Extract per-task results
-      const t1 = result.tasks.find(t => t.task_number === 1) || { score: 0, level: 'A1', positives: [], improvements: [] };
-      const t2 = result.tasks.find(t => t.task_number === 2) || { score: 0, level: 'A1', positives: [], improvements: [] };
-      const t3 = result.tasks.find(t => t.task_number === 3) || { score: 0, level: 'A1', positives: [], improvements: [] };
-
-      const avgScore = Math.round(((t1.score + t2.score + t3.score) / 3) * 10) / 10;
-
-      // Derive overall level from average
-      let overallLevel;
-      if (avgScore >= 18) overallLevel = 'C2';
-      else if (avgScore >= 15) overallLevel = 'C1';
-      else if (avgScore >= 12) overallLevel = 'B2';
-      else if (avgScore >= 9) overallLevel = 'B1';
-      else if (avgScore >= 5) overallLevel = 'A2';
-      else overallLevel = 'A1';
-
+      const tasks = await Promise.all([1, 2, 3].map(n => {
+        const t = taches.find(x => x.task_number === n);
+        if (!t) {
+          return { n, title: `Tâche ${n}`, score: 0, words: 0, evaluated: false, criteria: [], strengths: [], improvements: [], errors: [],
+            adjustments: [{ code: 'not_taken', label: 'Tâche absente', detail: 'Cette tâche n’existe pas dans la combinaison.' }] };
+        }
+        return eeEvaluator.evaluateTask({
+          skill: 'ee', taskNo: n,
+          prompt: [t.title ? `Titre : ${t.title}` : null, t.consigne].filter(Boolean).join('\n'),
+          documents: n === 3 ? t.documents : [],
+          text: answers[n - 1], minWords: t.min_words, maxWords: t.max_words,
+        });
+      }));
+      const report = eeEvaluator.buildReport('ee', tasks);
+      if (!inTime) report.late = true;
+      const [t1, t2, t3] = tasks;
+      const fb = (t) => JSON.stringify({ positives: t.strengths || [], improvements: [...(t.improvements || []), ...(t.adjustments || []).map(a => a.detail)] });
       await req.db.run(
         `UPDATE tcf_ee_simulations SET
-          task1_score = $1, task2_score = $2, task3_score = $3,
-          task1_level = $4, task2_level = $5, task3_level = $6,
-          task1_feedback = $7, task2_feedback = $8, task3_feedback = $9,
-          average_score = $10, overall_level = $11, status = 'completed'
+           task1_score = $1, task2_score = $2, task3_score = $3,
+           task1_level = $4, task2_level = $5, task3_level = $6,
+           task1_feedback = $7, task2_feedback = $8, task3_feedback = $9,
+           average_score = $10, overall_level = $11, status = 'completed'
          WHERE id = $12`,
-        [
-          t1.score, t2.score, t3.score,
-          t1.level, t2.level, t3.level,
-          JSON.stringify({ positives: t1.positives, improvements: t1.improvements }),
-          JSON.stringify({ positives: t2.positives, improvements: t2.improvements }),
-          JSON.stringify({ positives: t3.positives, improvements: t3.improvements }),
-          avgScore, overallLevel, id
-        ]
-      );
-
-      res.json({ simulation_id: parseInt(id), status: 'completed' });
+        [t1.score, t2.score, t3.score, t1.cefr || 'A1', t2.cefr || 'A1', t3.cefr || 'A1', fb(t1), fb(t2), fb(t3),
+          report.global.score, report.global.cefr || 'A1', simId]);
+      if (hasReport) {
+        await req.db.run('UPDATE tcf_ee_simulations SET evaluation = $1, scoring_version = $2, nclc_level = $3 WHERE id = $4',
+          [JSON.stringify(report), report.version, report.global.nclc, simId]);
+      }
+      res.json({ simulation_id: simId, status: 'completed', report });
     } catch (aiError) {
-      console.error('AI correction failed:', aiError.message);
-      await req.db.run(`UPDATE tcf_ee_simulations SET status = 'error' WHERE id = $1`, [id]);
-      res.status(500).json({ error: 'AI correction failed. Please try again.', details: aiError.message });
+      console.error('EE correction failed:', aiError.message);
+      await req.db.run(`UPDATE tcf_ee_simulations SET status = 'error' WHERE id = $1`, [simId]);
+      res.status(503).json({ error: 'La correction n’a pas pu être réalisée pour le moment. Votre copie est enregistrée : relancez la correction dans quelques instants.', retryable: true });
     }
   } catch (error) {
     console.error('POST /ee/simulation/:id/submit error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  } finally {
+    if (locked) eeEvaluating.delete(simId);
   }
 });
 
-// GET /ee/simulation/:id/result — get completed simulation result
+// GET /ee/simulation/:id/result — the corrected copy
 router.get('/ee/simulation/:id/result', async (req, res) => {
   try {
-    const { id } = req.params;
-    const studentId = req.user.id;
-
     const sim = await req.db.get(
-      `SELECT s.*, c.name as combinaison_name, m.month_name, y.year
-       FROM tcf_ee_simulations s
-       JOIN tcf_ee_combinaisons c ON s.combinaison_id = c.id
-       JOIN tcf_ee_months m ON c.month_id = m.id
-       JOIN tcf_ee_years y ON m.year_id = y.id
-       WHERE s.id = $1 AND s.student_id = $2`,
-      [id, studentId]
-    );
-    if (!sim) return res.status(404).json({ error: 'Simulation not found' });
-
-    // Get tâches for reference correction
-    const taches = await req.db.all(
-      `SELECT task_number, task_type, prompt_text, question_text, argument_text_1, argument_text_2, min_words, max_words, correction_text
-       FROM tcf_ee_taches WHERE combinaison_id = $1 ORDER BY task_number ASC`,
-      [sim.combinaison_id]
-    );
-
-    // Parse JSONB feedback
-    const parseFeedback = (fb) => {
-      if (!fb) return { positives: [], improvements: [] };
-      if (typeof fb === 'string') {
-        try { return JSON.parse(fb); } catch { return { positives: [], improvements: [] }; }
-      }
-      return fb;
-    };
-
+      `SELECT s.*, c.name AS combinaison_name, m.month_name, y.year
+         FROM tcf_ee_simulations s
+         JOIN tcf_ee_combinaisons c ON s.combinaison_id = c.id
+         JOIN tcf_ee_months m ON c.month_id = m.id
+         JOIN tcf_ee_years y ON m.year_id = y.id
+        WHERE s.id = $1 AND s.student_id = $2`, [req.params.id, req.user.id]);
+    if (!sim) return res.status(404).json({ error: 'Simulation introuvable.' });
+    const taches = await eeLoadTasks(req.db, sim.combinaison_id, true);
+    const parse = (v) => { if (!v) return null; if (typeof v !== 'string') return v; try { return JSON.parse(v); } catch { return null; } };
     res.json({
       id: sim.id,
       status: sim.status,
@@ -4451,25 +4521,19 @@ router.get('/ee/simulation/:id/result', async (req, res) => {
       time_used_seconds: sim.time_used_seconds,
       average_score: parseFloat(sim.average_score) || 0,
       overall_level: sim.overall_level || 'A1',
+      report: parse(sim.evaluation),
       tasks: [1, 2, 3].map(n => {
-        const tache = taches.find(t => t.task_number === n) || {};
-        const fb = parseFeedback(sim[`task${n}_feedback`]);
+        const raw = taches.find(t => t.task_number === n);
+        const view = raw ? eeTaskView(raw) : { task_number: n, documents: [] };
+        const fb = parse(sim[`task${n}_feedback`]) || {};
         return {
-          task_number: n,
-          task_type: tache.task_type || 'unknown',
-          task_type_label: tache.task_type === 'message_court' ? 'Message Court' : tache.task_type === 'narration' ? 'Narration' : 'Argumentation',
-          prompt_text: tache.prompt_text || '',
-          question_text: tache.question_text || null,
-          argument_text_1: tache.argument_text_1 || null,
-          argument_text_2: tache.argument_text_2 || null,
-          min_words: tache.min_words,
-          max_words: tache.max_words,
+          ...view,
           student_answer: sim[`task${n}_answer`] || '',
           score: parseFloat(sim[`task${n}_score`]) || 0,
           level: sim[`task${n}_level`] || 'A1',
           positives: fb.positives || [],
           improvements: fb.improvements || [],
-          correction_text: tache.correction_text || null,
+          correction_text: raw?.correction_text || null,
         };
       }),
     });
@@ -4484,21 +4548,16 @@ router.get('/ee/simulation/history/:combinaisonId', async (req, res) => {
   try {
     const { combinaisonId } = req.params;
     const studentId = req.user.id;
-
-    const hasAccess = await checkExamAccess(req.db, studentId, 'ee_combinaison', combinaisonId);
-    if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied: Exam content is not assigned or has expired.' });
+    if (!await checkExamAccess(req.db, studentId, 'ee_combinaison', combinaisonId)) {
+      return res.status(403).json({ error: 'Ce contenu ne vous est pas attribué ou votre accès a expiré.' });
     }
-
+    const withNclc = await eeHasColumn(req.db, 'tcf_ee_simulations', 'nclc_level');
     const attempts = await req.db.all(
       `SELECT id, started_at, submitted_at, time_used_seconds, average_score, overall_level, status,
-              task1_score, task2_score, task3_score, task1_level, task2_level, task3_level
-       FROM tcf_ee_simulations
-       WHERE student_id = $1 AND combinaison_id = $2 AND status IN ('completed', 'error')
-       ORDER BY created_at DESC`,
-      [studentId, combinaisonId]
-    );
-
+              task1_score, task2_score, task3_score, task1_level, task2_level, task3_level${withNclc ? ', nclc_level, scoring_version' : ''}
+         FROM tcf_ee_simulations
+        WHERE student_id = $1 AND combinaison_id = $2 AND status IN ('completed', 'error')
+        ORDER BY created_at DESC`, [studentId, combinaisonId]);
     res.json(attempts);
   } catch (error) {
     console.error('GET /ee/simulation/history/:combinaisonId error:', error);

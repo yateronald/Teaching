@@ -6,6 +6,7 @@ import {
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
+import useExamGuard from '../../hooks/useExamGuard';
 import './COQuizTaking.css';
 
 /* ══════════════════════════════════════════
@@ -32,6 +33,7 @@ const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
   const r = useResponsive();
   const isNarrow = r.width < 1024;
   const [messageApi, contextHolder] = message.useMessage();
+  useExamGuard(true, t => messageApi.warning({ content: t, key: 'exam-guard' }));
   const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
   const [phase, setPhase] = useState<'loading' | 'intro' | 'quiz' | 'results'>('loading');

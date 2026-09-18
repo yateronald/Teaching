@@ -440,7 +440,33 @@ const QuizManagement: React.FC = () => {
                                 <span role="columnheader">Submitted</span>
                                 <span role="columnheader">Average</span>
                                 <span role="columnheader">Status</span>
-                                <span role="columnheader"><span className="qz-sr">Actions</span></span>
+                                <div className="qz-c-head-actions" role="columnheader">
+                                    <span className="qz-sr">Actions</span>
+                                    <div className={`qz-head-actions${stuck ? ' is-visible' : ''}`} aria-hidden={!stuck}>
+                                        <Tooltip title="Generate with AI">
+                                            <Button
+                                                size="small"
+                                                icon={<ThunderboltOutlined />}
+                                                onClick={() => openBuilder({ withAI: true })}
+                                                className="qz-head-btn qz-head-btn-ai"
+                                                tabIndex={stuck ? 0 : -1}
+                                            >
+                                                <span className="qz-head-btn-label">Generate with AI</span>
+                                                <span className="qz-head-btn-label-short">AI</span>
+                                            </Button>
+                                        </Tooltip>
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            icon={<PlusOutlined />}
+                                            onClick={() => openBuilder()}
+                                            className="qz-head-btn qz-head-btn-new"
+                                            tabIndex={stuck ? 0 : -1}
+                                        >
+                                            New quiz
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
                             {pageItems.map(({ row, state, startsIn, endsIn }) => (
                                 <div key={row.id} className={`qz-row is-${state}`} role="row">

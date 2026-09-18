@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Select, Tooltip } from 'antd';
+import { Button, Input, Select, Tooltip } from 'antd';
 import { LoadingOutlined, ReloadOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { Ic, cleanDeviceLabel, colorFor, initials } from './meetingUi';
 import './MeetingShell.css';
@@ -49,6 +49,27 @@ const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in
 
 export type PreJoinStatus = 'idle' | 'joining' | 'waiting' | 'lobby' | 'not_ready';
 
+/** Someone outside the class's batch: passcode, then the lobby. */
+export interface GuestJoin {
+    /** The passcode has not been accepted yet. */
+    needsPasscode: boolean;
+    passcode: string;
+    onPasscodeChange: (value: string) => void;
+    error?: string | null;
+    /** When the knock was sent (lobby timer). */
+    since?: number | null;
+}
+
+const PASS_LEN = 6;
+const cleanPass = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, PASS_LEN);
+
+const WaitClock: React.FC<{ since: number }> = ({ since }) => {
+    const [, tick] = useState(0);
+    useEffect(() => { const t = window.setInterval(() => tick(n => n + 1), 1000); return () => window.clearInterval(t); }, []);
+    const s = Math.max(0, Math.floor((Date.now() - since) / 1000));
+    return <>{Math.floor(s / 60)}:{String(s % 60).padStart(2, '0')}</>;
+};
+
 export interface PreJoinProps {
     title: string;
     hostName?: string;
@@ -62,9 +83,15 @@ export interface PreJoinProps {
     onCancel: () => void;
     /** Keeps the parent in sync while the user waits (lobby / waiting room). */
     onChoicesChange?: (choices: MediaChoices) => void;
+    /** Meeting ID shown to the participant ("abc-defg-hij"). */
+    meetingCode?: string;
+    /** Present when the user is not part of the class and must ask to join. */
+    guest?: GuestJoin | null;
+    /** Leaves the lobby (the host's request list is updated). */
+    onStopWaiting?: () => void;
 }
 
-const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName, isHost, live, status, onJoin, onCancel, onChoicesChange }) => {
+const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName, isHost, live, status, onJoin, onCancel, onChoicesChange, meetingCode, guest, onStopWaiting }) => {
     const [choices, setChoices] = useState<MediaChoices>(loadMediaChoices);
     const [devices, setDevices] = useState<Record<Kind, MediaDeviceInfo[]>>({ audioinput: [], videoinput: [], audiooutput: [] });
     const [active, setActive] = useState({ audio: '', video: '' });
@@ -266,14 +293,21 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
     const previewText = cam === 'off' ? 'Your camera is off' : cam === 'pending' ? 'Starting camera…' : `Camera: ${PROBLEM[cam]?.toLowerCase()}`;
 
     const waiting = status === 'waiting' || status === 'lobby';
+    const host = hostName || 'your teacher';
     const primaryLabel = isHost
         ? (live ? 'Rejoin class' : 'Start class')
         : status === 'not_ready' ? 'Check again'
             : status === 'waiting' ? 'Waiting for the teacher…'
-                : status === 'lobby' ? 'Asking to join…'
-                    : 'Join now';
+                : status === 'lobby' ? 'Waiting to be let in…'
+                    : guest ? 'Ask to join'
+                        : 'Join now';
+    const passMissing = !!guest?.needsPasscode && cleanPass(guest.passcode).length < PASS_LEN;
 
-    const note = isHost
+    const note = guest && !isHost
+        ? status === 'lobby' ? { tone: 'wait', title: 'You’re in the lobby', text: `${host} has been notified and will let you in shortly. Keep this page open.` }
+            : status === 'waiting' || status === 'not_ready' ? { tone: 'wait', title: `Waiting for ${host} to start`, text: 'You will be placed in the lobby automatically as soon as the class starts.' }
+                : { tone: 'info', title: 'Ask to join', text: `You are not in this class’s batch. ${guest.needsPasscode ? 'Enter the passcode from your invitation, then ' : ''}${host} decides whether to let you in.` }
+        : isHost
         ? (live
             ? { tone: 'live', title: 'Your class is running', text: 'Rejoin to continue teaching.' }
             : { tone: 'info', title: 'Your students are waiting', text: batchName ? `Students in ${batchName} join automatically once you start. Anyone else asks to join.` : 'Participants ask to join and you admit them.' })
@@ -365,12 +399,27 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
                     <div className="pj-meta">
                         {hostName && <span><UserOutlined /> {isHost ? 'You are the host' : `Hosted by ${hostName}`}</span>}
                         {batchName && <span><TeamOutlined /> {batchName}</span>}
+                        {meetingCode && <span className="pj-code">{Ic.hash} {meetingCode}</span>}
                     </div>
 
-                    <div className={`pj-note is-${note.tone}`}>
-                        <span className="pj-note-ic">{note.tone === 'live' ? <i className="pj-pulse" /> : waiting ? <LoadingOutlined /> : Ic.info}</span>
-                        <div><strong>{note.title}</strong><p>{note.text}</p></div>
+                    <div className={`pj-note is-${note.tone}${status === 'lobby' ? ' is-lobby' : ''}`}>
+                        <span className="pj-note-ic">{note.tone === 'live' ? <i className="pj-pulse" /> : status === 'lobby' ? Ic.door : waiting ? <LoadingOutlined /> : Ic.info}</span>
+                        <div>
+                            <strong>{note.title}{status === 'lobby' && guest?.since ? <span className="pj-wait-clock"><WaitClock since={guest.since} /></span> : null}</strong>
+                            <p>{note.text}</p>
+                        </div>
                     </div>
+
+                    {guest?.needsPasscode && !isHost && !waiting && (
+                        <div className="pj-pass">
+                            <label className="pj-pass-label" id="pj-pass-label">{Ic.key} Passcode</label>
+                            <div className="pj-otp" onKeyDown={e => { if (e.key === 'Enter' && !passMissing) { e.preventDefault(); onJoin(effective); } }}>
+                                <Input.OTP length={PASS_LEN} size="large" value={cleanPass(guest.passcode)} formatter={cleanPass}
+                                    onChange={v => guest.onPasscodeChange(cleanPass(v))} status={guest.error ? 'error' : undefined} aria-labelledby="pj-pass-label" />
+                            </div>
+                            <span className={`pj-pass-help${guest.error ? ' is-error' : ''}`}>{guest.error || 'Six characters, from the invitation. Not case-sensitive.'}</span>
+                        </div>
+                    )}
 
                     <ul className="pj-checks" aria-label="Device check">
                         <li className={`is-${toneOf(cam)}`}>
@@ -391,11 +440,13 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
                     </ul>
 
                     <div className="pj-actions">
-                        <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting}
-                            icon={waiting ? undefined : Ic.cam} onClick={() => onJoin(effective)}>
+                        <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting || passMissing}
+                            icon={waiting ? undefined : guest && !isHost ? Ic.door : Ic.cam} onClick={() => onJoin(effective)}>
                             {primaryLabel}
                         </Button>
-                        <Button size="large" block onClick={onCancel}>{waiting ? 'Leave' : 'Back to meetings'}</Button>
+                        <Button size="large" block onClick={status === 'lobby' && onStopWaiting ? onStopWaiting : onCancel}>
+                            {status === 'lobby' ? 'Stop waiting' : waiting ? 'Leave' : 'Back to meetings'}
+                        </Button>
                     </div>
                     <p className="pj-tip">In the call: <kbd>Ctrl</kbd> + <kbd>D</kbd> microphone · <kbd>Ctrl</kbd> + <kbd>E</kbd> camera</p>
                     {(isProblem(cam) && isProblem(mic)) && <p className="pj-tip">You can still join and listen without a camera or microphone.</p>}

@@ -1,42 +1,45 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
-import Layout from './components/Layout/Layout';
 import Login from './components/Auth/Login';
 import LandingPage from './components/Landing/LandingPage';
-import AdminDashboard from './components/Admin/AdminDashboard';
-import TeacherDashboard from './components/Teacher/TeacherDashboard';
-import StudentDashboard from './components/Student/StudentDashboard';
-import UserManagement from './components/Admin/UserManagement';
-import BatchManagement from './components/Admin/BatchManagement';
-import AttendanceManagement from './components/Admin/AttendanceManagement';
-import DemoRequests from './components/Admin/DemoRequests';
-import TeacherBatches from './components/Teacher/TeacherBatches';
-import AssignDemo from './components/Teacher/AssignDemo';
-import QuizManagement from './components/Teacher/QuizManagement';
-import ResourceManagement from './components/Teacher/ResourceManagement';
-import ScheduleManagement from './components/Teacher/ScheduleManagement';
-import TeacherExamPrep from './components/Teacher/TeacherExamPrep';
-import StudentQuizzes from './components/Student/StudentQuizzes';
-import StudentResources from './components/Student/StudentResources';
-import StudentSchedule from './components/Student/StudentSchedule';
-import StudentQuizResults from './components/Student/StudentQuizResults';
-import StudentMarksheet from './components/Student/StudentMarksheet';
-import StudentExamPreparation from './components/Student/StudentExamPreparation';
-import Profile from './components/Common/Profile';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
-import BatchInsightsAdmin from './components/Admin/BatchInsightsAdmin';
-import AdminTimetable from './components/Admin/AdminTimetable';
-import AdminSettings from './components/Admin/AdminSettings';
-import AdminResources from './components/Admin/AdminResources';
-import ExamPreparation from './components/Admin/ExamPreparation';
-import MeetingList from './components/Meeting/MeetingList';
-import MeetingPage from './components/Meeting/MeetingRoom';
-import MeetingAttendance from './components/Meeting/MeetingAttendance';
-import MeetingJoinLink from './components/Meeting/MeetingJoinLink';
 import { BRAND_CONFIG } from './utils/branding';
-import ForcePasswordChange from './components/Auth/ForcePasswordChange';
+
+// The signed-in app is loaded on demand, so the public pages stay light.
+const Layout = lazy(() => import('./components/Layout/Layout'));
+const AdminDashboard = lazy(() => import('./components/Admin/AdminDashboard'));
+const TeacherDashboard = lazy(() => import('./components/Teacher/TeacherDashboard'));
+const StudentDashboard = lazy(() => import('./components/Student/StudentDashboard'));
+const UserManagement = lazy(() => import('./components/Admin/UserManagement'));
+const BatchManagement = lazy(() => import('./components/Admin/BatchManagement'));
+const AttendanceManagement = lazy(() => import('./components/Admin/AttendanceManagement'));
+const DemoRequests = lazy(() => import('./components/Admin/DemoRequests'));
+const TeacherBatches = lazy(() => import('./components/Teacher/TeacherBatches'));
+const AssignDemo = lazy(() => import('./components/Teacher/AssignDemo'));
+const QuizManagement = lazy(() => import('./components/Teacher/QuizManagement'));
+const ResourceManagement = lazy(() => import('./components/Teacher/ResourceManagement'));
+const ScheduleManagement = lazy(() => import('./components/Teacher/ScheduleManagement'));
+const TeacherExamPrep = lazy(() => import('./components/Teacher/TeacherExamPrep'));
+const StudentQuizzes = lazy(() => import('./components/Student/StudentQuizzes'));
+const StudentResources = lazy(() => import('./components/Student/StudentResources'));
+const StudentSchedule = lazy(() => import('./components/Student/StudentSchedule'));
+const StudentQuizResults = lazy(() => import('./components/Student/StudentQuizResults'));
+const StudentMarksheet = lazy(() => import('./components/Student/StudentMarksheet'));
+const StudentExamPreparation = lazy(() => import('./components/Student/StudentExamPreparation'));
+const Profile = lazy(() => import('./components/Common/Profile'));
+const BatchInsightsAdmin = lazy(() => import('./components/Admin/BatchInsightsAdmin'));
+const AdminTimetable = lazy(() => import('./components/Admin/AdminTimetable'));
+const AdminSettings = lazy(() => import('./components/Admin/AdminSettings'));
+const AdminResources = lazy(() => import('./components/Admin/AdminResources'));
+const ExamPreparation = lazy(() => import('./components/Admin/ExamPreparation'));
+const MeetingList = lazy(() => import('./components/Meeting/MeetingList'));
+const MeetingPage = lazy(() => import('./components/Meeting/MeetingRoom'));
+const MeetingAttendance = lazy(() => import('./components/Meeting/MeetingAttendance'));
+const MeetingJoinLink = lazy(() => import('./components/Meeting/MeetingJoinLink'));
+const ForcePasswordChange = lazy(() => import('./components/Auth/ForcePasswordChange'));
 
 function App() {
   return (
@@ -58,9 +61,11 @@ function App() {
       <AntApp>
         <AuthProvider>
             <Router>
+            <Suspense fallback={<div className="app-route-loading" role="status" aria-label="Loading" />}>
             <Routes>
               {/* Public Routes */}
-              <Route path="/" element={<LandingPage />} />
+              <Route path="/" element={<LandingPage lang="en" />} />
+              <Route path="/fr" element={<LandingPage lang="fr" />} />
               <Route path="/login" element={<Login />} />
               <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
 
@@ -254,6 +259,7 @@ function App() {
                 <Route path="meeting-attendance" element={<MeetingAttendance />} />
               </Route>
             </Routes>
+            </Suspense>
             </Router>
         </AuthProvider>
       </AntApp>

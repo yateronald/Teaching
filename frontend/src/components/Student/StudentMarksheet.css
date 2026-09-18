@@ -172,11 +172,24 @@
   grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
   gap: 20px;
 }
+.ms .ms-card,
 .ms-card {
+  position: relative;
   min-width: 0;
+  max-width: 100% !important;
+  width: 100%;
   border: 1px solid var(--ms-line);
   border-radius: 12px;
   background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+}
+.ms .ms-card::before,
+.ms-card::before {
+  display: none !important;
+  content: none !important;
 }
 .ms-card-head {
   display: flex;
@@ -253,8 +266,9 @@
   border-bottom: 1px solid var(--ms-line);
 }
 .ms-toolbar-filters { display: flex; gap: 8px; flex-wrap: wrap; }
-.ms-search { width: 240px; }
-.ms-status { width: 180px; }
+.ms-toolbar .ms-search { width: 240px; }
+.ms-toolbar .ms-status,
+.ms-toolbar .ms-status-select { width: 180px; }
 .ms-count { margin-left: 6px; font-size: 11px; font-weight: 500; color: var(--ms-subtle); }
 
 .ms-results-foot {
@@ -442,6 +456,8 @@
   .ms-card-body { padding: 10px 14px 14px; }
   .ms-toolbar { padding: 12px 14px; }
   .ms-toolbar-filters { width: 100%; }
-  .ms-search, .ms-status { flex: 1 1 140px; width: auto; }
+  .ms-toolbar .ms-search,
+  .ms-toolbar .ms-status,
+  .ms-toolbar .ms-status-select { flex: 1 1 140px; width: auto; }
   .ms-results-foot { padding: 12px 14px; justify-content: center; }
 }

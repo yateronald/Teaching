@@ -52,6 +52,16 @@ export const Ic = {
     check: icon(<path d="m5 12.5 4.5 4.5L19 7.5" />),
     info: icon(<><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" />{dot(12, 7.8)}</>),
     user: icon(<><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></>),
+    copy: icon(<><rect x="8.5" y="8.5" width="12" height="12" rx="2.4" /><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5" /></>),
+    key: icon(<><circle cx="8" cy="15" r="4.5" /><path d="M11.2 11.8 20 3M16.5 6.5l2.5 2.5M14 9l2 2" /></>),
+    refresh: icon(<><path d="M20 12a8 8 0 1 1-2.3-5.6" /><path d="M20 4v4.5h-4.5" /></>),
+    shield: icon(<><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.4 7.5 9.5 4.4-1.1 7.5-4.9 7.5-9.5V6z" /><path d="m8.8 12 2.2 2.2 4.3-4.4" /></>),
+    door: icon(<><path d="M5 21V4.5A1.5 1.5 0 0 1 6.5 3h9A1.5 1.5 0 0 1 17 4.5V21M3 21h18" />{dot(14, 12.5)}</>),
+    hourglass: icon(<><path d="M6.5 3h11M6.5 21h11M7.5 3v3.5a4.5 4.5 0 0 0 9 0V3M7.5 21v-3.5a4.5 4.5 0 0 1 9 0V21" /></>),
+    hash: icon(<path d="M9.5 3.5 7.5 20.5M16.5 3.5l-2 17M4 9h16.5M3.5 15H20" />),
+    eye: icon(<><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></>),
+    eyeOff: icon(<><path d="M9.9 5.8A9.7 9.7 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4M6.3 7.4C3.9 9.1 2.5 12 2.5 12S6 18.5 12 18.5a9.4 9.4 0 0 0 4.4-1.1" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18" /></>),
+    mail: icon(<><rect x="2.5" y="5" width="19" height="14" rx="2.2" /><path d="m3.5 6.5 8.5 6.5 8.5-6.5" /></>),
     leave: (
         <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor" aria-hidden focusable="false">
             <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.96.96 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28a11.3 11.3 0 0 0-2.67-1.85.99.99 0 0 1-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
@@ -72,6 +82,59 @@ export const initials = (name: string) => {
     const parts = (name || '?').trim().split(/\s+/).filter(Boolean);
     return ((parts[0]?.[0] || '?') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 };
+
+/* ── Meeting IDs, links and invitations ── */
+
+/** "ABC DEFGHIJ" → "abc-defg-hij" while typing; pasted links keep their meeting reference. */
+export const formatMeetingIdInput = (raw: string) => {
+    const link = raw.match(/\/meeting(?:-join)?\/([^/?#\s]+)/i);
+    const value = (link ? link[1] : raw).trim();
+    if (/\d/.test(value) || value.length > 16) return value.slice(0, 100);
+    const letters = value.toLowerCase().replace(/[^a-z]/g, '').slice(0, 10);
+    return [letters.slice(0, 3), letters.slice(3, 7), letters.slice(7)].filter(Boolean).join('-');
+};
+/** Passcode fragment from a pasted invitation link ("…#pwd=K7M2QX"). */
+export const passcodeFromLink = (raw: string) => raw.match(/[#&?]pwd=([A-Za-z0-9]{4,12})/)?.[1]?.toUpperCase() || '';
+
+/** The passcode travels in the URL fragment: browsers never send it to any server. */
+export const meetingLink = (code: string, passcode?: string | null) =>
+    `${window.location.origin}/app/meeting/${code}${passcode ? `#pwd=${passcode}` : ''}`;
+
+export const invitationText = (o: { title: string; code: string; passcode?: string | null; hostName?: string; when?: string; batchName?: string | null }) => [
+    `${o.hostName ? `${o.hostName} invites you` : 'You are invited'} to a live class on Learn French with Natives.`,
+    '',
+    o.title,
+    ...(o.when ? [o.when] : []),
+    '',
+    `Join: ${meetingLink(o.code, o.passcode)}`,
+    `Meeting ID: ${o.code}`,
+    ...(o.passcode ? [`Passcode: ${o.passcode}`] : []),
+    '',
+    o.batchName
+        ? `Students of ${o.batchName} join directly. Everyone else signs in, enters the passcode and waits in the lobby until the host lets them in.`
+        : 'Sign in, enter the passcode and wait in the lobby until the host lets you in.',
+].join('\n');
+
+export async function copyText(text: string): Promise<boolean> {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            ta.remove();
+            return ok;
+        } catch {
+            return false;
+        }
+    }
+}
 
 /** Drops the "(046d:0825)" vendor ids browsers append to device names. */
 export const cleanDeviceLabel = (label: string) => label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim();

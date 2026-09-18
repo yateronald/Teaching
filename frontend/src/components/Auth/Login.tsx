@@ -64,7 +64,10 @@ const Login: React.FC = () => {
     setLangOpen(false);
   };
 
-  const from = location.state?.from?.pathname || '/';
+  // Back to the exact page that asked for sign-in (a meeting invitation keeps its query and #passcode).
+  const fromLoc = location.state?.from;
+  const from = fromLoc?.pathname || '/';
+  const fromFull = `${from}${fromLoc?.search || ''}${fromLoc?.hash || ''}`;
 
   useEffect(() => {
     document.title = 'Learn French';
@@ -75,9 +78,9 @@ const Login: React.FC = () => {
     if (isAuthenticated && user) {
       const dashboardPath = user.role === 'admin' ? '/dashboard' :
         user.role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
-      navigate(from === '/' ? dashboardPath : from, { replace: true });
+      navigate(from === '/' ? dashboardPath : fromFull, { replace: true });
     }
-  }, [isAuthenticated, user, navigate, from]);
+  }, [isAuthenticated, user, navigate, from, fromFull]);
 
   const onFinish = async (values: LoginForm) => {
     setLoading(true);

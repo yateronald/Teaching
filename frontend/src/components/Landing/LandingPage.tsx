@@ -1,1005 +1,636 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Helmet } from 'react-helmet-async';
-import { useTranslation } from 'react-i18next';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import i18next from 'i18next';
 import {
-  StarFilled,
-  RightOutlined,
-  LeftOutlined,
-  PlayCircleOutlined,
-  GlobalOutlined,
-  TrophyOutlined,
-  ClockCircleOutlined,
-  CustomerServiceOutlined,
-  BookOutlined,
-  TeamOutlined,
-  SafetyCertificateOutlined,
-  AimOutlined,
-  ReadOutlined,
-  AudioOutlined,
-  SolutionOutlined,
-  SmileOutlined,
-  DashboardOutlined,
-  FormOutlined,
-  BarChartOutlined,
-  ProfileOutlined,
-  FolderOpenOutlined,
-  CalendarOutlined,
-  ExperimentOutlined,
-  VideoCameraOutlined,
-  PhoneOutlined,
-  MailOutlined,
-  DownOutlined,
-  CheckOutlined,
-  LineChartOutlined,
-  PlusOutlined,
+  ArrowRightOutlined, AudioOutlined, CalendarOutlined, CheckOutlined, CloseOutlined, CompassOutlined,
+  CustomerServiceOutlined, DashboardOutlined, EditOutlined, ExperimentOutlined, FileTextOutlined, FolderOpenOutlined,
+  GlobalOutlined, LeftOutlined, MailOutlined, MenuOutlined, MessageOutlined, PlayCircleFilled, RightOutlined,
+  RiseOutlined, SafetyCertificateOutlined, StarFilled, TeamOutlined, TrophyOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
 import { ASSET_PATHS } from '../../utils/assets';
 import DemoRequestModal from './DemoRequestModal';
 import SEO from '../SEO/SEO';
+import { CONTACT_EMAIL, EXAM_NAMES, LANDING, PATHS, type Lang } from './landingContent';
+import { landingJsonLd } from './landingSchema';
 import './LandingPage.css';
 
-interface Testimonial {
-  name: string;
-  role: string;
-  content: string;
-  rating: number;
-  exam?: string;
-  video?: string;
+// ============================================================
+// Public landing page (/, /fr/). Pre-rendered at build time: every section is
+// real HTML before JavaScript runs; animations only enhance what is already there.
+// ============================================================
+
+const SECTIONS = ['programs', 'method', 'simulator', 'platform', 'reviews', 'faq'] as const;
+const IMG = '/assets/landing';
+const HERO_SRCSET = `${IMG}/platform-marksheet-960.webp 960w, ${IMG}/platform-marksheet-1600.webp 1600w`;
+const HERO_SIZES = '(max-width: 900px) 92vw, 640px';
+// Portrait phone recordings: shown in a 9:16 player so the speaker is never cropped.
+const VIDEOS = [
+  { src: '/assets/Video1.mp4', poster: `${IMG}/video1-poster.webp`, duration: '1:04' },
+  { src: '/assets/Video2.mp4', poster: `${IMG}/video2-poster.webp`, duration: '0:47' },
+];
+const METHOD_ICONS = [<GlobalOutlined />, <TrophyOutlined />, <CalendarOutlined />, <MessageOutlined />, <RiseOutlined />, <SafetyCertificateOutlined />];
+const PLATFORM_ICONS = [<DashboardOutlined />, <EditOutlined />, <FileTextOutlined />, <ExperimentOutlined />, <FolderOpenOutlined />, <VideoCameraOutlined />];
+const SIM_ICONS = [<AudioOutlined />, <EditOutlined />, <SafetyCertificateOutlined />];
+const HOW_ICONS = [<CustomerServiceOutlined />, <CompassOutlined />, <TeamOutlined />, <TrophyOutlined />];
+const NCLC_STEPS = [4, 5, 6, 7, 8, 9, 10];
+const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+const formatNumber = (n: number, lang: Lang) => n.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-US').replace(/ /g, ' ');
+
+/** Counts up once when the element scrolls into view (renders the final value without JS). */
+function Counter({ value, suffix, lang }: { value: number; suffix: string; lang: Lang }) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const [shown, setShown] = useState(value);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (el.getBoundingClientRect().top < window.innerHeight) return; // already visible: keep the final number
+    setShown(0);
+    let raf = 0;
+    const io = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      io.disconnect();
+      const start = performance.now();
+      const tick = (t: number) => {
+        const p = Math.min(1, (t - start) / 1400);
+        setShown(Math.round(value * (1 - Math.pow(1 - p, 3))));
+        if (p < 1) raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }, { threshold: 0.4 });
+    io.observe(el);
+    return () => { io.disconnect(); cancelAnimationFrame(raf); };
+  }, [value]);
+  return <span ref={ref}>{formatNumber(shown, lang)}{suffix}</span>;
 }
 
-const NAV_IDS = ['why', 'platform', 'exams', 'how', 'testimonials'];
+interface Props { lang?: Lang }
 
-const LandingPage: React.FC = () => {
-  const { t, i18n } = useTranslation();
-
-  const [langOpen, setLangOpen] = useState(false);
-  const langSwitcherRef = useRef<HTMLDivElement | null>(null);
-
-  // Close the language popup when clicking outside it (avoids the onBlur race
-  // that previously caused option clicks to be swallowed before changeLanguage
-  // could fire).
-  useEffect(() => {
-    if (!langOpen) return;
-    const onDocMouseDown = (e: MouseEvent) => {
-      if (langSwitcherRef.current && !langSwitcherRef.current.contains(e.target as Node)) {
-        setLangOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [langOpen]);
-
-  const handleSelectLang = (lng: 'en' | 'fr') => {
-    if (i18n.language !== lng) {
-      i18n.changeLanguage(lng);
-      try { localStorage.setItem('i18n_lang', lng); } catch { /* ignore */ }
-    }
-    setLangOpen(false);
-  };
-
-  const [currentTestimonial, setCurrentTestimonial] = useState(0);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
+  const c = LANDING[lang];
+  const other: Lang = lang === 'en' ? 'fr' : 'en';
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [scrolled, setScrolled] = useState(false);
-  const [activeNav, setActiveNav] = useState('');
+  const [active, setActive] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [program, setProgram] = useState(0);
+  const [quote, setQuote] = useState(0);
+  const [video, setVideo] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [announce, setAnnounce] = useState(true);
+  const [suggest, setSuggest] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const quotePaused = useRef(false);
 
-  // Platform tour: track which feature is active while scrolling
-  const [activeFeature, setActiveFeature] = useState(0);
-  const featureItemsRef = useRef<Array<HTMLDivElement | null>>([]);
+  const openDemo = useCallback(() => { setMenuOpen(false); setDemoOpen(true); }, []);
 
-  // How It Works: track which step is active while scrolling
-  const [activeStep, setActiveStep] = useState(0);
-  const stepItemsRef = useRef<Array<HTMLDivElement | null>>([]);
-
+  // The rest of the app (demo form, sign-in) follows the language of the page.
   useEffect(() => {
-    const onScrollSections = () => {
-      // The "anchor line" is at 45% of the viewport height.
-      // The item whose center is closest to that line wins.
-      const anchor = window.innerHeight * 0.45;
+    if (i18next.isInitialized && i18next.language !== lang) i18next.changeLanguage(lang);
+    try { localStorage.setItem('i18n_lang', lang); } catch { /* storage unavailable */ }
+  }, [lang]);
 
-      const pick = (els: Array<HTMLDivElement | null>) => {
-        const items = els.filter(Boolean) as HTMLDivElement[];
-        if (items.length === 0) return -1;
-        let bestIdx = 0;
-        let bestDist = Infinity;
-        items.forEach((el, idx) => {
-          const rect = el.getBoundingClientRect();
-          const center = rect.top + rect.height / 2;
-          const dist = Math.abs(center - anchor);
-          if (rect.top < anchor + rect.height && dist < bestDist) {
-            bestDist = dist;
-            bestIdx = idx;
-          }
-        });
-        return bestIdx;
-      };
-
-      const f = pick(featureItemsRef.current);
-      if (f >= 0) setActiveFeature(f);
-      const s = pick(stepItemsRef.current);
-      if (s >= 0) setActiveStep(s);
-    };
-    window.addEventListener('scroll', onScrollSections, { passive: true });
-    onScrollSections();
-    return () => window.removeEventListener('scroll', onScrollSections);
-  }, []);
-
+  // Offer the other language when the browser prefers it (never redirect: crawlers must see both pages).
   useEffect(() => {
-    const onScroll = () => {
-      setScrolled(window.scrollY > 30);
-      let current = '';
-      for (const id of NAV_IDS) {
-        const el = document.getElementById(id);
-        if (el && el.getBoundingClientRect().top <= 140) current = id;
-      }
-      setActiveNav(current);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
+    try {
+      if (sessionStorage.getItem('lp_lang_hint')) return;
+      const preferred = (navigator.languages?.[0] || navigator.language || '').slice(0, 2);
+      setSuggest(preferred === other);
+      setAnnounce(localStorage.getItem('lp_announce') !== 'closed');
+    } catch { /* storage unavailable */ }
+  }, [other]);
+
+  // Header state + active section in the navigation.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
     onScroll();
-    return () => window.removeEventListener('scroll', onScroll);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) setActive(e.target.id); });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    SECTIONS.forEach(id => { const el = document.getElementById(id); if (el) io.observe(el); });
+    return () => { window.removeEventListener('scroll', onScroll); io.disconnect(); };
   }, []);
 
-  const testimonials: Testimonial[] = [
-    {
-      name: t('reviews.video_label'),
-      role: t('reviews.video_1_role'),
-      content: t('reviews.video_1_content'),
-      rating: 5,
-      video: ASSET_PATHS.VIDEOS.VIDEO1,
-    },
-    {
-      name: t('reviews.video_label'),
-      role: t('reviews.video_2_role'),
-      content: t('reviews.video_2_content'),
-      rating: 5,
-      video: ASSET_PATHS.VIDEOS.VIDEO2,
-    },
-    { name: "Aarav Sharma", role: "TEF Canada Candidate", content: "Scored CLB 9 in speaking! Classes were structured, patient, and truly native. Practice felt like real-life conversations — exactly what I needed.", rating: 5, exam: "TEF Canada" },
-    { name: "Priya Patel", role: "DELF B2 Graduate", content: "Cleared DELF B2 on my first attempt. Mock exams and feedback were spot on. The teacher's corrections improved my fluency fast.", rating: 5, exam: "DELF B2" },
-    { name: "Rohan Mehta", role: "Business Professional", content: "Needed French for clients in Quebec. Flexible scheduling and industry vocabulary focus helped me present confidently in French within months.", rating: 5 },
-    { name: "Sneha Kapoor", role: "Student", content: "The step-by-step curriculum and native accents made learning enjoyable. Speaking clubs boosted my confidence in just weeks!", rating: 5 },
-    { name: "Arjun Iyer", role: "TCF Candidate", content: "Clear strategies for TCF listening and speaking. My scores improved quickly thanks to targeted feedback and daily practice.", rating: 5, exam: "TCF" },
-  ];
+  // Reveal-on-scroll. Content above the fold is marked visible first, so nothing flashes.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'));
+    items.forEach(el => { if (el.getBoundingClientRect().top < window.innerHeight * 0.92) el.classList.add('is-in'); });
+    root.classList.add('lp-animate');
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
+    items.forEach(el => { if (!el.classList.contains('is-in')) io.observe(el); });
+    return () => io.disconnect();
+  }, []);
 
-  const next = () => setCurrentTestimonial((p) => (p + 1) % testimonials.length);
-  const prev = () => setCurrentTestimonial((p) => (p - 1 + testimonials.length) % testimonials.length);
-  const openModal = () => setIsModalOpen(true);
-  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  // Rotating testimonials (paused on hover / focus, off with reduced motion).
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const id = window.setInterval(() => { if (!quotePaused.current) setQuote(q => (q + 1) % c.reviews.quotes.length); }, 7000);
+    return () => window.clearInterval(id);
+  }, [c.reviews.quotes.length]);
 
-  const currentReview = testimonials[currentTestimonial];
+  // Mobile menu: Escape closes it, the page behind does not scroll.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [menuOpen]);
 
-  // FAQ items — rendered on the page AND emitted as FAQPage JSON-LD so the
-  // structured data always matches the visible content (a Google requirement
-  // for FAQ rich results).
-  const faqItems = [1, 2, 3, 4, 5, 6].map((n) => ({
-    q: t(`faq.q${n}`),
-    a: t(`faq.a${n}`),
-  }));
-
-  const faqJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faqItems.map((item) => ({
-      '@type': 'Question',
-      name: item.q,
-      acceptedAnswer: { '@type': 'Answer', text: item.a },
-    })),
+  const playVideo = (i: number) => {
+    setVideo(i);
+    setPlaying(true);
+    requestAnimationFrame(() => videoRef.current?.play().catch(() => { /* user can press play */ }));
   };
+  const closeSuggest = () => { setSuggest(false); try { sessionStorage.setItem('lp_lang_hint', '1'); } catch { /* ignore */ } };
+  const closeAnnounce = () => { setAnnounce(false); try { localStorage.setItem('lp_announce', 'closed'); } catch { /* ignore */ } };
 
-  const featureTitles = [
-    t('platform.features.dashboard.title'),
-    t('platform.features.quiz.title'),
-    t('platform.features.results.title'),
-    t('platform.features.bulletin.title'),
-    t('platform.features.resources.title'),
-    t('platform.features.schedule.title'),
-    t('platform.features.exams.title'),
-    t('platform.features.live.title'),
-  ];
+  const navItems = SECTIONS.map(id => ({ id, label: c.nav[id] }));
+  const q = c.reviews.quotes[quote];
+  const langSwitch = (
+    <div className="lp-lang" role="group" aria-label={c.nav.language}>
+      <GlobalOutlined aria-hidden />
+      {(['en', 'fr'] as Lang[]).map(l => (
+        <Link key={l} to={PATHS[l]} hrefLang={l} lang={l} className={l === lang ? 'is-current' : ''} aria-current={l === lang ? 'page' : undefined}>
+          {l.toUpperCase()}
+        </Link>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="lp">
-      <SEO />
-      <Helmet>
-        <script type="application/ld+json">{JSON.stringify(faqJsonLd)}</script>
-      </Helmet>
-      {/* Skip-to-main link for keyboard users and accessibility */}
-      <a href="#main-content" className="lp-skip-link">Skip to main content</a>
+    <div className="lp" ref={rootRef} lang={lang}>
+      <SEO
+        lang={lang}
+        title={c.meta.title}
+        description={c.meta.description}
+        path={PATHS[lang]}
+        imageAlt={c.meta.ogAlt}
+        alternates={{ en: PATHS.en, fr: PATHS.fr }}
+        jsonLd={landingJsonLd(lang)}
+        preloadImage={{ href: `${IMG}/platform-marksheet-1600.webp`, srcSet: HERO_SRCSET, sizes: HERO_SIZES, type: 'image/webp' }}
+      />
+      <a href="#main" className="lp-skip">{c.skip}</a>
 
-      {/* HEADER */}
-      <header className={`lp-header${scrolled ? ' lp-header--scrolled' : ''}`}>
-        <div className="lp-tricolore" aria-hidden="true">
-          <span /><span /><span />
+      {suggest && (
+        <div className="lp-suggest" role="note">
+          <span>{c.langSuggest.text}</span>
+          <Link to={PATHS[other]} hrefLang={other} onClick={closeSuggest}>{c.langSuggest.link} <ArrowRightOutlined /></Link>
+          <button type="button" onClick={closeSuggest} aria-label={c.langSuggest.dismiss}><CloseOutlined /></button>
         </div>
-        <div className="lp-container lp-header-inner">
-          <a href="/" className="lp-logo" aria-label="Accueil">
-            <span className="lp-logo-mark">
-              <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
-            </span>
-            <span className="lp-logo-text">
-              <strong>Learn French</strong>
-              <em>with Natives</em>
-            </span>
-          </a>
+      )}
 
-          <nav className="lp-nav" aria-label="Main navigation">
-            {[
-              { id: 'why', label: t('nav.why') },
-              { id: 'platform', label: t('nav.platform') },
-              { id: 'exams', label: t('nav.exams') },
-              { id: 'how', label: t('nav.how') },
-              { id: 'testimonials', label: t('nav.testimonials') },
-            ].map((n) => (
-              <button key={n.id} className={`lp-nav-link${activeNav === n.id ? ' active' : ''}`} onClick={() => go(n.id)}>
-                {n.label}
-              </button>
-            ))}
+      {announce && (
+        <div className="lp-announce">
+          <div className="lp-wrap">
+            <span className="lp-announce-tag">{c.announce.tag}</span>
+            <span className="lp-announce-text">{c.announce.text}</span>
+            <a href="#simulator" className="lp-announce-link">{c.announce.link} <ArrowRightOutlined /></a>
+            <button type="button" className="lp-announce-close" onClick={closeAnnounce} aria-label={c.langSuggest.dismiss}><CloseOutlined /></button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <header className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
+        <div className="lp-wrap lp-header-row">
+          <Link to={PATHS[lang]} className="lp-brand" aria-label="Learn French with Natives">
+            <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" />
+            <span><strong>Learn French</strong><em>with Natives</em></span>
+          </Link>
+          <nav className="lp-nav" aria-label="Main">
+            {navItems.map(n => <a key={n.id} href={`#${n.id}`} className={active === n.id ? 'is-active' : ''}>{n.label}</a>)}
           </nav>
-
-          <div className="lp-nav-actions">
-            {/* Language switcher dropdown */}
-            <div ref={langSwitcherRef} className={`lp-lang${langOpen ? ' is-open' : ''}`}>
-              <button
-                type="button"
-                className="lp-lang-toggle"
-                onClick={() => setLangOpen((o) => !o)}
-                aria-label="Switch language"
-                aria-expanded={langOpen}
-              >
-                <GlobalOutlined />
-                <span>{i18n.language === 'en' ? 'EN' : 'FR'}</span>
-                <DownOutlined className="lp-lang-chevron" />
-              </button>
-              {langOpen && (
-                <div className="lp-lang-dropdown">
-                  <button
-                    type="button"
-                    className={`lp-lang-option${i18n.language === 'en' ? ' is-active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('en'); }}
-                  >
-                    English
-                    {i18n.language === 'en' && <CheckOutlined />}
-                  </button>
-                  <button
-                    type="button"
-                    className={`lp-lang-option${i18n.language === 'fr' ? ' is-active' : ''}`}
-                    onMouseDown={(e) => { e.preventDefault(); handleSelectLang('fr'); }}
-                  >
-                    Français
-                    {i18n.language === 'fr' && <CheckOutlined />}
-                  </button>
-                </div>
-              )}
-            </div>
-            <a href="/login" className="lp-nav-login">{t('nav.login')}</a>
-            <button className="lp-btn lp-btn--primary lp-nav-cta" onClick={openModal}>
-              {t('nav.demo')}
+          <div className="lp-header-end">
+            {langSwitch}
+            <a href="/login" className="lp-signin">{c.nav.signIn}</a>
+            <button type="button" className="lp-btn lp-btn-primary lp-btn-sm" onClick={openDemo}>{c.nav.demo}</button>
+            <button type="button" className="lp-burger" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lp-mobile-menu" aria-label={menuOpen ? c.nav.close : c.nav.menu}>
+              {menuOpen ? <CloseOutlined /> : <MenuOutlined />}
             </button>
+          </div>
+        </div>
+        <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen}>
+          <nav aria-label="Mobile">
+            {navItems.map(n => <a key={n.id} href={`#${n.id}`} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
+          </nav>
+          <div className="lp-mobile-foot">
+            {langSwitch}
+            <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
+            <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.nav.demo}</button>
           </div>
         </div>
       </header>
 
-      <main id="main-content">
-
-      {/* HERO */}
-      <section className="lp-hero" aria-label="Hero — Learn French with Native Teachers">
-        <div className="lp-container lp-hero-inner">
-          {/* Left — editorial content */}
-          <div className="lp-hero-content">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('hero.badge')} · 1 000+ étudiants
-            </p>
-            <h1 className="lp-hero-title">
-              {t('hero.title_1')}{' '}
-              <em className="lp-hero-accent">{t('hero.title_accent')}</em>{' '}
-              {t('hero.title_2')}
-            </h1>
-            <p className="lp-hero-sub">{t('hero.sub')}</p>
-
-            <div className="lp-hero-actions">
-              <button className="lp-btn lp-btn--primary lp-btn--lg" onClick={openModal}>
-                {t('hero.cta_primary')}
-                <RightOutlined aria-hidden="true" />
-              </button>
-              <button className="lp-btn lp-btn--ghost lp-btn--lg" onClick={() => go('how')}>
-                {t('hero.cta_secondary')}
-              </button>
+      <main id="main">
+        {/* ── Hero ── */}
+        <section className="lp-hero" aria-labelledby="lp-hero-title">
+          <div className="lp-hero-bg" aria-hidden />
+          <div className="lp-wrap lp-hero-grid">
+            <div className="lp-hero-copy">
+              <p className="lp-eyebrow"><span className="lp-flag" aria-hidden />{c.hero.eyebrow}</p>
+              <h1 id="lp-hero-title">{c.hero.before} <em>{c.hero.accent}</em> {c.hero.after}</h1>
+              <p className="lp-hero-sub">{c.hero.sub}</p>
+              <div className="lp-hero-ctas">
+                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={openDemo}>{c.hero.ctaPrimary}<ArrowRightOutlined /></button>
+                <a href="#simulator" className="lp-btn lp-btn-ghost lp-btn-lg"><PlayCircleFilled />{c.hero.ctaSecondary}</a>
+              </div>
+              <ul className="lp-hero-trust">
+                <li><span className="lp-stars" aria-hidden>{[0, 1, 2, 3, 4].map(i => <StarFilled key={i} />)}</span><strong>{c.hero.rating}</strong> {c.hero.ratingLabel}</li>
+                <li><CheckOutlined aria-hidden /> {c.hero.pass}</li>
+                <li><CheckOutlined aria-hidden /> {c.hero.students}</li>
+              </ul>
             </div>
 
-            <dl className="lp-hero-stats">
-              <div className="lp-hero-stat">
-                <dt>{t('hero.stat_pass')}</dt>
-                <dd>98%</dd>
-              </div>
-              <div className="lp-hero-stat">
-                <dt>{t('hero.stat_teachers')}</dt>
-                <dd>15+</dd>
-              </div>
-              <div className="lp-hero-stat">
-                <dt>500+ {t('hero.stat_reviews')}</dt>
-                <dd>
-                  4,9<span className="lp-hero-stat-small">/5</span>
-                  <StarFilled className="lp-hero-stat-star" aria-hidden="true" />
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          {/* Right — platform showcase */}
-          <div className="lp-hero-visual">
-            <figure className="lp-hero-frame">
-              <img
-                src="/assets/French_Platform1.png"
-                alt="Learn French with Natives platform dashboard — track scores, take quizzes, attend live classes"
-                width="1200"
-                height="780"
-                fetchPriority="high"
-                decoding="async"
-              />
-            </figure>
-
-            <div className="lp-hero-captions">
-              <div className="lp-hero-caption">
-                <span className="lp-hero-caption-icon"><LineChartOutlined /></span>
-                <span className="lp-hero-caption-text">
-                  <strong>{t('chip_exams.title')}</strong>
-                  <span>{t('chip_exams.sub')}</span>
-                </span>
-              </div>
-              <div className="lp-hero-caption">
-                <span className="lp-hero-caption-icon lp-hero-caption-icon--live">
-                  <span className="lp-live-dot" aria-hidden="true" />
-                </span>
-                <span className="lp-hero-caption-text">
-                  <strong>{t('chip_live.title')}</strong>
-                  <span>{t('chip_live.sub')}</span>
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* STATS BAND */}
-      <section className="lp-stats" aria-label="Key statistics">
-        <div className="lp-container lp-stats-grid">
-          {[
-            { num: '1 000+', label: t('stats.students') },
-            { num: '98%', label: t('stats.pass') },
-            { num: '15+', label: t('stats.teachers') },
-            { num: '10 000+', label: t('stats.hours') },
-          ].map((s, i) => (
-            <div key={i} className="lp-stat">
-              <span className="lp-stat-num">{s.num}</span>
-              <span className="lp-stat-label">{s.label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* WHY US */}
-      <section id="why" className="lp-section">
-        <div className="lp-container">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('why.label')}
-            </p>
-            <h2 className="lp-heading">{t('why.title')}</h2>
-            <p className="lp-subheading">{t('why.sub')}</p>
-          </div>
-
-          <div className="lp-why-grid">
-            {[
-              { icon: <GlobalOutlined />, title: t('why.f1.title'), desc: t('why.f1.desc') },
-              { icon: <TrophyOutlined />, title: t('why.f2.title'), desc: t('why.f2.desc') },
-              { icon: <ClockCircleOutlined />, title: t('why.f3.title'), desc: t('why.f3.desc') },
-              { icon: <CustomerServiceOutlined />, title: t('why.f4.title'), desc: t('why.f4.desc') },
-              { icon: <BookOutlined />, title: t('why.f5.title'), desc: t('why.f5.desc') },
-              { icon: <SafetyCertificateOutlined />, title: t('why.f6.title'), desc: t('why.f6.desc') },
-            ].map((f, i) => (
-              <article key={i} className="lp-why-card">
-                <span className="lp-why-num" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span>
-                <span className="lp-why-icon">{f.icon}</span>
-                <h3>{f.title}</h3>
-                <p>{f.desc}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* PLATFORM TOUR — sticky screenshot left, scroll-revealed features right */}
-      <section id="platform" className="lp-platform">
-        <div className="lp-container">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('platform.label')}
-            </p>
-            <h2 className="lp-heading">{t('platform.title')}</h2>
-            <p className="lp-subheading">{t('platform.sub')}</p>
-          </div>
-
-          <div className="lp-platform-grid">
-            {/* LEFT — sticky screenshot */}
-            <div className="lp-platform-sticky">
-              <figure className="lp-platform-frame">
-                <div className="lp-platform-chrome" aria-hidden="true">
-                  <span className="lp-chrome-dot" />
-                  <span className="lp-chrome-dot" />
-                  <span className="lp-chrome-dot" />
-                  <span className="lp-chrome-url">app.learnfrenchwithnatives.com</span>
-                </div>
+            <div className="lp-hero-visual">
+              <figure className="lp-frame">
+                <div className="lp-frame-bar" aria-hidden><i /><i /><i /><span>app.learnfrenchwithnatives.com</span></div>
                 <img
-                  src="/assets/french%20platform.png"
-                  alt="Student dashboard showing score tracking, quizzes, resources and live classes"
-                  loading="lazy"
+                  src={`${IMG}/platform-marksheet-1600.webp`}
+                  srcSet={HERO_SRCSET}
+                  sizes={HERO_SIZES}
+                  width="1600"
+                  height="900"
+                  alt={c.hero.imageAlt}
+                  fetchPriority="high"
                   decoding="async"
                 />
-                <figcaption className="lp-platform-caption">
-                  <span className="lp-platform-caption-num">{String(activeFeature + 1).padStart(2, '0')}</span>
-                  <span className="lp-platform-caption-title">{featureTitles[activeFeature]}</span>
-                  <span className="lp-platform-caption-count">{activeFeature + 1} / 8</span>
-                </figcaption>
               </figure>
-
-              <div className="lp-platform-progress" aria-label="Platform features">
-                {featureTitles.map((title, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    aria-label={title}
-                    onClick={() => featureItemsRef.current[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
-                    className={`lp-platform-dot${i === activeFeature ? ' is-active' : ''}`}
-                  />
-                ))}
-                <span className="lp-platform-progress-label">
-                  {String(activeFeature + 1).padStart(2, '0')} / 08
-                </span>
+              <div className="lp-float lp-float-result" aria-hidden>
+                <span className="lp-float-label">{c.hero.cardResult.label}</span>
+                <div className="lp-float-score"><strong>13</strong><span>/20</span><em>{c.hero.cardResult.level}</em><b>{c.hero.cardResult.nclc}</b></div>
+                <div className="lp-float-track">{NCLC_STEPS.map(s => <i key={s} className={s <= 8 ? 'is-on' : ''} />)}</div>
+              </div>
+              <div className="lp-float lp-float-live" aria-hidden>
+                <span className="lp-live-dot" />
+                <div><strong>{c.hero.cardLive.title}</strong><span>{c.hero.cardLive.sub}</span></div>
+              </div>
+              <div className="lp-float lp-float-examiner" aria-hidden>
+                <span className="lp-eq"><i /><i /><i /><i /><i /></span>
+                {c.hero.cardExaminer}
               </div>
             </div>
+          </div>
+        </section>
 
-            {/* RIGHT — feature stack */}
-            <div className="lp-platform-features">
-              {[
-                {
-                  icon: <DashboardOutlined />,
-                  title: t('platform.features.dashboard.title'),
-                  desc: t('platform.features.dashboard.desc'),
-                  bullets: (t('platform.features.dashboard.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <FormOutlined />,
-                  title: t('platform.features.quiz.title'),
-                  desc: t('platform.features.quiz.desc'),
-                  bullets: (t('platform.features.quiz.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <BarChartOutlined />,
-                  title: t('platform.features.results.title'),
-                  desc: t('platform.features.results.desc'),
-                  bullets: (t('platform.features.results.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <ProfileOutlined />,
-                  title: t('platform.features.bulletin.title'),
-                  desc: t('platform.features.bulletin.desc'),
-                  bullets: (t('platform.features.bulletin.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <FolderOpenOutlined />,
-                  title: t('platform.features.resources.title'),
-                  desc: t('platform.features.resources.desc'),
-                  bullets: (t('platform.features.resources.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <CalendarOutlined />,
-                  title: t('platform.features.schedule.title'),
-                  desc: t('platform.features.schedule.desc'),
-                  bullets: (t('platform.features.schedule.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <ExperimentOutlined />,
-                  title: t('platform.features.exams.title'),
-                  desc: t('platform.features.exams.desc'),
-                  bullets: (t('platform.features.exams.bullets', { returnObjects: true }) as string[]),
-                },
-                {
-                  icon: <VideoCameraOutlined />,
-                  title: t('platform.features.live.title'),
-                  desc: t('platform.features.live.desc'),
-                  bullets: (t('platform.features.live.bullets', { returnObjects: true }) as string[]),
-                },
-              ].map((f, i) => (
-                <div
-                  key={i}
-                  ref={(el) => { featureItemsRef.current[i] = el; }}
-                  className={`lp-platform-feature${i === activeFeature ? ' is-active' : ''}`}
+        {/* ── Exams marquee ── */}
+        <section className="lp-marquee" aria-label={c.marquee.label}>
+          <p className="lp-marquee-label">{c.marquee.label}</p>
+          <div className="lp-marquee-viewport">
+            <ul className="lp-marquee-track">
+              {[...EXAM_NAMES, ...EXAM_NAMES].map((name, i) => (
+                <li key={i} aria-hidden={i >= EXAM_NAMES.length || undefined}>{name}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
+        {/* ── Stats ── */}
+        <section className="lp-stats" aria-label={c.statsLabel}>
+          <div className="lp-wrap lp-stats-grid">
+            {c.stats.map(s => (
+              <div key={s.label} className="lp-stat" data-reveal>
+                <strong><Counter value={s.value} suffix={s.suffix} lang={lang} /></strong>
+                <span>{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Programs ── */}
+        <section id="programs" className="lp-section" aria-labelledby="lp-programs-title">
+          <div className="lp-wrap">
+            <header className="lp-head" data-reveal>
+              <p className="lp-eyebrow">{c.programs.eyebrow}</p>
+              <h2 id="lp-programs-title">{c.programs.title}</h2>
+              <p>{c.programs.sub}</p>
+            </header>
+            <div className="lp-tabs" role="tablist" aria-label={c.programs.eyebrow} data-reveal>
+              {c.programs.items.map((item, i) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="tab"
+                  id={`lp-tab-${item.id}`}
+                  aria-selected={program === i}
+                  aria-controls={`lp-panel-${item.id}`}
+                  tabIndex={program === i ? 0 : -1}
+                  className={program === i ? 'is-active' : ''}
+                  onClick={() => setProgram(i)}
+                  onKeyDown={e => {
+                    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                      const next = (i + (e.key === 'ArrowRight' ? 1 : -1) + c.programs.items.length) % c.programs.items.length;
+                      setProgram(next);
+                      document.getElementById(`lp-tab-${c.programs.items[next].id}`)?.focus();
+                    }
+                  }}
                 >
-                  <div className="lp-platform-feature-rail" aria-hidden="true">
-                    <span className="lp-platform-feature-num">
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    {i < 7 && <span className="lp-platform-feature-connector" />}
-                  </div>
-                  <div className="lp-platform-feature-card">
-                    <div className="lp-platform-feature-head">
-                      <span className="lp-platform-feature-icon">{f.icon}</span>
-                      <h3>{f.title}</h3>
-                    </div>
-                    <p>{f.desc}</p>
-                    <ul className="lp-checklist">
-                      {f.bullets.map((b, j) => (
-                        <li key={j}>
-                          <CheckOutlined aria-hidden="true" />
-                          {b}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
+                  <span>{item.tab}</span>
+                  <small>{item.exams}</small>
+                </button>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* EXAMS */}
-      <section id="exams" className="lp-section">
-        <div className="lp-container">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('exams.label')}
-            </p>
-            <h2 className="lp-heading">{t('exams.title')}</h2>
-            <p className="lp-subheading">{t('exams.sub')}</p>
-          </div>
-
-          <div className="lp-exams-layout">
-            {/* Featured — TEF Canada */}
-            <article className="lp-exam-featured">
-              <div className="lp-tricolore" aria-hidden="true">
-                <span /><span /><span />
+            {c.programs.items.map((item, i) => (
+              <div key={item.id} id={`lp-panel-${item.id}`} role="tabpanel" aria-labelledby={`lp-tab-${item.id}`} hidden={program !== i} className="lp-program">
+                <div className="lp-program-main">
+                  <p className="lp-program-exams">{item.exams}</p>
+                  <h3>{item.title}</h3>
+                  <p className="lp-program-desc">{item.desc}</p>
+                  <h4>{c.programs.includes}</h4>
+                  <ul className="lp-checks">{item.includes.map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
+                </div>
+                <aside className="lp-program-card">
+                  <dl>
+                    <div><dt>{c.programs.goal}</dt><dd>{item.goal}</dd></div>
+                    <div><dt>{c.programs.format}</dt><dd>{item.format}</dd></div>
+                    <div><dt>{c.programs.levels}</dt><dd>{item.levels}</dd></div>
+                  </dl>
+                  <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.programs.cta}<ArrowRightOutlined /></button>
+                </aside>
               </div>
-              <p className="lp-exam-featured-tag">{t('exams.most_popular')}</p>
-              <h3 className="lp-exam-featured-title">TEF Canada</h3>
-              <p className="lp-exam-featured-sub">{t('exams.tef_sub')}</p>
-              <p className="lp-exam-featured-desc">{t('exams.tef_desc')}</p>
+            ))}
+          </div>
+        </section>
 
-              <ul className="lp-exam-featured-skills">
-                {[
-                  { icon: <AudioOutlined />, label: t('exams.skill_speaking') },
-                  { icon: <CustomerServiceOutlined />, label: t('exams.skill_listening') },
-                  { icon: <ReadOutlined />, label: t('exams.skill_reading') },
-                  { icon: <SolutionOutlined />, label: t('exams.skill_writing') },
-                ].map((s, i) => (
-                  <li key={i}>
-                    {s.icon}
-                    <span>{s.label}</span>
+        {/* ── Simulator ── */}
+        <section id="simulator" className="lp-section lp-dark" aria-labelledby="lp-sim-title">
+          <div className="lp-wrap lp-sim-grid">
+            <div className="lp-sim-copy" data-reveal>
+              <p className="lp-eyebrow is-light">{c.simulator.eyebrow}</p>
+              <h2 id="lp-sim-title">{c.simulator.title}</h2>
+              <p className="lp-sim-sub">{c.simulator.sub}</p>
+              <ul className="lp-sim-features">
+                {c.simulator.features.map((f, i) => (
+                  <li key={f.title}>
+                    <span className="lp-sim-icon" aria-hidden>{SIM_ICONS[i]}</span>
+                    <div><h3>{f.title}</h3><p>{f.desc}</p></div>
                   </li>
                 ))}
               </ul>
+              <button type="button" className="lp-btn lp-btn-light" onClick={openDemo}>{c.simulator.cta}<ArrowRightOutlined /></button>
+            </div>
+            <figure className="lp-report" data-reveal aria-label={c.simulator.report.title}>
+              <header className="lp-report-head">
+                <span>{c.simulator.report.title}</span>
+                <span className="lp-report-badge">TCF Canada</span>
+              </header>
+              <div className="lp-report-score">
+                <div><span>{c.simulator.report.scoreLabel}</span><strong>13<small>/20</small></strong></div>
+                <div className="lp-report-badges"><b>{c.simulator.report.level}</b><b className="is-dark">{c.simulator.report.nclc}</b></div>
+              </div>
+              <ol className="lp-report-track" aria-label={c.simulator.report.track}>
+                {NCLC_STEPS.map(s => (
+                  <li key={s} className={`${s <= 8 ? 'is-on' : ''}${s === 8 ? ' is-here' : ''}`}><i /><span>{c.simulator.report.track} {s}</span></li>
+                ))}
+              </ol>
+              <ul className="lp-report-criteria">
+                {c.simulator.report.criteria.map(([label, score]) => (
+                  <li key={label}>
+                    <span>{label}</span>
+                    <span className="lp-bar"><i style={{ '--w': `${(score / 20) * 100}%` } as React.CSSProperties} /></span>
+                    <b>{String(score).replace('.', lang === 'fr' ? ',' : '.')}</b>
+                  </li>
+                ))}
+              </ul>
+              <p className="lp-report-next"><RiseOutlined /> {c.simulator.report.next}</p>
+              <figcaption>{c.simulator.disclaimer}</figcaption>
+            </figure>
+          </div>
+        </section>
 
-              <dl className="lp-exam-featured-stats">
-                <div>
-                  <dd>98%</dd>
-                  <dt>{t('exams.tef_stat1')}</dt>
-                </div>
-                <div>
-                  <dd>500+</dd>
-                  <dt>{t('exams.tef_stat2')}</dt>
-                </div>
-                <div>
-                  <dd>10+</dd>
-                  <dt>{t('exams.tef_stat3')}</dt>
-                </div>
-              </dl>
-
-              <button className="lp-btn lp-btn--light lp-btn--lg" onClick={openModal}>
-                {t('exams.cta')}
-                <RightOutlined aria-hidden="true" />
-              </button>
-            </article>
-
-            {/* Other programs */}
-            <div className="lp-exam-list">
-              {[
-                {
-                  icon: <SafetyCertificateOutlined />,
-                  title: 'DELF / DALF', sub: t('exams.delf_sub'),
-                  desc: t('exams.delf_desc'),
-                  tags: ['A1–B2', 'C1–C2', t('exams.tag_mock')],
-                },
-                {
-                  icon: <AimOutlined />,
-                  title: 'TCF / TEFAQ', sub: t('exams.tcf_sub'),
-                  desc: t('exams.tcf_desc'),
-                  tags: ['TCF Québec', 'TEFAQ', t('exams.tag_oral')],
-                },
-                {
-                  icon: <TeamOutlined />,
-                  title: t('exams.business_title'), sub: t('exams.business_sub'),
-                  desc: t('exams.business_desc'),
-                  tags: [t('exams.tag_meetings'), t('exams.tag_presentations'), 'Emails'],
-                },
-                {
-                  icon: <AudioOutlined />,
-                  title: t('exams.conv_title'), sub: t('exams.conv_sub'),
-                  desc: t('exams.conv_desc'),
-                  tags: [t('exams.tag_pronunciation'), t('exams.tag_culture'), t('exams.tag_fluency')],
-                },
-                {
-                  icon: <SmileOutlined />,
-                  title: t('exams.kids_title'), sub: t('exams.kids_sub'),
-                  desc: t('exams.kids_desc'),
-                  tags: [t('exams.tag_interactive'), t('exams.tag_fun'), t('exams.tag_ageadapted')],
-                },
-              ].map((c, i) => (
-                <article key={i} className="lp-exam-tile">
-                  <span className="lp-exam-tile-icon">{c.icon}</span>
-                  <div className="lp-exam-tile-content">
-                    <header className="lp-exam-tile-head">
-                      <h4>{c.title}</h4>
-                      <span className="lp-exam-tile-sub">{c.sub}</span>
-                    </header>
-                    <p>{c.desc}</p>
-                    <div className="lp-exam-tile-tags">
-                      {c.tags.map((tag) => <span key={tag}>{tag}</span>)}
-                    </div>
-                  </div>
+        {/* ── Method ── */}
+        <section id="method" className="lp-section" aria-labelledby="lp-method-title">
+          <div className="lp-wrap">
+            <header className="lp-head" data-reveal>
+              <p className="lp-eyebrow">{c.method.eyebrow}</p>
+              <h2 id="lp-method-title">{c.method.title}</h2>
+              <p>{c.method.sub}</p>
+            </header>
+            <div className="lp-bento">
+              {c.method.items.map((m, i) => (
+                <article key={m.title} className={`lp-bento-card is-${i + 1}`} data-reveal>
+                  <span className="lp-bento-icon" aria-hidden>{METHOD_ICONS[i]}</span>
+                  <h3>{m.title}</h3>
+                  <p>{m.desc}</p>
+                  {i === 0 && <div className="lp-bento-figure" aria-hidden><strong>15+</strong><span>{c.stats[2].label}</span></div>}
+                  {i === 4 && (
+                    <ol className="lp-ladder" aria-hidden>
+                      {CEFR.map((l, k) => <li key={l} style={{ '--h': `${30 + k * 14}%` } as React.CSSProperties}><i /><span>{l}</span></li>)}
+                    </ol>
+                  )}
+                  {i === 5 && <div className="lp-bento-figure is-big" aria-hidden><strong>98%</strong></div>}
                 </article>
               ))}
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* HOW IT WORKS — sticky illustration left, timeline right */}
-      <section id="how" className="lp-howit">
-        <div className="lp-container">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('how.label')}
-            </p>
-            <h2 className="lp-heading">{t('how.title')}</h2>
-            <p className="lp-subheading">{t('how.sub')}</p>
-          </div>
-
-          <div className="lp-howit-grid">
-            {/* LEFT — sticky illustration */}
-            <div className="lp-howit-sticky">
-              <figure className="lp-howit-figure">
-                <img
-                  src="/assets/how.png"
-                  alt="French learning journey: book demo, get a plan, learn with native teacher, pass your exam"
-                  loading="lazy"
-                  decoding="async"
-                />
-                <figcaption className="lp-howit-caption">
-                  <span className="lp-howit-caption-num">{String(activeStep + 1).padStart(2, '0')}</span>
-                  <span className="lp-howit-caption-text">
-                    <strong>{t('how.step_label')} {activeStep + 1} / 4</strong>
-                    <span>
-                      {[
-                        t('how.steps.demo.title'),
-                        t('how.steps.plan.title'),
-                        t('how.steps.learn.title'),
-                        t('how.steps.pass.title'),
-                      ][activeStep]}
-                    </span>
-                  </span>
-                </figcaption>
+        {/* ── Platform ── */}
+        <section id="platform" className="lp-section lp-tint" aria-labelledby="lp-platform-title">
+          <div className="lp-wrap lp-platform-grid">
+            <div className="lp-platform-copy">
+              <header className="lp-head is-left" data-reveal>
+                <p className="lp-eyebrow">{c.platform.eyebrow}</p>
+                <h2 id="lp-platform-title">{c.platform.title}</h2>
+                <p>{c.platform.sub}</p>
+              </header>
+              <ul className="lp-platform-list">
+                {c.platform.features.map((f, i) => (
+                  <li key={f.title} data-reveal>
+                    <span aria-hidden>{PLATFORM_ICONS[i]}</span>
+                    <div><h3>{f.title}</h3><p>{f.desc}</p></div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="lp-shots" data-reveal>
+              <figure className="lp-shot is-back">
+                <img src={`${IMG}/platform-dashboard-800.webp`} srcSet={`${IMG}/platform-dashboard-800.webp 800w, ${IMG}/platform-dashboard-1400.webp 1084w`} sizes="(max-width: 900px) 80vw, 520px" width="1084" height="795" alt={c.platform.altDashboard} loading="lazy" decoding="async" />
+              </figure>
+              <figure className="lp-shot is-front">
+                <img src={`${IMG}/platform-marksheet-960.webp`} srcSet={HERO_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
               </figure>
             </div>
+          </div>
+        </section>
 
-            {/* RIGHT — vertical timeline */}
-            <div className="lp-howit-steps">
-              {[
-                {
-                  icon: <PhoneOutlined />,
-                  title: t('how.steps.demo.title'),
-                  desc: t('how.steps.demo.desc'),
-                  bullets: [t('how.steps.demo.b1'), t('how.steps.demo.b2'), t('how.steps.demo.b3')],
-                },
-                {
-                  icon: <SolutionOutlined />,
-                  title: t('how.steps.plan.title'),
-                  desc: t('how.steps.plan.desc'),
-                  bullets: [t('how.steps.plan.b1'), t('how.steps.plan.b2'), t('how.steps.plan.b3')],
-                },
-                {
-                  icon: <VideoCameraOutlined />,
-                  title: t('how.steps.learn.title'),
-                  desc: t('how.steps.learn.desc'),
-                  bullets: [t('how.steps.learn.b1'), t('how.steps.learn.b2'), t('how.steps.learn.b3')],
-                },
-                {
-                  icon: <TrophyOutlined />,
-                  title: t('how.steps.pass.title'),
-                  desc: t('how.steps.pass.desc'),
-                  bullets: [t('how.steps.pass.b1'), t('how.steps.pass.b2'), t('how.steps.pass.b3')],
-                },
-              ].map((s, i) => (
-                <div
-                  key={i}
-                  ref={(el) => { stepItemsRef.current[i] = el; }}
-                  className={`lp-howit-step${i === activeStep ? ' is-active' : ''}${i < activeStep ? ' is-done' : ''}`}
-                >
-                  <div className="lp-howit-step-rail" aria-hidden="true">
-                    <span className="lp-howit-step-dot">{i + 1}</span>
-                    {i < 3 && <span className="lp-howit-step-connector" />}
-                  </div>
-
-                  <div className="lp-howit-step-card">
-                    <p className="lp-howit-step-tag">
-                      {s.icon}
-                      {t('how.step_label')} {String(i + 1).padStart(2, '0')}
-                    </p>
-                    <h3>{s.title}</h3>
-                    <p>{s.desc}</p>
-                    <ul className="lp-checklist">
-                      {s.bullets.map((b, j) => (
-                        <li key={j}>
-                          <CheckOutlined aria-hidden="true" />
-                          {b}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
+        {/* ── How it works ── */}
+        <section id="how" className="lp-section" aria-labelledby="lp-how-title">
+          <div className="lp-wrap">
+            <header className="lp-head" data-reveal>
+              <p className="lp-eyebrow">{c.how.eyebrow}</p>
+              <h2 id="lp-how-title">{c.how.title}</h2>
+              <p>{c.how.sub}</p>
+            </header>
+            <ol className="lp-steps" data-reveal>
+              {c.how.steps.map((s, i) => (
+                <li key={s.title} className="lp-step">
+                  <span className="lp-step-dot" aria-hidden>{HOW_ICONS[i]}</span>
+                  <span className="lp-step-n">{c.how.step} {i + 1}</span>
+                  <h3>{s.title}</h3>
+                  <p>{s.desc}</p>
+                </li>
               ))}
-
-              {/* Final CTA card */}
-              <div className="lp-howit-cta">
-                <div>
-                  <h4>{t('how.cta_title')}</h4>
-                  <p>{t('how.cta_sub')}</p>
-                </div>
-                <button className="lp-btn lp-btn--light" onClick={openModal}>
-                  {t('how.cta_btn')}
-                  <RightOutlined aria-hidden="true" />
-                </button>
-              </div>
-            </div>
+            </ol>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* TESTIMONIALS */}
-      <section id="testimonials" className="lp-reviews lp-section--cream">
-        <div className="lp-container">
-          <div className="lp-section-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('reviews.label')}
-            </p>
-            <h2 className="lp-heading">{t('reviews.title')}</h2>
-            <p className="lp-subheading">{t('reviews.sub')}</p>
-          </div>
-
-          <div className="lp-reviews-stage">
-            <div className={`lp-reviews-card${currentReview.video ? ' lp-reviews-card--video' : ''}`}>
-              {currentReview.video ? (
-                <>
-                  <div className="lp-reviews-media">
-                    <video
-                      key={currentReview.video}
-                      controls
-                      preload="metadata"
-                      playsInline
-                      muted
-                    >
-                      {/* #t=0.1 forces browsers to render the first frame as the visible thumbnail */}
-                      <source src={`${currentReview.video}#t=0.1`} type="video/mp4" />
+        {/* ── Reviews ── */}
+        <section id="reviews" className="lp-section lp-tint" aria-labelledby="lp-reviews-title">
+          <div className="lp-wrap">
+            <header className="lp-head" data-reveal>
+              <p className="lp-eyebrow">{c.reviews.eyebrow}</p>
+              <h2 id="lp-reviews-title">{c.reviews.title}</h2>
+              <p>{c.reviews.sub}</p>
+            </header>
+            <div className="lp-reviews-grid">
+              <div className="lp-video-card" data-reveal>
+                <div className="lp-video">
+                  {playing ? (
+                    <video ref={videoRef} key={VIDEOS[video].src} controls playsInline preload="metadata" poster={VIDEOS[video].poster}>
+                      <source src={VIDEOS[video].src} type="video/mp4" />
                     </video>
-                    <span className="lp-reviews-media-tag">
-                      <span className="lp-live-dot" aria-hidden="true" />
-                      {t('reviews.video_label')}
-                    </span>
-                  </div>
-                  <div className="lp-reviews-body">
-                    <div className="lp-stars" aria-label={`${currentReview.rating} / 5`}>
-                      {[...Array(currentReview.rating)].map((_, i) => <StarFilled key={i} />)}
-                    </div>
-                    <h3 className="lp-reviews-quote">{currentReview.role}</h3>
-                    <p className="lp-reviews-text">{currentReview.content}</p>
-                    <p className="lp-reviews-meta">
-                      <PlayCircleOutlined aria-hidden="true" />
-                      {t('reviews.video_meta')}
-                    </p>
-                  </div>
-                </>
-              ) : (
-                <div className="lp-reviews-body lp-reviews-body--quote">
-                  <span className="lp-reviews-mark" aria-hidden="true">«</span>
-                  <div className="lp-stars" aria-label={`${currentReview.rating} / 5`}>
-                    {[...Array(currentReview.rating)].map((_, i) => <StarFilled key={i} />)}
-                  </div>
-                  <blockquote className="lp-reviews-text lp-reviews-text--lg">
-                    {currentReview.content}
-                  </blockquote>
-                  <footer className="lp-reviews-author">
-                    <span className="lp-reviews-avatar" aria-hidden="true">{currentReview.name.charAt(0)}</span>
-                    <span className="lp-reviews-author-info">
-                      <strong>{currentReview.name}</strong>
-                      <span>{currentReview.role}</span>
-                    </span>
-                    {currentReview.exam && <span className="lp-reviews-exam">{currentReview.exam}</span>}
-                  </footer>
+                  ) : (
+                    <button type="button" className="lp-video-poster" onClick={() => playVideo(video)} aria-label={`${c.reviews.play} — ${c.reviews.videos[video].title}`}>
+                      <img src={VIDEOS[video].poster} alt="" width={480} height={848} loading="lazy" decoding="async" />
+                      <span className="lp-video-play"><PlayCircleFilled /></span>
+                      <span className="lp-video-time">{VIDEOS[video].duration}</span>
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
-
-            <div className="lp-reviews-controls">
-              <button className="lp-reviews-nav" onClick={prev} aria-label="Précédent">
-                <LeftOutlined />
-              </button>
-              <div className="lp-reviews-dots" aria-label="Témoignages">
-                {testimonials.map((rev, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    className={`lp-reviews-dot${i === currentTestimonial ? ' is-active' : ''}`}
-                    onClick={() => setCurrentTestimonial(i)}
-                    aria-label={`Témoignage ${i + 1} — ${rev.name}`}
-                  >
-                    {rev.video ? <PlayCircleOutlined /> : rev.name.charAt(0)}
-                  </button>
-                ))}
+                <div className="lp-video-side">
+                  <p className="lp-video-kicker"><span className="lp-live-dot" />{c.reviews.videoLabel}</p>
+                  <div className="lp-video-switch">
+                    {c.reviews.videos.map((v, i) => (
+                      <button key={v.title} type="button" className={video === i ? 'is-active' : ''} aria-pressed={video === i}
+                        onClick={() => (playing ? playVideo(i) : setVideo(i))}>
+                        <span className="lp-video-thumb">
+                          <img src={VIDEOS[i].poster} alt="" width={480} height={848} loading="lazy" decoding="async" />
+                          <PlayCircleFilled />
+                        </span>
+                        <span className="lp-video-meta"><strong>{v.title}</strong><span>{v.desc}</span><em>{VIDEOS[i].duration}</em></span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <button className="lp-reviews-nav" onClick={next} aria-label="Suivant">
-                <RightOutlined />
-              </button>
+              <div className="lp-quotes" data-reveal
+                onMouseEnter={() => { quotePaused.current = true; }} onMouseLeave={() => { quotePaused.current = false; }}
+                onFocus={() => { quotePaused.current = true; }} onBlur={() => { quotePaused.current = false; }}>
+                <div className="lp-rating">
+                  <strong>{c.hero.rating.split('/')[0]}</strong>
+                  <div><span className="lp-stars" aria-hidden>{[0, 1, 2, 3, 4].map(i => <StarFilled key={i} />)}</span><span>{c.reviews.summary}</span></div>
+                </div>
+                <figure className="lp-quote" aria-live="polite">
+                  <blockquote key={quote}>“{q.text}”</blockquote>
+                  <figcaption>
+                    <span className="lp-avatar" aria-hidden>{q.name.charAt(0)}</span>
+                    <span><strong>{q.name}</strong><em>{q.role}</em></span>
+                    {q.exam && <b>{q.exam}</b>}
+                  </figcaption>
+                </figure>
+                <div className="lp-quote-nav">
+                  <button type="button" onClick={() => setQuote(i => (i - 1 + c.reviews.quotes.length) % c.reviews.quotes.length)} aria-label={c.reviews.prev}><LeftOutlined /></button>
+                  <div className="lp-dots">
+                    {c.reviews.quotes.map((x, i) => (
+                      <button key={x.name} type="button" className={i === quote ? 'is-active' : ''} onClick={() => setQuote(i)} aria-label={`${x.name}`} aria-current={i === quote || undefined} />
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setQuote(i => (i + 1) % c.reviews.quotes.length)} aria-label={c.reviews.next}><RightOutlined /></button>
+                </div>
+                {/* All testimonials stay in the HTML for search engines and screen readers. */}
+                <ul className="lp-visually-hidden">
+                  {c.reviews.quotes.map(x => <li key={x.name}>{x.name} — {x.role}: {x.text}</li>)}
+                </ul>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* FAQ — visible content backing the FAQPage structured data */}
-      <section id="faq" className="lp-faq lp-section">
-        <div className="lp-container lp-faq-grid">
-          <div className="lp-faq-head">
-            <p className="lp-eyebrow">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('faq.label')}
-            </p>
-            <h2 className="lp-heading">{t('faq.title')}</h2>
-            <p className="lp-subheading">{t('faq.sub')}</p>
-            <button className="lp-btn lp-btn--primary" onClick={openModal}>
-              {t('hero.cta_primary')}
-              <RightOutlined aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="lp-faq-list">
-            {faqItems.map((item, i) => (
-              <details key={i} className="lp-faq-item" {...(i === 0 ? { open: true } : {})}>
-                <summary>
-                  <span className="lp-faq-q">{item.q}</span>
-                  <PlusOutlined className="lp-faq-toggle" aria-hidden="true" />
-                </summary>
-                <p className="lp-faq-a">{item.a}</p>
-              </details>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FINAL CTA */}
-      <section className="lp-finale">
-        <div className="lp-container lp-finale-grid">
-          <div className="lp-finale-content">
-            <p className="lp-eyebrow lp-eyebrow--light">
-              <span className="lp-eyebrow-dash" aria-hidden="true" />
-              {t('finale.eyebrow')}
-            </p>
-            <h2 className="lp-finale-title">
-              {t('finale.title_1')} <em>{t('finale.title_accent')}</em> {t('finale.title_2')}
-            </h2>
-            <p className="lp-finale-sub">{t('finale.sub')}</p>
-
-            <div className="lp-finale-actions">
-              <button className="lp-btn lp-btn--light lp-btn--lg" onClick={openModal}>
-                {t('finale.cta')}
-                <RightOutlined aria-hidden="true" />
-              </button>
-              <a href="/login" className="lp-finale-login">{t('finale.login')}</a>
+        {/* ── FAQ ── */}
+        <section id="faq" className="lp-section" aria-labelledby="lp-faq-title">
+          <div className="lp-wrap lp-faq-grid">
+            <header className="lp-head is-left" data-reveal>
+              <p className="lp-eyebrow">{c.faq.eyebrow}</p>
+              <h2 id="lp-faq-title">{c.faq.title}</h2>
+              <p>{c.faq.sub}</p>
+              <a href={`mailto:${CONTACT_EMAIL}`} className="lp-faq-mail"><MailOutlined /> {c.faq.more}</a>
+            </header>
+            <div className="lp-faq-list" data-reveal>
+              {c.faq.items.map((item, i) => (
+                <details key={item.q} className="lp-faq-item" open={i === 0 || undefined}>
+                  <summary><h3>{item.q}</h3><span className="lp-faq-icon" aria-hidden /></summary>
+                  <p>{item.a}</p>
+                </details>
+              ))}
             </div>
-
-            <p className="lp-finale-trust">
-              <SafetyCertificateOutlined aria-hidden="true" />
-              {t('finale.trust')}
-            </p>
           </div>
+        </section>
 
-          <div className="lp-finale-visual">
-            <img
-              src="/assets/Joy.png"
-              alt="Happy student learning French online with a native teacher"
-              loading="lazy"
-              decoding="async"
-            />
+        {/* ── Final call to action ── */}
+        <section className="lp-finale" aria-labelledby="lp-finale-title">
+          <div className="lp-wrap lp-finale-inner" data-reveal>
+            <h2 id="lp-finale-title">{c.finale.title}</h2>
+            <p>{c.finale.sub}</p>
+            <div className="lp-finale-ctas">
+              <button type="button" className="lp-btn lp-btn-light lp-btn-lg" onClick={openDemo}>{c.finale.cta}<ArrowRightOutlined /></button>
+              <a href="/login" className="lp-finale-login">{c.finale.login}</a>
+            </div>
+            <p className="lp-finale-trust"><SafetyCertificateOutlined /> {c.finale.trust}</p>
           </div>
-        </div>
-      </section>
-
+        </section>
       </main>
 
-      {/* FOOTER */}
+      {/* ── Footer ── */}
       <footer className="lp-footer">
-        <div className="lp-tricolore" aria-hidden="true">
-          <span /><span /><span />
-        </div>
-        <div className="lp-container">
+        <div className="lp-wrap">
           <div className="lp-footer-grid">
-            {/* Brand column */}
             <div className="lp-footer-brand">
-              <a href="/" className="lp-logo lp-logo--footer" aria-label="Accueil">
-                <span className="lp-logo-mark">
-                  <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
-                </span>
-                <span className="lp-logo-text">
-                  <strong>Learn French</strong>
-                  <em>with Natives</em>
-                </span>
-              </a>
-              <p className="lp-footer-tagline">{t('footer.tagline')}</p>
-
-              <a href="mailto:support@learnfrenchwithnatives.com" className="lp-footer-contact">
-                <MailOutlined aria-hidden="true" />
-                <span className="lp-footer-contact-info">
-                  <strong>{t('footer.contact_label')}</strong>
-                  <span>support@learnfrenchwithnatives.com</span>
-                </span>
-              </a>
+              <Link to={PATHS[lang]} className="lp-brand is-light" aria-label="Learn French with Natives">
+                <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" loading="lazy" />
+                <span><strong>Learn French</strong><em>with Natives</em></span>
+              </Link>
+              <p>{c.footer.tagline}</p>
+              <a href={`mailto:${CONTACT_EMAIL}`} className="lp-footer-mail"><MailOutlined /><span><small>{c.footer.contactLabel}</small>{CONTACT_EMAIL}</span></a>
             </div>
-
-            {/* Link columns */}
-            <div className="lp-footer-col">
-              <h4>{t('footer.exams_col')}</h4>
+            <nav aria-label={c.footer.exams}>
+              <h2>{c.footer.exams}</h2>
+              <ul>{c.footer.examLinks.map(x => <li key={x}><a href="#programs">{x}</a></li>)}</ul>
+            </nav>
+            <nav aria-label={c.footer.platform}>
+              <h2>{c.footer.platform}</h2>
+              <ul>{c.footer.platformLinks.map(x => <li key={x.label}><a href={x.href}>{x.label}</a></li>)}</ul>
+            </nav>
+            <nav aria-label={c.footer.company}>
+              <h2>{c.footer.company}</h2>
               <ul>
-                <li><button type="button" onClick={() => go('exams')}>TEF Canada</button></li>
-                <li><button type="button" onClick={() => go('exams')}>DELF / DALF</button></li>
-                <li><button type="button" onClick={() => go('exams')}>TCF · TCF Canada</button></li>
-                <li><button type="button" onClick={() => go('exams')}>TEFAQ</button></li>
-                <li><button type="button" onClick={() => go('exams')}>Français professionnel</button></li>
+                {c.footer.companyLinks.map(x => (
+                  <li key={x.label}>{x.demo ? <button type="button" onClick={openDemo}>{x.label}</button> : <a href={x.href}>{x.label}</a>}</li>
+                ))}
               </ul>
-            </div>
-
-            <div className="lp-footer-col">
-              <h4>{t('footer.platform_col')}</h4>
-              <ul>
-                <li><button type="button" onClick={() => go('why')}>{t('footer.why')}</button></li>
-                <li><button type="button" onClick={() => go('platform')}>{t('footer.dashboard')}</button></li>
-                <li><button type="button" onClick={() => go('how')}>{t('footer.how')}</button></li>
-                <li><button type="button" onClick={() => go('testimonials')}>{t('footer.reviews')}</button></li>
-                <li><a href="/login">{t('footer.student_space')}</a></li>
+              <h2 className="is-spaced">{c.footer.languages}</h2>
+              <ul className="lp-footer-langs">
+                <li><Link to={PATHS.en} hrefLang="en" lang="en">English</Link></li>
+                <li><Link to={PATHS.fr} hrefLang="fr" lang="fr">Français</Link></li>
               </ul>
-            </div>
-
-            <div className="lp-footer-col">
-              <h4>{t('footer.company_col')}</h4>
-              <ul>
-                <li><button type="button" onClick={openModal}>{t('footer.book_demo')}</button></li>
-                <li><a href="mailto:support@learnfrenchwithnatives.com">{t('footer.contact_us')}</a></li>
-                <li><a href="#">{t('footer.terms')}</a></li>
-                <li><a href="#">{t('footer.privacy')}</a></li>
-                <li><a href="#">{t('footer.legal')}</a></li>
-              </ul>
-            </div>
+            </nav>
           </div>
-
           <div className="lp-footer-bottom">
-            <p>&copy; {new Date().getFullYear()} Learn French with Natives · {t('footer.copy')}</p>
-            <p>{t('footer.made')}</p>
+            <p>© {new Date().getFullYear()} Learn French with Natives · {c.footer.rights}</p>
+            <p>{c.footer.made}</p>
           </div>
         </div>
+        <div className="lp-tricolore" aria-hidden><i /><i /><i /></div>
       </footer>
 
-      <DemoRequestModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      <DemoRequestModal isOpen={demoOpen} onClose={() => setDemoOpen(false)} />
     </div>
   );
 };

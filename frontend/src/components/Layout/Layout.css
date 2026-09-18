@@ -143,6 +143,128 @@
 .al-sidebar.is-collapsed .al-item { justify-content: center; width: 44px; height: 40px; margin: 0 auto; padding: 0; }
 .al-sidebar.is-collapsed .al-item.is-active::before { left: -14px; }
 
+/* ── Live Meeting Active Sidebar Indicator ── */
+.al-item.al-item-live {
+  background: #fff1f2;
+  color: #9f1239;
+  font-weight: 600;
+  border: 1px solid #fecdd3;
+  animation: al-live-item-pulse 2.2s ease-in-out infinite;
+}
+
+.al-item.al-item-live:hover {
+  background: #ffe4e6;
+  border-color: #fda4af;
+  color: #881337;
+}
+
+.al-item.al-item-live .al-item-icon {
+  color: #e11d48;
+  position: relative;
+}
+
+@keyframes al-live-item-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0), 0 1px 2px rgba(225, 29, 72, 0.06);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.18), 0 2px 8px rgba(225, 29, 72, 0.14);
+  }
+}
+
+/* Pulsing Beacon on the Video Camera Icon */
+.al-live-icon-beacon {
+  position: absolute;
+  top: -3px;
+  right: -5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+}
+
+.al-live-icon-ping {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: #f43f5e;
+  opacity: 0.85;
+  animation: al-live-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.al-live-icon-core {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e11d48;
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 0 5px rgba(225, 29, 72, 0.6);
+}
+
+/* Live Badge on the right of the row */
+.al-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 2.5px 8px 2.5px 6.5px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.al-live-badge-dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 6px;
+  height: 6px;
+}
+
+.al-live-badge-ping {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: #ffffff;
+  opacity: 0.8;
+  animation: al-live-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.al-live-badge-core {
+  position: relative;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+.al-live-badge-text {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #ffffff;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+@keyframes al-live-ping {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+  }
+  70%, 100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
 .al-foot { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 10px 10px 12px; border-top: 1px solid var(--al-line-soft); }
 .al-sidebar.is-collapsed .al-foot { justify-content: center; padding: 12px 0; }
 .al-account {

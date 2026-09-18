@@ -1,15 +1,17 @@
 {
   "name": "Learn French with Natives",
   "short_name": "LFWN",
-  "description": "Learn French online with certified native teachers. TEF Canada, TCF, DELF, DALF preparation.",
+  "description": "Learn French online with certified native teachers. TEF Canada, TCF Canada, DELF and DALF preparation.",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#FBF9F5",
-  "theme_color": "#14264C",
+  "theme_color": "#0E1F4D",
   "lang": "en",
   "dir": "ltr",
-  "categories": ["education", "productivity"],
+  "categories": [
+    "education",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/logo.png",

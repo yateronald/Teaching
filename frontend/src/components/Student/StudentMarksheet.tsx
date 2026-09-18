@@ -616,7 +616,7 @@ const StudentMarksheet: React.FC = () => {
                                     aria-label="Search quizzes"
                                 />
                                 <Select<StatusFilter>
-                                    className="ms-status"
+                                    className="ms-status-select"
                                     value={status}
                                     onChange={setStatus}
                                     aria-label="Filter by result"

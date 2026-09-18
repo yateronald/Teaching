@@ -1,11 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const { AccessToken } = require('livekit-server-sdk');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
+const access = require('../services/meetingAccess');
 
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY;
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET;
-const LIVEKIT_URL = process.env.LIVEKIT_URL;
+// ════════════════════════════════════════════════════════════════════════
+// Live classes.
+//
+// A meeting is referenced by its code ("abc-defg-hij", also the LiveKit room)
+// or, for people who already belong to it, by its numeric id. Entry rules and
+// passcodes live in services/meetingAccess.js; real-time events in
+// services/meetingRealtime.js.
+// ════════════════════════════════════════════════════════════════════════
 
 // All routes require authentication EXCEPT the public download-with-token
 // route below which self-authenticates via a single-use signed token.
@@ -82,24 +87,6 @@ router.get('/recordings/:id/download', async (req, res, next) => {
 // All other routes require authentication
 router.use(authenticateToken);
 
-// ── Helper: generate LiveKit access token ──
-function generateLiveKitToken(roomName, participantName, participantId, isTeacher = false) {
-  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-    identity: String(participantId),
-    name: participantName,
-    ttl: '6h',
-  });
-  at.addGrant({
-    roomJoin: true,
-    room: roomName,
-    canPublish: true,
-    canSubscribe: true,
-    canPublishData: true,
-    roomAdmin: isTeacher,
-  });
-  return at.toJwt();
-}
-
 // ── Helper: record user joining (handles reconnections) ──
 async function recordJoin(db, meetingId, userId) {
   // Skip if there's already an open (not left) session for this user
@@ -119,7 +106,7 @@ async function recordJoin(db, meetingId, userId) {
   await db.run(
     `INSERT INTO meeting_attendance_summary (meeting_id, user_id, status, first_join, session_count)
      VALUES ($1, $2, 'present', CURRENT_TIMESTAMP, 1)
-     ON CONFLICT (meeting_id, user_id) DO UPDATE SET 
+     ON CONFLICT (meeting_id, user_id) DO UPDATE SET
        status = 'present',
        first_join = COALESCE(meeting_attendance_summary.first_join, CURRENT_TIMESTAMP),
        session_count = meeting_attendance_summary.session_count + 1,
@@ -132,12 +119,12 @@ async function recordJoin(db, meetingId, userId) {
 async function recordLeave(db, meetingId, userId) {
   // Close the latest open session
   await db.run(
-    `UPDATE meeting_attendance 
-     SET left_at = CURRENT_TIMESTAMP, 
+    `UPDATE meeting_attendance
+     SET left_at = CURRENT_TIMESTAMP,
          duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - joined_at)) / 60.0, 2)
      WHERE id = (
-       SELECT id FROM meeting_attendance 
-       WHERE meeting_id = $1 AND user_id = $2 AND left_at IS NULL 
+       SELECT id FROM meeting_attendance
+       WHERE meeting_id = $1 AND user_id = $2 AND left_at IS NULL
        ORDER BY id DESC LIMIT 1
      )`,
     [meetingId, userId]
@@ -145,8 +132,8 @@ async function recordLeave(db, meetingId, userId) {
 
   // Update summary: duration = now - first_join (total time in meeting)
   await db.run(
-    `UPDATE meeting_attendance_summary 
-     SET last_leave = CURRENT_TIMESTAMP, 
+    `UPDATE meeting_attendance_summary
+     SET last_leave = CURRENT_TIMESTAMP,
          total_duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - first_join)) / 60.0, 2),
          updated_at = CURRENT_TIMESTAMP
      WHERE meeting_id = $1 AND user_id = $2 AND first_join IS NOT NULL`,
@@ -183,13 +170,30 @@ async function markAbsentStudents(db, meetingId) {
   }
 }
 
-// ── Helper: generate unique room name ──
-function generateRoomName() {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = 'meeting-';
-  for (let i = 0; i < 10; i++) result += chars.charAt(Math.floor(Math.random() * chars.length));
-  return result + '-' + Date.now().toString(36);
+const fail = (res, status, code, message, extra = {}) => res.status(status).json({ error: message, code, ...extra });
+
+/** Loads the meeting named in the URL and the caller's place in it. */
+async function load(req, res) {
+  const meeting = await access.findMeeting(req.db, req.params.id);
+  if (!meeting) { fail(res, 404, 'NOT_FOUND', 'Meeting not found'); return null; }
+  const who = await access.resolveAccess(req.db, meeting, req.user);
+  return { meeting, who };
 }
+/** Same, but only for the host. */
+async function loadAsHost(req, res, { allowAdmin = false } = {}) {
+  const ctx = await load(req, res);
+  if (!ctx) return null;
+  const ok = ctx.who.role === 'host' || (allowAdmin && req.user.role === 'admin');
+  if (!ok) { fail(res, 403, 'HOST_ONLY', 'Only the host can do this'); return null; }
+  return ctx;
+}
+
+const personName = u => `${u.first_name || ''} ${u.last_name || ''}`.trim() || 'Participant';
+const hasJoinedBefore = async (db, meetingId, userId) =>
+  !!(await db.get('SELECT 1 FROM meeting_attendance WHERE meeting_id = $1 AND user_id = $2 LIMIT 1', [meetingId, userId]));
+
+/** Status changes only carry the id: every list re-fetches what it is allowed to see. */
+const announce = (io, event, meeting) => io && io.emit(event, { meetingId: meeting.id });
 
 // ============================================================
 // MEETING CRUD
@@ -198,144 +202,146 @@ function generateRoomName() {
 // POST /meetings — create a new meeting (teacher/admin only)
 router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
-    const { title, description, batch_id, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants } = req.body;
-    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const { title, description, batch_id, scheduled_start, scheduled_end, max_participants } = req.body || {};
+    const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 300) : '';
+    if (!cleanTitle) return res.status(400).json({ error: 'Title is required' });
+    if (!batch_id) return res.status(400).json({ error: 'Batch is required' });
+    if (!scheduled_start || !scheduled_end) return res.status(400).json({ error: 'Schedule start and end times are required' });
+    const startMs = Date.parse(scheduled_start);
+    const endMs = Date.parse(scheduled_end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+      return res.status(400).json({ error: 'The end time must be after the start time' });
+    }
+    const batch = await req.db.get('SELECT id, name FROM batches WHERE id = $1', [batch_id]);
+    if (!batch) return res.status(400).json({ error: 'Batch not found' });
 
-    const roomName = generateRoomName();
-    const trustedIds = Array.isArray(trusted_user_ids) ? trusted_user_ids : [];
+    const code = await access.uniqueMeetingCode(req.db);
+    const passcode = access.generatePasscode();
+    const cleanDescription = typeof description === 'string' && description.trim() ? description.trim().slice(0, 2000) : null;
+    const limit = Math.min(Math.max(parseInt(max_participants, 10) || 50, 2), 300);
 
     const result = await req.db.run(
       `INSERT INTO meetings (room_name, title, description, teacher_id, batch_id, status, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants)
-       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, $9, $10) RETURNING *`,
-      [roomName, title, description || null, req.user.id, batch_id || null, scheduled_start || null, scheduled_end || null, password || null, trustedIds, max_participants || 50]
+       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, '{}', $9) RETURNING id`,
+      [code, cleanTitle, cleanDescription, req.user.id, batch.id, scheduled_start, scheduled_end, access.sealPasscode(passcode), limit]
     );
+    const meetingId = result.id || result.rows?.[0]?.id;
 
-    // Notify batch students via socket if batch_id provided
-    if (batch_id && req.io) {
-      req.io.emit('meeting:created', { meetingId: result.id, title, batchId: batch_id, teacherName: `${req.user.first_name} ${req.user.last_name}` });
+    // Keep the timetable in sync
+    try {
+      await req.db.run(
+        `INSERT INTO schedules (
+           title, description, batch_id, teacher_id, start_time, end_time,
+           type, location_mode, link, status, meeting_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'meeting', 'online', $7, 'scheduled', $8)`,
+        [cleanTitle, cleanDescription, batch.id, req.user.id, scheduled_start, scheduled_end, `/app/meeting/${meetingId}`, meetingId]
+      );
+    } catch (schedErr) {
+      console.error('Failed to sync scheduled meeting to schedules table:', schedErr.message);
     }
 
-    // Send email notifications to batch students
-    if (batch_id) {
-      try {
-        const students = await req.db.all(
-          `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
-           JOIN batch_students bs ON u.id = bs.student_id
-           WHERE bs.batch_id = $1 AND u.is_active = true`,
-          [batch_id]
-        );
-        const { sendMeetingScheduledNotification } = require('../emails/emailService');
-        const batch = await req.db.get('SELECT name FROM batches WHERE id = $1', [batch_id]);
-        const frontendBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
-        const teacherFullName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Your teacher';
-        for (const student of students) {
-          sendMeetingScheduledNotification({
-            to: student.email,
-            studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student',
-            meetingTitle: title,
-            teacherName: teacherFullName,
-            batchName: batch?.name || null,
-            scheduledStart: scheduled_start || null,
-            scheduledEnd: scheduled_end || null,
-            description: description || null,
-            joinUrl: `${frontendBase}/app/meetings?focus=${result.id}`,
-            recipientTimezone: student.timezone || 'UTC',
-          }).catch(err => console.error('Meeting email error:', err));
-        }
-      } catch (emailErr) {
-        console.error('Meeting email notification error:', emailErr);
+    if (req.io) req.io.emit('meeting:created', { meetingId });
+
+    // Email the batch students (non-blocking)
+    try {
+      const students = await req.db.all(
+        `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
+         JOIN batch_students bs ON u.id = bs.student_id
+         WHERE bs.batch_id = $1 AND u.is_active = true`,
+        [batch.id]
+      );
+      const { sendMeetingScheduledNotification } = require('../emails/emailService');
+      const frontendBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
+      const teacherFullName = personName(req.user) || 'Your teacher';
+      for (const student of students) {
+        sendMeetingScheduledNotification({
+          to: student.email,
+          studentName: personName(student) || 'Student',
+          meetingTitle: cleanTitle,
+          teacherName: teacherFullName,
+          batchName: batch.name || null,
+          scheduledStart: scheduled_start || null,
+          scheduledEnd: scheduled_end || null,
+          description: cleanDescription,
+          joinUrl: `${frontendBase}/app/meetings?focus=${meetingId}`,
+          recipientTimezone: student.timezone || 'UTC',
+        }).catch(err => console.error('Meeting email error:', err));
       }
+    } catch (emailErr) {
+      console.error('Meeting email notification error:', emailErr);
     }
 
-    // Fire in-app notifications to batch students (non-blocking)
-    if (batch_id) {
-      try {
-        const { notifyUsers, getStudentIdsForBatches } = require('../services/notificationService');
-        const studentIds = await getStudentIdsForBatches(req.db, [batch_id]);
-        if (studentIds.length > 0) {
-          const startIso = scheduled_start || null;
-          const bodyText = startIso
-            ? `Starts ${new Date(startIso).toLocaleString()}`
-            : 'A live class has been scheduled for your batch.';
-          await notifyUsers(req.db, studentIds, {
-            type: 'meeting_scheduled',
-            title: `Class scheduled: ${title}`,
-            body: bodyText,
-            link_path: `/app/meetings?focus=${result.id}`,
-            entity_type: 'meeting',
-            entity_id: result.id,
-            actor_user_id: req.user.id,
-          });
-        }
-      } catch (notifyErr) {
-        console.error('Notification failed (meeting_scheduled):', notifyErr.message);
+    // In-app notifications for the batch (non-blocking)
+    try {
+      const { createBulkNotifications, getStudentsInBatches } = require('../services/notificationService');
+      const studentIds = await getStudentsInBatches(req.db, [batch.id]);
+      if (studentIds.length > 0) {
+        await createBulkNotifications(req.db, studentIds, {
+          type: 'meeting_scheduled',
+          title: `Class scheduled: ${cleanTitle}`,
+          message: `Starts ${new Date(scheduled_start).toLocaleString()}`,
+          link: `/app/meetings?focus=${meetingId}`,
+          entity_type: 'meeting',
+          entity_id: meetingId,
+          sender_id: req.user.id,
+        });
       }
+    } catch (notifyErr) {
+      console.error('Notification failed (meeting_scheduled):', notifyErr.message);
     }
 
-    res.status(201).json(result);
+    const created = await access.findMeeting(req.db, meetingId);
+    res.status(201).json(access.meetingView(created, { role: 'host', direct: true }, { passcode }));
   } catch (error) {
     console.error('POST /meetings error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /meetings — list meetings (filtered by role)
+// GET /meetings — the meetings the caller belongs to (host, batch, admitted guest, or all for admins)
 router.get('/', async (req, res) => {
   try {
     const { status, batch_id } = req.query;
-    let query = '';
-    const params = [];
-    let paramIdx = 1;
-
-    if (req.user.role === 'teacher') {
-      query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-               b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
-               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
-               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
-               FROM meetings m
-               LEFT JOIN users u ON m.teacher_id = u.id
-               LEFT JOIN batches b ON m.batch_id = b.id
-               WHERE m.teacher_id = $${paramIdx++}`;
-      params.push(req.user.id);
-    } else if (req.user.role === 'student') {
-      // Students see meetings for batches they're enrolled in
-      query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-               b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
-               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
-               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
-               FROM meetings m
-               LEFT JOIN users u ON m.teacher_id = u.id
-               LEFT JOIN batches b ON m.batch_id = b.id
-               WHERE m.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $${paramIdx++})`;
-      params.push(req.user.id);
+    const params = [req.user.id];
+    let where;
+    if (req.user.role === 'admin') {
+      where = 'WHERE 1=1';
+    } else if (req.user.role === 'teacher') {
+      where = 'WHERE (m.teacher_id = $1 OR b.teacher_id = $1 OR $1 = ANY(m.trusted_user_ids))';
     } else {
-      // Admin sees all
-      query = `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-               b.name as batch_name,
-               (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) as participant_count,
-               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
-               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
-               FROM meetings m
-               LEFT JOIN users u ON m.teacher_id = u.id
-               LEFT JOIN batches b ON m.batch_id = b.id
-               WHERE 1=1`;
+      where = `WHERE (m.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $1) OR $1 = ANY(m.trusted_user_ids))`;
     }
+    if (status) { params.push(status); where += ` AND m.status = $${params.length}`; }
+    if (batch_id) { params.push(batch_id); where += ` AND m.batch_id = $${params.length}`; }
 
-    if (status) {
-      query += ` AND m.status = $${paramIdx++}`;
-      params.push(status);
+    const rows = await req.db.all(
+      `SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, b.name AS batch_name,
+              (b.teacher_id = $1) AS is_batch_teacher,
+              EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = m.batch_id AND bs.student_id = $1) AS is_member,
+              (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) AS participant_count,
+              EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
+              EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
+       FROM meetings m
+       LEFT JOIN users u ON m.teacher_id = u.id
+       LEFT JOIN batches b ON m.batch_id = b.id
+       ${where}
+       ORDER BY m.created_at DESC`,
+      params
+    );
+
+    const uid = Number(req.user.id);
+    const out = [];
+    for (const m of rows) {
+      const role = Number(m.teacher_id) === uid ? 'host'
+        : req.user.role === 'admin' ? 'admin'
+        : m.is_batch_teacher ? 'teacher'
+        : m.is_member ? 'member'
+        : 'guest';
+      const passcode = role === 'host' && m.status !== 'ended' ? await access.ensurePasscode(req.db, m) : undefined;
+      const { password, trusted_user_ids, kicked_user_ids, is_member, is_batch_teacher, ...safe } = m;
+      out.push({ ...safe, code: m.room_name, my_role: role, ...(passcode ? { passcode } : {}) });
     }
-    if (batch_id) {
-      query += ` AND m.batch_id = $${paramIdx++}`;
-      params.push(batch_id);
-    }
-
-    query += ' ORDER BY m.created_at DESC';
-
-    const meetings = await req.db.all(query, params);
-    res.json(meetings);
+    res.json(out);
   } catch (error) {
     console.error('GET /meetings error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -410,35 +416,71 @@ router.get('/attendance-dashboard', async (req, res) => {
   }
 });
 
-// GET /meetings/join-by-room/:roomName — lookup meeting by room name for share links (MUST be before /:id)
+// POST /meetings/verify — "Join with a meeting ID": checks the ID (and the passcode
+// when the caller needs one) before opening the pre-join screen. MUST be before /:id.
+router.post('/verify', async (req, res) => {
+  try {
+    const uid = req.user.id;
+    if (!access.allowHit(`verify:${uid}`, 20, 10 * 60 * 1000)) {
+      return fail(res, 429, 'RATE_LIMITED', 'Too many attempts. Try again in a few minutes.');
+    }
+    const ref = access.normalizeRef(req.body?.meetingId);
+    if (!ref || access.isNumericRef(ref)) return fail(res, 404, 'NOT_FOUND', 'No meeting has this ID. Check it and try again.');
+    const meeting = await access.findMeeting(req.db, ref);
+    if (!meeting) return fail(res, 404, 'NOT_FOUND', 'No meeting has this ID. Check it and try again.');
+    const who = await access.resolveAccess(req.db, meeting, req.user);
+    if (who.role === 'kicked') return fail(res, 403, 'KICKED', 'The host removed you from this meeting.');
+    if (meeting.status === 'ended') return fail(res, 410, 'ENDED', 'This meeting has already ended.');
+
+    if (!who.direct) {
+      const wait = access.passcodeLock(meeting.id, uid);
+      if (wait) return fail(res, 429, 'TOO_MANY_ATTEMPTS', `Too many wrong passcodes. Try again in ${Math.ceil(wait / 60)} min.`, { retryAfter: wait });
+      if (!access.passcodeMatches(meeting.password, req.body?.passcode)) {
+        const left = access.passcodeFailed(meeting.id, uid);
+        return fail(res, 403, 'BAD_PASSCODE', left > 0 ? `Wrong passcode. ${left} ${left === 1 ? 'attempt' : 'attempts'} left.` : 'Wrong passcode. Try again in 15 min.', { attemptsLeft: left });
+      }
+      access.passcodeOk(meeting.id, uid);
+      access.markVerified(meeting.id, uid);
+    }
+    res.json({ code: meeting.room_name, title: meeting.title, status: meeting.status, direct: who.direct });
+  } catch (error) {
+    console.error('POST /meetings/verify error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /meetings/join-by-room/:roomName — legacy share links (MUST be before /:id)
 router.get('/join-by-room/:roomName', async (req, res) => {
   try {
-    const meeting = await req.db.get(
-      'SELECT id, title, status, room_name FROM meetings WHERE room_name = $1',
-      [req.params.roomName]
-    );
+    if (!access.allowHit(`lookup:${req.user.id}`, 60, 10 * 60 * 1000)) return fail(res, 429, 'RATE_LIMITED', 'Too many requests');
+    const meeting = await req.db.get('SELECT id, room_name FROM meetings WHERE room_name = $1', [String(req.params.roomName).slice(0, 100)]);
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    res.json({ meetingId: meeting.id, title: meeting.title, status: meeting.status });
+    res.json({ code: meeting.room_name });
   } catch (error) {
     console.error('GET /meetings/join-by-room/:roomName error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// GET /meetings/:id — get single meeting
+// GET /meetings/:id — one meeting, by code (anyone signed in) or by numeric id (members only)
 router.get('/:id', async (req, res) => {
   try {
-    const meeting = await req.db.get(
-      `SELECT m.*, u.first_name as teacher_first_name, u.last_name as teacher_last_name,
-       b.name as batch_name
-       FROM meetings m
-       LEFT JOIN users u ON m.teacher_id = u.id
-       LEFT JOIN batches b ON m.batch_id = b.id
-       WHERE m.id = $1`,
-      [req.params.id]
-    );
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    res.json(meeting);
+    const ref = access.normalizeRef(req.params.id);
+    const meeting = await access.findMeeting(req.db, ref);
+    const who = meeting ? await access.resolveAccess(req.db, meeting, req.user) : null;
+    // Numeric ids are guessable: they only open meetings you already belong to.
+    const visible = meeting && (!access.isNumericRef(ref) || who.direct || who.role === 'kicked');
+    if (!visible) {
+      if (!access.allowHit(`miss:${req.user.id}`, 30, 10 * 60 * 1000)) return fail(res, 429, 'RATE_LIMITED', 'Too many requests');
+      return fail(res, 404, 'NOT_FOUND', 'Meeting not found');
+    }
+    const extra = {};
+    if (who.role === 'host') extra.passcode = meeting.status === 'ended' ? access.openPasscode(meeting.password) : await access.ensurePasscode(req.db, meeting);
+    if (!who.direct) {
+      extra.waiting = access.lobbyHas(meeting.id, req.user.id);
+      extra.verified = access.isVerified(meeting.id, req.user.id);
+    }
+    res.json(access.meetingView(meeting, who, extra));
   } catch (error) {
     console.error('GET /meetings/:id error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -448,13 +490,11 @@ router.get('/:id', async (req, res) => {
 // PUT /meetings/:id — update meeting (teacher who created it only)
 router.put('/:id', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
+    if (!ctx) return;
+    const { meeting } = ctx;
 
-    const { title, description, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants } = req.body;
+    const { title, description, scheduled_start, scheduled_end, max_participants } = req.body || {};
 
     // Build a list of human-readable changes for the email
     const changes = [];
@@ -474,16 +514,43 @@ router.put('/:id', async (req, res) => {
     await req.db.run(
       `UPDATE meetings SET title = COALESCE($1, title), description = COALESCE($2, description),
        scheduled_start = COALESCE($3, scheduled_start), scheduled_end = COALESCE($4, scheduled_end),
-       password = COALESCE($5, password), trusted_user_ids = COALESCE($6, trusted_user_ids),
-       max_participants = COALESCE($7, max_participants), updated_at = CURRENT_TIMESTAMP
-       WHERE id = $8`,
-      [title, description, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants, req.params.id]
+       max_participants = COALESCE($5, max_participants), updated_at = CURRENT_TIMESTAMP
+       WHERE id = $6`,
+      [title, description, scheduled_start, scheduled_end, max_participants, meeting.id]
     );
+
+    // Keep linked schedule in sync
+    try {
+      const current = await req.db.get('SELECT * FROM meetings WHERE id = $1', [meeting.id]);
+      if (current && current.scheduled_start) {
+        const endTime = current.scheduled_end || new Date(new Date(current.scheduled_start).getTime() + 60 * 60 * 1000).toISOString();
+        const existingSched = await req.db.get('SELECT id FROM schedules WHERE meeting_id = $1', [meeting.id]);
+        if (existingSched) {
+          await req.db.run(
+            `UPDATE schedules SET
+               title = $1, description = $2, start_time = $3, end_time = $4,
+               batch_id = $5, link = $6
+             WHERE meeting_id = $7`,
+            [current.title, current.description, current.scheduled_start, endTime, current.batch_id || null, `/app/meeting/${current.id}`, meeting.id]
+          );
+        } else {
+          await req.db.run(
+            `INSERT INTO schedules (
+               title, description, batch_id, teacher_id, start_time, end_time,
+               type, location_mode, link, status, meeting_id
+             ) VALUES ($1, $2, $3, $4, $5, $6, 'meeting', 'online', $7, 'scheduled', $8)`,
+            [current.title, current.description, current.batch_id || null, current.teacher_id, current.scheduled_start, endTime, `/app/meeting/${current.id}`, current.id]
+          );
+        }
+      }
+    } catch (schedUpErr) {
+      console.error('Failed to update synced meeting schedule:', schedUpErr.message);
+    }
 
     // Send update email to batch students if anything substantive changed
     if (meeting.batch_id && changes.length > 0) {
       try {
-        const updated = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+        const updated = await req.db.get('SELECT * FROM meetings WHERE id = $1', [meeting.id]);
         const students = await req.db.all(
           `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
            JOIN batch_students bs ON u.id = bs.student_id
@@ -493,11 +560,11 @@ router.put('/:id', async (req, res) => {
         const { sendMeetingUpdate } = require('../emails/emailService');
         const batch = await req.db.get('SELECT name FROM batches WHERE id = $1', [meeting.batch_id]);
         const frontendBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
-        const teacherFullName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Your teacher';
+        const teacherFullName = personName(req.user) || 'Your teacher';
         for (const student of students) {
           sendMeetingUpdate({
             to: student.email,
-            studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student',
+            studentName: personName(student) || 'Student',
             meetingTitle: updated.title,
             teacherName: teacherFullName,
             batchName: batch?.name || null,
@@ -527,11 +594,9 @@ router.put('/:id', async (req, res) => {
 // DELETE /meetings/:id — delete meeting
 router.delete('/:id', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Not authorized' });
-    }
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
+    if (!ctx) return;
+    const { meeting } = ctx;
 
     // Capture batch students before delete so we can email them
     let students = [];
@@ -550,17 +615,21 @@ router.delete('/:id', async (req, res) => {
       }
     }
 
-    await req.db.run('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+    await req.db.run('DELETE FROM schedules WHERE meeting_id = $1', [meeting.id]).catch(() => {});
+    await req.db.run('DELETE FROM meetings WHERE id = $1', [meeting.id]);
+    access.lobbyClear(meeting.id);
+    if (meeting.status === 'active') access.closeLiveKitRoom(meeting);
+    announce(req.io, 'meeting:ended', meeting);
 
     // Send cancellation email to batch students (only for scheduled or upcoming meetings)
     if (students.length > 0 && (meeting.status === 'scheduled' || meeting.status === 'waiting')) {
       try {
         const { sendMeetingCancellation } = require('../emails/emailService');
-        const teacherFullName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Your teacher';
+        const teacherFullName = personName(req.user) || 'Your teacher';
         for (const student of students) {
           sendMeetingCancellation({
             to: student.email,
-            studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim() || 'Student',
+            studentName: personName(student) || 'Student',
             meetingTitle: meeting.title,
             teacherName: teacherFullName,
             batchName: batch?.name || null,
@@ -585,6 +654,20 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// POST /meetings/:id/passcode — host issues a new passcode (the old one stops working)
+router.post('/:id/passcode', async (req, res) => {
+  try {
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const passcode = access.generatePasscode();
+    await req.db.run('UPDATE meetings SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [access.sealPasscode(passcode), ctx.meeting.id]);
+    res.json({ passcode });
+  } catch (error) {
+    console.error('POST /meetings/:id/passcode error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // ============================================================
 // MEETING LIFECYCLE
 // ============================================================
@@ -592,30 +675,44 @@ router.delete('/:id', async (req, res) => {
 // POST /meetings/:id/start — teacher starts the meeting (waiting → active)
 router.post('/:id/start', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can start' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
+    if (meeting.status === 'ended') return fail(res, 409, 'ENDED', 'This meeting has already ended');
 
     await req.db.run(
-      `UPDATE meetings SET status = 'active', started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [req.params.id]
+      `UPDATE meetings SET status = 'active', started_at = COALESCE(started_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [meeting.id]
     );
+    const wasActive = meeting.status === 'active';
+    meeting.status = 'active';
 
-    // Generate teacher's LiveKit token
-    const teacherName = `${req.user.first_name} ${req.user.last_name}`;
-    const token = await generateLiveKitToken(meeting.room_name, teacherName, req.user.id, true);
+    const token = await access.liveKitToken(meeting, req.user, ctx.who);
+    announce(req.io, 'meeting:started', meeting);
 
-    // Notify all waiting students via socket
-    if (req.io) {
-      req.io.to(`meeting:${meeting.id}`).emit('meeting:started', { meetingId: meeting.id });
-      // Also emit globally so MeetingList pages update in real-time
-      req.io.emit('meeting:started', { meetingId: meeting.id });
+    // Tell the batch the class is live (first start only)
+    if (meeting.batch_id && !wasActive) {
+      try {
+        const { createBulkNotifications, getStudentsInBatches } = require('../services/notificationService');
+        const studentIds = await getStudentsInBatches(req.db, [meeting.batch_id]);
+        if (studentIds.length > 0) {
+          await createBulkNotifications(req.db, studentIds, {
+            type: 'meeting_started',
+            title: `Class is Live: ${meeting.title}`,
+            message: `${personName(req.user)} has started the class. Click to join now!`,
+            link: `/app/meetings?focus=${meeting.id}`,
+            entity_type: 'meeting',
+            entity_id: meeting.id,
+            sender_id: req.user.id,
+          });
+        }
+      } catch (notifyErr) {
+        console.error('Notification failed (meeting_started):', notifyErr.message);
+      }
     }
 
-    // Record teacher attendance
     await recordJoin(req.db, meeting.id, req.user.id);
-
-    res.json({ token, livekitUrl: LIVEKIT_URL, roomName: meeting.room_name });
+    res.json({ token, livekitUrl: access.liveKitUrl(), roomName: meeting.room_name, role: 'host' });
   } catch (error) {
     console.error('POST /meetings/:id/start error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -625,22 +722,14 @@ router.post('/:id/start', async (req, res) => {
 // POST /meetings/:id/prepare — teacher enters pre-start screen (scheduled → waiting)
 router.post('/:id/prepare', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can prepare' });
-    if (meeting.status !== 'scheduled') return res.status(400).json({ error: 'Meeting is not in scheduled state' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
+    if (meeting.status !== 'scheduled') return res.json({ message: 'Meeting already opened', status: meeting.status });
 
-    await req.db.run(
-      `UPDATE meetings SET status = 'waiting', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [req.params.id]
-    );
-
-    // Notify globally so student MeetingList updates
-    if (req.io) {
-      req.io.emit('meeting:waiting', { meetingId: meeting.id });
-    }
-
-    res.json({ message: 'Meeting is now in waiting state' });
+    await req.db.run(`UPDATE meetings SET status = 'waiting', updated_at = CURRENT_TIMESTAMP WHERE id = $1`, [meeting.id]);
+    announce(req.io, 'meeting:waiting', meeting);
+    res.json({ message: 'Meeting is now in waiting state', status: 'waiting' });
   } catch (error) {
     console.error('POST /meetings/:id/prepare error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -650,11 +739,9 @@ router.post('/:id/prepare', async (req, res) => {
 // POST /meetings/:id/end — teacher ends the meeting
 router.post('/:id/end', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id && req.user.role !== 'admin') {
-      return res.status(403).json({ error: 'Only the host can end' });
-    }
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
+    if (!ctx) return;
+    const { meeting } = ctx;
 
     // Auto-stop any active recording for this meeting (best-effort)
     try {
@@ -662,10 +749,9 @@ router.post('/:id/end', async (req, res) => {
         `SELECT id, egress_id FROM meeting_recordings
          WHERE meeting_id = $1 AND status IN ('starting', 'recording')
          ORDER BY id DESC LIMIT 1`,
-        [req.params.id]
+        [meeting.id]
       );
       if (active && active.egress_id) {
-        const recordingService = require('../services/recordingService');
         await recordingService.stopRecording(active.egress_id).catch(err =>
           console.warn(`[meetings/end] auto-stop egress failed for ${active.egress_id}:`, err.message)
         );
@@ -682,16 +768,22 @@ router.post('/:id/end', async (req, res) => {
 
     await req.db.run(
       `UPDATE meetings SET status = 'ended', ended_at = CURRENT_TIMESTAMP, is_recording = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [req.params.id]
+      [meeting.id]
     );
+
+    // Mark linked schedule as completed
+    await req.db.run(
+      `UPDATE schedules SET status = 'completed' WHERE meeting_id = $1`,
+      [meeting.id]
+    ).catch(e => console.warn('[meetings/end] update schedules status failed:', e.message));
 
     // Bulk close all open attendance sessions
     await req.db.run(
-      `UPDATE meeting_attendance 
-       SET left_at = CURRENT_TIMESTAMP, 
+      `UPDATE meeting_attendance
+       SET left_at = CURRENT_TIMESTAMP,
            duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - joined_at)) / 60.0, 2)
        WHERE meeting_id = $1 AND left_at IS NULL`,
-      [req.params.id]
+      [meeting.id]
     );
 
     // Update all summaries: duration = last_leave - first_join
@@ -701,26 +793,26 @@ router.post('/:id/end', async (req, res) => {
            total_duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - first_join)) / 60.0, 2),
            updated_at = CURRENT_TIMESTAMP
        WHERE meeting_id = $1 AND first_join IS NOT NULL`,
-      [req.params.id]
+      [meeting.id]
     );
 
     // Mark absent students (fire and forget for speed)
-    markAbsentStudents(req.db, req.params.id).catch(() => {});
+    markAbsentStudents(req.db, meeting.id).catch(() => {});
 
-    // Notify all participants
-    if (req.io) {
-      req.io.to(`meeting:${meeting.id}`).emit('meeting:ended', { meetingId: meeting.id });
-      req.io.emit('meeting:ended', { meetingId: meeting.id });
-    }
+    // Everyone waiting is told, then the video room is closed server-side
+    access.lobbyClear(meeting.id);
+    await access.settleJoinRequests(req.db, meeting);
+    announce(req.io, 'meeting:ended', meeting);
+    access.closeLiveKitRoom(meeting);
 
     // Get summary
     const attendees = await req.db.all(
       'SELECT COUNT(DISTINCT user_id) as count FROM meeting_attendance WHERE meeting_id = $1',
-      [req.params.id]
+      [meeting.id]
     );
     const durRow = await req.db.get(
       "SELECT ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - started_at)) / 60.0) as dur FROM meetings WHERE id = $1",
-      [req.params.id]
+      [meeting.id]
     );
     const duration = durRow?.dur || 0;
 
@@ -731,20 +823,20 @@ router.post('/:id/end', async (req, res) => {
   }
 });
 
-// POST /meetings/:id/lock — toggle meeting lock
+// POST /meetings/:id/lock — toggle meeting lock (no one new can join)
 router.post('/:id/lock', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can lock/unlock' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
 
     const newLocked = !meeting.is_locked;
-    await req.db.run('UPDATE meetings SET is_locked = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [newLocked, req.params.id]);
+    await req.db.run('UPDATE meetings SET is_locked = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [newLocked, meeting.id]);
 
     if (req.io) {
-      req.io.to(`meeting:${meeting.id}`).emit('meeting:lockChanged', { meetingId: meeting.id, isLocked: newLocked });
+      req.io.to(access.rooms.participants(meeting.id)).to(access.rooms.lobby(meeting.id))
+        .emit('meeting:lockChanged', { meetingId: meeting.id, isLocked: newLocked });
     }
-
     res.json({ is_locked: newLocked });
   } catch (error) {
     console.error('POST /meetings/:id/lock error:', error);
@@ -754,143 +846,197 @@ router.post('/:id/lock', async (req, res) => {
 
 // ============================================================
 // JOIN FLOW
+//   insiders (host, admins, batch students & teacher, admitted guests) → straight in
+//   everyone else → passcode → lobby → the host admits or denies
 // ============================================================
 
-// POST /meetings/:id/join — student requests to join
+// POST /meetings/:id/join   body: { passcode? }
 router.post('/:id/join', async (req, res) => {
   try {
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    const ctx = await load(req, res);
+    if (!ctx) return;
+    const { meeting, who } = ctx;
+    const uid = req.user.id;
 
-    // Check if ended
-    if (meeting.status === 'ended') {
-      return res.json({ action: 'ended' });
+    if (meeting.status === 'ended') return res.json({ action: 'ended' });
+    if (who.role === 'kicked') return res.json({ action: 'kicked' });
+
+    if (!who.direct) {
+      // ── Guests: passcode first ──
+      const wait = access.passcodeLock(meeting.id, uid);
+      if (wait) return fail(res, 429, 'TOO_MANY_ATTEMPTS', `Too many wrong passcodes. Try again in ${Math.ceil(wait / 60)} min.`, { retryAfter: wait });
+      const alreadyVerified = access.lobbyHas(meeting.id, uid) || access.isVerified(meeting.id, uid);
+      if (!alreadyVerified) {
+        if (!req.body?.passcode) return res.json({ action: 'passcode' });
+        if (!access.passcodeMatches(meeting.password, req.body.passcode)) {
+          const left = access.passcodeFailed(meeting.id, uid);
+          return fail(res, 403, 'BAD_PASSCODE', left > 0 ? `Wrong passcode. ${left} ${left === 1 ? 'attempt' : 'attempts'} left.` : 'Wrong passcode. Try again in 15 min.', { attemptsLeft: left });
+        }
+        access.passcodeOk(meeting.id, uid);
+        access.markVerified(meeting.id, uid);
+      }
+
+      const denied = access.denialWait(meeting.id, uid);
+      if (denied === null) return res.json({ action: 'declined', final: true });
+      if (denied > 0) return res.json({ action: 'declined', retryAfter: denied });
+
+      if (meeting.status === 'scheduled') return res.json({ action: 'not_ready' });
+      if (meeting.status === 'waiting') return res.json({ action: 'waiting' });
+      if (meeting.is_locked) return res.json({ action: 'locked' });
+
+      // ── Knock: the host sees it live, and in the notification bell ──
+      const { isNew } = access.lobbyAdd(meeting.id, req.user, 'passcode');
+      access.publishLobby(req.io, meeting);
+      if (isNew) {
+        const request = { userId: uid, userName: personName(req.user), role: req.user.role };
+        req.io?.to(access.rooms.user(meeting.teacher_id)).emit('meeting:lobby-request', {
+          meetingId: meeting.id, code: meeting.room_name, title: meeting.title, request,
+        });
+        access.notifyJoinRequest(req.db, meeting, req.user);
+      }
+      return res.json({ action: 'lobby' });
     }
 
-    // Check if scheduled (not even waiting yet)
-    if (meeting.status === 'scheduled') {
-      return res.json({ action: 'not_ready' });
-    }
-
-    // Check if kicked
-    if (meeting.kicked_user_ids && meeting.kicked_user_ids.includes(req.user.id)) {
-      return res.json({ action: 'kicked' });
-    }
-
-    // Check if locked
-    if (meeting.is_locked) {
+    // ── Insiders ──
+    if (who.role === 'host' && meeting.status !== 'active') return res.json({ action: 'start' });
+    if (meeting.status === 'scheduled') return res.json({ action: 'not_ready' });
+    if (meeting.status === 'waiting') return res.json({ action: 'waiting' });
+    // A locked class keeps out newcomers; people who were already in can come back.
+    if (meeting.is_locked && !['host', 'admin'].includes(who.role) && !(await hasJoinedBefore(req.db, meeting.id, uid))) {
       return res.json({ action: 'locked' });
     }
 
-    // Check if waiting (teacher hasn't started yet)
-    if (meeting.status === 'waiting') {
-      return res.json({ action: 'waiting', meetingId: meeting.id });
-    }
-
-    // Meeting is active — determine if user gets direct entry
-    const isTeacher = meeting.teacher_id === req.user.id;
-    const isTrusted = meeting.trusted_user_ids && meeting.trusted_user_ids.includes(req.user.id);
-
-    // Check if user is in the meeting's batch → auto-admit
-    let isBatchStudent = false;
-    if (meeting.batch_id) {
-      const enrollment = await req.db.get(
-        'SELECT id FROM batch_students WHERE batch_id = $1 AND student_id = $2',
-        [meeting.batch_id, req.user.id]
-      );
-      isBatchStudent = !!enrollment;
-    }
-
-    if (isTeacher || isTrusted || isBatchStudent) {
-      // Direct entry — no lobby needed
-      const participantName = `${req.user.first_name} ${req.user.last_name}`;
-      const token = await generateLiveKitToken(meeting.room_name, participantName, req.user.id, isTeacher);
-      await recordJoin(req.db, meeting.id, req.user.id);
-      return res.json({ action: 'join', token, livekitUrl: LIVEKIT_URL, roomName: meeting.room_name });
-    }
-
-    // Not in batch and not trusted — needs admission from teacher (lobby)
-    return res.json({ action: 'lobby', meetingId: meeting.id });
+    const token = await access.liveKitToken(meeting, req.user, who);
+    await recordJoin(req.db, meeting.id, uid);
+    res.json({ action: 'join', token, livekitUrl: access.liveKitUrl(), roomName: meeting.room_name, role: who.role });
   } catch (error) {
     console.error('POST /meetings/:id/join error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /meetings/:id/admit — teacher admits a student from lobby
+// GET /meetings/:id/lobby — host: who is waiting
+router.get('/:id/lobby', async (req, res) => {
+  try {
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    res.json({ pending: access.lobbyList(ctx.meeting.id) });
+  } catch (error) {
+    console.error('GET /meetings/:id/lobby error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /meetings/:id/lobby — a guest stops waiting
+router.delete('/:id/lobby', async (req, res) => {
+  try {
+    const ctx = await load(req, res);
+    if (!ctx) return;
+    if (access.lobbyRemove(ctx.meeting.id, req.user.id)) {
+      access.publishLobby(req.io, ctx.meeting);
+      await access.settleJoinRequests(req.db, ctx.meeting, [req.user.id]);
+    }
+    res.json({ message: 'Left the lobby' });
+  } catch (error) {
+    console.error('DELETE /meetings/:id/lobby error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** Admits people who are waiting: they become guests of this meeting (rejoin without asking again). */
+async function admit(req, meeting, userIds) {
+  const waiting = userIds.map(Number).filter(id => access.lobbyHas(meeting.id, id));
+  if (waiting.length === 0) return [];
+  await req.db.run(
+    `UPDATE meetings
+     SET trusted_user_ids = ARRAY(SELECT DISTINCT unnest(COALESCE(trusted_user_ids, '{}') || $1::int[])),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2`,
+    [waiting, meeting.id]
+  );
+  for (const id of waiting) {
+    access.lobbyRemove(meeting.id, id);
+    access.clearDenials(meeting.id, id);
+    // No token travels over the socket: the guest's app calls /join again and is now let in.
+    req.io?.to(access.rooms.user(id)).emit('meeting:admitted', { meetingId: meeting.id });
+  }
+  await access.settleJoinRequests(req.db, meeting, waiting);
+  access.publishLobby(req.io, meeting);
+  return waiting;
+}
+
+// POST /meetings/:id/admit   body: { user_id }
 router.post('/:id/admit', async (req, res) => {
   try {
-    const { user_id } = req.body;
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can admit' });
-
-    const student = await req.db.get('SELECT id, first_name, last_name FROM users WHERE id = $1', [user_id]);
-    if (!student) return res.status(404).json({ error: 'User not found' });
-
-    const participantName = `${student.first_name} ${student.last_name}`;
-    const token = await generateLiveKitToken(meeting.room_name, participantName, student.id, false);
-
-    // Record attendance
-    await recordJoin(req.db, meeting.id, student.id);
-
-    // Notify the student via socket
-    if (req.io) {
-      req.io.to(`user:${user_id}`).emit('meeting:admitted', {
-        meetingId: meeting.id,
-        token,
-        livekitUrl: LIVEKIT_URL,
-        roomName: meeting.room_name,
-      });
-    }
-
-    res.json({ message: 'Student admitted' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const done = await admit(req, ctx.meeting, [req.body?.user_id]);
+    if (done.length === 0) return fail(res, 404, 'NOT_WAITING', 'This person is no longer waiting');
+    res.json({ admitted: done });
   } catch (error) {
     console.error('POST /meetings/:id/admit error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /meetings/:id/decline — teacher declines a student
+// POST /meetings/:id/admit-all
+router.post('/:id/admit-all', async (req, res) => {
+  try {
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const done = await admit(req, ctx.meeting, access.lobbyList(ctx.meeting.id).map(r => r.userId));
+    res.json({ admitted: done });
+  } catch (error) {
+    console.error('POST /meetings/:id/admit-all error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /meetings/:id/decline   body: { user_id }
 router.post('/:id/decline', async (req, res) => {
   try {
-    const { user_id } = req.body;
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can decline' });
-
-    if (req.io) {
-      req.io.to(`user:${user_id}`).emit('meeting:declined', { meetingId: meeting.id });
-    }
-
-    res.json({ message: 'Student declined' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
+    const userId = Number(req.body?.user_id);
+    if (!access.lobbyRemove(meeting.id, userId)) return fail(res, 404, 'NOT_WAITING', 'This person is no longer waiting');
+    access.recordDenial(meeting.id, userId);
+    req.io?.to(access.rooms.user(userId)).emit('meeting:declined', { meetingId: meeting.id });
+    await access.settleJoinRequests(req.db, meeting, [userId]);
+    access.publishLobby(req.io, meeting);
+    res.json({ message: 'Request declined' });
   } catch (error) {
     console.error('POST /meetings/:id/decline error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// POST /meetings/:id/kick — teacher kicks a student
+// POST /meetings/:id/kick — host removes someone (disconnected server-side, cannot rejoin)
 router.post('/:id/kick', async (req, res) => {
   try {
-    const { user_id } = req.body;
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can kick' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
+    const userId = Number(req.body?.user_id);
+    if (!userId || userId === Number(meeting.teacher_id)) return fail(res, 400, 'BAD_TARGET', 'This participant cannot be removed');
 
-    // Add to kicked list
-    const kickedIds = meeting.kicked_user_ids || [];
-    if (!kickedIds.includes(user_id)) kickedIds.push(user_id);
-    await req.db.run('UPDATE meetings SET kicked_user_ids = $1 WHERE id = $2', [kickedIds, req.params.id]);
-
-    // Update attendance
-    await recordLeave(req.db, req.params.id, user_id);
+    await req.db.run(
+      `UPDATE meetings
+       SET kicked_user_ids = ARRAY(SELECT DISTINCT unnest(COALESCE(kicked_user_ids, '{}') || ARRAY[$1::int])),
+           trusted_user_ids = array_remove(COALESCE(trusted_user_ids, '{}'), $1::int),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [userId, meeting.id]
+    );
+    access.lobbyRemove(meeting.id, userId);
+    await access.removeFromLiveKit(meeting, userId);
+    await recordLeave(req.db, meeting.id, userId);
 
     if (req.io) {
-      req.io.to(`user:${user_id}`).emit('meeting:kicked', { meetingId: meeting.id });
+      req.io.to(access.rooms.user(userId)).emit('meeting:kicked', { meetingId: meeting.id });
+      req.io.in(access.rooms.user(userId)).socketsLeave([access.rooms.participants(meeting.id), access.rooms.lobby(meeting.id)]);
     }
-
-    res.json({ message: 'Student kicked' });
+    res.json({ message: 'Participant removed' });
   } catch (error) {
     console.error('POST /meetings/:id/kick error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -900,7 +1046,8 @@ router.post('/:id/kick', async (req, res) => {
 // POST /meetings/:id/leave — user leaves meeting (records attendance)
 router.post('/:id/leave', async (req, res) => {
   try {
-    await recordLeave(req.db, req.params.id, req.user.id);
+    const meeting = await access.findMeeting(req.db, req.params.id);
+    if (meeting) await recordLeave(req.db, meeting.id, req.user.id);
     res.json({ message: 'Left meeting' });
   } catch (error) {
     console.error('POST /meetings/:id/leave error:', error);
@@ -912,14 +1059,12 @@ router.post('/:id/leave', async (req, res) => {
 // ATTENDANCE
 // ============================================================
 
-// GET /meetings/:id/attendance — get attendance summary for a meeting
+// GET /meetings/:id/attendance — attendance summary (host and admins only)
 router.get('/:id/attendance', async (req, res) => {
   try {
-    // Get meeting info first to know the teacher
-    const meeting = await req.db.get(
-      'SELECT started_at, ended_at, batch_id, title, teacher_id FROM meetings WHERE id = $1',
-      [req.params.id]
-    );
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
+    if (!ctx) return;
+    const meeting = ctx.meeting;
 
     // Get summary (present + absent) — exclude teacher
     const summary = await req.db.all(
@@ -928,7 +1073,7 @@ router.get('/:id/attendance', async (req, res) => {
        JOIN users u ON mas.user_id = u.id
        WHERE mas.meeting_id = $1 AND mas.user_id != $2
        ORDER BY mas.status ASC, u.first_name ASC`,
-      [req.params.id, meeting?.teacher_id || 0]
+      [meeting.id, meeting.teacher_id || 0]
     );
 
     // Get detailed sessions — exclude teacher
@@ -938,13 +1083,13 @@ router.get('/:id/attendance', async (req, res) => {
        JOIN users u ON ma.user_id = u.id
        WHERE ma.meeting_id = $1 AND ma.user_id != $2
        ORDER BY ma.joined_at ASC`,
-      [req.params.id, meeting?.teacher_id || 0]
+      [meeting.id, meeting.teacher_id || 0]
     );
 
-    const durRow = meeting?.started_at && meeting?.ended_at
+    const durRow = meeting.started_at && meeting.ended_at
       ? await req.db.get(
           'SELECT ROUND(EXTRACT(EPOCH FROM (ended_at - started_at)) / 60.0) as dur FROM meetings WHERE id = $1',
-          [req.params.id]
+          [meeting.id]
         )
       : null;
     const meetingDuration = durRow?.dur || 0;
@@ -958,7 +1103,7 @@ router.get('/:id/attendance', async (req, res) => {
        FROM meeting_attendance_summary mas
        JOIN users u ON mas.user_id = u.id
        WHERE mas.meeting_id = $1 AND mas.user_id = $2`,
-      [req.params.id, meeting?.teacher_id || 0]
+      [meeting.id, meeting.teacher_id || 0]
     );
 
     res.json({
@@ -975,7 +1120,7 @@ router.get('/:id/attendance', async (req, res) => {
         present: presentCount,
         absent: absentCount,
         meetingDuration,
-        meetingTitle: meeting?.title,
+        meetingTitle: meeting.title,
       }
     });
   } catch (error) {
@@ -985,33 +1130,37 @@ router.get('/:id/attendance', async (req, res) => {
 });
 
 // ============================================================
-// ============================================================
 // POLLS
 // ============================================================
 
 // POST /meetings/:id/polls — create a poll
 router.post('/:id/polls', async (req, res) => {
   try {
-    const { question, options } = req.body;
-    const meeting = await req.db.get('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
-    if (meeting.teacher_id !== req.user.id) return res.status(403).json({ error: 'Only the host can create polls' });
+    const ctx = await loadAsHost(req, res);
+    if (!ctx) return;
+    const { meeting } = ctx;
+    const question = typeof req.body?.question === 'string' ? req.body.question.trim().slice(0, 200) : '';
+    const options = (Array.isArray(req.body?.options) ? req.body.options : [])
+      .map(o => (typeof o === 'string' ? o.trim().slice(0, 120) : ''))
+      .filter(Boolean)
+      .slice(0, 8);
+    if (!question || options.length < 2) return res.status(400).json({ error: 'A question and at least two options are required' });
 
     const result = await req.db.run(
       'INSERT INTO meeting_polls (meeting_id, question, options) VALUES ($1, $2, $3) RETURNING *',
-      [req.params.id, question, JSON.stringify(options)]
+      [meeting.id, question, JSON.stringify(options)]
     );
 
     const pollData = {
       id: result.id || result.lastID,
-      meeting_id: parseInt(req.params.id),
-      question: question,
-      options: Array.isArray(options) ? options : [],
+      meeting_id: meeting.id,
+      question,
+      options,
       is_active: true,
     };
 
     if (req.io) {
-      req.io.to(`meeting:${meeting.id}`).emit('poll:created', pollData);
+      req.io.to(access.rooms.participants(meeting.id)).emit('poll:created', pollData);
     }
 
     res.status(201).json(pollData);
@@ -1021,31 +1170,42 @@ router.post('/:id/polls', async (req, res) => {
   }
 });
 
-// POST /polls/:pollId/vote — vote on a poll
+// POST /polls/:pollId/vote — vote on a poll (participants of that meeting only)
 router.post('/polls/:pollId/vote', async (req, res) => {
   try {
-    const { option_index } = req.body;
     const poll = await req.db.get('SELECT * FROM meeting_polls WHERE id = $1', [req.params.pollId]);
     if (!poll) return res.status(404).json({ error: 'Poll not found' });
     if (!poll.is_active) return res.status(400).json({ error: 'Poll is closed' });
 
+    const meeting = await access.findMeeting(req.db, poll.meeting_id);
+    const who = await access.resolveAccess(req.db, meeting, req.user);
+    if (!meeting || !who.direct || meeting.status !== 'active') return res.status(403).json({ error: 'Forbidden' });
+
+    let options = [];
+    try { options = typeof poll.options === 'string' ? JSON.parse(poll.options) : (poll.options || []); } catch { options = []; }
+    const optionIndex = Number(req.body?.option_index);
+    if (!Number.isInteger(optionIndex) || optionIndex < 0 || optionIndex >= options.length) {
+      return res.status(400).json({ error: 'Invalid option' });
+    }
+
     await req.db.run(
       `INSERT INTO meeting_poll_votes (poll_id, user_id, option_index) VALUES ($1, $2, $3)
        ON CONFLICT (poll_id, user_id) DO UPDATE SET option_index = $3`,
-      [req.params.pollId, req.user.id, option_index]
+      [poll.id, req.user.id, optionIndex]
     );
 
     // Get updated vote counts
     const votes = await req.db.all(
       'SELECT option_index, COUNT(*) as count FROM meeting_poll_votes WHERE poll_id = $1 GROUP BY option_index',
-      [req.params.pollId]
+      [poll.id]
     );
 
+    // Live results go to the host only (students see results when the poll closes)
     if (req.io) {
-      req.io.to(`meeting:${poll.meeting_id}`).emit('poll:updated', { pollId: poll.id, votes });
+      req.io.to(access.rooms.hosts(poll.meeting_id)).emit('poll:updated', { pollId: poll.id, votes });
     }
 
-    res.json({ message: 'Vote recorded', votes });
+    res.json({ message: 'Vote recorded' });
   } catch (error) {
     console.error('POST /polls/:pollId/vote error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -1097,7 +1257,7 @@ router.post('/polls/:pollId/close', async (req, res) => {
     };
 
     if (req.io) {
-      req.io.to(`meeting:${poll.meeting_id}`).emit('poll:closed', { pollId: poll.id });
+      req.io.to(access.rooms.participants(poll.meeting_id)).emit('poll:closed', { pollId: poll.id });
     }
 
     res.json(closedPollData);
@@ -1107,14 +1267,30 @@ router.post('/polls/:pollId/close', async (req, res) => {
   }
 });
 
-// GET /meetings/:id/polls — get polls for a meeting
+// GET /meetings/:id/polls — the host gets every poll with results; participants
+// only the poll that is open right now (so late joiners can still answer).
 router.get('/:id/polls', async (req, res) => {
   try {
+    const ctx = await load(req, res);
+    if (!ctx) return;
+    const { meeting, who } = ctx;
+    if (!who.direct) return res.status(403).json({ error: 'Forbidden' });
+    const host = who.role === 'host' || req.user.role === 'admin';
+
     const polls = await req.db.all(
-      'SELECT * FROM meeting_polls WHERE meeting_id = $1 ORDER BY created_at DESC',
-      [req.params.id]
+      `SELECT * FROM meeting_polls WHERE meeting_id = $1 ${host ? '' : 'AND is_active = true'} ORDER BY created_at DESC`,
+      [meeting.id]
     );
-    // Get vote counts for each poll
+    if (!host) {
+      const mine = await req.db.all(
+        'SELECT poll_id, option_index FROM meeting_poll_votes WHERE user_id = $1 AND poll_id = ANY($2::int[])',
+        [req.user.id, polls.map(p => p.id)]
+      );
+      return res.json(polls.map(p => ({
+        id: p.id, question: p.question, options: p.options, is_active: true,
+        my_vote: mine.find(v => v.poll_id === p.id)?.option_index ?? null,
+      })));
+    }
     for (const poll of polls) {
       poll.votes = await req.db.all(
         'SELECT option_index, COUNT(*) as count FROM meeting_poll_votes WHERE poll_id = $1 GROUP BY option_index',
@@ -1386,19 +1562,9 @@ router.get('/:id/recording/state', async (req, res) => {
     const meeting = await req.db.get('SELECT id, batch_id, teacher_id FROM meetings WHERE id = $1', [req.params.id]);
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
 
-    // Anyone allowed in the meeting can see whether it's being recorded.
-    // Permission check matches the meeting-join authorization: host,
-    // admin, or batch student.
-    const isHost = meeting.teacher_id === req.user.id;
-    const isAdmin = req.user.role === 'admin';
-    let allowed = isHost || isAdmin;
-    if (!allowed && req.user.role === 'student' && meeting.batch_id) {
-      const link = await req.db.get(
-        'SELECT 1 FROM batch_students WHERE batch_id = $1 AND student_id = $2',
-        [meeting.batch_id, req.user.id]
-      );
-      if (link) allowed = true;
-    }
+    // Everyone allowed in the class (guests included) must be able to see that it is recorded.
+    const who = await access.resolveAccess(req.db, await access.findMeeting(req.db, meeting.id), req.user);
+    const allowed = who.direct || req.user.role === 'admin';
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
     const active = await req.db.get(

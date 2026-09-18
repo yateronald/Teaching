@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { App, Badge, Button, ConfigProvider, Input, Tooltip } from 'antd';
 import {
-  CheckCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined, LoadingOutlined, LockOutlined, PlusOutlined, StopOutlined,
+  ArrowLeftOutlined, CheckCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined, LoadingOutlined, LockOutlined, PlusOutlined, QuestionCircleOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons';
 import {
   LiveKitRoom,
@@ -19,33 +19,34 @@ import { RoomEvent, Track, VideoPresets, VideoQuality } from 'livekit-client';
 import type {
   AudioCaptureOptions, LocalTrackPublication, Participant, RemoteTrackPublication, RoomOptions, VideoCaptureOptions,
 } from 'livekit-client';
-import { io as socketIO } from 'socket.io-client';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
-import { getSocketUrl } from '../../utils/socketUrl';
+import { acquireSocket, releaseSocket } from '../../utils/realtime';
+import type { Socket } from '../../utils/realtime';
 import DeviceSettings from './DeviceSettings';
+import MeetingShare from './MeetingShare';
 import MeetingStage, { QualityBars } from './MeetingStage';
 import type { LayoutMode } from './MeetingStage';
 import PreJoin, { loadMediaChoices, saveMediaChoices } from './PreJoin';
 import type { MediaChoices, PreJoinStatus } from './PreJoin';
 import Whiteboard from './Whiteboard';
-import { Ic, cleanDeviceLabel, colorFor, initials } from './meetingUi';
+import { Ic, cleanDeviceLabel, colorFor, initials, passcodeFromLink } from './meetingUi';
 import { playChatSound, playHandRaiseSound, playNotificationSound, playPollSound } from './meetingSounds';
 import './MeetingShell.css';
 import './MeetingRoom.css';
 
-const SOCKET_URL = getSocketUrl();
 const EMOJIS = ['👏', '❤️', '😂', '🎉', '🤔', '👍', '🔥', '😮', '💯', '🙌'];
 const POLL_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
 const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
-type Socket = ReturnType<typeof socketIO>;
-type Phase = 'loading' | 'prejoin' | 'room' | 'ended' | 'locked' | 'kicked' | 'declined' | 'disconnected' | 'error';
+type Phase = 'loading' | 'prejoin' | 'room' | 'ended' | 'locked' | 'kicked' | 'declined' | 'disconnected' | 'notfound' | 'error';
+type MyRole = 'host' | 'admin' | 'teacher' | 'member' | 'guest' | 'outsider' | 'kicked';
 type Panel = 'people' | 'chat' | 'polls';
 type Menu = 'mic' | 'cam' | 'more' | 'reactions' | 'leave';
 
 interface MeetingData {
   id: number;
+  code: string;
   room_name: string;
   title: string;
   teacher_id: number;
@@ -53,9 +54,19 @@ interface MeetingData {
   is_locked: boolean;
   teacher_first_name: string;
   teacher_last_name: string;
-  batch_name: string | null;
+  batch_name?: string | null;
+  scheduled_start?: string | null;
+  my_role: MyRole;
+  needs_passcode: boolean;
+  passcode?: string;
+  waiting?: boolean;
+  verified?: boolean;
 }
-interface AdmissionRequest { userId: number; userName: string; }
+interface AdmissionRequest { userId: number; userName: string; role?: string; requestedAt?: string }
+const ROLE_TAG: Record<string, string> = { host: 'Host', teacher: 'Teacher', admin: 'Admin', guest: 'Guest' };
+const roleOf = (p: Participant) => { try { return JSON.parse(p.metadata || '{}').role as string | undefined; } catch { return undefined; } };
+const cleanPass = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+const INSIDERS: MyRole[] = ['host', 'admin', 'teacher', 'member', 'guest'];
 interface ChatMsg { id: string; senderId?: string; sender: string; text: string; time: string; }
 interface PollVote { option_index: number; count: number | string; }
 interface ActivePoll { id: number; question: string; options: string[]; votes: PollVote[]; }
@@ -124,14 +135,37 @@ const DeviceMenu: React.FC<{ kind: MediaDeviceKind; title: string; storeKey: key
 };
 
 /* ── Status screens around the call ── */
-const StatusScreen: React.FC<{ tone: string; icon: React.ReactNode; title: string; text: string; meetingTitle?: string; children?: React.ReactNode }> = ({ tone, icon, title, text, meetingTitle, children }) => (
-  <div className="ms-status">
-    <div className={`ms-card is-${tone}`}>
-      <div className="ms-icon">{icon}</div>
-      <h2 className="ms-title">{title}</h2>
-      <p className="ms-text">{text}</p>
-      {meetingTitle && <span className="ms-meeting">{Ic.cam}{meetingTitle}</span>}
-      <div className="ms-actions">{children}</div>
+const StatusScreen: React.FC<{
+  tone: string;
+  badge?: string;
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  hint?: string;
+  meetingTitle?: string;
+  children?: React.ReactNode;
+}> = ({ tone, badge, icon, title, text, hint, meetingTitle, children }) => (
+  <div className="mr-status-screen">
+    <div className={`mr-status-card is-${tone}`}>
+      {badge && <div className="mr-status-badge">{badge}</div>}
+      <div className="mr-status-icon-wrap">{icon}</div>
+      <h2 className="mr-status-title">{title}</h2>
+      <p className="mr-status-text">{text}</p>
+      {meetingTitle && (
+        <div>
+          <span className="mr-status-meeting">
+            {Ic.cam}
+            <span>{meetingTitle}</span>
+          </span>
+        </div>
+      )}
+      {hint && (
+        <div className="mr-status-hint">
+          <span className="mr-status-hint-icon">💡</span>
+          <span>{hint}</span>
+        </div>
+      )}
+      <div className="mr-status-actions">{children}</div>
     </div>
   </div>
 );
@@ -140,8 +174,9 @@ const StatusScreen: React.FC<{ tone: string; icon: React.ReactNode; title: strin
 // MEETING PAGE — join flow (pre-join → waiting / lobby → room)
 // ════════════════════════════════════════════════════════════
 const MeetingPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { id: ref } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { apiCall, user } = useAuth();
   const { message } = App.useApp();
 
@@ -153,133 +188,191 @@ const MeetingPage: React.FC = () => {
   const [reload, setReload] = useState(0);
   const [socket, setSocket] = useState<Socket | null>(null);
 
+  // Guests (not in the class's batch): passcode → lobby → admitted / declined.
+  const navState = (location.state || {}) as { passcode?: string; verified?: boolean };
+  const [passcode, setPasscode] = useState(() => cleanPass(navState.passcode || passcodeFromLink(location.hash)));
+  const [needsPass, setNeedsPass] = useState(false);
+  const [passError, setPassError] = useState<string | null>(null);
+  const [lobbySince, setLobbySince] = useState<number | null>(null);
+  const [declined, setDeclined] = useState<{ retryAfter?: number; final?: boolean }>({});
+
   const choicesRef = useRef<MediaChoices>(loadMediaChoices());
   const statusRef = useRef(preStatus);
   statusRef.current = preStatus;
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
+  const passRef = useRef(passcode);
+  passRef.current = passcode;
   const leavingRef = useRef(false);
+  const subscribeRef = useRef<() => void>(() => { });
 
   const meetingId = meeting?.id;
-  const isHost = !!meeting && meeting.teacher_id === user?.id;
+  const key = meeting?.code || ref || '';
+  const isHost = meeting?.my_role === 'host';
+  const isGuest = !!meeting && !INSIDERS.includes(meeting.my_role);
+
+  // The passcode must not linger in the address bar (screenshots, screen sharing).
+  useEffect(() => {
+    if (location.hash.includes('pwd=')) window.history.replaceState(window.history.state, '', location.pathname + location.search);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load the meeting
   useEffect(() => {
-    if (!id) return;
+    if (!ref) return;
     let cancelled = false;
     setPhase('loading');
     (async () => {
       try {
-        const resp = await apiCall(`/meetings/${id}`);
+        const resp = await apiCall(`/meetings/${encodeURIComponent(ref)}`);
         if (cancelled) return;
-        if (!resp.ok) {
-          message.error('This meeting could not be found');
-          navigate('/app/meetings');
-          return;
-        }
+        if (resp.status === 404) { setPhase('notfound'); return; }
+        if (!resp.ok) { setPhase('error'); return; }
         const data: MeetingData = await resp.json();
         setMeeting(data);
-        setPhase(data.status === 'ended' ? 'ended' : 'prejoin');
+        if (data.code && ref !== data.code) navigate(`/app/meeting/${data.code}`, { replace: true, state: location.state });
+        const outsider = !INSIDERS.includes(data.my_role);
+        setNeedsPass(outsider && data.needs_passcode && !data.verified && !data.waiting && !navState.verified);
+        if (data.waiting) { setPreStatus('lobby'); setLobbySince(t => t ?? Date.now()); }
+        setPhase(data.my_role === 'kicked' ? 'kicked' : data.status === 'ended' ? 'ended' : 'prejoin');
       } catch {
         if (!cancelled) setPhase('error');
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, reload]);
+  }, [ref, reload]);
 
   const enterRoom = useCallback((token: string, url: string) => {
     setRoomChoices({ ...choicesRef.current });
     setConn({ token, url });
+    setLobbySince(null);
     setPhase('room');
   }, []);
 
-  const handleJoin = useCallback(async () => {
-    if (!id) return;
-    setPreStatus(s => (s === 'waiting' || s === 'lobby' ? s : 'joining'));
+  const handleStart = useCallback(async () => {
+    if (!key) return;
+    setPreStatus('joining');
     try {
-      const resp = await apiCall(`/meetings/${id}/join`, { method: 'POST' });
-      if (!resp.ok) throw new Error(String(resp.status));
+      const resp = await apiCall(`/meetings/${key}/start`, { method: 'POST' });
+      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Could not start the class');
       const data = await resp.json();
+      setMeeting(m => (m ? { ...m, status: 'active' } : m));
+      enterRoom(data.token, data.livekitUrl);
+    } catch (e: unknown) {
+      setPreStatus('idle');
+      message.error(e instanceof Error && e.message ? e.message : 'Could not start the class');
+    }
+  }, [key, apiCall, enterRoom, message]);
+
+  const handleJoin = useCallback(async () => {
+    if (!key) return;
+    setPreStatus(s => (s === 'waiting' || s === 'lobby' ? s : 'joining'));
+    setPassError(null);
+    try {
+      const body = passRef.current ? { passcode: passRef.current } : {};
+      const resp = await apiCall(`/meetings/${key}/join`, { method: 'POST', body: JSON.stringify(body) });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        if (data.code === 'BAD_PASSCODE' || data.code === 'TOO_MANY_ATTEMPTS') {
+          setNeedsPass(true);
+          setPassError(data.error || 'Wrong passcode');
+          setPreStatus('idle');
+          return;
+        }
+        throw new Error(data.error);
+      }
+      const verifiedNow = () => { setNeedsPass(false); subscribeRef.current(); };
       switch (data.action) {
         case 'join': enterRoom(data.token, data.livekitUrl); break;
-        case 'waiting': setPreStatus('waiting'); break;
-        case 'lobby':
-          setPreStatus('lobby');
-          socket?.emit('meeting:request-admission', {
-            meetingId: Number(id),
-            userId: user?.id,
-            userName: `${user?.first_name || ''} ${user?.last_name || ''}`.trim(),
-          });
-          break;
-        case 'not_ready': setPreStatus('not_ready'); break;
+        case 'start': handleStart(); break;
+        case 'passcode': setNeedsPass(true); setPreStatus('idle'); break;
+        case 'lobby': verifiedNow(); setPreStatus('lobby'); setLobbySince(t => t ?? Date.now()); break;
+        case 'waiting': verifiedNow(); setPreStatus('waiting'); break;
+        case 'not_ready': verifiedNow(); setPreStatus('not_ready'); break;
+        case 'declined': setDeclined({ retryAfter: data.retryAfter, final: data.final }); setPreStatus('idle'); setPhase('declined'); break;
         case 'ended': setPhase('ended'); break;
-        case 'locked': setPhase('locked'); break;
+        case 'locked': setPreStatus('idle'); setPhase('locked'); break;
         case 'kicked': setPhase('kicked'); break;
         default: setPreStatus('idle');
       }
-    } catch {
+    } catch (e: unknown) {
       setPreStatus('idle');
-      message.error("Couldn't reach the class. Check your connection and try again.");
+      message.error(e instanceof Error && e.message ? e.message : "Couldn't reach the class. Check your connection and try again.");
     }
-  }, [id, apiCall, user, socket, enterRoom, message]);
+  }, [key, apiCall, enterRoom, handleStart, message]);
   const joinRef = useRef(handleJoin);
   joinRef.current = handleJoin;
 
-  const handleStart = async () => {
-    if (!id) return;
-    setPreStatus('joining');
-    try {
-      const resp = await apiCall(`/meetings/${id}/start`, { method: 'POST' });
-      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).error || 'Could not start the class');
-      const data = await resp.json();
-      enterRoom(data.token, data.livekitUrl);
-    } catch (e: any) {
-      setPreStatus('idle');
-      message.error(e?.message || 'Could not start the class');
-    }
-  };
-
-  // Real-time events for this meeting
+  // Real-time events for this meeting (authenticated socket; the server decides what we may hear)
   useEffect(() => {
     if (!meetingId || !user?.id) return;
-    const s = socketIO(SOCKET_URL, { transports: ['websocket', 'polling'] });
+    const s = acquireSocket();
     setSocket(s);
-    s.emit('meeting:join-room', meetingId);
-    s.emit('user:join', user.id);
     const mine = (d?: { meetingId?: number }) => !d?.meetingId || Number(d.meetingId) === meetingId;
-
-    s.on('meeting:started', (d?: { meetingId?: number }) => {
-      if (!mine(d)) return;
-      setMeeting(m => (m ? { ...m, status: 'active' } : m));
-      if (statusRef.current === 'waiting') joinRef.current();
+    const subscribe = () => s.emit('meeting:subscribe', { meetingId }, (r?: { ok: boolean; role?: string; waiting?: boolean }) => {
+      // Our place in the lobby was lost while offline: knock again.
+      if (r?.ok && r.role === 'lobby' && !r.waiting && statusRef.current === 'lobby') joinRef.current();
     });
-    s.on('meeting:waiting', (d?: { meetingId?: number }) => { if (mine(d)) setMeeting(m => (m ? { ...m, status: 'waiting' } : m)); });
-    s.on('meeting:admitted', (d: { meetingId: number; token: string; livekitUrl: string }) => { if (mine(d)) enterRoom(d.token, d.livekitUrl); });
-    s.on('meeting:declined', (d?: { meetingId?: number }) => { if (mine(d)) setPhase('declined'); });
-    s.on('meeting:ended', (d?: { meetingId?: number }) => { if (mine(d) && !leavingRef.current) setPhase('ended'); });
-    s.on('meeting:kicked', (d?: { meetingId?: number }) => { if (mine(d)) setPhase('kicked'); });
-    return () => { s.disconnect(); setSocket(null); };
-  }, [meetingId, user?.id, enterRoom]);
+    subscribeRef.current = subscribe;
+    if (s.connected) subscribe();
+
+    const handlers: [string, (d?: { meetingId?: number }) => void][] = [
+      ['connect', subscribe],
+      ['meeting:started', d => {
+        if (!mine(d)) return;
+        setMeeting(m => (m ? { ...m, status: 'active' } : m));
+        if (statusRef.current === 'waiting' || statusRef.current === 'not_ready') joinRef.current();
+      }],
+      ['meeting:waiting', d => { if (mine(d)) setMeeting(m => (m ? { ...m, status: 'waiting' } : m)); }],
+      ['meeting:admitted', d => {
+        if (!mine(d)) return;
+        setMeeting(m => (m ? { ...m, my_role: 'guest', needs_passcode: false } : m));
+        joinRef.current();
+      }],
+      ['meeting:declined', d => { if (mine(d)) { setDeclined({ retryAfter: 120 }); setPreStatus('idle'); setPhase('declined'); } }],
+      ['meeting:ended', d => { if (mine(d) && !leavingRef.current) setPhase('ended'); }],
+      ['meeting:kicked', d => { if (mine(d)) setPhase('kicked'); }],
+    ];
+    handlers.forEach(([ev, fn]) => s.on(ev, fn));
+    return () => {
+      handlers.forEach(([ev, fn]) => s.off(ev, fn));
+      s.emit('meeting:unsubscribe', { meetingId });
+      releaseSocket();
+      setSocket(null);
+    };
+  }, [meetingId, user?.id]);
+
+  // Leaving the page while in the lobby withdraws the request right away.
+  useEffect(() => () => {
+    if (statusRef.current === 'lobby' && meetingId) apiCall(`/meetings/${meetingId}/lobby`, { method: 'DELETE' }).catch(() => { });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetingId]);
+
+  const stopWaiting = useCallback(async () => {
+    if (meetingId) await apiCall(`/meetings/${meetingId}/lobby`, { method: 'DELETE' }).catch(() => { });
+    setPreStatus('idle');
+    navigate('/app/meetings');
+  }, [meetingId, apiCall, navigate]);
 
   const handleLeave = useCallback(async () => {
     leavingRef.current = true;
-    if (id) await apiCall(`/meetings/${id}/leave`, { method: 'POST' }).catch(() => { });
+    if (key) await apiCall(`/meetings/${key}/leave`, { method: 'POST' }).catch(() => { });
     navigate('/app/meetings');
-  }, [id, apiCall, navigate]);
+  }, [key, apiCall, navigate]);
 
   const handleEnd = useCallback(async () => {
     leavingRef.current = true;
-    if (id) await apiCall(`/meetings/${id}/end`, { method: 'POST' }).catch(() => { });
+    if (key) await apiCall(`/meetings/${key}/end`, { method: 'POST' }).catch(() => { });
     navigate('/app/meetings');
-  }, [id, apiCall, navigate]);
+  }, [key, apiCall, navigate]);
 
   // LiveKit gave up reconnecting (or the room closed under us) — never drop the user on a blank page.
   const onDisconnected = useCallback(() => {
     if (leavingRef.current || phaseRef.current !== 'room') return;
-    if (id) apiCall(`/meetings/${id}/leave`, { method: 'POST' }).catch(() => { });
+    if (key) apiCall(`/meetings/${key}/leave`, { method: 'POST' }).catch(() => { });
     setPhase('disconnected');
-  }, [id, apiCall]);
+  }, [key, apiCall]);
 
   const audioOpt = useMemo<AudioCaptureOptions | boolean>(() => {
     if (!roomChoices?.audioEnabled) return false;
@@ -310,56 +403,119 @@ const MeetingPage: React.FC = () => {
   const title = meeting?.title;
 
   if (phase === 'loading') {
-    return shell(<div className="ms-status"><div className="ms-loading"><LoadingOutlined /> Connecting to your class…</div></div>);
+    return shell(
+      <div className="mr-status-screen">
+        <div className="mr-loading">
+          <LoadingOutlined />
+          <span>Connecting to your class…</span>
+        </div>
+      </div>
+    );
+  }
+  if (phase === 'notfound') {
+    return shell(
+      <StatusScreen
+        tone="neutral"
+        badge="Meeting not found"
+        icon={<QuestionCircleOutlined />}
+        title="This meeting doesn't exist"
+        text="The link or meeting ID may be mistyped, or the meeting was deleted."
+        hint="Check the invitation from your teacher, or use “Join with ID” on the Live meetings page."
+      >
+        <Button type="primary" icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+      </StatusScreen>,
+    );
   }
   if (phase === 'error' || !meeting) {
     return shell(
-      <StatusScreen tone="danger" icon={<ExclamationCircleOutlined />} title="We couldn't load this class"
-        text="Check your internet connection, then try again.">
-        <Button onClick={back}>Back to meetings</Button>
-        <Button type="primary" onClick={() => setReload(n => n + 1)}>Try again</Button>
+      <StatusScreen
+        tone="danger"
+        badge="Connection Issue"
+        icon={<ExclamationCircleOutlined />}
+        title="We couldn't load this class"
+        text="Please check your internet connection, then try again."
+        hint="If the issue persists, verify that the meeting exists or ask your teacher for assistance."
+        meetingTitle={title}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+        <Button type="primary" icon={<ReloadOutlined />} onClick={() => setReload(n => n + 1)}>Try again</Button>
       </StatusScreen>,
     );
   }
   if (phase === 'ended') {
     return shell(
-      <StatusScreen tone="success" icon={<CheckCircleOutlined />} title="This class has ended"
-        text="Thanks for joining. If it was recorded, the recording appears under Live meetings → Recordings." meetingTitle={title}>
-        <Button type="primary" onClick={back}>Back to meetings</Button>
+      <StatusScreen
+        tone="success"
+        badge="Class Concluded"
+        icon={<CheckCircleOutlined />}
+        title="This class has ended"
+        text="Thanks for joining! If this session was recorded, the recording will appear under Live meetings → Recordings."
+        meetingTitle={title}
+      >
+        <Button type="primary" icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
       </StatusScreen>,
     );
   }
   if (phase === 'locked') {
     return shell(
-      <StatusScreen tone="warning" icon={<LockOutlined />} title="This class is locked"
-        text="The host locked the class, so no one new can join right now. Ask your teacher to unlock it." meetingTitle={title}>
-        <Button onClick={back}>Back to meetings</Button>
-        <Button type="primary" onClick={() => { setPhase('prejoin'); setPreStatus('idle'); }}>Try again</Button>
+      <StatusScreen
+        tone="warning"
+        badge="Access Restricted"
+        icon={<LockOutlined />}
+        title="This class is locked"
+        text="The host has locked this class session, so no new participants can enter right now."
+        hint="If you are expected to attend, contact your instructor to unlock the room or admit you."
+        meetingTitle={title}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+        <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setPhase('prejoin'); setPreStatus('idle'); }}>Try again</Button>
       </StatusScreen>,
     );
   }
   if (phase === 'kicked') {
     return shell(
-      <StatusScreen tone="danger" icon={<StopOutlined />} title="You were removed from the class"
-        text="The host removed you from this class. Contact your teacher if you think this is a mistake." meetingTitle={title}>
-        <Button type="primary" onClick={back}>Back to meetings</Button>
+      <StatusScreen
+        tone="danger"
+        badge="Access Revoked"
+        icon={<StopOutlined />}
+        title="You were removed from the class"
+        text="The host removed you from this class session. Contact your teacher if you believe this was in error."
+        meetingTitle={title}
+      >
+        <Button type="primary" icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
       </StatusScreen>,
     );
   }
   if (phase === 'declined') {
     return shell(
-      <StatusScreen tone="neutral" icon={<StopOutlined />} title="Your request was declined"
-        text="The host didn't let you into this class." meetingTitle={title}>
-        <Button type="primary" onClick={back}>Back to meetings</Button>
+      <StatusScreen
+        tone="neutral"
+        badge="Join Request Declined"
+        icon={<StopOutlined />}
+        title="Your request was declined"
+        text={declined.final
+          ? 'The host declined your request several times. You cannot ask to join this class again.'
+          : 'The host did not let you in this time.'}
+        hint={declined.final ? undefined : `You can ask again in ${Math.max(1, Math.ceil((declined.retryAfter || 120) / 60))} min — contact your teacher if you think this is a mistake.`}
+        meetingTitle={title}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+        {!declined.final && <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setPhase('prejoin'); setPreStatus('idle'); }}>Ask again</Button>}
       </StatusScreen>,
     );
   }
   if (phase === 'disconnected') {
     return shell(
-      <StatusScreen tone="warning" icon={<DisconnectOutlined />} title="You were disconnected"
-        text="Your connection to the class dropped. Check your internet, then rejoin." meetingTitle={title}>
-        <Button onClick={back}>Back to meetings</Button>
-        <Button type="primary" onClick={() => { setConn(null); setPreStatus('idle'); setPhase('prejoin'); }}>Rejoin</Button>
+      <StatusScreen
+        tone="warning"
+        badge="Connection Dropped"
+        icon={<DisconnectOutlined />}
+        title="You were disconnected"
+        text="Your connection to the class was lost. Check your internet connection, then rejoin."
+        meetingTitle={title}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+        <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setConn(null); setPreStatus('idle'); setPhase('prejoin'); }}>Rejoin</Button>
       </StatusScreen>,
     );
   }
@@ -369,7 +525,8 @@ const MeetingPage: React.FC = () => {
       <LiveKitRoom serverUrl={conn.url} token={conn.token} connect audio={audioOpt} video={videoOpt}
         options={roomOptions} onDisconnected={onDisconnected} style={{ height: '100dvh', width: '100vw' }}>
         <RoomAudioRenderer />
-        <MeetingRoomUI meeting={meeting} isHost={isHost} apiCall={apiCall} socket={socket} onLeave={handleLeave} onEnd={handleEnd} />
+        <MeetingRoomUI meeting={meeting} isHost={isHost} apiCall={apiCall} socket={socket} onLeave={handleLeave} onEnd={handleEnd}
+          onPasscodeChange={p => setMeeting(m => (m ? { ...m, passcode: p } : m))} />
       </LiveKitRoom>,
       document.body,
     );
@@ -384,6 +541,15 @@ const MeetingPage: React.FC = () => {
       isHost={isHost}
       live={meeting.status === 'active'}
       status={preStatus}
+      meetingCode={meeting.code}
+      guest={isGuest ? {
+        needsPasscode: needsPass,
+        passcode,
+        onPasscodeChange: v => { setPasscode(v); setPassError(null); },
+        error: passError,
+        since: lobbySince,
+      } : null}
+      onStopWaiting={stopWaiting}
       onChoicesChange={c => { choicesRef.current = c; }}
       onJoin={c => {
         choicesRef.current = c;
@@ -405,9 +571,10 @@ interface RoomUIProps {
   socket: Socket | null;
   onLeave: () => Promise<void>;
   onEnd: () => Promise<void>;
+  onPasscodeChange: (passcode: string) => void;
 }
 
-const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket, onLeave, onEnd }) => {
+const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket, onLeave, onEnd, onPasscodeChange }) => {
   const { message, modal } = App.useApp();
   const r = useResponsive();
   const mobile = r.isMobile;
@@ -433,6 +600,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [whiteboardOpen, setWhiteboardOpen] = useState(false);
   const [confirm, setConfirm] = useState<'leave' | 'end' | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -518,13 +686,42 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     };
   }, [room]);
 
+  /* ── Lobby (host): the server is the source of truth ── */
+  useEffect(() => {
+    if (!isHost) return;
+    let cancelled = false;
+    apiCall(`/meetings/${meeting.id}/lobby`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.pending) setAdmissions(d.pending); })
+      .catch(() => { });
+    return () => { cancelled = true; };
+  }, [isHost, apiCall, meeting.id]);
+
+  /* ── Late joiners: pick up the poll that is already open ── */
+  useEffect(() => {
+    if (isHost) return;
+    let cancelled = false;
+    apiCall(`/meetings/${meeting.id}/polls`)
+      .then(r => (r.ok ? r.json() : []))
+      .then((polls: { id: number; question: string; options: unknown; my_vote: number | null }[]) => {
+        const open = Array.isArray(polls) ? polls[0] : null;
+        if (cancelled || !open) return;
+        setActivePoll(prev => prev || { id: open.id, question: open.question, options: parseOptions(open.options), votes: [] });
+        setMyVote(open.my_vote ?? null);
+      })
+      .catch(() => { });
+    return () => { cancelled = true; };
+  }, [isHost, apiCall, meeting.id]);
+
   /* ── Socket events ── */
   useEffect(() => {
     if (!socket) return;
-    const onAdmission = (d: AdmissionRequest) => {
-      if (!isHost) return;
-      setAdmissions(prev => (prev.some(a => a.userId === d.userId) ? prev : [...prev, d]));
-      playNotificationSound();
+    const onLobby = (d: { meetingId: number; pending: AdmissionRequest[] }) => {
+      if (!isHost || Number(d.meetingId) !== meeting.id) return;
+      setAdmissions(prev => {
+        if (d.pending.some(p => !prev.some(a => a.userId === p.userId))) playNotificationSound();
+        return d.pending;
+      });
     };
     const onChat = (d: Partial<ChatMsg>) => {
       const m: ChatMsg = {
@@ -569,7 +766,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     const onRecStarted = (d: { meetingId: number; startedAt: string }) => { if (d.meetingId === meeting.id) setRecStartedAt(new Date(d.startedAt).getTime()); };
     const onRecStopped = (d: { meetingId: number }) => { if (d.meetingId === meeting.id) setRecStartedAt(null); };
 
-    socket.on('meeting:admission-request', onAdmission);
+    socket.on('meeting:lobby-updated', onLobby);
     socket.on('meeting:chat-message', onChat);
     socket.on('meeting:announcement', onAnnouncement);
     socket.on('meeting:hand-raised', onHandRaised);
@@ -583,7 +780,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     socket.on('meeting:recording-started', onRecStarted);
     socket.on('meeting:recording-stopped', onRecStopped);
     return () => {
-      socket.off('meeting:admission-request', onAdmission);
+      socket.off('meeting:lobby-updated', onLobby);
       socket.off('meeting:chat-message', onChat);
       socket.off('meeting:announcement', onAnnouncement);
       socket.off('meeting:hand-raised', onHandRaised);
@@ -671,7 +868,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
 
   const forceStopShare = () => {
     if (!socket) { message.error('Connection unavailable'); return; }
-    socket.emit('meeting:force-stop-share', { meetingId: meeting.id, userId: myId });
+    socket.emit('meeting:force-stop-share', { meetingId: meeting.id });
     message.success('Presentation stopped');
   };
 
@@ -715,28 +912,22 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
   const sendChat = () => {
     const text = chatInput.trim();
     if (!text || !socket) return;
-    socket.emit('meeting:chat-message', {
-      meetingId: meeting.id,
-      id: `${myIdentity}-${Date.now()}`,
-      senderId: myIdentity,
-      sender: myName,
-      text,
-      time: new Date().toISOString(),
-    });
+    // The server stamps the sender, id and time.
+    socket.emit('meeting:chat-message', { meetingId: meeting.id, text });
     setChatInput('');
   };
 
   const toggleHand = () => {
     if (!socket) return;
     if (handRaised) socket.emit('meeting:lower-hand', { meetingId: meeting.id, userId: myId });
-    else socket.emit('meeting:raise-hand', { meetingId: meeting.id, userId: myId, userName: myName });
+    else socket.emit('meeting:raise-hand', { meetingId: meeting.id });
     setHandRaised(!handRaised);
   };
   const lowerHand = (userId: number) => socket?.emit('meeting:lower-hand', { meetingId: meeting.id, userId });
   const lowerAll = () => { raisedHands.forEach(h => lowerHand(h.userId)); setRaisedHands([]); };
 
   const sendEmoji = (emoji: string) => {
-    socket?.emit('meeting:reaction', { meetingId: meeting.id, emoji, senderName: myName });
+    socket?.emit('meeting:reaction', { meetingId: meeting.id, emoji });
     if (mobile) setMenu(null);
   };
 
@@ -748,20 +939,19 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     setAnnounceOpen(false);
   };
 
-  const copyInvite = () => {
-    const url = `${window.location.origin}/app/meeting-join/${meeting.room_name}`;
-    navigator.clipboard.writeText(url).then(() => message.success('Invite link copied')).catch(() => message.info(url));
-  };
-
   const handleAdmit = async (userId: number) => {
     setAdmissions(prev => prev.filter(a => a.userId !== userId));
-    await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => { });
+    const resp = await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => null);
+    if (resp && !resp.ok) message.info('This person is no longer waiting.');
   };
   const handleDecline = async (userId: number) => {
     setAdmissions(prev => prev.filter(a => a.userId !== userId));
     await apiCall(`/meetings/${meeting.id}/decline`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => { });
   };
-  const admitAll = () => admissions.forEach(a => handleAdmit(a.userId));
+  const admitAll = async () => {
+    setAdmissions([]);
+    await apiCall(`/meetings/${meeting.id}/admit-all`, { method: 'POST' }).catch(() => { });
+  };
 
   const toggleLock = async () => { await apiCall(`/meetings/${meeting.id}/lock`, { method: 'POST' }).catch(() => { }); };
 
@@ -904,9 +1094,9 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
       { key: 'rec', label: isRecording ? 'Stop recording' : 'Record class', icon: Ic.record, onClick: toggleRecording, active: isRecording, danger: isRecording, hint: recLoading ? 'Working…' : undefined },
       { key: 'lock', label: isLocked ? 'Unlock class' : 'Lock class', icon: isLocked ? Ic.lock : Ic.unlock, onClick: toggleLock, active: isLocked, hint: isLocked ? 'No one new can join' : undefined },
       { key: 'announce', label: 'Send an announcement', icon: Ic.megaphone, onClick: () => setAnnounceOpen(true) },
-      { key: 'invite', label: 'Copy invite link', icon: Ic.link, onClick: copyInvite },
       ...(someoneElseSharing ? [{ key: 'stopshare', label: 'Stop the current presentation', icon: Ic.shareStop, onClick: forceStopShare, danger: true }] : []),
     ] : []),
+    { key: 'info', label: isHost ? 'Invite people' : 'Meeting details', icon: isHost ? Ic.link : Ic.info, onClick: () => setInfoOpen(true), hint: isHost ? 'ID & passcode' : undefined },
     ...(mobile && canFullscreen ? [{ key: 'fs', label: isFullscreen ? 'Exit full screen' : 'Full screen', icon: isFullscreen ? Ic.shrink : Ic.expand, onClick: toggleFullscreen }] : []),
   ];
 
@@ -931,7 +1121,10 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
           {admissions.map(a => (
             <div key={a.userId} className="mr-person">
               <span className="mr-person-avatar" style={{ background: colorFor(a.userName) }}>{initials(a.userName)}</span>
-              <span className="mr-person-name">{a.userName}</span>
+              <span className="mr-person-name">
+                {a.userName}
+                {a.role && <span className="mr-tag is-muted">{a.role === 'teacher' ? 'Teacher' : a.role === 'admin' ? 'Admin' : 'Student'}</span>}
+              </span>
               <div className="mr-person-actions is-visible">
                 <Button size="small" type="primary" onClick={() => handleAdmit(a.userId)}>Admit</Button>
                 <Button size="small" onClick={() => handleDecline(a.userId)}>Deny</Button>
@@ -968,12 +1161,13 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
           const name = p.name || 'Participant';
           const host = p.identity === teacherIdentity;
           const self = p.identity === myIdentity;
+          const tag = host ? 'Host' : ROLE_TAG[roleOf(p) || ''];
           return (
             <div key={p.sid} className="mr-person">
               <span className="mr-person-avatar" style={{ background: colorFor(name) }}>{initials(name)}</span>
               <span className="mr-person-name">
                 {name}{self && <em> (You)</em>}
-                {host && <span className="mr-tag">Host</span>}
+                {tag && <span className={`mr-tag${tag === 'Guest' ? ' is-guest' : tag === 'Host' ? '' : ' is-muted'}`}>{tag}</span>}
               </span>
               <span className="mr-person-state">
                 {handIds.has(p.identity) && <span className="is-hand" title="Hand raised">{Ic.hand}</span>}
@@ -1174,7 +1368,11 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
             )}
             {tip(`Your connection: ${quality}`, <span className="mr-quality"><QualityBars q={quality} /></span>)}
             <span className="mr-timer"><Elapsed since={joinedAt} /></span>
-            {isHost && !mobile && tip('Copy invite link', <button type="button" className="mr-icon-btn" onClick={copyInvite} aria-label="Copy invite link">{Ic.link}</button>)}
+            {!mobile && tip(isHost ? 'Invite people — meeting ID & passcode' : 'Meeting details', (
+              <button type="button" className="mr-code-btn" onClick={() => setInfoOpen(true)} aria-label={isHost ? 'Invite people' : 'Meeting details'}>
+                {isHost ? Ic.link : Ic.info}<span>{meeting.code}</span>
+              </button>
+            ))}
             {canFullscreen && !mobile && tip(isFullscreen ? 'Exit full screen' : 'Full screen', (
               <button type="button" className="mr-icon-btn" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit full screen' : 'Full screen'}>
                 {isFullscreen ? Ic.shrink : Ic.expand}
@@ -1477,6 +1675,22 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
         )}
 
         {settingsOpen && <DeviceSettings onClose={() => setSettingsOpen(false)} />}
+
+        <MeetingShare
+          open={infoOpen}
+          isHost={isHost}
+          meeting={{
+            id: meeting.id,
+            code: meeting.code,
+            title: meeting.title,
+            passcode: isHost ? meeting.passcode : null,
+            batch_name: meeting.batch_name,
+            hostName: `${meeting.teacher_first_name || ''} ${meeting.teacher_last_name || ''}`.trim() || undefined,
+          }}
+          apiCall={isHost ? apiCall : undefined}
+          onPasscodeChange={onPasscodeChange}
+          onClose={() => setInfoOpen(false)}
+        />
 
         {confirm && (
           <div className="mr-dialog-backdrop" onClick={() => !busy && setConfirm(null)}>

@@ -243,6 +243,71 @@ class PostgreSQLDatabase {
                 } catch (creditErr) {
                     console.warn('⚠️  AI credits schema check skipped:', creditErr.message);
                 }
+
+                // Auto-apply schedules meeting link schema & backfill
+                try {
+                    // 1. Allow batch_id in schedules to be nullable (meetings can be batch-specific or 1-on-1)
+                    await this.client.query(`ALTER TABLE schedules ALTER COLUMN batch_id DROP NOT NULL`);
+
+                    // 2. Add meeting_id column to schedules if not exists
+                    const meetingCol = await this.client.query(`
+                        SELECT column_name FROM information_schema.columns
+                        WHERE table_name = 'schedules' AND column_name = 'meeting_id'
+                    `);
+                    if (meetingCol.rows.length === 0) {
+                        await this.client.query(`
+                            ALTER TABLE schedules
+                            ADD COLUMN meeting_id INTEGER REFERENCES meetings(id) ON DELETE CASCADE
+                        `);
+                        await this.client.query(`CREATE INDEX IF NOT EXISTS idx_schedules_meeting ON schedules(meeting_id)`);
+                        console.log('✅ Added meeting_id column to schedules table');
+                    }
+
+                    // 3. Backfill any scheduled meetings that don't have a schedule entry yet
+                    const backfillRes = await this.client.query(`
+                        INSERT INTO schedules (
+                            title,
+                            description,
+                            batch_id,
+                            teacher_id,
+                            start_time,
+                            end_time,
+                            type,
+                            location_mode,
+                            link,
+                            status,
+                            meeting_id
+                        )
+                        SELECT 
+                            m.title,
+                            m.description,
+                            m.batch_id,
+                            m.teacher_id,
+                            m.scheduled_start,
+                            COALESCE(m.scheduled_end, m.scheduled_start + INTERVAL '1 hour'),
+                            'meeting',
+                            'online',
+                            CONCAT('/app/meeting/', m.id),
+                            CASE WHEN m.status = 'ended' THEN 'completed' ELSE 'scheduled' END,
+                            m.id
+                        FROM meetings m
+                        WHERE m.scheduled_start IS NOT NULL
+                          AND NOT EXISTS (
+                              SELECT 1 FROM schedules s WHERE s.meeting_id = m.id
+                          )
+                    `);
+                    if (backfillRes.rowCount > 0) {
+                        console.log(`✅ Backfilled ${backfillRes.rowCount} scheduled meetings into schedules table`);
+                    }
+                    await this.client.query(`
+                        UPDATE schedules
+                        SET link = CONCAT('/app/meeting/', meeting_id)
+                        WHERE meeting_id IS NOT NULL
+                          AND (link LIKE '%meeting-%' OR link NOT LIKE '/app/meeting/%' OR link IS NULL)
+                    `);
+                } catch (syncErr) {
+                    console.warn('⚠️  Schedules meeting sync schema check:', syncErr.message);
+                }
             }
             
             return true;

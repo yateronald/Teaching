@@ -26,6 +26,11 @@ const Boot = () => {
   return <App />
 }
 
+// Head tags written by the build-time pre-render (scripts/prerender.mjs) are
+// replaced by the ones React renders, so none of them ends up duplicated.
+document.querySelectorAll('head [data-prerender]').forEach(node => node.remove())
+if (!document.querySelector('title') && !/^\/(fr\/?)?$/.test(location.pathname)) document.title = 'Learn French with Natives'
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <HelmetProvider>

@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
+import useExamGuard from '../../hooks/useExamGuard';
 import { headerHeight } from '../Layout/layoutMetrics';
 import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
 import { GRADE_BANDS, PASS_MARK, bandFor, gradeFromPercent, toneFor } from '../../utils/grading';
@@ -200,6 +201,7 @@ const ReviewPanel: React.FC<{
     fmtClock: (iso: string | null) => string;
     tzLabel: string;
 }> = ({ review, audioUrls, onClose, onRetry, fmtDate, fmtClock, tzLabel }) => {
+    useExamGuard(true);
     const [filter, setFilter] = useState<ReviewFilter>('all');
     const bodyRef = useRef<HTMLDivElement>(null);
     const { row, data } = review;

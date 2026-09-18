@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Button, ConfigProvider, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Segmented, Select, Skeleton, Switch, TimePicker, Tooltip, message,
 } from 'antd';
@@ -30,7 +31,7 @@ import './Schedule.css';
 type SessionType = 'class' | 'exam' | 'assignment' | 'quiz' | 'meeting' | 'other';
 type Status = 'scheduled' | 'completed' | 'cancelled';
 type LiveState = 'cancelled' | 'completed' | 'ended' | 'live' | 'soon' | 'scheduled';
-type Scope = 'upcoming' | 'past' | 'all';
+type Scope = 'upcoming' | 'active' | 'past' | 'all';
 type ViewMode = 'agenda' | 'calendar';
 
 interface Item {
@@ -69,8 +70,8 @@ const num = (v: unknown): number | null => (v === null || v === undefined || v =
 const stateOf = (item: Item, elapsed: number): LiveState => {
     if (item.status === 'cancelled') return 'cancelled';
     if (item.status === 'completed') return 'completed';
-    const startsIn = item.startsIn === null ? null : item.startsIn - elapsed;
-    const endsIn = item.endsIn === null ? null : item.endsIn - elapsed;
+    const startsIn = item.startsIn === null ? (item.start ? (Date.parse(item.start) - Date.now()) / 1000 : null) : item.startsIn - elapsed;
+    const endsIn = item.endsIn === null ? (item.end ? (Date.parse(item.end) - Date.now()) / 1000 : null) : item.endsIn - elapsed;
     if (endsIn !== null && endsIn <= 0) return 'ended';
     if (startsIn !== null && startsIn <= 0) return 'live';
     if (startsIn !== null && startsIn <= 900) return 'soon';
@@ -91,6 +92,7 @@ const toWallString = (d: Date) => {
 };
 
 const ScheduleManagement: React.FC = () => {
+    const navigate = useNavigate();
     const { apiCall, user } = useAuth();
     const r = useResponsive();
     const [msg, msgHolder] = message.useMessage();
@@ -224,13 +226,14 @@ const ScheduleManagement: React.FC = () => {
     }, [withState, todayKey, tz]);
 
     const next = useMemo(() => withState
-        .filter(x => x.state === 'live' || x.state === 'soon' || x.state === 'scheduled')
+        .filter(x => x.state === 'soon' || x.state === 'scheduled')
         .sort((a, b) => Date.parse(a.item.start) - Date.parse(b.item.start))[0] ?? null, [withState]);
 
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
         return withState.filter(({ item, state }) => {
-            if (scope === 'upcoming' && (isPast(state) || state === 'cancelled')) return false;
+            if (scope === 'upcoming' && (isPast(state) || state === 'cancelled' || state === 'live')) return false;
+            if (scope === 'active' && state !== 'live') return false;
             if (scope === 'past' && !isPast(state) && state !== 'cancelled') return false;
             if (batchFilter && item.batch_id !== batchFilter) return false;
             if (typeFilter && item.type !== typeFilter) return false;
@@ -450,12 +453,20 @@ const ScheduleManagement: React.FC = () => {
     };
 
     /* ── Row pieces ── */
+    const openMeetingLink = (url: string) => {
+        if (url.startsWith('/')) {
+            navigate(url);
+        } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    };
+
     const primaryAction = (item: Item, state: LiveState) => {
         const session = sessions[item.id];
         if (item.type === 'class' && !isPast(state) && state !== 'cancelled') {
             if (session) {
                 return item.link
-                    ? <Button size="small" type="primary" icon={<VideoCameraOutlined />} href={item.link} target="_blank" rel="noopener noreferrer">Join</Button>
+                    ? <Button size="small" type="primary" icon={<VideoCameraOutlined />} onClick={() => openMeetingLink(item.link!)}>Join</Button>
                     : <Button size="small" type="primary" icon={<InfoCircleOutlined />} onClick={() => setStartFor(item)}>Show code</Button>;
             }
             const ready = state === 'live' || state === 'soon';
@@ -468,8 +479,11 @@ const ScheduleManagement: React.FC = () => {
                 );
             }
         }
+        if (item.type === 'meeting' && item.link && !isPast(state) && state !== 'cancelled') {
+            return <Button size="small" type="primary" icon={<VideoCameraOutlined />} onClick={() => openMeetingLink(item.link!)}>Join meeting</Button>;
+        }
         if (item.link && !isPast(state) && state !== 'cancelled') {
-            return <Button size="small" icon={<LinkOutlined />} href={item.link} target="_blank" rel="noopener noreferrer">Open link</Button>;
+            return <Button size="small" icon={<LinkOutlined />} onClick={() => openMeetingLink(item.link!)}>Open link</Button>;
         }
         return null;
     };
@@ -599,7 +613,10 @@ const ScheduleManagement: React.FC = () => {
                 <section className="tc-card sh-body">
                     <div className="sh-toolbar">
                         <Segmented<Scope> value={scope} onChange={setScope} options={[
-                            { value: 'upcoming', label: 'Upcoming' }, { value: 'past', label: 'Past' }, { value: 'all', label: 'All' },
+                            { value: 'upcoming', label: 'Upcoming' },
+                            { value: 'active', label: 'Active' },
+                            { value: 'past', label: 'Past' },
+                            { value: 'all', label: 'All' },
                         ]} />
                         <div className="sh-filters">
                             <Input className="sh-search" allowClear prefix={<SearchOutlined style={{ color: '#94a3b8' }} />} placeholder="Search sessions" value={search} onChange={e => setSearch(e.target.value)} aria-label="Search sessions" />
@@ -648,12 +665,17 @@ const ScheduleManagement: React.FC = () => {
                         <div className="sh-empty">
                             <span className="sh-empty-art" aria-hidden="true"><CalendarOutlined /></span>
                             <div className="sh-empty-copy">
-                                <strong>{items.length === 0 ? 'No sessions yet' : scope === 'upcoming' ? 'Nothing coming up' : 'Nothing matches'}</strong>
+                                <strong>{items.length === 0 ? 'No sessions yet' : scope === 'active' ? 'No active sessions' : scope === 'upcoming' ? 'Nothing coming up' : 'Nothing matches'}</strong>
                                 <p>{items.length === 0
                                     ? 'Schedule your first class. Your students will receive the details by email.'
+                                    : scope === 'active' ? 'There are no sessions currently in progress.'
                                     : scope === 'upcoming' ? 'Schedule your next class, or view Past to revisit earlier sessions.' : 'Try another filter or search term.'}</p>
                             </div>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>New session</Button>
+                            {scope === 'active' ? (
+                                <Button onClick={() => setScope('upcoming')}>See upcoming sessions</Button>
+                            ) : (
+                                <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>New session</Button>
+                            )}
                         </div>
                     ) : (
                         <div className="sh-agenda">

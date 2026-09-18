@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button, ConfigProvider, DatePicker, Input, Modal, Segmented, Select, Skeleton, Tooltip, message } from 'antd';
 import {
     CalendarOutlined,
@@ -38,7 +39,7 @@ const { RangePicker } = DatePicker;
 type SType = 'class' | 'exam' | 'meeting' | 'other';
 type SState = 'scheduled' | 'active' | 'ended' | 'completed' | 'cancelled';
 type JoinState = 'none' | 'attended' | 'open' | 'locked';
-type AgendaTab = 'today' | 'upcoming' | 'week';
+type AgendaTab = 'today' | 'upcoming' | 'active' | 'week';
 type CalView = 'dayGridMonth' | 'timeGridWeek' | 'timeGridDay';
 
 interface Schedule {
@@ -187,6 +188,7 @@ const StatePill: React.FC<{ state: SState }> = ({ state }) => (
 );
 
 const StudentSchedule: React.FC = () => {
+    const navigate = useNavigate();
     const { apiCall, user } = useAuth();
     const tz = resolveTimezone(user?.timezone);
     const tzLabel = timezoneLabel(user?.timezone);
@@ -316,8 +318,9 @@ const StudentSchedule: React.FC = () => {
             today: filtered.filter(s => s.dayKey === todayKey),
             week: filtered.filter(s => s.dayKey >= wFrom && s.dayKey <= wTo),
             upcoming,
+            active: live,
             done: filtered.filter(s => { const st = states.get(s.id); return st === 'ended' || st === 'completed'; }).length,
-            featured: live[0] || upcoming[0] || null,
+            featured: upcoming[0] || null,
         };
     }, [filtered, now, tz]);
     const st = (s: Schedule): SState => derived.states.get(s.id) ?? stateOf(s, now);
@@ -358,8 +361,9 @@ const StudentSchedule: React.FC = () => {
     const agendaItems: Item[] = selectedDay
         ? filtered.filter(s => s.dayKey === selectedDay)
         : agendaTab === 'today' ? derived.today
-            : agendaTab === 'week' ? derived.week
-                : derived.upcoming.slice(0, 30);
+            : agendaTab === 'active' ? derived.active
+                : agendaTab === 'week' ? derived.week
+                    : derived.upcoming.slice(0, 30);
     const grouped = !selectedDay && agendaTab !== 'today';
     const groups = useMemo(() => {
         const out: { key: string; items: Item[] }[] = [];
@@ -421,7 +425,20 @@ const StudentSchedule: React.FC = () => {
         setSessionStatus(null);
     };
 
+    const openMeetingLink = (url: string) => {
+        if (url.startsWith('/')) {
+            navigate(url);
+        } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    };
+
     const handleJoin = async (s: Item) => {
+        if (s.type === 'meeting' && s.link) {
+            markJoined(s.id);
+            openMeetingLink(s.link);
+            return;
+        }
         setDetails(null);
         setJoinTarget(s);
         let status: any = null;
@@ -434,7 +451,7 @@ const StudentSchedule: React.FC = () => {
             markJoined(s.id);
             if (s.link) {
                 msg.success('You already joined this class — opening the meeting link.');
-                window.open(s.link, '_blank', 'noopener,noreferrer');
+                openMeetingLink(s.link);
             } else {
                 msg.success('You already joined this class.');
             }
@@ -472,7 +489,7 @@ const StudentSchedule: React.FC = () => {
             const result = await res.json();
             msg.success(`You're in — attendance recorded as ${result.status}.`);
             markJoined(joinTarget.id);
-            if (joinTarget.link) window.open(joinTarget.link, '_blank', 'noopener,noreferrer');
+            if (joinTarget.link) openMeetingLink(joinTarget.link);
             setJoining(false);
             setJoinOpen(false);
             setJoinTarget(null);
@@ -564,6 +581,7 @@ const StudentSchedule: React.FC = () => {
         day: { title: 'Nothing on this day', text: 'Pick another day in the calendar, or clear the selection.' },
         today: { title: 'No sessions today', text: 'Enjoy the free time — your next sessions are under Upcoming.' },
         upcoming: { title: 'Nothing scheduled ahead', text: 'New sessions from your teachers will appear here.' },
+        active: { title: 'No active sessions', text: 'There are no sessions currently in progress.' },
         week: { title: 'No sessions this week', text: 'Check Upcoming for what comes next.' },
     };
     const empty = emptyCopy[selectedDay ? 'day' : agendaTab];
@@ -732,6 +750,7 @@ const StudentSchedule: React.FC = () => {
                                     options={[
                                         { value: 'today', label: <span className="sc-seg">Today <b>{derived.today.length}</b></span> },
                                         { value: 'upcoming', label: <span className="sc-seg">Upcoming <b>{derived.upcoming.length}</b></span> },
+                                        { value: 'active', label: <span className="sc-seg">Active <b>{derived.active.length}</b></span> },
                                         { value: 'week', label: <span className="sc-seg">This week <b>{derived.week.length}</b></span> },
                                     ]} />
                             )}
@@ -743,6 +762,9 @@ const StudentSchedule: React.FC = () => {
                                     <strong>{empty.title}</strong>
                                     <span>{empty.text}</span>
                                     {!selectedDay && agendaTab === 'today' && derived.upcoming.length > 0 && (
+                                        <Button size="small" onClick={() => setAgendaTab('upcoming')}>See upcoming</Button>
+                                    )}
+                                    {!selectedDay && agendaTab === 'active' && derived.upcoming.length > 0 && (
                                         <Button size="small" onClick={() => setAgendaTab('upcoming')}>See upcoming</Button>
                                     )}
                                 </div>

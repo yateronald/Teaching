@@ -5,6 +5,90 @@ const { authenticateToken, teacherOrAdmin, authorizeRoles } = require('../middle
 const teacherOnly = authorizeRoles('teacher');
 const studentOnly = authorizeRoles('student');
 
+// ════════════════════════════════════════════════════════════════════════
+// Live classes (online meetings) are sessions too.
+//
+// A meeting of a batch counts once its host has started it. Expected seats =
+// the batch's students. A student who joined within 10 minutes of the real
+// start — the later of the scheduled time and the moment the host started — is
+// present, after that late, never joined = absent. Same 10-minute rule as the
+// in-person check-in. Guests (people outside the batch) never change a batch's
+// rate; they are listed separately in the roster.
+// ════════════════════════════════════════════════════════════════════════
+const LATE_AFTER_MINUTES = 10;
+const MEETING_START = `GREATEST(COALESCE(m.scheduled_start, m.started_at), m.started_at)`;
+const MEETING_HELD = `m.batch_id IS NOT NULL AND m.started_at IS NOT NULL AND m.status IN ('active', 'ended')`;
+// Rates only count finished live classes: while one is running, students can still join.
+const MEETING_DONE = `m.batch_id IS NOT NULL AND m.started_at IS NOT NULL AND m.status = 'ended'`;
+const meetingStatusSql = joined =>
+    `CASE WHEN ${joined} IS NULL THEN 'absent' WHEN ${joined} > ${MEETING_START} + INTERVAL '${LATE_AFTER_MINUTES} minutes' THEN 'late' ELSE 'present' END`;
+
+/** Held live classes shaped like class-session rows (kind: 'meeting'). */
+async function meetingSessions(db, user, { batch_id, teacher_id, student_id, date_from, date_to } = {}) {
+    const params = [];
+    const p = v => { params.push(v); return `$${params.length}`; };
+    let where = MEETING_HELD;
+    if (user.role === 'teacher') { const me = p(user.id); where += ` AND (m.teacher_id = ${me} OR b.teacher_id = ${me})`; }
+    if (teacher_id && user.role === 'admin') where += ` AND m.teacher_id = ${p(parseInt(teacher_id))}`;
+    if (batch_id) where += ` AND m.batch_id = ${p(parseInt(batch_id))}`;
+    if (student_id) where += ` AND EXISTS (SELECT 1 FROM batch_students f WHERE f.batch_id = m.batch_id AND f.student_id = ${p(parseInt(student_id))})`;
+    if (date_from) where += ` AND m.started_at::date >= ${p(date_from)}::date`;
+    if (date_to) where += ` AND m.started_at::date <= ${p(date_to)}::date`;
+
+    const rows = await db.all(`
+        SELECT
+            m.id AS session_id,
+            m.title AS schedule_title,
+            m.room_name AS meeting_code,
+            m.status AS meeting_status,
+            b.id AS batch_id,
+            b.name AS batch_name,
+            m.teacher_id AS teacher_id,
+            u.first_name || ' ' || u.last_name AS teacher_name,
+            m.started_at AS starts_at,
+            COALESCE(m.ended_at, m.scheduled_end) AS ends_at,
+            m.started_at::date AS session_date,
+            m.started_at::time AS start_time,
+            COALESCE(m.ended_at, m.scheduled_end)::time AS end_time,
+            COUNT(DISTINCT bs.student_id)::int AS total_students,
+            COUNT(DISTINCT CASE WHEN ${meetingStatusSql('mas.first_join')} = 'present' THEN bs.student_id END)::int AS present_count,
+            COUNT(DISTINCT CASE WHEN ${meetingStatusSql('mas.first_join')} = 'late' THEN bs.student_id END)::int AS late_count,
+            (SELECT COUNT(DISTINCT ma.user_id) FROM meeting_attendance ma
+              WHERE ma.meeting_id = m.id AND ma.user_id <> m.teacher_id
+                AND NOT EXISTS (SELECT 1 FROM batch_students g WHERE g.batch_id = m.batch_id AND g.student_id = ma.user_id))::int AS guest_count
+        FROM meetings m
+        JOIN batches b ON b.id = m.batch_id
+        JOIN users u ON u.id = m.teacher_id
+        LEFT JOIN batch_students bs ON bs.batch_id = m.batch_id
+        LEFT JOIN meeting_attendance_summary mas ON mas.meeting_id = m.id AND mas.user_id = bs.student_id AND mas.first_join IS NOT NULL
+        WHERE ${where}
+        GROUP BY m.id, m.title, m.room_name, m.status, b.id, b.name, m.teacher_id, u.first_name, u.last_name,
+                 m.started_at, m.ended_at, m.scheduled_start, m.scheduled_end
+        ORDER BY m.started_at DESC
+    `, params);
+
+    return rows.map(r => {
+        const total = Number(r.total_students) || 0;
+        const present = Number(r.present_count) || 0;
+        const late = Number(r.late_count) || 0;
+        const attended = present + late;
+        return {
+            ...r,
+            kind: 'meeting',
+            total_students: total,
+            present_count: present,
+            late_count: late,
+            absent_count: Math.max(0, total - attended),
+            attendance_records: attended,
+            attendance_percentage: total ? Math.round((attended * 10000) / total) / 100 : 0,
+            guest_count: Number(r.guest_count) || 0,
+            is_live: r.meeting_status === 'active',
+            code_generated: true,
+            session_started: true,
+        };
+    });
+}
+
 // GET /api/attendance/reports/teachers - Get teacher performance data (Admin/Teacher)
 router.get('/reports/teachers', authenticateToken, teacherOrAdmin, async (req, res) => {
     try {
@@ -244,6 +328,7 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
         const sessions = await req.db.all(query, params);
         const normalizedSessions = sessions.map(s => ({
             ...s,
+            kind: 'class',
             total_students: Number(s.total_students ?? 0),
             attendance_records: Number(s.attendance_records ?? 0),
             present_count: Number(s.present_count ?? 0),
@@ -253,7 +338,12 @@ router.get('/reports/sessions', authenticateToken, teacherOrAdmin, async (req, r
             code_generated: s.code_generated,
             session_started: s.session_started
         }));
-        res.json(normalizedSessions);
+        // Live classes count as sessions too (?kind=class|meeting narrows the list)
+        const kind = req.query.kind;
+        const live = kind === 'class' ? [] : await meetingSessions(req.db, req.user, req.query);
+        const merged = (kind === 'meeting' ? [] : normalizedSessions).concat(live)
+            .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+        res.json(merged);
     } catch (error) {
         console.error('Failed to get session summary:', error);
         res.status(500).json({ error: 'Failed to get session summary' });
@@ -443,96 +533,80 @@ router.get('/reports/students', authenticateToken, teacherOrAdmin, async (req, r
     try {
         const { query, batch_id, student_id, teacher_id, date_from, date_to, min_attendance_rate, max_attendance_rate, sort_by = 'name', sort_order = 'asc', limit = 1000, offset = 0 } = req.query;
         const db = req.db;
+        const params = [];
+        const p = v => { params.push(v); return `$${params.length}`; };
 
-        let conditions = ['u.role = $1'];
-        let params = ['student'];
-        let paramIndex = 2;
+        // Sessions of the period: in-person classes and held live classes (?kind=class|meeting narrows)
+        let classWhere = req.query.kind === 'meeting' ? 'FALSE' : `s.type = 'class'`;
+        let liveWhere = req.query.kind === 'class' ? 'FALSE' : MEETING_DONE;
+        if (date_from) { const d = p(date_from); classWhere += ` AND cs.start_time::date >= ${d}::date`; liveWhere += ` AND m.started_at::date >= ${d}::date`; }
+        if (date_to) { const d = p(date_to); classWhere += ` AND cs.start_time::date <= ${d}::date`; liveWhere += ` AND m.started_at::date <= ${d}::date`; }
 
-        if (batch_id) {
-            conditions.push(`b.id = $${paramIndex}`);
-            params.push(parseInt(batch_id));
-            paramIndex++;
-        }
-        if (date_from) {
-            conditions.push(`cs.start_time::date >= $${paramIndex}::date`);
-            params.push(date_from);
-            paramIndex++;
-        }
-        if (date_to) {
-            conditions.push(`cs.start_time::date <= $${paramIndex}::date`);
-            params.push(date_to);
-            paramIndex++;
-        }
-        if (student_id) {
-            conditions.push(`u.id = $${paramIndex}`);
-            params.push(parseInt(student_id));
-            paramIndex++;
-        }
-        if (teacher_id) {
-            conditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = $${paramIndex})`);
-            params.push(parseInt(teacher_id));
-            paramIndex++;
-        }
-        if (req.user.role === 'teacher') {
-            conditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = $${paramIndex})`);
-            params.push(req.user.id);
-            paramIndex++;
-        }
+        const conditions = [`u.role = 'student'`];
+        if (batch_id) conditions.push(`b.id = ${p(parseInt(batch_id))}`);
+        if (student_id) conditions.push(`u.id = ${p(parseInt(student_id))}`);
+        if (teacher_id) conditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = ${p(parseInt(teacher_id))})`);
+        if (req.user.role === 'teacher') conditions.push(`EXISTS (SELECT 1 FROM schedules s2 WHERE s2.batch_id = b.id AND s2.teacher_id = ${p(req.user.id)})`);
         if (query) {
-            conditions.push(`(u.first_name LIKE $${paramIndex} OR u.last_name LIKE $${paramIndex + 1} OR u.email LIKE $${paramIndex + 2})`);
-            const term = `%${query}%`;
-            params.push(term, term, term);
-            paramIndex += 3;
+            const term = p(`%${query}%`);
+            conditions.push(`(u.first_name ILIKE ${term} OR u.last_name ILIKE ${term} OR u.email ILIKE ${term})`);
         }
 
-        const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-
-        let sortColumn = 'u.first_name';
-        switch (sort_by) {
-            case 'attendance_rate':
-                sortColumn = 'attendance_rate';
-                break;
-            case 'last_attendance_date':
-                sortColumn = 'last_attendance_date';
-                break;
-            case 'total_sessions':
-                sortColumn = 'total_sessions';
-                break;
-            default:
-                sortColumn = 'u.first_name';
-        }
+        const SORTS = { attendance_rate: 'attendance_rate', last_attendance_date: 'last_attendance_date', total_sessions: 'total_sessions' };
+        const sortColumn = SORTS[sort_by] || 'u.first_name';
+        const direction = String(sort_order).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
 
         const studentsRaw = await db.all(`
-            SELECT 
+            WITH ev AS (
+                SELECT 'class' AS kind, cs.id AS ev_id, s.batch_id, cs.start_time AS at
+                FROM class_sessions cs
+                JOIN schedules s ON s.id = cs.schedule_id
+                WHERE ${classWhere}
+                UNION ALL
+                SELECT 'meeting', m.id, m.batch_id, m.started_at
+                FROM meetings m
+                WHERE ${liveWhere}
+            ),
+            att AS (
+                SELECT 'class' AS kind, a.session_id AS ev_id, a.student_id
+                FROM attendance a
+                WHERE a.status IN ('present', 'late')
+                UNION ALL
+                SELECT 'meeting', mas.meeting_id, mas.user_id
+                FROM meeting_attendance_summary mas
+                WHERE mas.first_join IS NOT NULL
+            )
+            SELECT
                 u.id,
                 u.first_name,
                 u.last_name,
                 u.email,
-                b.id as batch_id,
-                b.name as batch_name,
-                COUNT(DISTINCT cs.id)::int as total_sessions,
-                COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::int as present_count,
-                ROUND(
-                    (COUNT(CASE WHEN a.status IN ('present', 'late') THEN 1 END)::numeric * 100 / 
-                     NULLIF(COUNT(DISTINCT cs.id), 0)), 2
-                )::float8 as attendance_rate,
-                MAX(cs.start_time::date) as last_attendance_date
+                b.id AS batch_id,
+                b.name AS batch_name,
+                COUNT(ev.ev_id)::int AS total_sessions,
+                COUNT(att.ev_id)::int AS present_count,
+                COUNT(ev.ev_id) FILTER (WHERE ev.kind = 'meeting')::int AS online_sessions,
+                COUNT(att.ev_id) FILTER (WHERE att.kind = 'meeting')::int AS online_attended,
+                ROUND((COUNT(att.ev_id)::numeric * 100 / NULLIF(COUNT(ev.ev_id), 0)), 2)::float8 AS attendance_rate,
+                MAX(ev.at)::date AS last_attendance_date
             FROM users u
             JOIN batch_students bs ON u.id = bs.student_id
             JOIN batches b ON bs.batch_id = b.id
-            LEFT JOIN schedules s ON b.id = s.batch_id AND s.type = 'class'
-            LEFT JOIN class_sessions cs ON s.id = cs.schedule_id
-            LEFT JOIN attendance a ON cs.id = a.session_id AND a.student_id = u.id
-            ${whereClause}
+            LEFT JOIN ev ON ev.batch_id = b.id
+            LEFT JOIN att ON att.kind = ev.kind AND att.ev_id = ev.ev_id AND att.student_id = u.id
+            WHERE ${conditions.join(' AND ')}
             GROUP BY u.id, u.first_name, u.last_name, u.email, b.id, b.name
-            ORDER BY ${sortColumn} ${String(sort_order || 'asc').toUpperCase()}
-            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-        `, [...params, parseInt(limit), parseInt(offset)]);
+            ${date_from || date_to ? 'HAVING COUNT(ev.ev_id) > 0' : ''}
+            ORDER BY ${sortColumn} ${direction}
+            LIMIT ${p(parseInt(limit) || 1000)} OFFSET ${p(parseInt(offset) || 0)}
+        `, params);
 
         let students = studentsRaw.map(s => ({
             ...s,
             total_sessions: Number(s.total_sessions ?? 0),
             present_count: Number(s.present_count ?? 0),
+            online_sessions: Number(s.online_sessions ?? 0),
+            online_attended: Number(s.online_attended ?? 0),
             attendance_rate: Number(s.attendance_rate ?? 0)
         }));
         if (min_attendance_rate !== undefined) {
@@ -3285,28 +3359,48 @@ router.get('/reports/student-sessions/:studentId', authenticateToken, teacherOrA
         const studentId = parseInt(req.params.studentId);
         const { batch_id, date_from, date_to } = req.query;
         const params = [studentId];
-        let where = `s.type = 'class'`;
-        if (batch_id) { params.push(parseInt(batch_id)); where += ` AND b.id = $${params.length}`; }
-        if (date_from) { params.push(date_from); where += ` AND cs.start_time::date >= $${params.length}::date`; }
-        if (date_to) { params.push(date_to); where += ` AND cs.start_time::date <= $${params.length}::date`; }
-        if (req.user.role === 'teacher') { params.push(req.user.id); where += ` AND b.teacher_id = $${params.length}`; }
+        const p = v => { params.push(v); return `$${params.length}`; };
+        let classWhere = req.query.kind === 'meeting' ? 'FALSE' : `s.type = 'class'`;
+        let liveWhere = req.query.kind === 'class' ? 'FALSE' : MEETING_DONE;
+        if (batch_id) { const v = p(parseInt(batch_id)); classWhere += ` AND b.id = ${v}`; liveWhere += ` AND b.id = ${v}`; }
+        if (date_from) { const v = p(date_from); classWhere += ` AND cs.start_time::date >= ${v}::date`; liveWhere += ` AND m.started_at::date >= ${v}::date`; }
+        if (date_to) { const v = p(date_to); classWhere += ` AND cs.start_time::date <= ${v}::date`; liveWhere += ` AND m.started_at::date <= ${v}::date`; }
+        if (req.user.role === 'teacher') {
+            const v = p(req.user.id);
+            classWhere += ` AND b.teacher_id = ${v}`;
+            liveWhere += ` AND (m.teacher_id = ${v} OR b.teacher_id = ${v})`;
+        }
 
         const sessions = await req.db.all(`
-            SELECT cs.id as session_id, cs.start_time as starts_at, cs.end_time as ends_at,
-                   b.id as batch_id, b.name as batch_name,
-                   u.first_name || ' ' || u.last_name as teacher_name,
-                   COALESCE(a.status, 'absent') as status, a.check_in_time
-            FROM batch_students bs
-            JOIN batches b ON b.id = bs.batch_id
-            JOIN users u ON u.id = b.teacher_id
-            JOIN schedules s ON s.batch_id = b.id
-            JOIN class_sessions cs ON cs.schedule_id = s.id
-            LEFT JOIN attendance a ON a.session_id = cs.id AND a.student_id = bs.student_id
-            WHERE bs.student_id = $1 AND ${where}
-            ORDER BY cs.start_time DESC
+            SELECT * FROM (
+                SELECT 'class' AS kind, cs.id AS session_id, cs.start_time AS starts_at, cs.end_time AS ends_at,
+                       b.id AS batch_id, b.name AS batch_name,
+                       u.first_name || ' ' || u.last_name AS teacher_name,
+                       COALESCE(a.status, 'absent') AS status, a.check_in_time, NULL::numeric AS minutes
+                FROM batch_students bs
+                JOIN batches b ON b.id = bs.batch_id
+                JOIN users u ON u.id = b.teacher_id
+                JOIN schedules s ON s.batch_id = b.id
+                JOIN class_sessions cs ON cs.schedule_id = s.id
+                LEFT JOIN attendance a ON a.session_id = cs.id AND a.student_id = bs.student_id
+                WHERE bs.student_id = $1 AND ${classWhere}
+                UNION ALL
+                SELECT 'meeting', m.id, m.started_at, COALESCE(m.ended_at, m.scheduled_end),
+                       b.id, b.name,
+                       u.first_name || ' ' || u.last_name,
+                       ${meetingStatusSql('mas.first_join')}, mas.first_join,
+                       (SELECT ROUND(SUM(COALESCE(ma.duration_minutes, 0))::numeric, 0) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id = bs.student_id)
+                FROM batch_students bs
+                JOIN batches b ON b.id = bs.batch_id
+                JOIN meetings m ON m.batch_id = b.id
+                JOIN users u ON u.id = m.teacher_id
+                LEFT JOIN meeting_attendance_summary mas ON mas.meeting_id = m.id AND mas.user_id = bs.student_id AND mas.first_join IS NOT NULL
+                WHERE bs.student_id = $1 AND ${liveWhere}
+            ) h
+            ORDER BY starts_at DESC
         `, params);
 
-        res.json({ sessions });
+        res.json({ sessions: sessions.map(h => ({ ...h, minutes: h.minutes == null ? null : Number(h.minutes) })) });
     } catch (error) {
         console.error('Error fetching student sessions:', error);
         res.status(500).json({ error: 'Failed to fetch student sessions' });
@@ -3341,6 +3435,62 @@ router.get('/session-details-simple/:sessionId', authenticateToken, teacherOrAdm
     } catch (error) {
         console.error('Error fetching session details:', error);
         res.status(500).json({ error: 'Failed to fetch session details' });
+    }
+});
+
+// GET /api/attendance/meeting-roster/:meetingId — who attended a live class:
+// every student of the batch (present / late / absent, time in class) and guests.
+router.get('/meeting-roster/:meetingId', authenticateToken, teacherOrAdmin, async (req, res) => {
+    try {
+        const meetingId = parseInt(req.params.meetingId);
+        const meeting = await req.db.get(
+            `SELECT m.*, b.teacher_id AS batch_teacher_id FROM meetings m LEFT JOIN batches b ON b.id = m.batch_id WHERE m.id = $1`,
+            [meetingId]
+        );
+        if (!meeting) return res.status(404).json({ error: 'Live class not found' });
+        if (req.user.role === 'teacher' && Number(meeting.teacher_id) !== Number(req.user.id) && Number(meeting.batch_teacher_id) !== Number(req.user.id)) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        // Minutes actually spent in the class (sum of connections; an open one counts up to now while live)
+        const minutesSql = `(SELECT ROUND(SUM(COALESCE(ma.duration_minutes, 0) +
+                                CASE WHEN ma.left_at IS NULL AND m.status = 'active' THEN EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - ma.joined_at)) / 60 ELSE 0 END)::numeric, 0)
+                             FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id = u.id)`;
+
+        const details = meeting.batch_id ? await req.db.all(`
+            SELECT bs.student_id, u.first_name || ' ' || u.last_name AS student_name, u.email,
+                   ${meetingStatusSql('mas.first_join')} AS status,
+                   mas.first_join AS check_in_time, mas.last_leave, COALESCE(mas.session_count, 0)::int AS connections,
+                   ${minutesSql} AS minutes
+            FROM meetings m
+            JOIN batch_students bs ON bs.batch_id = m.batch_id
+            JOIN users u ON u.id = bs.student_id
+            LEFT JOIN meeting_attendance_summary mas ON mas.meeting_id = m.id AND mas.user_id = bs.student_id AND mas.first_join IS NOT NULL
+            WHERE m.id = $1
+            ORDER BY u.first_name, u.last_name
+        `, [meetingId]) : [];
+
+        const guests = await req.db.all(`
+            SELECT u.id AS user_id, u.first_name || ' ' || u.last_name AS name, u.email, u.role,
+                   MIN(mas.first_join) AS check_in_time, ${minutesSql} AS minutes
+            FROM meetings m
+            JOIN meeting_attendance_summary mas ON mas.meeting_id = m.id AND mas.first_join IS NOT NULL
+            JOIN users u ON u.id = mas.user_id
+            WHERE m.id = $1 AND u.id <> m.teacher_id
+              AND NOT EXISTS (SELECT 1 FROM batch_students g WHERE g.batch_id = m.batch_id AND g.student_id = u.id)
+            GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, m.id
+            ORDER BY MIN(mas.first_join)
+        `, [meetingId]);
+
+        const num = v => (v == null ? null : Number(v));
+        res.json({
+            meeting: { id: meeting.id, code: meeting.room_name, title: meeting.title, status: meeting.status, started_at: meeting.started_at, ended_at: meeting.ended_at, late_after_minutes: LATE_AFTER_MINUTES },
+            details: details.map(d => ({ ...d, minutes: num(d.minutes) })),
+            guests: guests.map(g => ({ ...g, minutes: num(g.minutes) })),
+        });
+    } catch (error) {
+        console.error('Error fetching live class roster:', error);
+        res.status(500).json({ error: 'Failed to fetch the live class roster' });
     }
 });
 

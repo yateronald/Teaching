@@ -9,6 +9,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
+import useExamGuard from '../../hooks/useExamGuard';
 import { resolveTimezone } from '../../utils/timezone';
 import './QuizTaking.css';
 
@@ -258,6 +259,7 @@ const QuizTaking = forwardRef(({ quizId: propQuizId, onComplete, onExit }: QuizT
     const { apiCall, user } = useAuth();
     const r = useResponsive();
     const [messageApi, contextHolder] = message.useMessage();
+    useExamGuard(true, t => messageApi.warning({ content: t, key: 'exam-guard' }));
     const quizId = propQuizId || paramQuizId;
     const isNarrow = r.width < 1024;
     const zone = resolveTimezone(user?.timezone);
