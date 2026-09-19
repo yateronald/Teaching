@@ -296,8 +296,9 @@ router.post('/:id/evaluate', async (req, res) => {
     }
     if (!evaluator.isConfigured()) return res.status(503).json({ error: 'Le service d’évaluation n’est pas configuré.' });
 
+    // The simulation stays 'in_progress' until it is 'completed' (the table only allows
+    // in_progress / completed / abandoned); `evaluating` guards against a double correction.
     evaluating.add(simId);
-    await req.db.run(`UPDATE eo_simulations SET status = 'evaluating' WHERE id = $1`, [simId]);
     if (hasReportColumns) await req.db.run('UPDATE eo_simulations SET evaluation_attempts = COALESCE(evaluation_attempts, 0) + 1 WHERE id = $1', [simId]);
 
     const prompts = { 1: null, 2: cleanSujet(sim.tache2_prompt), 3: cleanSujet(sim.tache3_prompt) };
@@ -346,7 +347,6 @@ router.post('/:id/evaluate', async (req, res) => {
     res.json(report);
   } catch (error) {
     console.error('POST /eo-simulation/:id/evaluate error:', error);
-    await req.db.run(`UPDATE eo_simulations SET status = 'eval_failed' WHERE id = $1 AND status = 'evaluating'`, [simId]).catch(() => {});
     res.status(503).json({ error: 'L’évaluation n’a pas pu être réalisée pour le moment. Vos réponses sont conservées : réessayez dans quelques instants.', retryable: true });
   } finally {
     evaluating.delete(simId);
