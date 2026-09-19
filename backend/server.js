@@ -180,6 +180,9 @@ app.use('/api/tcf', tcfExamPrepRoutes);
 const tcfResultsRoutes = require('./routes/tcfResults');
 app.use('/api/tcf-results', tcfResultsRoutes);
 
+// The learner's own exam dashboard and results (exam candidates and students)
+app.use('/api/exam-space', require('./routes/examSpace'));
+
 const meetingRoutes = require('./routes/meetings');
 app.use('/api/meetings', meetingRoutes);
 

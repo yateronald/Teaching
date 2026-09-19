@@ -1,5 +1,6 @@
 const express = require('express');
 const { authenticateToken, teacherOrAdmin } = require('../middleware/auth');
+const { hasTable } = require('../services/schemaFeatures');
 
 const router = express.Router();
 
@@ -66,10 +67,11 @@ router.get('/students', async (req, res) => {
         params.push(term, term, term, term);
       }
     } else {
+      // Admins also follow exam candidates (exam-preparation-only accounts)
       sql = `
-        SELECT id, first_name, last_name, email, username
+        SELECT id, first_name, last_name, email, username, role
         FROM users
-        WHERE role = 'student'
+        WHERE role IN ('student', 'candidate')
       `;
       if (search) {
         sql += ` AND (first_name ILIKE ? OR last_name ILIKE ? OR email ILIKE ? OR username ILIKE ?)`;
@@ -132,9 +134,9 @@ router.get('/student/:studentId', async (req, res) => {
     }
 
     const studentInfo = await req.db.get(`
-      SELECT id, first_name, last_name, email, username, timezone, created_at, is_active
+      SELECT id, first_name, last_name, email, username, timezone, created_at, is_active, role
       FROM users
-      WHERE id = ? AND role = 'student'
+      WHERE id = ? AND role IN ('student', 'candidate')
     `, [studentId]);
 
     if (!studentInfo) {
@@ -151,6 +153,17 @@ router.get('/student/:studentId', async (req, res) => {
       WHERE a.student_id = ? AND a.completed_at IS NOT NULL
       ORDER BY a.completed_at DESC
     `, [studentId]);
+
+    // CE attempts (reading practice, once migration 020 is applied)
+    const ceAttempts = (await hasTable(req.db, 'tcf_ce_quiz_attempts')) ? await req.db.all(`
+      SELECT a.id, a.series_id, a.completed_at, a.time_spent_seconds, a.total_questions,
+             a.correct_count, a.total_points, a.earned_points, a.score_percentage, a.cefr_level,
+             s.name as series_name
+      FROM tcf_ce_quiz_attempts a
+      JOIN tcf_ce_series s ON a.series_id = s.id
+      WHERE a.student_id = ? AND a.completed_at IS NOT NULL
+      ORDER BY a.completed_at DESC
+    `, [studentId]) : [];
 
     // EE attempts
     const eeAttempts = await req.db.all(`
@@ -181,6 +194,7 @@ router.get('/student/:studentId', async (req, res) => {
 
     res.json({
       student: studentInfo,
+      ce: ceAttempts,
       co: coAttempts,
       ee: eeAttempts,
       eo: eoAttempts
@@ -233,6 +247,7 @@ router.get('/batch/:batchId', async (req, res) => {
         batch: batchInfo,
         students: [],
         analytics: {
+          ce: { avgScore: 0, totalAttempts: 0, levelDistribution: {} },
           co: { avgScore: 0, totalAttempts: 0, levelDistribution: {} },
           ee: { avgScore: 0, totalAttempts: 0, levelDistribution: {} },
           eo: { avgScore: 0, totalAttempts: 0, levelDistribution: {} }
@@ -248,42 +263,58 @@ router.get('/batch/:batchId', async (req, res) => {
       SELECT student_id, earned_points, total_points, score_percentage, cefr_level, completed_at
       FROM tcf_co_quiz_attempts
       WHERE student_id IN (${placeholders}) AND completed_at IS NOT NULL
+      ORDER BY completed_at DESC
     `, studentIds);
+
+    const ceAttempts = (await hasTable(req.db, 'tcf_ce_quiz_attempts')) ? await req.db.all(`
+      SELECT student_id, earned_points, total_points, score_percentage, cefr_level, completed_at
+      FROM tcf_ce_quiz_attempts
+      WHERE student_id IN (${placeholders}) AND completed_at IS NOT NULL
+      ORDER BY completed_at DESC
+    `, studentIds) : [];
 
     const eeAttempts = await req.db.all(`
       SELECT student_id, average_score, overall_level, submitted_at
       FROM tcf_ee_simulations
       WHERE student_id IN (${placeholders}) AND status = 'completed'
+      ORDER BY submitted_at DESC
     `, studentIds);
 
     const eoAttempts = await req.db.all(`
       SELECT user_id as student_id, overall_score, completed_at
       FROM eo_simulations
       WHERE user_id IN (${placeholders}) AND status = 'completed'
+      ORDER BY completed_at DESC
     `, studentIds);
 
     // Map attempts to students
+    const ceByStudent = {};
     const coByStudent = {};
     const eeByStudent = {};
     const eoByStudent = {};
 
     studentIds.forEach(id => {
+      ceByStudent[id] = [];
       coByStudent[id] = [];
       eeByStudent[id] = [];
       eoByStudent[id] = [];
     });
 
+    ceAttempts.forEach(a => ceByStudent[a.student_id]?.push(a));
     coAttempts.forEach(a => coByStudent[a.student_id]?.push(a));
     eeAttempts.forEach(a => eeByStudent[a.student_id]?.push(a));
     eoAttempts.forEach(a => eoByStudent[a.student_id]?.push(a));
 
     // Calculate details per student
     const studentData = students.map(s => {
+      const ce = ceByStudent[s.id] || [];
       const co = coByStudent[s.id] || [];
       const ee = eeByStudent[s.id] || [];
       const eo = eoByStudent[s.id] || [];
 
       // Average or best scores
+      const ceAvg = ce.length ? Math.round(ce.reduce((sum, a) => sum + parseFloat(a.score_percentage || 0), 0) / ce.length) : null;
+      const ceBest = ce.length ? Math.max(...ce.map(a => parseFloat(a.score_percentage || 0))) : null;
       const coAvg = co.length ? Math.round(co.reduce((sum, a) => sum + parseFloat(a.score_percentage || 0), 0) / co.length) : null;
       const coBest = co.length ? Math.max(...co.map(a => parseFloat(a.score_percentage || 0))) : null;
 
@@ -295,6 +326,7 @@ router.get('/batch/:batchId', async (req, res) => {
 
       return {
         ...s,
+        ce: { attemptsCount: ce.length, avgScore: ceAvg, bestScore: ceBest, latestAttempt: ce[0]?.completed_at || null },
         co: { attemptsCount: co.length, avgScore: coAvg, bestScore: coBest, latestAttempt: co[0]?.completed_at || null },
         ee: { attemptsCount: ee.length, avgScore: eeAvg, bestScore: eeBest, latestAttempt: ee[0]?.submitted_at || null },
         eo: { attemptsCount: eo.length, avgScore: eoAvg, bestScore: eoBest, latestAttempt: eo[0]?.completed_at || null }
@@ -302,6 +334,11 @@ router.get('/batch/:batchId', async (req, res) => {
     });
 
     // Compute batch overall analytics
+    const ceScores = ceAttempts.map(a => parseFloat(a.score_percentage || 0));
+    const ceLevelDist = {};
+    ceAttempts.forEach(a => {
+      if (a.cefr_level) ceLevelDist[a.cefr_level] = (ceLevelDist[a.cefr_level] || 0) + 1;
+    });
     const coScores = coAttempts.map(a => parseFloat(a.score_percentage || 0));
     const eeScores = eeAttempts.map(a => parseFloat(a.average_score || 0));
     const eoScores = eoAttempts.map(a => parseFloat(a.overall_score || 0));
@@ -332,6 +369,11 @@ router.get('/batch/:batchId', async (req, res) => {
     });
 
     const analytics = {
+      ce: {
+        avgScore: ceScores.length ? Math.round(ceScores.reduce((sum, s) => sum + s, 0) / ceScores.length) : 0,
+        totalAttempts: ceAttempts.length,
+        levelDistribution: ceLevelDist
+      },
       co: {
         avgScore: coScores.length ? Math.round(coScores.reduce((sum, s) => sum + s, 0) / coScores.length) : 0,
         totalAttempts: coAttempts.length,

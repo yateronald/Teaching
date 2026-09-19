@@ -8,7 +8,7 @@ interface User {
     email: string;
     first_name: string;
     last_name: string;
-    role: 'admin' | 'teacher' | 'student';
+    role: 'admin' | 'teacher' | 'student' | 'candidate';
     created_at: string;
     // IANA timezone identifier (e.g. 'America/Toronto'). Defaults to 'UTC'
     // if the user hasn't set one. Used to localize all displayed times.
@@ -36,6 +36,8 @@ interface AuthContextType {
     isAdmin: boolean;
     isTeacher: boolean;
     isStudent: boolean;
+    /** Exam-preparation-only account. */
+    isCandidate: boolean;
     isForcePasswordChange: boolean;
     requestEmailChange: (newEmail: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number; status?: number }>;
     verifyEmailChange: (code: string) => Promise<{ success: boolean; error?: string; user?: User; attemptsLeft?: number }>;
@@ -441,6 +443,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isAdmin: user?.role === 'admin',
         isTeacher: user?.role === 'teacher',
         isStudent: user?.role === 'student',
+        isCandidate: user?.role === 'candidate',
         isForcePasswordChange: !!user?.force_password_change,
         requestEmailChange,
         verifyEmailChange,

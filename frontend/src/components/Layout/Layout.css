@@ -22,6 +22,7 @@
 .al-role-student { --al-accent: #047857; --al-accent-soft: #ecfdf5; --al-accent-line: #a7f3d0; }
 .al-role-teacher { --al-accent: #9f1239; --al-accent-soft: #fff1f2; --al-accent-line: #fecdd3; }
 .al-role-admin   { --al-accent: #4338ca; --al-accent-soft: #eef2ff; --al-accent-line: #c7d2fe; }
+.al-role-candidate { --al-accent: #0e7490; --al-accent-soft: #ecfeff; --al-accent-line: #a5f3fc; }
 
 .al { min-height: 100vh; background: var(--al-page); }
 

@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Checkbox, DatePicker, Input, InputNumber, Modal, Popconfirm, Segmented, Select, Skeleton, Tooltip, message } from 'antd';
-import {
+import { AimOutlined,
   AudioOutlined, BookOutlined, CalendarOutlined, ClockCircleOutlined, CloseOutlined, DeleteOutlined, FolderOutlined, FormOutlined,
   ReadOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, SoundOutlined, TeamOutlined, ThunderboltOutlined,
   UserOutlined, WarningOutlined,
@@ -124,12 +124,15 @@ const ExamAssignmentModal: React.FC<{
   onChanged?: () => void;
   /** Content ticked when the modal opens (e.g. "Assign" from a series). */
   preselect?: { content_type: string; content_id: number }[];
-}> = ({ open, onClose, apiCall, initialTab = 'new', onChanged, preselect }) => {
+  /** Exam candidates already chosen when the modal opens (e.g. "Assign exams" from a user's profile). */
+  presetCandidates?: number[];
+}> = ({ open, onClose, apiCall, initialTab = 'new', onChanged, preselect, presetCandidates }) => {
   const [msg, msgHolder] = message.useMessage();
   const [tab, setTab] = useState<'new' | 'list'>(initialTab);
 
   const [tree, setTree] = useState<ContentNode[]>(() => treeCache?.tree || []);
   const [students, setStudents] = useState<PersonLite[]>(() => peekPeople()?.students || []);
+  const [candidates, setCandidates] = useState<PersonLite[]>(() => peekPeople()?.candidates || []);
   const [batches, setBatches] = useState<BatchLite[]>(() => peekPeople()?.batches || []);
   const [groups, setGroups] = useState<ExamAssignmentGroup[] | null>(null);
   const [treeLoading, setTreeLoading] = useState(!treeCache);
@@ -141,6 +144,7 @@ const ExamAssignmentModal: React.FC<{
   const [family, setFamily] = useState<Family | 'all'>('all');
   const [name, setName] = useState('');
   const [studentIds, setStudentIds] = useState<number[]>([]);
+  const [candidateIds, setCandidateIds] = useState<number[]>([]);
   const [batchIds, setBatchIds] = useState<number[]>([]);
   const [expiresAt, setExpiresAt] = useState<Dayjs | null>(null);
   const [eeCredits, setEeCredits] = useState<number | null>(null);
@@ -178,7 +182,7 @@ const ExamAssignmentModal: React.FC<{
   }, [apiCall]);
 
   const resetForm = () => {
-    setSelected([]); setName(''); setStudentIds([]); setBatchIds([]);
+    setSelected([]); setName(''); setStudentIds([]); setCandidateIds([]); setBatchIds([]);
     setExpiresAt(null); setEeCredits(null); setEoCredits(null);
   };
 
@@ -187,12 +191,13 @@ const ExamAssignmentModal: React.FC<{
     setTab(initialTab);
     resetForm();
     if (preselect?.length) setSelected(preselect.map(p => `${p.content_type}:${p.content_id}`));
+    if (presetCandidates?.length) setCandidateIds(presetCandidates);
     setQuery('');
     setListQuery('');
     loadTree();
     loadGroups();
-    loadPeople(apiCall).then(p => { setStudents(p.students); setBatches(p.batches); }).catch(() => { /* selects stay empty */ });
-  }, [open, initialTab, preselect, apiCall, loadTree, loadGroups]);
+    loadPeople(apiCall).then(p => { setStudents(p.students); setCandidates(p.candidates); setBatches(p.batches); }).catch(() => { /* selects stay empty */ });
+  }, [open, initialTab, preselect, presetCandidates, apiCall, loadTree, loadGroups]);
 
   /* ═══════════ TREE INDEX ═══════════ */
   const index = useMemo(() => {
@@ -273,15 +278,16 @@ const ExamAssignmentModal: React.FC<{
   const autoName = selectedRows.length
     ? `${selectedRows.slice(0, 2).map(r => (r.depth === 0 ? r.label : `${FAMILY_CODE[r.family]} ${r.label}`)).join(', ')}${selectedRows.length > 2 ? ` +${selectedRows.length - 2}` : ''}`
     : '';
-  const recipients = studentIds.length + batchIds.length;
+  const recipients = studentIds.length + candidateIds.length + batchIds.length;
   const reach = useMemo(() => {
     const byId = new Map(batches.map(b => [b.id, Number(b.student_count) || 0]));
-    return studentIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
-  }, [studentIds, batchIds, batches]);
+    return studentIds.length + candidateIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
+  }, [studentIds, candidateIds, batchIds, batches]);
   const expiryOk = !!expiresAt && expiresAt.isAfter(dayjs());
   const canSubmit = selected.length > 0 && recipients > 0 && expiryOk && !submitting;
 
   const studentOptions = useMemo(() => students.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [students]);
+  const candidateOptions = useMemo(() => candidates.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [candidates]);
   const batchOptions = useMemo(() => batches.map(b => ({ value: b.id, label: b.name, count: Number(b.student_count) || 0, search: b.name.toLowerCase() })), [batches]);
 
   /* ═══════════ ACTIONS ═══════════ */
@@ -293,7 +299,8 @@ const ExamAssignmentModal: React.FC<{
         method: 'POST',
         body: JSON.stringify({
           items: selectedRows.map(row => ({ content_type: row.node.type, content_id: row.node.content_id ?? row.node.id })),
-          student_ids: studentIds,
+          // Exam candidates are individual recipients, exactly like students
+          student_ids: [...studentIds, ...candidateIds],
           batch_ids: batchIds,
           expires_at: expiresAt!.toISOString(),
           group_name: name.trim() || autoName,
@@ -434,6 +441,13 @@ const ExamAssignmentModal: React.FC<{
                       notFoundContent={students.length ? 'No student matches' : 'Loading students…'} />
                   </div>
                   <div className="ea-field">
+                    <label><AimOutlined /> Exam candidates <em className="ea-hint">exam preparation only</em></label>
+                    <Select mode="multiple" allowClear placeholder="Search by name or email" value={candidateIds} onChange={setCandidateIds}
+                      options={candidateOptions} optionFilterProp="search" maxTagCount="responsive" showSearch
+                      optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.email}</em></span>}
+                      notFoundContent={candidates.length ? 'No candidate matches' : 'No exam candidate yet'} />
+                  </div>
+                  <div className="ea-field">
                     <label><TeamOutlined /> Batches</label>
                     <Select mode="multiple" allowClear placeholder="Every student of the batch gets access" value={batchIds} onChange={setBatchIds}
                       options={batchOptions} optionFilterProp="search" maxTagCount="responsive" showSearch
@@ -477,7 +491,7 @@ const ExamAssignmentModal: React.FC<{
             <footer className="ea-foot">
               <div className="ea-summary">
                 {!selected.length ? 'Choose at least one content item.'
-                  : !recipients ? 'Add students or batches.'
+                  : !recipients ? 'Add students, exam candidates or batches.'
                     : !expiresAt ? 'Choose until when students have access.'
                       : !expiryOk ? 'The access end date must be in the future.'
                     : <><strong>{selected.length}</strong> {selected.length === 1 ? 'item' : 'items'} for <strong>{recipients}</strong> {recipients === 1 ? 'recipient' : 'recipients'}{reach ? <> · reaches up to <strong>{reach}</strong> {reach === 1 ? 'student' : 'students'}</> : null}{expiresAt ? ` · until ${expiresAt.format('MMM D')}` : ''}</>}

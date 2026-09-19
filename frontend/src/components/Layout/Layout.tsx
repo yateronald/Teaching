@@ -22,6 +22,7 @@ import {
     CloseOutlined,
     DownOutlined,
     ScheduleOutlined,
+    TrophyOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -37,7 +38,7 @@ import './Layout.css';
    (see .al-role-* in Layout.css). Geometry lives in layoutMetrics.ts.
 ══════════════════════════════════════════ */
 
-type Role = 'admin' | 'teacher' | 'student';
+type Role = 'admin' | 'teacher' | 'student' | 'candidate';
 
 interface NavItem { key: string; icon: React.ReactNode; label: string; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -51,6 +52,7 @@ const ROLE_META: Record<Role, { portal: string; roleName: string; home: string }
     admin: { portal: 'Admin console', roleName: 'Administrator', home: '/app/dashboard' },
     teacher: { portal: 'Teacher space', roleName: 'Teacher', home: '/app/teacher-dashboard' },
     student: { portal: 'Student space', roleName: 'Student', home: '/app/student-dashboard' },
+    candidate: { portal: 'Exam space', roleName: 'Exam candidate', home: '/app/exam-home' },
 };
 
 const NAV: Record<Role, NavGroup[]> = {
@@ -131,6 +133,20 @@ const NAV: Record<Role, NavGroup[]> = {
             items: [{ key: '/app/profile', icon: <SettingOutlined />, label: 'Profile Settings' }],
         },
     ],
+    candidate: [
+        {
+            label: 'Exam preparation',
+            items: [
+                { key: '/app/exam-home', icon: <DashboardOutlined />, label: 'Dashboard' },
+                { key: '/app/exam-practice', icon: <ReadOutlined />, label: 'Practice' },
+                { key: '/app/exam-results', icon: <TrophyOutlined />, label: 'My Results' },
+            ],
+        },
+        {
+            label: 'Account',
+            items: [{ key: '/app/profile', icon: <SettingOutlined />, label: 'Profile Settings' }],
+        },
+    ],
 };
 
 /** Routes that have no sidebar entry of their own highlight this entry instead. */
@@ -175,6 +191,9 @@ const TITLES: Record<string, string> = {
     '/my-schedule': 'My Schedule',
     '/student-schedule': 'My Schedule',
     '/my-exams': 'Exam Preparation',
+    '/exam-home': 'Dashboard',
+    '/exam-practice': 'Practice',
+    '/exam-results': 'My Results',
     '/meetings': 'Live Meetings',
     '/meeting-attendance': 'Meeting Attendance',
 };
@@ -364,12 +383,12 @@ const writeCollapsePref = (value: boolean) => {
 
 const Layout: React.FC = () => {
     const r = useResponsive();
-    const { user, logout, isAdmin, isTeacher, token } = useAuth();
+    const { user, logout, isAdmin, isTeacher, isCandidate, token } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { hasActiveMeeting, activeMeeting } = useActiveMeeting();
 
-    const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : 'student';
+    const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : isCandidate ? 'candidate' : 'student';
     const meta = ROLE_META[role];
     const isMobile = r.shouldUseDrawer;
 

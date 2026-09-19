@@ -42,7 +42,8 @@ export const personName = (p: { first_name?: string; last_name?: string; email?:
     `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.email || 'Student';
 
 const TTL = 5 * 60_000;
-type People = { at: number; students: PersonLite[]; batches: BatchLite[] };
+/** Everyone exam content can be assigned to: students, exam candidates and batches. */
+type People = { at: number; students: PersonLite[]; candidates: PersonLite[]; batches: BatchLite[] };
 let people: People | null = null;
 let peopleReq: Promise<People> | null = null;
 
@@ -52,12 +53,14 @@ export function loadPeople(apiCall: ApiCall, force = false): Promise<People> {
     if (!force && people && Date.now() - people.at < TTL) return Promise.resolve(people);
     if (peopleReq) return peopleReq;
     peopleReq = (async () => {
-        const [s, b] = await Promise.all([apiCall('/users?role=student'), apiCall('/batches')]);
+        const [s, c, b] = await Promise.all([apiCall('/users?role=student'), apiCall('/users?role=candidate'), apiCall('/batches')]);
         const students = s.ok ? listOf<PersonLite>(await s.json(), 'users') : people?.students || [];
+        const candidates = c.ok ? listOf<PersonLite & { is_active?: boolean }>(await c.json(), 'users').filter(p => p.is_active !== false) : people?.candidates || [];
         const batches = b.ok ? listOf<BatchLite>(await b.json(), 'batches') : people?.batches || [];
         students.sort((x, y) => personName(x).localeCompare(personName(y)));
+        candidates.sort((x, y) => personName(x).localeCompare(personName(y)));
         batches.sort((x, y) => x.name.localeCompare(y.name));
-        people = { at: Date.now(), students, batches };
+        people = { at: Date.now(), students, candidates, batches };
         return people;
     })().finally(() => { peopleReq = null; });
     return peopleReq;

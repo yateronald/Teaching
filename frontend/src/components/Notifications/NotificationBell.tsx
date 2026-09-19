@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Tooltip, Badge, Spin, Empty, Button, Popover, message } from 'antd';
-import {
+import { ReadOutlined,
     BellOutlined,
     CheckOutlined,
     FileTextOutlined,
@@ -35,6 +35,7 @@ const TYPE_ICON: Record<string, { icon: React.ReactNode; color: string; bg: stri
     meeting_scheduled: { icon: <VideoCameraOutlined />, color: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
     meeting_started:   { icon: <VideoCameraOutlined />, color: '#10b981', bg: 'rgba(16,185,129,0.10)' },
     meeting_join_request: { icon: <UserAddOutlined />, color: '#d97706', bg: 'rgba(217,119,6,0.10)' },
+    exam_assigned:     { icon: <ReadOutlined />,        color: '#0e7490', bg: 'rgba(14,116,144,0.10)' },
 };
 
 const POLL_INTERVAL_MS = 30_000;

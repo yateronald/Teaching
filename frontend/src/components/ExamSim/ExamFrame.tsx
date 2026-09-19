@@ -7,7 +7,7 @@ import './ExamSim.css';
 
 export interface FrameStep { key: string | number; label: string; state: 'done' | 'current' | 'todo' }
 interface Props {
-  skill: 'eo' | 'ee';
+  skill: 'eo' | 'ee' | 'ce';
   title: string;
   subtitle?: string;
   steps?: FrameStep[];
@@ -32,7 +32,7 @@ export default function ExamFrame({ skill, title, subtitle, steps, timer, right,
     <div className={`xs-root xs-${skill}`} role="dialog" aria-modal="true" aria-label={title}>
       <header className="xs-bar">
         <div className="xs-bar-id">
-          <span className="xs-mark-logo" aria-hidden>{skill === 'eo' ? 'EO' : 'EE'}</span>
+          <span className="xs-mark-logo" aria-hidden>{skill.toUpperCase()}</span>
           <div>
             <strong>{title}</strong>
             {subtitle && <span>{subtitle}</span>}

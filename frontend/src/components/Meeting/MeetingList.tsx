@@ -311,8 +311,9 @@ const MeetingList: React.FC = () => {
     if (m.status === 'active') return <span className="ml-pill is-live"><i className="ml-pulse" /> Live</span>;
     if (m.status === 'waiting') return <span className="ml-pill is-waiting">Opening soon</span>;
     const start = ms(m.started_at || m.scheduled_start);
+    // Its time has come but the teacher has not started it: not live yet.
     if (Number.isFinite(start) && now >= start && m.status !== 'ended') {
-      return <span className="ml-pill is-live"><i className="ml-pulse" /> Active</span>;
+      return <span className="ml-pill is-waiting">{canManage ? 'Not started' : 'Waiting for teacher'}</span>;
     }
     const left = startsIn(m);
     if (left !== null && left < 86400_000) return <span className="ml-pill is-soon">In {spanText(left)}</span>;
@@ -468,7 +469,7 @@ const MeetingList: React.FC = () => {
                   value: 'active',
                   label: (
                     <span className="ml-seg">
-                      {view.active.length > 0 && <i className="ml-pulse" />} Active <b>{view.active.length}</b>
+                      {view.active.some(m => m.status === 'active') && <i className="ml-pulse" />} Active <b>{view.active.length}</b>
                     </span>
                   ),
                 },

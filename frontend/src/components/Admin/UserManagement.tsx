@@ -6,7 +6,7 @@ import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import {
-    CalendarOutlined, CheckCircleFilled, CheckCircleOutlined, CloseOutlined, CrownOutlined, DeleteOutlined, DownloadOutlined,
+    AimOutlined, BarChartOutlined, CalendarOutlined, CheckCircleFilled, CheckCircleOutlined, CloseOutlined, CrownOutlined, DeleteOutlined, DownloadOutlined,
     EditOutlined, ExclamationCircleFilled, KeyOutlined, LockOutlined, MailOutlined, MoreOutlined, PlusOutlined, ReadOutlined,
     ReloadOutlined, RightOutlined, SafetyOutlined, SearchOutlined, SolutionOutlined, StopOutlined, TeamOutlined, UserAddOutlined,
     UserOutlined, WarningOutlined,
@@ -15,9 +15,18 @@ import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
 import { headerHeight } from '../Layout/layoutMetrics';
 import { formatPlain } from '../../utils/timezone';
+import { useNavigate } from 'react-router-dom';
+import ExamAssignmentModal from './ExamAssignmentModal';
+import { EXAM_LABEL, NCLC_NOTE, NCLC_OPTIONS, daysUntil, type ExamTarget } from '../Candidate/candidateModel';
 import './UserManagement.css';
 
-type Role = 'admin' | 'teacher' | 'student';
+type Role = 'admin' | 'teacher' | 'student' | 'candidate';
+
+/** Exam candidates: their goal, what is open to them and their last practice (from the API). */
+interface CandidateExam {
+    target_exam: ExamTarget; target_nclc: number | null; exam_date: string | null; admin_notes: string | null;
+    active_items: number; total_items: number; access_until: string | null; last_practice_at: string | null; attempts: number;
+}
 type RoleTab = 'all' | Role;
 type StatusKey = 'active' | 'disabled' | 'attention' | 'new';
 
@@ -31,11 +40,13 @@ interface User {
     created_at: string;
     is_active?: boolean;
     failed_login_attempts?: number;
+    exam?: CandidateExam | null;
 }
 
-const ROLES: Role[] = ['student', 'teacher', 'admin'];
+const ROLES: Role[] = ['student', 'candidate', 'teacher', 'admin'];
 const ROLE_META: Record<Role, { label: string; plural: string; icon: React.ReactNode; desc: string }> = {
     student: { label: 'Student', plural: 'Students', icon: <ReadOutlined />, desc: 'Joins classes, quizzes and exam practice.' },
+    candidate: { label: 'Exam candidate', plural: 'Candidates', icon: <AimOutlined />, desc: 'Exam practice only — no classes or batches.' },
     teacher: { label: 'Teacher', plural: 'Teachers', icon: <SolutionOutlined />, desc: 'Runs batches, live classes and grading.' },
     admin: { label: 'Admin', plural: 'Admins', icon: <CrownOutlined />, desc: 'Full access to the admin console.' },
 };
@@ -97,9 +108,13 @@ const RolePicker: React.FC<{ value?: Role; onChange?: (r: Role) => void; disable
 const UserManagement: React.FC = () => {
     const { apiCall, user, isAdmin, isAuthenticated, logout } = useAuth();
     const r = useResponsive();
+    const navigate = useNavigate();
+    const [assignFor, setAssignFor] = useState<User | null>(null);
     const [msg, msgHolder] = message.useMessage();
     const [modal, modalHolder] = Modal.useModal();
     const [form] = Form.useForm();
+    const editRole = Form.useWatch('role', form) as Role | undefined;
+    const goalNclc = Form.useWatch('target_nclc', form) as number | undefined;
 
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
@@ -169,6 +184,7 @@ const UserManagement: React.FC = () => {
         return {
             total: users.length,
             student: by('student'),
+            candidate: by('candidate'),
             teacher: by('teacher'),
             admin: by('admin'),
             active: users.filter(u => u.is_active).length,
@@ -210,7 +226,7 @@ const UserManagement: React.FC = () => {
         setFormError(null);
         usernameTouched.current = false;
         form.resetFields();
-        form.setFieldsValue({ role: roleTab !== 'all' ? roleTab : 'student', is_active: true });
+        form.setFieldsValue({ role: roleTab !== 'all' ? roleTab : 'student', is_active: true, target_exam: 'tcf_canada' });
         setEditorOpen(true);
     };
 
@@ -226,6 +242,10 @@ const UserManagement: React.FC = () => {
             last_name: u.last_name,
             role: u.role,
             is_active: u.is_active ?? true,
+            target_exam: u.exam?.target_exam || 'tcf_canada',
+            target_nclc: u.exam?.target_nclc ?? undefined,
+            exam_date: u.exam?.exam_date ? dayjs(u.exam.exam_date) : null,
+            admin_notes: u.exam?.admin_notes || '',
         });
         setEditorOpen(true);
     };
@@ -257,6 +277,12 @@ const UserManagement: React.FC = () => {
             };
             if (!editing) payload.username = String(values.username || '').trim();
             if (ownAdminEdit) { delete payload.is_active; delete payload.role; }
+            if (values.role === 'candidate') {
+                payload.target_exam = values.target_exam || 'tcf_canada';
+                payload.target_nclc = values.target_nclc ?? null;
+                payload.exam_date = values.exam_date ? values.exam_date.format('YYYY-MM-DD') : null;
+                payload.admin_notes = String(values.admin_notes || '').trim() || null;
+            }
 
             const res = await apiCall(editing ? `/users/${editing.id}` : '/users', {
                 method: editing ? 'PUT' : 'POST',
@@ -278,7 +304,9 @@ const UserManagement: React.FC = () => {
             }
             msg.success(editing
                 ? `${payload.first_name}'s profile was updated`
-                : `${payload.first_name} was added — a welcome email with a temporary password is on its way`);
+                : values.role === 'candidate'
+                    ? `${payload.first_name} was added as an exam candidate — open exam content to them from their profile`
+                    : `${payload.first_name} was added — a welcome email with a temporary password is on its way`);
             setEditorOpen(false);
             setEditing(null);
             fetchUsers();
@@ -706,6 +734,32 @@ const UserManagement: React.FC = () => {
                                 <Button type="primary" icon={<EditOutlined />} onClick={() => openEdit(profile)}>Edit profile</Button>
                                 <Button icon={<KeyOutlined />} onClick={() => openReset(profile)}>Reset password</Button>
                             </div>
+                            {profile.role === 'candidate' && (() => {
+                                const ex = profile.exam;
+                                const days = daysUntil(ex?.exam_date);
+                                return (
+                                    <div className="um-exam">
+                                        <div className="um-exam-head">
+                                            <h4><AimOutlined /> Exam preparation</h4>
+                                            <span>{EXAM_LABEL[ex?.target_exam || 'tcf_canada']}</span>
+                                        </div>
+                                        <div className="um-exam-grid">
+                                            <div><span>Target</span><b>{ex?.target_nclc ? `NCLC ${ex.target_nclc}` : '—'}</b></div>
+                                            <div><span>Exam date</span><b>{ex?.exam_date ? dayjs(ex.exam_date).format('MMM D, YYYY') : '—'}</b>{days != null && days >= 0 && <em>in {days} day{days === 1 ? '' : 's'}</em>}</div>
+                                            <div><span>Open content</span><b>{ex?.active_items ?? 0}</b>{ex?.access_until && <em>until {fmtDate(ex.access_until)}</em>}</div>
+                                            <div><span>Results</span><b>{ex?.attempts ?? 0}</b><em>{ex?.last_practice_at ? `last ${agoText(ex.last_practice_at).toLowerCase()}` : 'no practice yet'}</em></div>
+                                        </div>
+                                        {ex?.admin_notes && <p className="um-exam-note"><LockOutlined /> {ex.admin_notes}</p>}
+                                        {!ex?.active_items && (
+                                            <p className="um-exam-warn"><WarningOutlined /> Nothing is open to this candidate yet — assign exam content so they can practise.</p>
+                                        )}
+                                        <div className="um-exam-actions">
+                                            <Button type="primary" icon={<AimOutlined />} onClick={() => setAssignFor(profile)}>Assign exams</Button>
+                                            <Button icon={<BarChartOutlined />} onClick={() => navigate(`/app/exam-preparation?results=${profile.id}`)}>View results</Button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
                             {(profile.failed_login_attempts || 0) >= ATTENTION && (
                                 <div className="um-callout is-warn">
                                     <WarningOutlined />
@@ -788,6 +842,27 @@ const UserManagement: React.FC = () => {
                                 </Form.Item>
                             </section>
 
+                            {editRole === 'candidate' && (
+                                <section className="um-md-section">
+                                    <div className="um-md-label">Exam goal</div>
+                                    <p className="um-md-note is-plain">Exam candidates only prepare for the exam: they see practice, results and their profile — no classes, batches or live meetings. Open content to them with “Assign exams”.</p>
+                                    <div className="um-md-grid">
+                                        <Form.Item name="target_exam" label="Exam">
+                                            <Select options={Object.entries(EXAM_LABEL).map(([value, label]) => ({ value, label }))} />
+                                        </Form.Item>
+                                        <Form.Item name="target_nclc" label="Target level" extra={goalNclc ? NCLC_NOTE[goalNclc] : undefined}>
+                                            <Select allowClear placeholder="Not set" options={NCLC_OPTIONS.map(n => ({ value: n, label: `NCLC ${n}` }))} />
+                                        </Form.Item>
+                                    </div>
+                                    <Form.Item name="exam_date" label="Exam date">
+                                        <DatePicker className="um-full" format="MMM D, YYYY" placeholder="Not booked yet" />
+                                    </Form.Item>
+                                    <Form.Item name="admin_notes" label="Private note" extra="Only administrators see this note.">
+                                        <Input.TextArea rows={2} maxLength={2000} placeholder="e.g. Express Entry file, 3-month package" />
+                                    </Form.Item>
+                                </section>
+                            )}
+
                             <section className="um-md-section">
                                 <div className="um-md-label">Access</div>
                                 <div className="um-switch-row">
@@ -835,6 +910,15 @@ const UserManagement: React.FC = () => {
                         </footer>
                     </div>
                 </Modal>
+
+                {/* ── Assign exam content to a candidate ── */}
+                <ExamAssignmentModal
+                    open={!!assignFor}
+                    onClose={() => setAssignFor(null)}
+                    apiCall={apiCall}
+                    presetCandidates={assignFor ? [assignFor.id] : undefined}
+                    onChanged={fetchUsers}
+                />
 
                 {/* ── Reset password ── */}
                 <Modal open={!!resetTarget} onCancel={closeReset} footer={null} width={440} centered

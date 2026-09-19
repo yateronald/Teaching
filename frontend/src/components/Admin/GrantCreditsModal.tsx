@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Dropdown, Input, InputNumber, Modal, Segmented, Select, Skeleton, message } from 'antd';
 import {
-    AudioOutlined, CloseOutlined, DeleteOutlined, FormOutlined, ReloadOutlined, SearchOutlined, TeamOutlined,
+    AimOutlined, AudioOutlined, CloseOutlined, DeleteOutlined, FormOutlined, ReloadOutlined, SearchOutlined, TeamOutlined,
     ThunderboltFilled, UserOutlined,
 } from '@ant-design/icons';
 import { loadPeople, peekPeople, personName } from './examAdminData';
@@ -9,7 +9,7 @@ import type { ApiCall, BatchLite, PersonLite } from './examAdminData';
 import './ExamAdmin.css';
 
 /* ══════════════════════════════════════════
-   AI CREDITS — grant Expression Écrite / Orale credits to students or batches,
+   AI CREDITS — grant Expression Écrite / Orale credits to students, exam candidates or batches,
    and review / revoke current balances.
 ══════════════════════════════════════════ */
 
@@ -18,6 +18,7 @@ interface CreditBalance {
     first_name: string;
     last_name: string;
     email: string;
+    role?: 'student' | 'candidate';
     ee_credits: number;
     eo_credits: number;
     updated_at?: string;
@@ -31,6 +32,8 @@ const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall:
     const [tab, setTab] = useState<'grant' | 'balances'>('grant');
 
     const [students, setStudents] = useState<PersonLite[]>(() => peekPeople()?.students || []);
+    const [candidates, setCandidates] = useState<PersonLite[]>(() => peekPeople()?.candidates || []);
+    const [candidateIds, setCandidateIds] = useState<number[]>([]);
     const [batches, setBatches] = useState<BatchLite[]>(() => peekPeople()?.batches || []);
     const [studentIds, setStudentIds] = useState<number[]>([]);
     const [batchIds, setBatchIds] = useState<number[]>([]);
@@ -62,18 +65,18 @@ const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall:
     useEffect(() => {
         if (!open) return;
         setTab('grant');
-        setStudentIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes(''); setSearch('');
+        setStudentIds([]); setCandidateIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes(''); setSearch('');
         setBalances(null);
-        loadPeople(apiCall).then(p => { setStudents(p.students); setBatches(p.batches); }).catch(() => msg.error('Could not load students and batches.'));
+        loadPeople(apiCall).then(p => { setStudents(p.students); setCandidates(p.candidates); setBatches(p.batches); }).catch(() => msg.error('Could not load students and batches.'));
     }, [open, apiCall, msg]);
 
     useEffect(() => { if (open && tab === 'balances' && balances === null) fetchBalances(); }, [open, tab, balances, fetchBalances]);
 
-    const recipients = studentIds.length + batchIds.length;
+    const recipients = studentIds.length + candidateIds.length + batchIds.length;
     const reach = useMemo(() => {
         const byId = new Map(batches.map(b => [b.id, Number(b.student_count) || 0]));
-        return studentIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
-    }, [studentIds, batchIds, batches]);
+        return studentIds.length + candidateIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
+    }, [studentIds, candidateIds, batchIds, batches]);
     const hasCredits = (ee || 0) > 0 || (eo || 0) > 0;
     const canSubmit = recipients > 0 && hasCredits && !submitting;
 
@@ -83,12 +86,12 @@ const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall:
         try {
             const r = await apiCall('/ai-credits/bulk-grant', {
                 method: 'POST',
-                body: JSON.stringify({ student_ids: studentIds, batch_ids: batchIds, ee_credits: ee || 0, eo_credits: eo || 0, notes: notes.trim() || undefined }),
+                body: JSON.stringify({ student_ids: [...studentIds, ...candidateIds], batch_ids: batchIds, ee_credits: ee || 0, eo_credits: eo || 0, notes: notes.trim() || undefined }),
             });
             const d = await r.json().catch(() => ({}));
             if (!r.ok) { msg.error(d?.error || 'Credits could not be granted.'); return; }
             msg.success(`Credits granted to ${d.recipients_count} ${d.recipients_count === 1 ? 'student' : 'students'}`);
-            setStudentIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes('');
+            setStudentIds([]); setCandidateIds([]); setBatchIds([]); setEe(null); setEo(null); setNotes('');
             setBalances(null);
         } catch {
             msg.error('Credits could not be granted. Check your connection and try again.');
@@ -119,6 +122,7 @@ const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall:
     const totals = withCredits.reduce((t, b) => ({ ee: t.ee + (b.ee_credits || 0), eo: t.eo + (b.eo_credits || 0) }), { ee: 0, eo: 0 });
 
     const studentOptions = useMemo(() => students.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [students]);
+    const candidateOptions = useMemo(() => candidates.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [candidates]);
     const batchOptions = useMemo(() => batches.map(b => ({ value: b.id, label: b.name, count: Number(b.student_count) || 0, search: b.name.toLowerCase() })), [batches]);
 
     return (
@@ -150,6 +154,13 @@ const GrantCreditsModal: React.FC<{ open: boolean; onClose: () => void; apiCall:
                                     options={studentOptions} optionFilterProp="search" maxTagCount="responsive"
                                     optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.email}</em></span>}
                                     notFoundContent={students.length ? 'No student matches' : 'Loading students…'} />
+                            </div>
+                            <div className="ea-field">
+                                <label><AimOutlined /> Exam candidates</label>
+                                <Select mode="multiple" allowClear showSearch placeholder="Search by name or email" value={candidateIds} onChange={setCandidateIds}
+                                    options={candidateOptions} optionFilterProp="search" maxTagCount="responsive"
+                                    optionRender={o => <span className="ea-opt"><strong>{o.data.label}</strong><em>{o.data.email}</em></span>}
+                                    notFoundContent={candidates.length ? 'No candidate matches' : 'No exam candidate yet'} />
                             </div>
                             <div className="ea-field">
                                 <label><TeamOutlined /> Batches</label>

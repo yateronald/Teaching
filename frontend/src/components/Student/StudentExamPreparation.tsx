@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Button, ConfigProvider, Empty, Input, Segmented, Skeleton, Tooltip, message } from 'antd';
 import {
   ReadOutlined, FormOutlined, SoundOutlined, AudioOutlined, FolderOutlined, LockOutlined,
@@ -11,6 +12,7 @@ import COAnalytics from './COAnalytics';
 import COGlobalAnalytics from './COGlobalAnalytics';
 import EESimulation from './EESimulation';
 import EOSimulation from './EOSimulation';
+import CEExam from '../ExamSim/CEExam';
 import OutOfCreditsModal from './OutOfCreditsModal';
 import EOAnalytics from './EOAnalytics';
 import EOGlobalAnalytics from './EOGlobalAnalytics';
@@ -59,16 +61,16 @@ const isAvailable = (n: ContentNode) => {
   const empty = n.available_count !== undefined && n.available_count === 0;
   return !!accessible && !expired && !empty;
 };
-const lockReason = (n: ContentNode) => {
-  if (n.is_assigned && n.is_expired && !n.has_assigned_children) return 'Your access has expired. Ask your teacher to renew it.';
+/** Who opens content: the teacher for students, the school's administrator for exam candidates. */
+const lockReason = (n: ContentNode, who = 'your teacher') => {
+  if (n.is_assigned && n.is_expired && !n.has_assigned_children) return `Your access has expired. Ask ${who} to renew it.`;
   if (n.available_count === 0 && (n.is_assigned || n.has_assigned_children)) return 'Nothing inside is assigned to you yet.';
-  return 'Not assigned yet. Ask your teacher to open it for you.';
+  return `Not assigned yet. Ask ${who} to open it for you.`;
 };
 
 type LeafState = 'new' | 'running' | 'done' | 'soon' | 'locked' | 'expired';
 const leafState = (n: ContentNode): LeafState => {
   if (!isAvailable(n)) return n.is_assigned && n.is_expired && !n.has_assigned_children ? 'expired' : 'locked';
-  if (n.type === 'ce_series') return 'soon';
   if (n.progress?.running) return 'running';
   return (n.progress?.attempts ?? 0) > 0 ? 'done' : 'new';
 };
@@ -78,7 +80,7 @@ const numberOf = (n: ContentNode) => labelOf(n).match(/(\d+)\s*$/)?.[1] ?? null;
 const bestOf = (n: ContentNode): { text: string; level: string | null } | null => {
   const best = n.progress?.best;
   if (best == null || !n.progress?.attempts) return null;
-  if (n.type === 'co_series') {
+  if (n.type === 'co_series' || n.type === 'ce_series') {
     const level = best >= 600 ? 'C2' : best >= 500 ? 'C1' : best >= 400 ? 'B2' : best >= 300 ? 'B1' : best >= 200 ? 'A2' : 'A1';
     return { text: `${Math.round(best)} pts`, level };
   }
@@ -95,7 +97,9 @@ const ago = (iso: string | null | undefined) => {
 type Filter = 'all' | 'available' | 'new' | 'running' | 'done' | 'locked';
 
 const StudentExamPreparation: React.FC = () => {
-  const { apiCall } = useAuth();
+  const { apiCall, isCandidate } = useAuth();
+  const who = isCandidate ? 'your administrator' : 'your teacher';
+  const [searchParams, setSearchParams] = useSearchParams();
   const [messageApi, contextHolder] = message.useMessage();
 
   const [tree, setTree] = useState<ContentNode[]>([]);
@@ -108,6 +112,8 @@ const StudentExamPreparation: React.FC = () => {
 
   const [credits, setCredits] = useState<{ ee_credits: number; eo_credits: number } | null>(null);
   const [coSeriesId, setCoSeriesId] = useState<number | null>(null);
+  const [ceSeriesId, setCeSeriesId] = useState<number | null>(null);
+  const [ceAnalytics, setCeAnalytics] = useState<{ id: number; name: string } | null>(null);
   const [eeCombId, setEeCombId] = useState<number | null>(null);
   const [eoPartieId, setEoPartieId] = useState<number | null>(null);
   const [coAnalytics, setCoAnalytics] = useState<{ id: number; name: string } | null>(null);
@@ -191,6 +197,16 @@ const StudentExamPreparation: React.FC = () => {
     navigateTo([...path, node]);
   };
 
+  // Deep link from the dashboard: ?skill=ce|co|ee|eo opens that skill directly.
+  const wanted = searchParams.get('skill');
+  useEffect(() => {
+    if (!wanted || treeLoading || !tree.length) return;
+    const node = tree.find(n => skillOf(n.name)?.key === wanted);
+    setSearchParams(p => { p.delete('skill'); return p; }, { replace: true });
+    if (node && isAvailable(node)) void openNode(node);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, treeLoading, tree]);
+
   const refreshCurrent = () => {
     if (path.length) void loadChildren(path[path.length - 1], true);
     else void fetchTree();
@@ -200,6 +216,7 @@ const StudentExamPreparation: React.FC = () => {
     const id = node.content_id;
     if (!id) return;
     if (node.type === 'co_series') setCoSeriesId(id);
+    else if (node.type === 'ce_series') setCeSeriesId(id);
     else if (node.type === 'ee_combinaison') {
       if (credits && credits.ee_credits <= 0) { setOutOfCredits('ee'); return; }
       setEeCombId(id);
@@ -294,7 +311,7 @@ const StudentExamPreparation: React.FC = () => {
               {opening ? 'Opening…' : <>Open {s?.english.toLowerCase() ?? 'section'} <RightOutlined /></>}
             </Button>
           ) : (
-            <span className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node)}</span>
+            <span className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node, who)}</span>
           )}
         </div>
       </article>
@@ -310,7 +327,7 @@ const StudentExamPreparation: React.FC = () => {
     const isMonth = !!node.month_name;
     const year = isMonth ? path[path.length - 1]?.year : node.year;
     return (
-      <Tooltip title={open ? undefined : lockReason(node)}>
+      <Tooltip title={open ? undefined : lockReason(node, who)}>
         <button
           type="button"
           className={`ep-folder${open ? '' : ' is-locked'}`}
@@ -342,12 +359,12 @@ const StudentExamPreparation: React.FC = () => {
     const best = bestOf(node);
     const attempts = node.progress?.attempts ?? 0;
     const credit = node.type === 'ee_combinaison' ? 'writing' : node.type === 'eo_partie' ? 'speaking' : null;
-    const canAnalyse = st === 'done' && node.content_id && (node.type === 'co_series' || node.type === 'eo_partie');
+    const canAnalyse = st === 'done' && node.content_id && (node.type === 'co_series' || node.type === 'ce_series' || node.type === 'eo_partie');
     const sub = node.theme
       || (node.type === 'eo_partie' ? 'Interview · Role play · Point of view'
         : node.type === 'ee_combinaison' ? 'Message · Narrative · Argued opinion'
           : node.total_questions ? `${node.total_questions} questions${node.total_points ? ` · ${node.total_points} points` : ''}` : node.description || '');
-    const cta = st === 'running' ? 'Resume' : st === 'done' ? 'Retake' : node.type === 'co_series' ? 'Start series' : 'Start';
+    const cta = st === 'running' ? 'Resume' : st === 'done' ? 'Retake' : node.type === 'co_series' || node.type === 'ce_series' ? 'Start series' : 'Start';
     const ctaTip = st === 'running' ? 'Continue where you stopped — no credit used.'
       : credit ? `Uses 1 ${credit} credit.` : undefined;
 
@@ -379,7 +396,7 @@ const StudentExamPreparation: React.FC = () => {
             ) : st === 'soon' ? (
               <span className="ep-record-meta"><InfoCircleOutlined /> Practice coming soon</span>
             ) : (
-              <span className="ep-record-meta">{st === 'expired' ? 'Access expired · ask your teacher to renew it' : 'Not assigned to you yet'}</span>
+              <span className="ep-record-meta">{st === 'expired' ? `Access expired · ask ${who} to renew it` : 'Not assigned to you yet'}</span>
             )}
           </div>
           {(st === 'new' || st === 'running' || st === 'done') && (
@@ -392,7 +409,9 @@ const StudentExamPreparation: React.FC = () => {
                     aria-label={`Results for ${labelOf(node)}`}
                     onClick={() => (node.type === 'co_series'
                       ? setCoAnalytics({ id: node.content_id!, name: labelOf(node) })
-                      : setEoAnalytics({ id: node.content_id!, name: labelOf(node) }))}
+                      : node.type === 'ce_series'
+                        ? setCeAnalytics({ id: node.content_id!, name: labelOf(node) })
+                        : setEoAnalytics({ id: node.content_id!, name: labelOf(node) }))}
                   />
                 </Tooltip>
               )}
@@ -415,8 +434,8 @@ const StudentExamPreparation: React.FC = () => {
 
   /* ═══════════ RENDER ═══════════ */
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: '#047857', fontSize: 13 } }}>
-      <div className={`ep${skill ? ` ep-in-${skill.key}` : ''}`}>
+    <ConfigProvider theme={{ token: { colorPrimary: isCandidate ? '#0e7490' : '#047857', fontSize: 13 } }}>
+      <div className={`ep${isCandidate ? ' is-candidate' : ''}${skill ? ` ep-in-${skill.key}` : ''}`}>
         {contextHolder}
 
         {/* ── Hero (Shown ONLY on main page) ── */}
@@ -425,7 +444,7 @@ const StudentExamPreparation: React.FC = () => {
             <div className="ep-hero-main">
               <div className="ep-overline">Exam preparation</div>
               <h1 className="ep-title">TCF Canada</h1>
-              <p className="ep-subtitle">Practise the four skills of the exam in the official format. Your teacher decides which parts are open to you.</p>
+              <p className="ep-subtitle">Practise the four skills of the exam in the official format. {isCandidate ? 'Your administrator decides which parts are open to you.' : 'Your teacher decides which parts are open to you.'}</p>
               {!treeLoading && !treeError && (
                 <div className="ep-hero-stats">
                   <div><strong>{skillsOpen}<small>/{tree.length || 4}</small></strong><span>skills open</span></div>
@@ -490,7 +509,7 @@ const StudentExamPreparation: React.FC = () => {
                         <strong>{n}</strong>
                         <span>{skill.credit} credit{n === 1 ? '' : 's'}</span>
                       </div>
-                      <em>{n <= 0 ? 'Ask your teacher for more' : '1 per new attempt'}</em>
+                      <em>{n <= 0 ? `Ask ${who} for more` : '1 per new attempt'}</em>
                     </div>
                   );
                 })()}
@@ -571,6 +590,12 @@ const StudentExamPreparation: React.FC = () => {
         {/* ── Exercises & analytics (behaviour unchanged) ── */}
         {coSeriesId && (
           <COQuizTaking seriesId={coSeriesId} onBack={() => { setCoSeriesId(null); refreshCurrent(); }} />
+        )}
+        {ceSeriesId && (
+          <CEExam seriesId={ceSeriesId} open onClose={() => { setCeSeriesId(null); refreshCurrent(); }} />
+        )}
+        {ceAnalytics && (
+          <COAnalytics skill="ce" seriesId={ceAnalytics.id} seriesName={ceAnalytics.name} open onClose={() => setCeAnalytics(null)} />
         )}
         {coAnalytics && (
           <COAnalytics seriesId={coAnalytics.id} seriesName={coAnalytics.name} open onClose={() => setCoAnalytics(null)} />

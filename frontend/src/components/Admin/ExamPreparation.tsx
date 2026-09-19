@@ -3376,7 +3376,9 @@ const ExamPreparation: React.FC = () => {
   const { apiCall, token } = useAuth();
 
   // Navigation state
-  const [view, setView] = useState<'categories' | 'series-list' | 'series-detail' | 'ee-years' | 'ee-months' | 'ee-combinaisons' | 'eo-years' | 'eo-months' | 'eo-parties' | 'eo-partie-detail' | 'student-results'>('categories');
+  // ?results=<userId> (from the users page) opens that learner's exam results directly
+  const resultsFor = Number(new URLSearchParams(window.location.search).get('results')) || undefined;
+  const [view, setView] = useState<'categories' | 'series-list' | 'series-detail' | 'ee-years' | 'ee-months' | 'ee-combinaisons' | 'eo-years' | 'eo-months' | 'eo-parties' | 'eo-partie-detail' | 'student-results'>(resultsFor ? 'student-results' : 'categories');
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
   const [selectedSeriesId, setSelectedSeriesId] = useState<number | null>(null);
   const [selectedCategoryName, setSelectedCategoryName] = useState<string>('');
@@ -4724,7 +4726,7 @@ const ExamPreparation: React.FC = () => {
         {view === 'eo-months' && renderEoMonthsView()}
         {view === 'eo-parties' && renderEoPartiesView()}
         {view === 'eo-partie-detail' && renderEoPartieDetailView()}
-        {view === 'student-results' && <ExamResultsDashboard mode="admin" onBack={() => setView('categories')} />}
+        {view === 'student-results' && <ExamResultsDashboard mode="admin" initialStudentId={resultsFor} onBack={() => setView('categories')} />}
       </div>
 
       {/* Modals */}

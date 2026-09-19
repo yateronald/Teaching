@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntApp } from 'antd';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { CLASS_ROLES, homeFor } from './utils/roles';
 import Login from './components/Auth/Login';
 import LandingPage from './components/Landing/LandingPage';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
@@ -40,6 +41,14 @@ const MeetingPage = lazy(() => import('./components/Meeting/MeetingRoom'));
 const MeetingAttendance = lazy(() => import('./components/Meeting/MeetingAttendance'));
 const MeetingJoinLink = lazy(() => import('./components/Meeting/MeetingJoinLink'));
 const ForcePasswordChange = lazy(() => import('./components/Auth/ForcePasswordChange'));
+const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDashboard'));
+const CandidateResults = lazy(() => import('./components/Candidate/CandidateResults'));
+
+/** /app → the signed-in user's own home page. */
+function RoleHome() {
+  const { user } = useAuth();
+  return <Navigate to={homeFor(user?.role)} replace />;
+}
 
 function App() {
   return (
@@ -96,7 +105,7 @@ function App() {
               {/* Protected Routes */}
               <Route path="/app" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 {/* Default redirect based on role */}
-                <Route index element={<Navigate to="/app/dashboard" replace />} />
+                <Route index element={<RoleHome />} />
                 
                 {/* Common Routes */}
                 <Route path="profile" element={<Profile />} />
@@ -252,11 +261,28 @@ function App() {
                   </ProtectedRoute>
                 } />
 
-                {/* Meeting Routes (all authenticated users) */}
-                <Route path="meetings" element={<MeetingList />} />
-                <Route path="meeting/:id" element={<MeetingPage />} />
-                <Route path="meeting-join/:roomName" element={<MeetingJoinLink />} />
-                <Route path="meeting-attendance" element={<MeetingAttendance />} />
+                {/* Exam candidate routes (exam preparation only) */}
+                <Route path="exam-home" element={
+                  <ProtectedRoute requiredRole="candidate">
+                    <CandidateDashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="exam-practice" element={
+                  <ProtectedRoute requiredRole="candidate">
+                    <StudentExamPreparation />
+                  </ProtectedRoute>
+                } />
+                <Route path="exam-results" element={
+                  <ProtectedRoute requiredRole="candidate">
+                    <CandidateResults />
+                  </ProtectedRoute>
+                } />
+
+                {/* Meeting Routes (every class-based role; exam candidates have no live classes) */}
+                <Route path="meetings" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingList /></ProtectedRoute>} />
+                <Route path="meeting/:id" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingPage /></ProtectedRoute>} />
+                <Route path="meeting-join/:roomName" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingJoinLink /></ProtectedRoute>} />
+                <Route path="meeting-attendance" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingAttendance /></ProtectedRoute>} />
               </Route>
             </Routes>
             </Suspense>

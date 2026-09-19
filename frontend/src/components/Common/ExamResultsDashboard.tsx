@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button, ConfigProvider, Input, Segmented, Skeleton, Tooltip } from 'antd';
 import {
-    ArrowDownOutlined, ArrowLeftOutlined, ArrowUpOutlined, AudioOutlined, CalendarOutlined, EditOutlined, ReloadOutlined, RightOutlined,
+    ArrowDownOutlined, ArrowLeftOutlined, ArrowUpOutlined, AudioOutlined, CalendarOutlined, EditOutlined, ReadOutlined, ReloadOutlined, RightOutlined,
     SearchOutlined, SoundOutlined, TeamOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,18 +10,19 @@ import '../Teacher/Teacher.css';
 import './ExamResults.css';
 
 /* ══════════════════════════════════════════
-   TCF RESULTS — how students do in the three exam simulations:
-   CO (compréhension orale, scored in %) · EE (expression écrite, /20) · EO (expression orale, /20).
-   Used by teachers (their batches) and admins (everyone, with a way back to exam management).
+   TCF RESULTS — how learners do in the four exam skills:
+   CE / CO (compréhension écrite / orale, scored in %) · EE (expression écrite, /20) · EO (expression orale, /20).
+   Used by teachers (their batches) and admins (everyone — students and exam candidates —
+   with a way back to exam management).
 ══════════════════════════════════════════ */
 
-interface Props { mode: 'teacher' | 'admin'; onBack?: () => void }
+interface Props { mode: 'teacher' | 'admin'; onBack?: () => void; /** Opens this learner's results straight away. */ initialStudentId?: number }
 
-type Skill = 'co' | 'ee' | 'eo';
+type Skill = 'ce' | 'co' | 'ee' | 'eo';
 interface Batch { id: number; name: string; french_level: string; start_date: string; end_date: string; teacher_first_name?: string; teacher_last_name?: string; student_count: number }
-interface StudentListItem { id: number; first_name: string; last_name: string; email: string; username: string; batches: { id: number; name: string; french_level: string }[] }
+interface StudentListItem { id: number; first_name: string; last_name: string; email: string; username: string; role?: 'student' | 'candidate'; batches: { id: number; name: string; french_level: string }[] }
 interface SkillStats { attemptsCount: number; avgScore: number | null; bestScore: number | null; latestAttempt: string | null }
-interface BatchStudent { id: number; first_name: string; last_name: string; email: string; username: string; co: SkillStats; ee: SkillStats; eo: SkillStats }
+interface BatchStudent { id: number; first_name: string; last_name: string; email: string; username: string; ce?: SkillStats; co: SkillStats; ee: SkillStats; eo: SkillStats }
 interface BatchDetail {
     batch: Batch;
     students: BatchStudent[];
@@ -30,25 +31,29 @@ interface BatchDetail {
 interface COAttempt { id: number; series_name: string; completed_at: string; time_spent_seconds: number; total_questions: number; correct_count: number; total_points: number; earned_points: number; score_percentage: number; cefr_level: string | null }
 interface EEAttempt { id: number; combinaison_name: string; submitted_at: string; time_used_seconds: number; average_score: number; overall_level: string | null; task1_score: number; task2_score: number; task3_score: number; task1_level: string; task2_level: string; task3_level: string; month_name: string; year: number }
 interface EOAttempt { id: number; partie_name: string | null; completed_at: string; duration_seconds: number; overall_score: number; tache1_score: number; tache2_score: number; tache3_score: number; month_name: string | null; year: number | null }
-interface StudentDetail { student: { id: number; first_name: string; last_name: string; email: string; username: string; timezone?: string }; co: COAttempt[]; ee: EEAttempt[]; eo: EOAttempt[] }
+interface StudentDetail { student: { id: number; first_name: string; last_name: string; email: string; username: string; timezone?: string; role?: 'student' | 'candidate' }; ce?: COAttempt[]; co: COAttempt[]; ee: EEAttempt[]; eo: EOAttempt[] }
 
 type View = { kind: 'list' } | { kind: 'batch'; id: number } | { kind: 'student'; id: number; fromBatch: number | null };
 
 const SKILLS: Record<Skill, { short: string; label: string; unit: '%' | '/20'; icon: React.ReactNode }> = {
+    ce: { short: 'CE', label: 'Compréhension écrite', unit: '%', icon: <ReadOutlined /> },
     co: { short: 'CO', label: 'Compréhension orale', unit: '%', icon: <SoundOutlined /> },
     ee: { short: 'EE', label: 'Expression écrite', unit: '/20', icon: <EditOutlined /> },
     eo: { short: 'EO', label: 'Expression orale', unit: '/20', icon: <AudioOutlined /> },
 };
-const SKILL_KEYS: Skill[] = ['co', 'ee', 'eo'];
+const SKILL_KEYS: Skill[] = ['ce', 'co', 'ee', 'eo'];
+const isComprehension = (k: Skill) => k === 'ce' || k === 'co';
+const EMPTY_STATS: SkillStats = { attemptsCount: 0, avgScore: null, bestScore: null, latestAttempt: null };
+const statsOf = (s: BatchStudent, k: Skill): SkillStats => s[k] || EMPTY_STATS;
 const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
 const num = (v: unknown): number | null => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
-/** Everything on one 0–100 scale for comparisons: CO is already a percentage, EE/EO are out of 20. */
-const pctOf = (skill: Skill, v: unknown) => { const n = num(v); return n === null ? null : skill === 'co' ? n : (n / 20) * 100; };
+/** Everything on one 0–100 scale for comparisons: CE/CO are already percentages, EE/EO are out of 20. */
+const pctOf = (skill: Skill, v: unknown) => { const n = num(v); return n === null ? null : isComprehension(skill) ? n : (n / 20) * 100; };
 const fmtScore = (skill: Skill, v: unknown) => {
     const n = num(v);
     if (n === null) return '—';
-    return skill === 'co' ? `${Math.round(n)}%` : `${Math.round(n * 10) / 10}/20`;
+    return isComprehension(skill) ? `${Math.round(n)}%` : `${Math.round(n * 10) / 10}/20`;
 };
 const tone = (pct: number | null) => (pct === null ? 'is-none' : pct >= 70 ? 'is-good' : pct >= 50 ? 'is-warn' : 'is-bad');
 const nameOf = (s: { first_name?: string; last_name?: string; username?: string; email?: string }) => `${s.first_name || ''} ${s.last_name || ''}`.trim() || s.username || s.email || 'Student';
@@ -147,13 +152,13 @@ const ProgressChart: React.FC<{ points: Point[]; tz: string }> = ({ points, tz }
                     </div>
                 )}
             </div>
-            <p className="xr-note">All three on one scale: CO in %, EE and EO converted from /20. Dotted lines mark 50% and 70%.</p>
+            <p className="xr-note">All four skills on one scale: CE and CO in %, EE and EO converted from /20. Dotted lines mark 50% and 70%.</p>
         </div>
     );
 };
 
 /* ─────────────── Component ─────────────── */
-const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
+const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack, initialStudentId }) => {
     const { apiCall, user } = useAuth();
     const tz = resolveTimezone(user?.timezone);
     const when = useMemo(() => new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }), [tz]);
@@ -204,13 +209,21 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
         if (force || !studentCache[id]) run(async () => {
             const data = await fetchJson(`/tcf-results/student/${id}`);
             setStudentCache(c => ({ ...c, [id]: data }));
-            setAttemptSkill((['co', 'ee', 'eo'] as Skill[]).find(k => (data?.[k] || []).length) || 'co');
+            setAttemptSkill(SKILL_KEYS.find(k => (data?.[k] || []).length) || 'co');
         });
         else setError(null);
     };
 
     // Lists load when their tab is first shown (batches on mount) and stay cached; Refresh reloads.
     useEffect(() => { if (view.kind === 'list') loadList(tab); }, [tab, view.kind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Opened from elsewhere (e.g. a user's profile): go straight to that learner.
+    useEffect(() => {
+        if (!initialStudentId) return;
+        setTab('students');
+        loadList('students');
+        openStudent(initialStudentId, null);
+    }, [initialStudentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const refresh = () => {
         if (view.kind === 'list') loadList(tab, true);
@@ -293,7 +306,8 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                                         <span className="xr-av">{initialsOf(s)}</span>
                                         <span className="xr-person-id"><strong>{nameOf(s)}</strong><em>{s.email}</em></span>
                                         <span className="xr-chips">
-                                            {s.batches.length ? s.batches.slice(0, 3).map(b => <span key={b.id} className="xr-chip">{b.name}<b>{b.french_level}</b></span>) : <span className="xr-muted">No batch</span>}
+                                            {s.role === 'candidate' ? <span className="xr-chip is-candidate">Exam candidate</span>
+                                                : s.batches.length ? s.batches.slice(0, 3).map(b => <span key={b.id} className="xr-chip">{b.name}<b>{b.french_level}</b></span>) : <span className="xr-muted">No batch</span>}
                                             {s.batches.length > 3 && <span className="xr-chip">+{s.batches.length - 3}</span>}
                                         </span>
                                         <RightOutlined className="xr-go" />
@@ -323,12 +337,12 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
             );
         }
         const { batch, students: roster, analytics } = detail;
-        const active = roster.filter(s => SKILL_KEYS.some(k => s[k].attemptsCount > 0)).length;
-        const lastActivity = (s: BatchStudent) => Math.max(0, ...SKILL_KEYS.map(k => Date.parse(s[k].latestAttempt || '') || 0));
+        const active = roster.filter(s => SKILL_KEYS.some(k => statsOf(s, k).attemptsCount > 0)).length;
+        const lastActivity = (s: BatchStudent) => Math.max(0, ...SKILL_KEYS.map(k => Date.parse(statsOf(s, k).latestAttempt || '') || 0));
         const sorted = [...roster].sort((a, b) => {
             if (sortBy === 'name') return nameOf(a).localeCompare(nameOf(b));
             if (sortBy === 'inactive') return lastActivity(a) - lastActivity(b);
-            return (pctOf(sortBy, b[sortBy].avgScore) ?? -1) - (pctOf(sortBy, a[sortBy].avgScore) ?? -1);
+            return (pctOf(sortBy, statsOf(b, sortBy).avgScore) ?? -1) - (pctOf(sortBy, statsOf(a, sortBy).avgScore) ?? -1);
         });
 
         return (
@@ -338,7 +352,7 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
 
                 <section className="xr-kpis" aria-label="Class averages">
                     {SKILL_KEYS.map(k => {
-                        const a = analytics[k];
+                        const a = analytics[k] || { avgScore: 0, totalAttempts: 0, levelDistribution: {} };
                         const pct = a.totalAttempts ? pctOf(k, a.avgScore) : null;
                         return (
                             <div key={k} className={`xr-kpi is-${k}`}>
@@ -363,7 +377,7 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                         <header className="tc-card-head">
                             <span className="tc-card-title">Students</span>
                             <Segmented size="small" value={sortBy} onChange={v => setSortBy(v as typeof sortBy)} options={[
-                                { value: 'name', label: 'Name' }, { value: 'co', label: 'CO' }, { value: 'ee', label: 'EE' }, { value: 'eo', label: 'EO' }, { value: 'inactive', label: 'Least active' },
+                                { value: 'name', label: 'Name' }, ...SKILL_KEYS.map(k => ({ value: k, label: SKILLS[k].short })), { value: 'inactive', label: 'Least active' },
                             ]} />
                         </header>
                         {roster.length === 0 ? <p className="tc-muted-line">No students are enrolled in this batch.</p> : (
@@ -382,7 +396,7 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                                                 <span className="xr-person-id"><strong>{nameOf(s)}</strong><em>{s.email}</em></span>
                                             </span>
                                             {SKILL_KEYS.map(k => {
-                                                const st = s[k];
+                                                const st = statsOf(s, k);
                                                 const avgPct = pctOf(k, st.avgScore);
                                                 return (
                                                     <span key={k} className="xr-skill-cell" data-skill={SKILLS[k].short} role="cell">
@@ -409,7 +423,7 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                         <header className="tc-card-head"><span className="tc-card-title">CEFR levels reached</span></header>
                         <div className="tc-card-body">
                             {SKILL_KEYS.map(k => {
-                                const dist = analytics[k].levelDistribution || {};
+                                const dist = analytics[k]?.levelDistribution || {};
                                 const total = Object.values(dist).reduce((sum, n) => sum + Number(n || 0), 0);
                                 return (
                                     <div key={k} className="xr-cefr">
@@ -443,14 +457,15 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                 <>
                     {header(listed ? nameOf(listed) : 'Student results', 'Loading attempts…', back)}
                     {errorBar}
-                    <div className="xr-kpis is-three">{[0, 1, 2].map(i => <div key={i} className="xr-kpi"><Skeleton active title={false} paragraph={{ rows: 3 }} /></div>)}</div>
+                    <div className="xr-kpis">{[0, 1, 2, 3].map(i => <div key={i} className="xr-kpi"><Skeleton active title={false} paragraph={{ rows: 3 }} /></div>)}</div>
                     <div className="tc-card tc-pad"><Skeleton active paragraph={{ rows: 8 }} /></div>
                 </>
             );
         }
         const { student, co, ee, eo } = detail;
-        const byskill = { co, ee, eo } as const;
-        const scoreOf = (k: Skill, a: any) => (k === 'co' ? a.score_percentage : k === 'ee' ? a.average_score : a.overall_score);
+        const ce = detail.ce || [];
+        const byskill = { ce, co, ee, eo } as const;
+        const scoreOf = (k: Skill, a: any) => (isComprehension(k) ? a.score_percentage : k === 'ee' ? a.average_score : a.overall_score);
         const dateOf = (k: Skill, a: any) => (k === 'ee' ? a.submitted_at : a.completed_at);
         const points: Point[] = SKILL_KEYS.flatMap(k => (byskill[k] as any[]).map(a => ({
             skill: k, t: Date.parse(dateOf(k, a)), pct: pctOf(k, scoreOf(k, a)) ?? 0, label: fmtScore(k, scoreOf(k, a)),
@@ -463,29 +478,29 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
             const best = scores.length ? Math.max(...scores) : null;
             const avg = scores.length ? scores.reduce((s, n) => s + n, 0) / scores.length : null;
             const trend = scores.length >= 2 ? scores[0] - scores[1] : null;
-            const level = k === 'co' ? list[0]?.cefr_level : k === 'ee' ? list[0]?.overall_level : null;
+            const level = isComprehension(k) ? list[0]?.cefr_level : k === 'ee' ? list[0]?.overall_level : null;
             return { count: list.length, best, avg, trend, level, latest: list[0] ? dateOf(k, list[0]) : null };
         };
 
         return (
             <>
-                {header(nameOf(student), <>{student.email}{batchesOf.length ? ` · ${batchesOf.map(b => b.name).join(', ')}` : ''}</>, back)}
+                {header(nameOf(student), <>{student.role === 'candidate' && <span className="xr-chip is-candidate">Exam candidate</span>} {student.email}{batchesOf.length ? ` · ${batchesOf.map(b => b.name).join(', ')}` : ''}</>, back)}
                 {errorBar}
 
-                <section className="xr-kpis is-three" aria-label="Best scores">
+                <section className="xr-kpis" aria-label="Best scores">
                     {SKILL_KEYS.map(k => {
                         const s = summary(k);
                         const bestPct = pctOf(k, s.best);
-                        const trendUnit = k === 'co' ? '%' : '';
+                        const trendUnit = isComprehension(k) ? '%' : '';
                         return (
                             <div key={k} className={`xr-kpi is-${k}`}>
                                 <span className="xr-kpi-label"><span className="xr-kpi-ic">{SKILLS[k].icon}</span>{SKILLS[k].label}</span>
                                 <span className="xr-kpi-row">
                                     <strong className={tone(bestPct)}>{fmtScore(k, s.best)}</strong>
                                     {s.level && <span className="xr-level is-inline">{s.level}</span>}
-                                    {s.trend !== null && Math.abs(s.trend) >= (k === 'co' ? 1 : 0.1) && (
+                                    {s.trend !== null && Math.abs(s.trend) >= (isComprehension(k) ? 1 : 0.1) && (
                                         <Tooltip title="Latest attempt compared with the one before">
-                                            <span className={`xr-trend ${s.trend > 0 ? 'is-up' : 'is-down'}`}>{s.trend > 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}{Math.abs(Math.round(s.trend * (k === 'co' ? 1 : 10)) / (k === 'co' ? 1 : 10))}{trendUnit}</span>
+                                            <span className={`xr-trend ${s.trend > 0 ? 'is-up' : 'is-down'}`}>{s.trend > 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}{Math.abs(Math.round(s.trend * (isComprehension(k) ? 1 : 10)) / (isComprehension(k) ? 1 : 10))}{trendUnit}</span>
                                         </Tooltip>
                                     )}
                                 </span>
@@ -512,14 +527,14 @@ const ExamResultsDashboard: React.FC<Props> = ({ mode, onBack }) => {
                         <p className="tc-muted-line">No {SKILLS[attemptSkill].label.toLowerCase()} attempts yet.</p>
                     ) : (
                         <ul className="xr-attempts">
-                            {attemptSkill === 'co' && co.map(a => {
+                            {isComprehension(attemptSkill) && (attemptSkill === 'ce' ? ce : co).map(a => {
                                 const pct = num(a.score_percentage);
                                 return (
                                     <li key={a.id} className="xr-attempt">
                                         <span className="xr-attempt-main"><strong>{a.series_name}</strong><em>{at(a.completed_at)} · {fmtDuration(a.time_spent_seconds)}</em></span>
                                         <span className="xr-attempt-facts"><span>{a.correct_count}/{a.total_questions} correct</span><span>{a.earned_points}/{a.total_points} pts</span></span>
                                         {a.cefr_level ? <span className="xr-level is-inline">{a.cefr_level}</span> : <span />}
-                                        <b className={`xr-score is-big ${tone(pct)}`}>{fmtScore('co', pct)}</b>
+                                        <b className={`xr-score is-big ${tone(pct)}`}>{fmtScore(attemptSkill, pct)}</b>
                                     </li>
                                 );
                             })}

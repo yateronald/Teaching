@@ -63,4 +63,53 @@ function nextMilestone(score20) {
   return { nclc: next.nclc, score: next.min, missing: Math.max(0, next.min - s), note: milestone ? milestone.note : null };
 }
 
-module.exports = { CEFR_BANDS, NCLC_BANDS, MILESTONES, officialScore, cefrFor, nclcFor, nextMilestone, clamp20 };
+// ── Comprehension (reading / listening), scored in TCF points out of 699 ──
+
+// France Éducation International — one CEFR level per 100 points from 100.
+function cefrForPoints(points) {
+  const p = Number(points) || 0;
+  if (p >= 600) return 'C2';
+  if (p >= 500) return 'C1';
+  if (p >= 400) return 'B2';
+  if (p >= 300) return 'B1';
+  if (p >= 200) return 'A2';
+  return 'A1';
+}
+
+// IRCC — équivalences TCF Canada, compréhension de l'écrit (ce) et de l'oral (co) → NCLC.
+const NCLC_POINT_BANDS = {
+  ce: [
+    { nclc: 10, min: 549 }, { nclc: 9, min: 524 }, { nclc: 8, min: 499 }, { nclc: 7, min: 453 },
+    { nclc: 6, min: 406 }, { nclc: 5, min: 375 }, { nclc: 4, min: 342 },
+  ],
+  co: [
+    { nclc: 10, min: 549 }, { nclc: 9, min: 523 }, { nclc: 8, min: 503 }, { nclc: 7, min: 458 },
+    { nclc: 6, min: 398 }, { nclc: 5, min: 369 }, { nclc: 4, min: 331 },
+  ],
+};
+
+function nclcForPoints(skill, points) {
+  const bands = NCLC_POINT_BANDS[skill];
+  if (!bands) return null;
+  const p = Math.round(Number(points) || 0);
+  const band = bands.find(b => p >= b.min);
+  return band ? band.nclc : null; // below the NCLC 4 threshold
+}
+
+/** Next CEFR and NCLC steps above a comprehension score, with the points still missing. */
+function nextPointSteps(skill, points) {
+  const p = Math.round(Number(points) || 0);
+  // Levels as reported here: A1 below 200, then one level per 100 points up to C2 at 600.
+  const cefrNext = p >= 600 ? null : Math.max(200, (Math.floor(p / 100) + 1) * 100);
+  const nclcNow = nclcForPoints(skill, p) || 3;
+  const nclcNext = [...(NCLC_POINT_BANDS[skill] || [])].reverse().find(b => b.nclc > nclcNow);
+  return {
+    cefr: cefrNext ? { level: cefrForPoints(cefrNext), points: cefrNext, missing: cefrNext - p } : null,
+    nclc: nclcNext ? { nclc: nclcNext.nclc, points: nclcNext.min, missing: nclcNext.min - p } : null,
+  };
+}
+
+module.exports = {
+  CEFR_BANDS, NCLC_BANDS, NCLC_POINT_BANDS, MILESTONES,
+  officialScore, cefrFor, nclcFor, nextMilestone, clamp20, cefrForPoints, nclcForPoints, nextPointSteps,
+};

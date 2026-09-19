@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles } = require('../middleware/auth');
+const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles, ROLES } = require('../middleware/auth');
+const candidates = require('../services/candidateService');
 const { sendWelcomeEmail, sendAdminPasswordReset } = require('../emails/emailService');
 
 // Build local admin-only middleware using authorizeRoles to avoid any export mismatch
@@ -101,6 +102,11 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
         sql += ' ORDER BY created_at DESC';
         
         const users = await req.db.all(sql, params);
+        const candidateIds = users.filter(u => u.role === 'candidate').map(u => u.id);
+        if (candidateIds.length) {
+            const exam = await candidates.summaries(req.db, candidateIds);
+            users.forEach(u => { if (u.role === 'candidate') u.exam = exam.get(Number(u.id)) || null; });
+        }
         res.json(users);
     } catch (error) {
         console.error('Get users error:', error);
@@ -120,7 +126,10 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
         if (!user) {
             return res.status(404).json({ error: 'User not found' });
         }
-        
+        if (user.role === 'candidate') {
+            user.exam = (await candidates.summaries(req.db, [user.id])).get(Number(user.id)) || null;
+        }
+
         res.json(user);
     } catch (error) {
         console.error('Get user error:', error);
@@ -135,7 +144,7 @@ router.post('/', [
     body('username').isLength({ min: 3 }).trim(),
     body('email').isEmail().normalizeEmail(),
     // password is no longer provided by client; it will be auto-generated
-    body('role').isIn(['admin', 'teacher', 'student']),
+    body('role').isIn(ROLES),
     body('first_name').isLength({ min: 1 }).trim(),
     body('last_name').isLength({ min: 1 }).trim(),
     body('is_active').optional().isBoolean()
@@ -150,6 +159,12 @@ router.post('/', [
         }
 
         const { username, email, role, first_name, last_name, is_active = true } = req.body;
+
+        // An exam candidate may come with an exam goal (target, level, date, private note)
+        const { goal, error: goalError } = role === 'candidate'
+            ? candidates.readGoal(req.body, { withNotes: true })
+            : { goal: null };
+        if (goalError) return res.status(400).json({ error: goalError });
 
         // Check if username or email already exists
         const existingUser = await req.db.get(
@@ -174,6 +189,11 @@ router.post('/', [
         );
 
         const userId = result.rows[0].id;
+
+        if (goal) {
+            await candidates.saveGoal(req.db, userId, goal, req.user.id)
+                .catch(e => console.error('Failed to save the exam goal of user', userId, e.message));
+        }
 
         // Try to send welcome email with temp password (non-blocking error)
         try {
@@ -205,7 +225,7 @@ router.put('/:id', [
     adminOnlyMw,
     body('username').optional().isLength({ min: 3 }).trim(),
     body('email').optional().isEmail().normalizeEmail(),
-    body('role').optional().isIn(['admin', 'teacher', 'student']),
+    body('role').optional().isIn(ROLES),
     body('first_name').optional().isLength({ min: 1 }).trim(),
     body('last_name').optional().isLength({ min: 1 }).trim(),
     body('is_active').optional().isBoolean()
@@ -223,13 +243,32 @@ router.put('/:id', [
         const { username, email, role, first_name, last_name, is_active } = req.body;
 
         // Check if user exists
-        const existingUser = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        const existingUser = await req.db.get('SELECT id, role FROM users WHERE id = ?', [id]);
         if (!existingUser) {
             return res.status(404).json({ error: 'User not found' });
         }
 
         // Prevent self-deactivation for logged-in admin
         const targetIdForUpdate = parseInt(id, 10);
+        if (role && role !== existingUser.role && targetIdForUpdate === req.user.id) {
+            return res.status(400).json({ error: 'You cannot change your own role.' });
+        }
+
+        // Candidates prepare for the exam on their own: no batch, no class to teach
+        const nextRole = role || existingUser.role;
+        if (nextRole === 'candidate' && existingUser.role !== 'candidate') {
+            const blockers = await candidates.roleChangeBlockers(req.db, targetIdForUpdate);
+            if (blockers.length) {
+                return res.status(409).json({
+                    error: `This account ${blockers.join(' and ')}. Remove it from those batches before making it an exam candidate.`,
+                    code: 'CANDIDATE_HAS_BATCHES',
+                });
+            }
+        }
+        const { goal, error: goalError } = nextRole === 'candidate'
+            ? candidates.readGoal(req.body, { withNotes: true })
+            : { goal: null };
+        if (goalError) return res.status(400).json({ error: goalError });
         if (
             req.user && req.user.role === 'admin' && targetIdForUpdate === req.user.id &&
             typeof is_active === 'boolean' && is_active === false
@@ -282,24 +321,32 @@ router.put('/:id', [
             }
         }
         
-        if (updates.length === 0) {
+        const hasGoal = !!goal && Object.keys(goal).length > 0;
+        if (updates.length === 0 && !hasGoal && !(nextRole === 'candidate' && existingUser.role !== 'candidate')) {
             return res.status(400).json({ error: 'No fields to update' });
         }
-        
-        updates.push('updated_at = CURRENT_TIMESTAMP');
-        params.push(id);
 
-        await req.db.run(
-            `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
-            params
-        );
+        if (updates.length) {
+            updates.push('updated_at = CURRENT_TIMESTAMP');
+            params.push(id);
+            await req.db.run(
+                `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+                params
+            );
+        }
+        if (nextRole === 'candidate' && (hasGoal || existingUser.role !== 'candidate')) {
+            await candidates.saveGoal(req.db, targetIdForUpdate, goal || {}, req.user.id);
+        }
 
         // Get updated user
         const updatedUser = await req.db.get(
             'SELECT id, username, email, role, first_name, last_name, created_at, updated_at, is_active, failed_login_attempts FROM users WHERE id = ?',
             [id]
         );
-        
+        if (updatedUser.role === 'candidate') {
+            updatedUser.exam = (await candidates.summaries(req.db, [updatedUser.id])).get(Number(updatedUser.id)) || null;
+        }
+
         res.json({ message: 'User updated successfully', user: updatedUser });
 
     } catch (error) {

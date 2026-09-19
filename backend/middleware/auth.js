@@ -3,6 +3,27 @@ const bcrypt = require('bcryptjs');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
+const ROLES = ['admin', 'teacher', 'student', 'candidate'];
+
+// Exam candidates only prepare for the exam: they reach their account, their
+// notifications and the exam practice API — nothing else (no classes, batches,
+// quizzes, resources, schedules or meetings). Deny by default: a route added
+// later stays closed to them until it is listed here.
+const CANDIDATE_API = [
+    /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo)(\/|$)/,
+    /^\/api\/email-change\//,
+    /^\/api\/notifications(\/|$)/,
+    /^\/api\/ai-credits\/me(\/|$)/,
+    /^\/api\/tcf\/student\//,
+    /^\/api\/tcf\/ee\/simulation\//,
+    /^\/api\/eo-simulation\//,
+    /^\/api\/exam-space(\/|$)/,
+];
+const candidateMayUse = (req) => {
+    const pathname = (req.originalUrl || '').split('?')[0];
+    return CANDIDATE_API.some(rule => rule.test(pathname));
+};
+
 // Generate JWT token
 function generateToken(userId, role) {
     return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: '7d' });
@@ -64,6 +85,10 @@ async function authenticateToken(req, res, next) {
         const mustChange = !!user.must_change_password;
         const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
         user.force_password_change = mustChange || expired;
+
+        if (user.role === 'candidate' && !candidateMayUse(req)) {
+            return res.status(403).json({ error: 'This area is not part of your exam preparation space.', code: 'ROLE_NOT_ALLOWED' });
+        }
 
         req.user = user;
         next();
@@ -137,6 +162,8 @@ async function isAccountLocked(db, userId) {
 }
 
 module.exports = {
+    ROLES,
+    candidateMayUse,
     generateToken,
     hashPassword,
     verifyPassword,

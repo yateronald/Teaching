@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
 import TimezoneSelect from './TimezoneSelect';
+import ExamGoalSection from '../Candidate/ExamGoalSection';
 import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
 import '../Teacher/Teacher.css';
 import './Profile.css';
@@ -22,14 +23,14 @@ interface UserProfile {
     email: string;
     first_name: string;
     last_name: string;
-    role: 'admin' | 'teacher' | 'student';
+    role: 'admin' | 'teacher' | 'student' | 'candidate';
     created_at: string;
     timezone?: string;
     profile_photo_kdrive_file_id?: string | null;
 }
 type Editable = Pick<UserProfile, 'first_name' | 'last_name' | 'username' | 'email' | 'timezone'>;
 
-const ROLE: Record<UserProfile['role'], string> = { admin: 'Administrator', teacher: 'Teacher', student: 'Student' };
+const ROLE: Record<UserProfile['role'], string> = { admin: 'Administrator', teacher: 'Teacher', student: 'Student', candidate: 'Exam candidate' };
 const PHOTO_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
 
 const fmtJoined = (v?: string | null) => {
@@ -297,7 +298,7 @@ const Profile: React.FC = () => {
                             <section className="tc-card pf-section">
                                 <header className="pf-section-head">
                                     <span className="pf-section-ic"><IdcardOutlined /></span>
-                                    <div><h3>Personal information</h3><p>How your name appears to {profile.role === 'student' ? 'your teachers' : 'students and colleagues'}.</p></div>
+                                    <div><h3>Personal information</h3><p>How your name appears to {profile.role === 'student' ? 'your teachers' : profile.role === 'candidate' ? 'your administrator' : 'students and colleagues'}.</p></div>
                                 </header>
                                 <div className="pf-fields">
                                     <Form.Item name="first_name" label="First name" rules={[{ required: true, whitespace: true, message: 'Enter your first name' }]}>
@@ -340,6 +341,9 @@ const Profile: React.FC = () => {
                                 </div>
                             </section>
                         </Form>
+
+                        {/* ── Exam goal (exam candidates) ── */}
+                        {profile.role === 'candidate' && <ExamGoalSection />}
 
                         {/* ── Security ── */}
                         <section className="tc-card pf-section">

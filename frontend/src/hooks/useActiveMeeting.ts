@@ -17,14 +17,13 @@ export function useActiveMeeting() {
   const { user, apiCall } = useAuth();
   const [activeMeeting, setActiveMeeting] = useState<ActiveMeetingSummary | null>(null);
   const [hasActiveMeeting, setHasActiveMeeting] = useState(false);
-  const signedIn = !!user?.id;
+  // Exam candidates have no live classes: nothing to watch for them.
+  const signedIn = !!user?.id && user.role !== 'candidate';
   const apiCallRef = useRef(apiCall);
   apiCallRef.current = apiCall;
 
-  const ms = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() : NaN);
-
   const checkActive = useCallback(async () => {
-    if (!user) {
+    if (!user || user.role === 'candidate') {
       setActiveMeeting(null);
       setHasActiveMeeting(false);
       return;
@@ -35,19 +34,9 @@ export function useActiveMeeting() {
       const list = await resp.json();
       if (!Array.isArray(list)) return;
 
-      const now = Date.now();
-      // Live = actually running, or opened / scheduled and still within its time slot.
-      // (A class the teacher opened but never started stays "waiting" — it must not
-      // look live once its scheduled end has passed; the meetings list files it under Past.)
-      const found = list.find((m: any) => {
-        if (m.status === 'ended') return false;
-        if (m.status === 'active') return true;
-        const end = ms(m.scheduled_end);
-        if (Number.isFinite(end) && now > end) return false;
-        if (m.status === 'waiting') return true;
-        const start = ms(m.scheduled_start);
-        return Number.isFinite(start) && now >= start;
-      });
+      // Live only once the teacher has started the class ("active"). A class whose
+      // time slot has begun, or that the teacher merely opened ("waiting"), is not live.
+      const found = list.find((m: any) => m.status === 'active');
 
       if (found) {
         setActiveMeeting({

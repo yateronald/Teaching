@@ -39,6 +39,12 @@
   --xs-accent-soft: #ecfdf8;
   --xs-accent-line: #a7e3d6;
 }
+.xs-root.xs-ce {
+  --xs-accent: #1d4ed8;
+  --xs-accent-strong: #1e40af;
+  --xs-accent-soft: #eff6ff;
+  --xs-accent-line: #bfdbfe;
+}
 .xs-root *, .xs-root *::before, .xs-root *::after { box-sizing: border-box; }
 /* The report shown inside another panel (attempt history). */
 .xs-root.xs-embed { position: static; inset: auto; z-index: auto; display: block; background: transparent; font-size: 13.5px; }

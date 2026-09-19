@@ -48,6 +48,7 @@ function attachMeetingRealtime(io, db) {
         const subscribe = async (meetingId) => {
             const id = Number(meetingId);
             if (!Number.isInteger(id) || id <= 0) return { ok: false };
+            if (me.role === 'candidate') return { ok: false }; // exam-only accounts have no live classes
             if (!access.allowHit(`sub:${me.id}`, 60, 60 * 1000)) return { ok: false, error: 'rate_limited' };
             const meeting = await db.get(
                 'SELECT m.*, b.teacher_id AS batch_teacher_id FROM meetings m LEFT JOIN batches b ON b.id = m.batch_id WHERE m.id = $1',

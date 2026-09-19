@@ -11,11 +11,11 @@ interface AnalyticsData {
   attempts: Attempt[]; best_attempt: Attempt | null; average_score: number; attempt_count: number;
   cefr_breakdown: Record<string, { total: number; correct: number }> | null;
 }
-interface Props { seriesId: number; seriesName: string; open: boolean; onClose: () => void }
+interface Props { seriesId: number; seriesName: string; open: boolean; onClose: () => void; skill?: 'co' | 'ce' }
 const RANGES = ['Q1–Q4', 'Q5–Q10', 'Q11–Q19', 'Q20–Q29', 'Q30–Q35', 'Q36–Q39'];
 
-export default function COAnalytics({ seriesId, seriesName, open, onClose }: Props) {
-  const resource = useAnalyticsResource<AnalyticsData>(open ? `/tcf/student/co/series/${seriesId}/attempts` : null);
+export default function COAnalytics({ seriesId, seriesName, open, onClose, skill = 'co' }: Props) {
+  const resource = useAnalyticsResource<AnalyticsData>(open ? `/tcf/student/${skill}/series/${seriesId}/attempts` : null);
   const { data } = resource;
   const [tab, setTab] = useState('overview');
   const attempts = data?.attempts || [];
@@ -29,7 +29,7 @@ export default function COAnalytics({ seriesId, seriesName, open, onClose }: Pro
   const nextLevelIndex = latest ? LEVELS.indexOf(cefrFromPoints(latest.earned_points)) + 1 : 0;
   const nextThreshold = (nextLevelIndex + 1) * 100;
 
-  return <AnalyticsPanel open={open} onClose={onClose} title={seriesName} subtitle="Compréhension orale · Résultats" tab={tab} onTab={setTab}
+  return <AnalyticsPanel open={open} onClose={onClose} title={seriesName} subtitle={`${skill === 'ce' ? 'Compréhension écrite' : 'Compréhension orale'} · Résultats`} tab={tab} onTab={setTab}
     tabs={[{ value: 'overview', label: 'Aperçu' }, { value: 'history', label: `Historique${attempts.length ? ` (${attempts.length})` : ''}` }]}
     {...resource} empty={!latest}>
     {data && latest && (tab === 'overview' ? <>

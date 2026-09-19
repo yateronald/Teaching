@@ -3,7 +3,8 @@
    Skill colours: CO indigo · EE teal · EO amber. Scores keep the platform's good/warn/bad tones.
 ══════════════════════════════════════════ */
 
-.xr { --co: #4f46e5; --ee: #0e7490; --eo: #d97706; }
+.xr { --ce: #059669; --co: #4f46e5; --ee: #0e7490; --eo: #d97706; }
+.xr-chip.is-candidate { border-color: #a5f3fc; background: #ecfeff; color: #0e7490; font-weight: 600; }
 .xr-muted { color: var(--tc-subtle); }
 .xr-note { margin: 10px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--tc-subtle); }
 .xr-score { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--tc-ink); }
@@ -65,9 +66,10 @@
 .xr-empty strong { font-size: 15px; font-weight: 600; color: var(--tc-ink); }
 
 /* ── KPIs ── */
-.xr-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.xr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .xr-kpis.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .xr-kpi { --k: var(--tc-accent); display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 14px 16px; border: 1px solid var(--tc-line); border-radius: 16px; background: #fff; }
+.xr-kpi.is-ce { --k: var(--ce); }
 .xr-kpi.is-co { --k: var(--co); }
 .xr-kpi.is-ee { --k: var(--ee); }
 .xr-kpi.is-eo { --k: var(--eo); }
@@ -90,7 +92,7 @@
 .xr-table { display: flex; flex-direction: column; }
 .xr-trow {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)) 132px;
+  grid-template-columns: minmax(0, 1.6fr) repeat(4, minmax(0, 1fr)) 132px;
   align-items: center;
   gap: 14px;
   width: 100%;
@@ -141,6 +143,7 @@
 .xr-chart { display: flex; flex-direction: column; gap: 8px; }
 .xr-legend { display: flex; flex-wrap: wrap; gap: 6px; }
 .xr-legend-item { --c: var(--co); display: inline-flex; align-items: center; gap: 7px; padding: 3px 10px; border: 1px solid var(--tc-line); border-radius: 999px; background: #fff; font: inherit; font-size: 12px; font-weight: 600; color: var(--tc-text); cursor: pointer; }
+.xr-legend-item.is-ce { --c: var(--ce); }
 .xr-legend-item.is-ee { --c: var(--ee); }
 .xr-legend-item.is-eo { --c: var(--eo); }
 .xr-legend-item > i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); }
@@ -154,6 +157,7 @@
 .xr-gridline.is-mark { stroke: var(--tc-line); stroke-dasharray: 4 4; }
 .xr-axis { font-size: 10.5px; fill: var(--tc-subtle); font-variant-numeric: tabular-nums; }
 .xr-series { --c: var(--co); }
+.xr-series.is-ce { --c: var(--ce); }
 .xr-series.is-ee { --c: var(--ee); }
 .xr-series.is-eo { --c: var(--eo); }
 .xr-series polyline { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
@@ -180,7 +184,7 @@
   .xr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container tc (max-width: 860px) {
-  .xr-trow { grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); }
+  .xr-trow { grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr)); }
   .xr-last { display: none; }
   .xr-attempt { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'main score' 'facts level'; gap: 8px 12px; }
   .xr-attempt-main { grid-area: main; }

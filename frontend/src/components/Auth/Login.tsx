@@ -18,6 +18,7 @@ import PasswordResetModal from './PasswordResetModal';
 import AccountDisabledModal from './AccountDisabledModal';
 import SEO from '../SEO/SEO';
 import './Login.css';
+import { homeFor } from '../../utils/roles';
 
 interface LoginForm {
   email: string;
@@ -76,9 +77,7 @@ const Login: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      const dashboardPath = user.role === 'admin' ? '/dashboard' :
-        user.role === 'teacher' ? '/teacher-dashboard' : '/student-dashboard';
-      navigate(from === '/' ? dashboardPath : fromFull, { replace: true });
+      navigate(from === '/' ? homeFor(user.role) : fromFull, { replace: true });
     }
   }, [isAuthenticated, user, navigate, from, fromFull]);
 

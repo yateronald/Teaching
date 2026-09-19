@@ -6,6 +6,7 @@ const os = require('os');
 const { authenticateToken } = require('../middleware/auth');
 const { getKDriveService } = require('../services/kdriveService');
 const { checkExamAccess, hasAnyActiveAssignmentForCategory } = require('../services/examAccessService');
+const { hasTable } = require('../services/schemaFeatures');
 
 const router = express.Router();
 
@@ -207,7 +208,7 @@ function validateCefrThresholds(thresholds) {
 }
 
 // GET /categories/:categoryId/series — list series with question counts, total points, CEFR distribution
-router.get('/categories/:categoryId/series', async (req, res) => {
+router.get('/categories/:categoryId/series', adminOnly, async (req, res) => {
   try {
     const { categoryId } = req.params;
 
@@ -281,7 +282,7 @@ router.post('/categories/:categoryId/series', adminOnly, async (req, res) => {
 });
 
 // GET /series/:id — get series with all questions ordered by question_order
-router.get('/series/:id', async (req, res) => {
+router.get('/series/:id', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -820,7 +821,7 @@ router.post('/series/bulk-import', adminOnly, coUpload.any(), async (req, res) =
 });
 
 // GET /kdrive/:fileId/stream — stream any file from kDrive by ID (used for CE images)
-router.get('/kdrive/:fileId/stream', async (req, res) => {
+router.get('/kdrive/:fileId/stream', adminOnly, async (req, res) => {
   try {
     const { fileId } = req.params;
     const kdrive = getKDriveService();
@@ -881,7 +882,7 @@ router.post('/series/:id/assign', adminOnly, async (req, res) => {
 });
 
 // GET /series/:id/assignments — list assignments with student/batch details
-router.get('/series/:id/assignments', async (req, res) => {
+router.get('/series/:id/assignments', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -964,7 +965,7 @@ router.post('/categories/:id/assign', adminOnly, async (req, res) => {
 });
 
 // GET /categories/:id/assignments — list category assignments with details
-router.get('/categories/:id/assignments', async (req, res) => {
+router.get('/categories/:id/assignments', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -1025,7 +1026,7 @@ async function getCoFolderId() {
 }
 
 // GET /co/categories/:categoryId/series
-router.get('/co/categories/:categoryId/series', async (req, res) => {
+router.get('/co/categories/:categoryId/series', adminOnly, async (req, res) => {
   try {
     const { categoryId } = req.params;
     const category = await req.db.get('SELECT id FROM tcf_categories WHERE id = ?', [categoryId]);
@@ -1108,7 +1109,7 @@ router.post('/co/categories/:categoryId/series', adminOnly, coUpload.fields([
 });
 
 // GET /co/series/:id
-router.get('/co/series/:id', async (req, res) => {
+router.get('/co/series/:id', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const series = await req.db.get('SELECT * FROM tcf_co_series WHERE id = ?', [id]);
@@ -1136,7 +1137,7 @@ router.get('/co/series/:id', async (req, res) => {
 });
 
 // GET /co/series/:id/intro-audio — stream intro audio from kDrive
-router.get('/co/series/:id/intro-audio', async (req, res) => {
+router.get('/co/series/:id/intro-audio', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const series = await req.db.get('SELECT intro_audio_kdrive_file_id, intro_audio_file_name FROM tcf_co_series WHERE id = ?', [id]);
@@ -1472,7 +1473,7 @@ router.put('/co/series/:id/questions/reorder', adminOnly, async (req, res) => {
 });
 
 // GET /co/questions/:id/audio — stream audio from kDrive
-router.get('/co/questions/:id/audio', async (req, res) => {
+router.get('/co/questions/:id/audio', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const question = await req.db.get('SELECT audio_kdrive_file_id, audio_file_name FROM tcf_co_questions WHERE id = ?', [id]);
@@ -1490,7 +1491,7 @@ router.get('/co/questions/:id/audio', async (req, res) => {
 });
 
 // GET /co/questions/:id/image — stream image from kDrive
-router.get('/co/questions/:id/image', async (req, res) => {
+router.get('/co/questions/:id/image', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const question = await req.db.get('SELECT image_kdrive_file_id, image_file_name FROM tcf_co_questions WHERE id = ?', [id]);
@@ -1537,7 +1538,7 @@ router.post('/co/series/:id/assign', adminOnly, async (req, res) => {
   }
 });
 
-router.get('/co/series/:id/assignments', async (req, res) => {
+router.get('/co/series/:id/assignments', adminOnly, async (req, res) => {
   try {
     const { id } = req.params;
     const series = await req.db.get('SELECT id FROM tcf_co_series WHERE id = ?', [id]);
@@ -1729,7 +1730,7 @@ router.post('/co/series/bulk-import', adminOnly, coUpload.any(), async (req, res
 // ── EE Years ──
 
 // GET /ee/categories/:categoryId/years — list years for the EE category, ordered DESC
-router.get('/ee/categories/:categoryId/years', async (req, res) => {
+router.get('/ee/categories/:categoryId/years', adminOnly, async (req, res) => {
   try {
     const { categoryId } = req.params;
     const category = await req.db.get('SELECT id FROM tcf_categories WHERE id = ?', [categoryId]);
@@ -1799,7 +1800,7 @@ router.delete('/ee/years/:id', adminOnly, async (req, res) => {
 // ── EE Months ──
 
 // GET /ee/years/:yearId/months — list months for a year, ordered by month number
-router.get('/ee/years/:yearId/months', async (req, res) => {
+router.get('/ee/years/:yearId/months', adminOnly, async (req, res) => {
   try {
     const { yearId } = req.params;
     const yearRow = await req.db.get('SELECT * FROM tcf_ee_years WHERE id = ?', [yearId]);
@@ -1872,7 +1873,7 @@ router.delete('/ee/months/:id', adminOnly, async (req, res) => {
 // ── EE Combinaisons ──
 
 // GET /ee/months/:monthId/combinaisons — list combinaisons with their tâches
-router.get('/ee/months/:monthId/combinaisons', async (req, res) => {
+router.get('/ee/months/:monthId/combinaisons', adminOnly, async (req, res) => {
   try {
     const { monthId } = req.params;
     const monthRow = await req.db.get('SELECT id FROM tcf_ee_months WHERE id = ?', [monthId]);
@@ -2331,7 +2332,7 @@ router.post('/ee/years/bulk-import', adminOnly, async (req, res) => {
 // ── EO Years ──
 
 // GET /eo/categories/:categoryId/years
-router.get('/eo/categories/:categoryId/years', async (req, res) => {
+router.get('/eo/categories/:categoryId/years', adminOnly, async (req, res) => {
   try {
     const { categoryId } = req.params;
     const years = await req.db.all(
@@ -2383,7 +2384,7 @@ router.delete('/eo/years/:id', adminOnly, async (req, res) => {
 // ── EO Months ──
 
 // GET /eo/years/:yearId/months
-router.get('/eo/years/:yearId/months', async (req, res) => {
+router.get('/eo/years/:yearId/months', adminOnly, async (req, res) => {
   try {
     const { yearId } = req.params;
     const months = await req.db.all(
@@ -2435,7 +2436,7 @@ router.delete('/eo/months/:id', adminOnly, async (req, res) => {
 // ── EO Parties ──
 
 // GET /eo/months/:monthId/parties — list parties with tâches, points, sujets
-router.get('/eo/months/:monthId/parties', async (req, res) => {
+router.get('/eo/months/:monthId/parties', adminOnly, async (req, res) => {
   try {
     const { monthId } = req.params;
     const parties = await req.db.all(
@@ -2974,7 +2975,7 @@ async function contentNameResolver(db, rows) {
 }
 
 // GET /exam-assignments/content-tree — full content tree for the assignment modal
-router.get('/exam-assignments/content-tree', async (req, res) => {
+router.get('/exam-assignments/content-tree', adminOnly, async (req, res) => {
   try {
     // One query per table, assembled in memory (this used to run one query per category, year and month).
     // Sequential on purpose: the app shares a single pg client, which runs one query at a time.
@@ -3064,6 +3065,22 @@ router.post('/exam-assignments', adminOnly, async (req, res) => {
       }
       if (!item.content_id) {
         return res.status(400).json({ error: 'content_id is required for each item' });
+      }
+    }
+
+    // Individual recipients must be real, active learners (students or exam candidates)
+    if (!Array.isArray(student_ids) || !Array.isArray(batch_ids)
+      || [...student_ids, ...batch_ids].some(v => !Number.isInteger(Number(v)) || Number(v) <= 0)) {
+      return res.status(400).json({ error: 'Invalid recipient list.' });
+    }
+    const recipientIds = Array.from(new Set(student_ids.map(Number)));
+    if (recipientIds.length) {
+      const valid = await req.db.all(
+        `SELECT id FROM users WHERE id = ANY($1::int[]) AND role IN ('student', 'candidate') AND is_active = true`,
+        [recipientIds]
+      );
+      if (valid.length !== recipientIds.length) {
+        return res.status(400).json({ error: 'Exam content can only be assigned to active students and exam candidates.' });
       }
     }
 
@@ -3163,6 +3180,32 @@ router.post('/exam-assignments', adminOnly, async (req, res) => {
       console.warn('[ai-credits] Failed to grant on assignment:', creditErr.message);
     }
 
+    // Tell each recipient that new practice is open, pointing to their own exam page
+    if (created > 0) {
+      try {
+        const { createNotification, getStudentsInBatches } = require('../services/notificationService');
+        const fromBatches = await getStudentsInBatches(req.db, batchIdList);
+        const people = await req.db.all(
+          'SELECT id, role FROM users WHERE id = ANY($1::int[]) AND is_active = true',
+          [Array.from(new Set([...studentIdList, ...fromBatches.map(Number)]))]
+        );
+        const until = new Date(expiresMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+        for (const person of people) {
+          await createNotification(req.db, {
+            user_id: person.id,
+            type: 'exam_assigned',
+            title: 'New exam practice available',
+            message: `${groupName} is now open to you until ${until}.`,
+            link: person.role === 'candidate' ? '/app/exam-practice' : '/app/my-exams',
+            entity_type: 'tcf_exam_assignment',
+            sender_id: req.user.id,
+          });
+        }
+      } catch (notifyErr) {
+        console.warn('[exam-assignments] Failed to notify recipients:', notifyErr.message);
+      }
+    }
+
     res.status(201).json({ created, duplicates, group_id: groupId });
   } catch (error) {
     console.error('POST /exam-assignments error:', error);
@@ -3171,7 +3214,7 @@ router.post('/exam-assignments', adminOnly, async (req, res) => {
 });
 
 // GET /exam-assignments — list all assignments GROUPED
-router.get('/exam-assignments', async (req, res) => {
+router.get('/exam-assignments', adminOnly, async (req, res) => {
   try {
     await ensureAssignmentColumns(req.db);
 
@@ -3324,6 +3367,19 @@ const LEAF_PROGRESS_SQL = {
           FROM eo_simulations WHERE user_id = $1 AND status = 'completed' AND partie_id = ANY($2::int[])
          GROUP BY partie_id
       ) s ON s.partie_id = l.id`,
+  ce_series: `
+    SELECT l.id, NULL AS theme, COALESCE(x.attempts, 0) AS attempts, x.best, x.last_at, COALESCE(x.running, false) AS running
+      FROM unnest($2::int[]) AS l(id)
+      LEFT JOIN (
+        SELECT a.series_id,
+               COUNT(*) FILTER (WHERE a.completed_at IS NOT NULL)::int AS attempts,
+               MAX(a.earned_points) FILTER (WHERE a.completed_at IS NOT NULL) AS best,
+               MAX(a.completed_at) AS last_at,
+               bool_or(a.completed_at IS NULL AND a.started_at > LOCALTIMESTAMP - make_interval(mins => s.duration_minutes)) AS running
+          FROM tcf_ce_quiz_attempts a JOIN tcf_ce_series s ON s.id = a.series_id
+         WHERE a.student_id = $1 AND a.series_id = ANY($2::int[])
+         GROUP BY a.series_id
+      ) x ON x.series_id = l.id`,
   co_series: `
     SELECT l.id, NULL AS theme, COALESCE(s.attempts, 0) AS attempts, s.best, s.last_at, false AS running
       FROM unnest($2::int[]) AS l(id)
@@ -3596,6 +3652,28 @@ router.get('/student/content-tree/children', async (req, res) => {
 
 const MAX_ATTEMPTS = 10;
 
+/**
+ * Grades a multiple-choice series. Every question is graded exactly once, in
+ * series order; a submitted answer counts only if it is A, B, C or D.
+ */
+function gradeMcq(questions, answers) {
+  const chosen = new Map();
+  for (const a of Array.isArray(answers) ? answers : []) {
+    const pick = typeof a?.selected_answer === 'string' ? a.selected_answer.toUpperCase() : null;
+    if (a && !chosen.has(Number(a.question_id))) chosen.set(Number(a.question_id), ['A', 'B', 'C', 'D'].includes(pick) ? pick : null);
+  }
+  let correctCount = 0;
+  let earnedPoints = 0;
+  const gradedAnswers = questions.map(q => {
+    const selected = chosen.get(Number(q.id)) || null;
+    const isCorrect = selected !== null && selected === q.correct_answer;
+    const points = parseFloat(q.points);
+    if (isCorrect) { correctCount++; earnedPoints += points; }
+    return { question_id: q.id, selected_answer: selected, correct_answer: q.correct_answer, is_correct: isCorrect, points, cefr_level: q.cefr_level };
+  });
+  return { correctCount, earnedPoints, gradedAnswers };
+}
+
 // Helper: compute CEFR level from earned points using official TCF scale
 // A1: 100–199, A2: 200–299, B1: 300–399, B2: 400–499, C1: 500–599, C2: 600–699
 function computeCefrLevel(earnedPoints) {
@@ -3718,28 +3796,8 @@ router.post('/student/co/series/:id/submit', async (req, res) => {
     );
 
 
-    // Grade
-    const questionMap = {};
-    for (const q of questions) questionMap[q.id] = q;
-
-    let correctCount = 0;
-    let earnedPoints = 0;
-    const gradedAnswers = [];
-
-    for (const ans of answers) {
-      const q = questionMap[ans.question_id];
-      if (!q) continue;
-      const isCorrect = ans.selected_answer === q.correct_answer;
-      if (isCorrect) { correctCount++; earnedPoints += parseFloat(q.points); }
-      gradedAnswers.push({
-        question_id: ans.question_id,
-        selected_answer: ans.selected_answer || null,
-        correct_answer: q.correct_answer,
-        is_correct: isCorrect,
-        points: parseFloat(q.points),
-        cefr_level: q.cefr_level,
-      });
-    }
+    // Grade: each question once, whatever the submitted list contains
+    const { correctCount, earnedPoints, gradedAnswers } = gradeMcq(questions, answers);
 
     const totalPoints = questions.reduce((s, q) => s + parseFloat(q.points), 0);
     const scorePercentage = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
@@ -3991,15 +4049,16 @@ async function getExamMedia(fileId) {
 const SERIES_ACCESS_TTL_MS = 5 * 60 * 1000;
 const seriesAccessCache = new Map(); // "studentId:seriesId" → { ok, at }
 
-async function canUseCoSeries(db, studentId, seriesId) {
-  const key = `${studentId}:${seriesId}`;
+async function canUseSeries(db, studentId, type, seriesId) {
+  const key = `${type}:${studentId}:${seriesId}`;
   const hit = seriesAccessCache.get(key);
   if (hit && Date.now() - hit.at < SERIES_ACCESS_TTL_MS) return hit.ok;
-  const ok = !!(await checkExamAccess(db, studentId, 'co_series', seriesId));
+  const ok = !!(await checkExamAccess(db, studentId, type, seriesId));
   if (seriesAccessCache.size > 5000) seriesAccessCache.clear();
   seriesAccessCache.set(key, { ok, at: Date.now() });
   return ok;
 }
+const canUseCoSeries = (db, studentId, seriesId) => canUseSeries(db, studentId, 'co_series', seriesId);
 
 function sendExamMedia(res, buf, contentType) {
   res.setHeader('Content-Type', contentType);
@@ -4071,11 +4130,345 @@ router.get('/student/co/series/:id/intro-audio', async (req, res) => {
   }
 });
 // ============================================================
+// STUDENT CE (Compréhension écrite) — the reading exam room
+// As at the TCF: one document per question, 60 minutes, 699 points.
+// The attempt lives on the server: answers are saved as the learner goes,
+// so a reload or a lost connection resumes where they were. The clock is the
+// server's: a copy handed in after the time (plus a short grace) is graded as
+// it stood when time ran out, and an attempt left open past its time is
+// collected automatically the next time the series is opened.
+// ============================================================
+
+const examScale = require('../services/examScale');
+const ACCESS_DENIED = { error: 'Access denied: Exam content is not assigned or has expired.' };
+const CE_NOT_READY = { error: 'Reading practice is not available yet. Please contact the administrator.' };
+const CE_GRACE_SECONDS = 90;
+const CE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+const CE_MAX_DRAFT = 200;
+
+async function ceReady(req, res) {
+  if (await hasTable(req.db, 'tcf_ce_quiz_attempts')) return true;
+  res.status(503).json(CE_NOT_READY);
+  return false;
+}
+const intParam = (v) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+/** CE images are stored as ".../api/tcf/kdrive/<fileId>/stream?ext=.png": the file id and its extension. */
+const ceImageRef = (imageUrl) => {
+  const id = String(imageUrl || '').match(/\/kdrive\/(\d+)\/stream/);
+  const ext = String(imageUrl || '').match(/[?&]ext=(\.[a-z0-9]+)/i);
+  return id ? { fileId: id[1], ext: ext ? ext[1].toLowerCase() : '' } : null;
+};
+
+/** Answers as saved during the exam → [{ question_id, selected_answer, flagged }], well-formed entries only. */
+function readDraft(raw) {
+  let list = raw;
+  if (typeof raw === 'string') { try { list = JSON.parse(raw || '[]'); } catch { list = []; } }
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter(a => a && Number.isInteger(Number(a.question_id)) && Number(a.question_id) > 0)
+    .slice(0, CE_MAX_DRAFT)
+    .map(a => ({
+      question_id: Number(a.question_id),
+      selected_answer: ['A', 'B', 'C', 'D'].includes(a.selected_answer) ? a.selected_answer : null,
+      flagged: a.flagged === true,
+    }));
+}
+
+/** The learner's unfinished attempt on a series, timed on the database clock. */
+async function openCeAttempt(db, seriesId, userId) {
+  return db.get(`
+    SELECT a.id, a.series_id, a.answers,
+           s.duration_minutes * 60 AS limit_seconds,
+           EXTRACT(EPOCH FROM (LOCALTIMESTAMP - a.started_at))::int AS elapsed_seconds
+      FROM tcf_ce_quiz_attempts a
+      JOIN tcf_ce_series s ON s.id = a.series_id
+     WHERE a.series_id = $1 AND a.student_id = $2 AND a.completed_at IS NULL
+     ORDER BY a.id DESC LIMIT 1`, [seriesId, userId]);
+}
+const secondsLeft = (a) => Math.max(0, Number(a.limit_seconds) - Number(a.elapsed_seconds));
+
+/** Results per CEFR level: questions, correct answers and points earned out of points possible. */
+function ceLevels(graded) {
+  return CE_LEVELS.map(level => {
+    const items = graded.filter(a => a.cefr_level === level);
+    const right = items.filter(a => a.is_correct);
+    return {
+      level,
+      questions: items.length,
+      correct: right.length,
+      points: right.reduce((s, a) => s + a.points, 0),
+      max_points: items.reduce((s, a) => s + a.points, 0),
+    };
+  }).filter(l => l.questions > 0);
+}
+
+/** Level, NCLC and next steps for a reading score (TCF points out of 699). */
+const ceOutcome = (earned) => ({
+  cefr_level: computeCefrLevel(earned),
+  nclc: examScale.nclcForPoints('ce', earned),
+  next: examScale.nextPointSteps('ce', earned),
+});
+
+/** Grades an open attempt and closes it. Returns the result, or null if it was already closed. */
+async function gradeCeAttempt(db, attempt, answers, { auto, late }) {
+  const questions = await db.all(
+    'SELECT id, correct_answer, points, cefr_level FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC',
+    [attempt.series_id]);
+  const { correctCount, earnedPoints, gradedAnswers } = gradeMcq(questions, answers);
+  const totalPoints = questions.reduce((sum, q) => sum + parseFloat(q.points), 0);
+  const scorePercentage = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+  const outcome = ceOutcome(earnedPoints);
+  const timeSpent = Math.min(Number(attempt.elapsed_seconds), Number(attempt.limit_seconds));
+
+  const done = await db.get(
+    `UPDATE tcf_ce_quiz_attempts SET
+       completed_at = CURRENT_TIMESTAMP, time_spent_seconds = $1, correct_count = $2, earned_points = $3,
+       total_points = $4, total_questions = $5, score_percentage = $6, cefr_level = $7, is_auto_submitted = $8, answers = $9
+     WHERE id = $10 AND completed_at IS NULL RETURNING id`,
+    [timeSpent, correctCount, earnedPoints, totalPoints, questions.length, scorePercentage, outcome.cefr_level,
+      auto, JSON.stringify(gradedAnswers), attempt.id]);
+  if (!done) return null;
+
+  return {
+    attempt_id: attempt.id,
+    correct_count: correctCount,
+    total_questions: questions.length,
+    earned_points: earnedPoints,
+    total_points: totalPoints,
+    score_percentage: scorePercentage,
+    ...outcome,
+    levels: ceLevels(gradedAnswers),
+    time_spent_seconds: timeSpent,
+    is_auto_submitted: auto,
+    late: !!late,
+    answers: gradedAnswers,
+  };
+}
+
+/**
+ * An attempt left open past its time is collected as it stood (like an exam
+ * paper at the bell) when it has answers, and discarded when it has none.
+ * Returns the attempt that is still running, if any.
+ */
+async function settleCeAttempt(db, seriesId, userId) {
+  const open = await openCeAttempt(db, seriesId, userId);
+  if (!open || secondsLeft(open) > 0) return open;
+  const draft = readDraft(open.answers);
+  if (draft.some(a => a.selected_answer)) await gradeCeAttempt(db, open, draft, { auto: true, late: true });
+  else await db.run('DELETE FROM tcf_ce_quiz_attempts WHERE id = $1 AND completed_at IS NULL', [open.id]);
+  return null;
+}
+
+// GET /student/ce/series/:id — the series without its answers, the learner's record, and a running attempt if any
+router.get('/student/ce/series/:id', async (req, res) => {
+  try {
+    const id = intParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid series' });
+    if (!(await ceReady(req, res))) return;
+    if (!(await checkExamAccess(req.db, req.user.id, 'ce_series', id))) return res.status(403).json(ACCESS_DENIED);
+
+    const series = await req.db.get(
+      'SELECT id, name, description, duration_minutes, total_questions, total_points FROM tcf_ce_series WHERE id = $1', [id]);
+    if (!series) return res.status(404).json({ error: 'Series not found' });
+
+    const rows = await req.db.all(`
+      SELECT id, question_order, question_text, option_a, option_b, option_c, option_d, cefr_level, points, image_url
+      FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC
+    `, [id]);
+    const questions = rows.map(({ image_url, ...q }) => ({ ...q, has_audio: false, has_image: !!ceImageRef(image_url) }));
+
+    const running = await settleCeAttempt(req.db, id, req.user.id);
+    const best = await req.db.get(
+      `SELECT score_percentage, cefr_level, earned_points, total_points FROM tcf_ce_quiz_attempts
+       WHERE series_id = $1 AND student_id = $2 AND completed_at IS NOT NULL ORDER BY earned_points DESC LIMIT 1`,
+      [id, req.user.id]);
+    const count = await req.db.get(
+      'SELECT COUNT(*)::int AS cnt FROM tcf_ce_quiz_attempts WHERE series_id = $1 AND student_id = $2 AND completed_at IS NOT NULL',
+      [id, req.user.id]);
+
+    res.json({
+      ...series,
+      questions,
+      best_attempt: best ? { ...best, nclc: examScale.nclcForPoints('ce', best.earned_points) } : null,
+      attempt_count: count?.cnt || 0,
+      max_attempts: MAX_ATTEMPTS,
+      running: running ? {
+        attempt_id: running.id,
+        remaining_seconds: secondsLeft(running),
+        answered: readDraft(running.answers).filter(a => a.selected_answer).length,
+      } : null,
+    });
+  } catch (error) {
+    console.error('GET /student/ce/series/:id error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /student/ce/series/:id/start — resumes the running attempt, or opens a new one ({ restart: true } discards it)
+router.post('/student/ce/series/:id/start', async (req, res) => {
+  try {
+    const id = intParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid series' });
+    if (!(await ceReady(req, res))) return;
+    if (!(await checkExamAccess(req.db, req.user.id, 'ce_series', id))) return res.status(403).json(ACCESS_DENIED);
+
+    const series = await req.db.get('SELECT id, duration_minutes, total_questions, total_points FROM tcf_ce_series WHERE id = $1', [id]);
+    if (!series) return res.status(404).json({ error: 'Series not found' });
+    if (!Number(series.total_questions)) return res.status(409).json({ error: 'This series has no questions yet.' });
+
+    const running = await settleCeAttempt(req.db, id, req.user.id);
+    if (running && req.body?.restart !== true) {
+      return res.json({ attempt_id: running.id, remaining_seconds: secondsLeft(running), answers: readDraft(running.answers), resumed: true });
+    }
+    if (running) await req.db.run('DELETE FROM tcf_ce_quiz_attempts WHERE id = $1 AND completed_at IS NULL', [running.id]);
+
+    const attempt = await req.db.get(
+      `INSERT INTO tcf_ce_quiz_attempts (series_id, student_id, total_questions, total_points)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [id, req.user.id, series.total_questions, series.total_points]);
+    res.json({ attempt_id: attempt.id, remaining_seconds: Number(series.duration_minutes) * 60, answers: [], resumed: false });
+  } catch (error) {
+    console.error('POST /student/ce/series/:id/start error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT /student/ce/attempts/:attemptId/progress — saves the answers given so far (and the questions flagged for review)
+router.put('/student/ce/attempts/:attemptId/progress', async (req, res) => {
+  try {
+    const attemptId = intParam(req.params.attemptId);
+    if (!attemptId || !Array.isArray(req.body?.answers) || req.body.answers.length > CE_MAX_DRAFT) {
+      return res.status(400).json({ error: 'answers array required' });
+    }
+    if (!(await ceReady(req, res))) return;
+    const attempt = await req.db.get(`
+      SELECT a.id, s.duration_minutes * 60 AS limit_seconds,
+             EXTRACT(EPOCH FROM (LOCALTIMESTAMP - a.started_at))::int AS elapsed_seconds
+        FROM tcf_ce_quiz_attempts a JOIN tcf_ce_series s ON s.id = a.series_id
+       WHERE a.id = $1 AND a.student_id = $2 AND a.completed_at IS NULL`, [attemptId, req.user.id]);
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found or already submitted' });
+    if (Number(attempt.elapsed_seconds) > Number(attempt.limit_seconds) + CE_GRACE_SECONDS) {
+      return res.status(409).json({ error: 'Time is up for this attempt.', code: 'TIME_UP' });
+    }
+    await req.db.run('UPDATE tcf_ce_quiz_attempts SET answers = $1 WHERE id = $2 AND completed_at IS NULL',
+      [JSON.stringify(readDraft(req.body.answers)), attemptId]);
+    res.json({ saved: true, remaining_seconds: secondsLeft(attempt) });
+  } catch (error) {
+    console.error('PUT /student/ce/attempts/:attemptId/progress error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /student/ce/series/:id/submit — hands the copy in and grades it
+router.post('/student/ce/series/:id/submit', async (req, res) => {
+  try {
+    const id = intParam(req.params.id);
+    const attemptId = intParam(req.body?.attempt_id);
+    if (!id || !attemptId || !Array.isArray(req.body?.answers)) {
+      return res.status(400).json({ error: 'attempt_id and answers array required' });
+    }
+    if (!(await ceReady(req, res))) return;
+
+    const attempt = await openCeAttempt(req.db, id, req.user.id);
+    if (!attempt || attempt.id !== attemptId) return res.status(404).json({ error: 'Attempt not found or already submitted' });
+
+    // Past the time (and its grace), the copy counts as it was last saved — not as sent now.
+    const late = Number(attempt.elapsed_seconds) > Number(attempt.limit_seconds) + CE_GRACE_SECONDS;
+    const answers = late ? readDraft(attempt.answers) : req.body.answers;
+    const result = await gradeCeAttempt(req.db, attempt, answers, { auto: late || req.body.is_auto_submitted === true, late });
+    if (!result) return res.status(409).json({ error: 'This attempt was already submitted.' });
+    res.json(result);
+  } catch (error) {
+    console.error('POST /student/ce/series/:id/submit error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /student/ce/series/:id/attempts — the learner's results on one series
+router.get('/student/ce/series/:id/attempts', async (req, res) => {
+  try {
+    const id = intParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid series' });
+    if (!(await ceReady(req, res))) return;
+    if (!(await checkExamAccess(req.db, req.user.id, 'ce_series', id))) return res.status(403).json(ACCESS_DENIED);
+
+    const attempts = await req.db.all(
+      `SELECT id, started_at, completed_at, time_spent_seconds, total_questions, correct_count, total_points,
+              earned_points, score_percentage, cefr_level, is_auto_submitted
+       FROM tcf_ce_quiz_attempts WHERE series_id = $1 AND student_id = $2 AND completed_at IS NOT NULL
+       ORDER BY completed_at DESC`,
+      [id, req.user.id]);
+    const best = attempts.reduce((b, a) => (Number(a.earned_points) > Number(b?.earned_points ?? -1) ? a : b), null);
+    const average = attempts.length
+      ? Math.round(attempts.reduce((sum, a) => sum + Number(a.score_percentage), 0) / attempts.length) : 0;
+
+    let cefrBreakdown = null;
+    if (attempts.length) {
+      const latest = await req.db.get('SELECT answers FROM tcf_ce_quiz_attempts WHERE id = $1', [attempts[0].id]);
+      const answers = typeof latest?.answers === 'string' ? JSON.parse(latest.answers) : latest?.answers || [];
+      cefrBreakdown = {};
+      for (const a of answers) {
+        const b = cefrBreakdown[a.cefr_level] || (cefrBreakdown[a.cefr_level] = { total: 0, correct: 0 });
+        b.total++;
+        if (a.is_correct) b.correct++;
+      }
+    }
+    res.json({ attempts, best_attempt: best, average_score: average, attempt_count: attempts.length, max_attempts: MAX_ATTEMPTS, cefr_breakdown: cefrBreakdown });
+  } catch (error) {
+    console.error('GET /student/ce/series/:id/attempts error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /student/ce/attempts/:attemptId/correction — full correction of one of the learner's attempts
+router.get('/student/ce/attempts/:attemptId/correction', async (req, res) => {
+  try {
+    const attemptId = intParam(req.params.attemptId);
+    if (!attemptId) return res.status(400).json({ error: 'Invalid attempt' });
+    if (!(await ceReady(req, res))) return;
+    const attempt = await req.db.get(
+      `SELECT a.*, s.name AS series_name FROM tcf_ce_quiz_attempts a JOIN tcf_ce_series s ON s.id = a.series_id
+       WHERE a.id = $1 AND a.student_id = $2 AND a.completed_at IS NOT NULL`,
+      [attemptId, req.user.id]);
+    if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
+
+    const rows = await req.db.all(`
+      SELECT id, question_order, question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points, image_url
+      FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC
+    `, [attempt.series_id]);
+    const questions = rows.map(({ image_url, ...q }) => ({ ...q, has_audio: false, has_image: !!ceImageRef(image_url) }));
+    const answers = typeof attempt.answers === 'string' ? JSON.parse(attempt.answers) : attempt.answers;
+    res.json({ ...attempt, ...ceOutcome(Number(attempt.earned_points)), levels: ceLevels(answers || []), questions, answers });
+  } catch (error) {
+    console.error('GET /student/ce/attempts/:attemptId/correction error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /student/ce/questions/:id/image — the question's document, for learners the series is open to
+router.get('/student/ce/questions/:id/image', async (req, res) => {
+  try {
+    const id = intParam(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid question' });
+    const question = await req.db.get('SELECT series_id, image_url FROM tcf_ce_questions WHERE id = $1', [id]);
+    const ref = question && ceImageRef(question.image_url);
+    if (!ref) return res.status(404).json({ error: 'Image not found' });
+    if (!(await canUseSeries(req.db, req.user.id, 'ce_series', question.series_id))) return res.status(403).json(ACCESS_DENIED);
+    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+    const buf = await getExamMedia(ref.fileId);
+    sendExamMedia(res, buf, mimeMap[ref.ext] || 'image/png');
+  } catch (error) {
+    console.error('GET /student/ce/questions/:id/image error:', error);
+    if (!res.headersSent) res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================================
 // ADMIN CO ANALYTICS
 // ============================================================
 
 // GET /admin/co/analytics/student/:studentId — analytics for a specific student
-router.get('/admin/co/analytics/student/:studentId', async (req, res) => {
+router.get('/admin/co/analytics/student/:studentId', adminOnly, async (req, res) => {
   try {
     const { studentId } = req.params;
     const student = await req.db.get('SELECT id, first_name, last_name, email FROM users WHERE id = $1', [studentId]);
@@ -4133,7 +4526,7 @@ router.get('/admin/co/analytics/student/:studentId', async (req, res) => {
 });
 
 // GET /admin/co/analytics/batch/:batchId — aggregate analytics for a batch
-router.get('/admin/co/analytics/batch/:batchId', async (req, res) => {
+router.get('/admin/co/analytics/batch/:batchId', adminOnly, async (req, res) => {
   try {
     const { batchId } = req.params;
     const batch = await req.db.get('SELECT id, name FROM batches WHERE id = $1', [batchId]);

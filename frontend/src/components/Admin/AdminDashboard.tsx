@@ -342,7 +342,7 @@ const AdminDashboard: React.FC = () => {
                                                 <strong>{s.title}</strong>
                                                 <em>{[s.batch_name, `${s.teacher_first_name || ''} ${s.teacher_last_name || ''}`.trim()].filter(Boolean).join(' · ') || s.type}</em>
                                             </span>
-                                            {isLive && <span className="dash-pill is-live">Live</span>}
+                                            {isLive && <span className="dash-pill is-live">In progress</span>}
                                         </li>
                                     );
                                 })}

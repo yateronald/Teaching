@@ -29,6 +29,9 @@
   font-size: 13px;
 }
 
+/* Exam candidates: the exam space's own accent */
+.ep.is-candidate { --ep-accent: #0e7490; --ep-accent-soft: #ecfeff; --ep-accent-line: #a5f3fc; --sk-deep: #155e75; }
+
 .ep-skill-ce, .ep-in-ce { --sk: #1d4ed8; --sk-soft: #eff6ff; --sk-line: #bfdbfe; --sk-deep: #1e3a8a; --sk-rgb: 29, 78, 216; }
 .ep-skill-co, .ep-in-co { --sk: #6d28d9; --sk-soft: #f5f3ff; --sk-line: #ddd6fe; --sk-deep: #4c1d95; --sk-rgb: 109, 40, 217; }
 .ep-skill-ee, .ep-in-ee { --sk: #be123c; --sk-soft: #fff1f2; --sk-line: #fecdd3; --sk-deep: #881337; --sk-rgb: 190, 18, 60; }

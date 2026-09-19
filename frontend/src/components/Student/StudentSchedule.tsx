@@ -83,7 +83,8 @@ const TYPE_META: Record<SType, { label: string; icon: React.ReactNode }> = {
 };
 const STATE_LABEL: Record<SState, string> = {
     scheduled: 'Scheduled',
-    active: 'Live now',
+    // Time-based: the slot has begun. "Live" is kept for classes the teacher actually started.
+    active: 'In progress',
     ended: 'Ended',
     completed: 'Completed',
     cancelled: 'Cancelled',
@@ -631,7 +632,7 @@ const StudentSchedule: React.FC = () => {
                         <div className={`sc-next${fState === 'active' ? ' is-live' : ''}`}>
                             <div className="sc-next-main">
                                 <span className="sc-next-over">
-                                    {fState === 'active' ? <><i className="sc-pulse" aria-hidden /> Live now</> : `Next ${TYPE_META[f.type].label.toLowerCase()}`}
+                                    {fState === 'active' ? <><i className="sc-pulse" aria-hidden /> In progress</> : `Next ${TYPE_META[f.type].label.toLowerCase()}`}
                                 </span>
                                 <h2 className="sc-next-title">{f.title}</h2>
                                 <div className="sc-next-meta">

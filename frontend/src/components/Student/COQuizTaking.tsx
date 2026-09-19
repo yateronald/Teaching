@@ -26,6 +26,14 @@ interface Props { seriesId: number; onBack: () => void; }
 
 const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
 const PRELOAD_CONCURRENCY = 4;
+/** A media file that failed to download: say so and offer to try again. */
+const MediaRetry: React.FC<{ label: string; onRetry: () => void }> = ({ label, onRetry }) => (
+  <div className="co-media-failed" role="alert">
+    <span>{label}</span>
+    <Button size="small" onClick={onRetry}>Try again</Button>
+  </div>
+);
+
 const fmtClock = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
 const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
@@ -48,6 +56,7 @@ const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
   const [navOpen, setNavOpen] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [media, setMedia] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
   const [preload, setPreload] = useState({ done: 0, total: 0 });
 
   const timerRef = useRef<number | null>(null);
@@ -68,9 +77,11 @@ const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
         const objectUrl = URL.createObjectURL(blob);
         blobUrls.current.push(objectUrl);
         setMedia(m => ({ ...m, [key]: objectUrl }));
+        setFailed(f => (f[key] ? { ...f, [key]: false } : f));
         return objectUrl;
       } catch {
         mediaJobs.current.delete(key); // allow a retry when the question is opened
+        setFailed(f => ({ ...f, [key]: true }));
         return '';
       }
     })();
@@ -342,7 +353,9 @@ const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
                   <div className="co-image">
                     {imageUrl
                       ? <img src={imageUrl} alt="" draggable={false} onContextMenu={e => e.preventDefault()} />
-                      : <div className="co-media-wait"><LoadingOutlined /> Loading image…</div>}
+                      : failed[`i${q.id}`]
+                        ? <MediaRetry label="The image could not be loaded." onRetry={() => void loadMedia(`i${q.id}`, `/tcf/student/co/questions/${q.id}/image`)} />
+                        : <div className="co-media-wait"><LoadingOutlined /> Loading image…</div>}
                   </div>
                 )}
                 {q.has_audio && (
@@ -350,7 +363,9 @@ const COQuizTaking: React.FC<Props> = ({ seriesId, onBack }) => {
                     <div className="co-label"><SoundOutlined /> Recording</div>
                     {audioUrl
                       ? <audio key={audioUrl} controls controlsList="nodownload noplaybackrate" onContextMenu={e => e.preventDefault()} src={audioUrl} />
-                      : <div className="co-audio-wait"><LoadingOutlined /> Loading the recording…</div>}
+                      : failed[`a${q.id}`]
+                        ? <MediaRetry label="The recording could not be loaded." onRetry={() => void loadMedia(`a${q.id}`, `/tcf/student/co/questions/${q.id}/audio`, 'audio/mpeg')} />
+                        : <div className="co-audio-wait"><LoadingOutlined /> Loading the recording…</div>}
                   </div>
                 )}
                 {q.question_text && <p className="co-q-text">{q.question_text}</p>}

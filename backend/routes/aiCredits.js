@@ -111,13 +111,13 @@ router.post('/bulk-grant', authenticateToken, adminOnly, async (req, res) => {
 router.get('/balances', authenticateToken, adminOnly, async (req, res) => {
   try {
     const sql = `
-      SELECT u.id as user_id, u.first_name, u.last_name, u.email,
+      SELECT u.id as user_id, u.first_name, u.last_name, u.email, u.role,
              COALESCE(sac.ee_credits, 0) as ee_credits,
              COALESCE(sac.eo_credits, 0) as eo_credits,
              sac.updated_at
       FROM users u
       LEFT JOIN student_ai_credits sac ON u.id = sac.user_id
-      WHERE u.role = 'student'
+      WHERE u.role IN ('student', 'candidate')
       ORDER BY u.first_name ASC, u.last_name ASC
     `;
     const rows = await req.db.all(sql);
