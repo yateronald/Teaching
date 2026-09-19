@@ -30,9 +30,32 @@ const adminSettingsRoutes = require('./routes/adminSettings');
 const demoRequestRoutes = require('./routes/demoRequests');
 const AttendanceService = require('./services/attendanceService');
 
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// Every login token is signed with JWT_SECRET. A missing, public or placeholder secret
+// (the code's development fallback, the deploy template's CHANGE_ME value) would let anyone
+// forge an admin session: refuse to run in production.
+const jwtSecret = process.env.JWT_SECRET || '';
+if (!jwtSecret || jwtSecret === 'dev_secret_key' || /^change[_-]?me/i.test(jwtSecret) || jwtSecret.length < 16) {
+    if (IS_PRODUCTION) {
+        console.error('❌ JWT_SECRET is missing, too short or a placeholder. Set a long random secret (e.g. `openssl rand -hex 48`) in .env and restart.');
+        process.exit(1);
+    }
+    console.warn('⚠️  JWT_SECRET is missing, too short or a placeholder. Never deploy like this.');
+}
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Do not advertise the framework; basic protective headers on every API response.
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+});
 
 // Behind nginx in production: trust the X-Forwarded-* headers so
 // req.protocol returns 'https' (not 'http') and req.get('host') gets
@@ -61,14 +84,14 @@ const ALLOWED_ORIGINS = [...new Set([...DEFAULT_ALLOWED_ORIGINS, ...EXTRA_ORIGIN
 //   - allows requests with no Origin header (curl, server-to-server, mobile webview)
 //   - matches the explicit allowlist
 //   - matches any *.learnfrenchwithnatives.com subdomain (future-proof)
-//   - matches localhost / 127.0.0.1 on any port for local dev (Vite, etc.)
+//   - matches localhost / 127.0.0.1 on any port for local dev (Vite, etc.) — never in production
 const PROD_HOST_REGEX = /^https:\/\/([a-z0-9-]+\.)*learnfrenchwithnatives\.com$/i;
 const LOCAL_HOST_REGEX = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
 function isOriginAllowed(origin) {
     if (!origin) return true;
     if (ALLOWED_ORIGINS.includes(origin)) return true;
     if (PROD_HOST_REGEX.test(origin)) return true;
-    if (LOCAL_HOST_REGEX.test(origin)) return true;
+    if (!IS_PRODUCTION && LOCAL_HOST_REGEX.test(origin)) return true;
     return false;
 }
 
@@ -114,6 +137,22 @@ app.use((req, res, next) => {
     req.io = io;
     next();
 });
+
+// Brute-force and spam protection on the public, unauthenticated endpoints (per IP).
+// Login only counts failed attempts, so a whole class signing in from one network is fine.
+const rateLimit = require('express-rate-limit');
+const limiter = (windowMinutes, limit, message, extra = {}) => rateLimit({
+    windowMs: windowMinutes * 60 * 1000,
+    limit,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+    message: { error: message },
+    ...extra,
+});
+app.use('/api/auth/login', limiter(15, 30, 'Too many failed sign-in attempts. Please wait 15 minutes and try again.', { skipSuccessfulRequests: true }));
+app.use('/api/password-reset/request', limiter(15, 8, 'Too many reset requests. Please wait 15 minutes and try again.'));
+app.use('/api/password-reset', limiter(15, 40, 'Too many attempts. Please wait 15 minutes and try again.'));
+app.post('/api/demo-requests', limiter(60, 10, 'Too many requests. Please try again later.'));
 
 // Routes
 app.use('/api/auth', authRoutes);

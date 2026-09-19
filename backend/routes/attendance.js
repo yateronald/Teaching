@@ -501,7 +501,7 @@ router.get('/reports/batches', authenticateToken, teacherOrAdmin, async (req, re
             GROUP BY b.id, b.name, b.start_date, b.end_date, t.first_name, t.last_name, 
                      student_counts.total_students, session_counts.total_sessions, 
                      session_counts.completed_sessions, attendance_stats.avg_attendance_rate
-            ORDER BY ${sortColumn} ${String(sort_order || 'asc').toUpperCase()}
+            ORDER BY ${sortColumn} ${String(sort_order).toLowerCase() === 'desc' ? 'DESC' : 'ASC'}
             LIMIT $${batchParamIndex} OFFSET $${batchParamIndex + 1}
         `, [...batchParams, parseInt(limit), parseInt(offset)]);
 
@@ -680,6 +680,12 @@ router.get('/sessions', authenticateToken, async (req, res) => {
             params.push(req.user.id);
             paramIndex++;
         }
+        // Students only ever see sessions of their own batches (used to find the class to join)
+        if (req.user.role === 'student') {
+            whereConditions.push(`EXISTS (SELECT 1 FROM batch_students own WHERE own.batch_id = b.id AND own.student_id = $${paramIndex})`);
+            params.push(req.user.id);
+            paramIndex++;
+        }
 
         const whereClause = whereConditions.length > 0 ? 'WHERE ' + whereConditions.join(' AND ') : '';
 
@@ -787,7 +793,7 @@ router.get('/sessions', authenticateToken, async (req, res) => {
             ${whereClause}
             GROUP BY cs.id, cs.schedule_id, cs.start_time, cs.end_time, cs.status, cs.access_code, cs.code_expires_at,
                      s.subject, s.topic, s.description, b.id, b.name, u.first_name, u.last_name, u.email
-            ORDER BY ${sortColumn} ${sort_order.toUpperCase()}
+            ORDER BY ${sortColumn} ${String(sort_order).toLowerCase() === 'asc' ? 'ASC' : 'DESC'}
         `, params);
 
         // Get detailed attendance for each session
@@ -3413,12 +3419,17 @@ router.get('/session-details-simple/:sessionId', authenticateToken, teacherOrAdm
         
         // Get the batch_id for this session
         const session = await req.db.get(`
-            SELECT cs.id, s.batch_id FROM class_sessions cs
+            SELECT cs.id, s.batch_id, b.teacher_id FROM class_sessions cs
             JOIN schedules s ON cs.schedule_id = s.id
+            LEFT JOIN batches b ON b.id = s.batch_id
             WHERE cs.id = $1
         `, [sessionId]);
-        
+
         if (!session) return res.json({ details: [] });
+        // Teachers only see the rosters of their own batches
+        if (req.user.role === 'teacher' && Number(session.teacher_id) !== Number(req.user.id)) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
         
         // Get ALL enrolled students in the batch, with their attendance status (or 'absent' if no record)
         const details = await req.db.all(`
