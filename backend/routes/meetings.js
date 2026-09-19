@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const access = require('../services/meetingAccess');
+const { endMeeting } = require('../services/meetingLifecycle');
 
 // ════════════════════════════════════════════════════════════════════════
 // Live classes.
@@ -139,35 +140,6 @@ async function recordLeave(db, meetingId, userId) {
      WHERE meeting_id = $1 AND user_id = $2 AND first_join IS NOT NULL`,
     [meetingId, userId]
   );
-}
-
-// ── Helper: mark absent students when meeting ends ──
-async function markAbsentStudents(db, meetingId) {
-  const meeting = await db.get('SELECT batch_id, started_at FROM meetings WHERE id = $1', [meetingId]);
-  if (!meeting || !meeting.batch_id) return;
-
-  // Get all students in the batch
-  const batchStudents = await db.all(
-    'SELECT student_id FROM batch_students WHERE batch_id = $1',
-    [meeting.batch_id]
-  );
-
-  for (const bs of batchStudents) {
-    // Check if they have a summary record
-    const existing = await db.get(
-      'SELECT id FROM meeting_attendance_summary WHERE meeting_id = $1 AND user_id = $2',
-      [meetingId, bs.student_id]
-    );
-    if (!existing) {
-      // Mark as absent
-      await db.run(
-        `INSERT INTO meeting_attendance_summary (meeting_id, user_id, status, total_duration_minutes, session_count)
-         VALUES ($1, $2, 'absent', 0, 0)
-         ON CONFLICT (meeting_id, user_id) DO NOTHING`,
-        [meetingId, bs.student_id]
-      );
-    }
-  }
 }
 
 const fail = (res, status, code, message, extra = {}) => res.status(status).json({ error: message, code, ...extra });
@@ -743,67 +715,7 @@ router.post('/:id/end', async (req, res) => {
     if (!ctx) return;
     const { meeting } = ctx;
 
-    // Auto-stop any active recording for this meeting (best-effort)
-    try {
-      const active = await req.db.get(
-        `SELECT id, egress_id FROM meeting_recordings
-         WHERE meeting_id = $1 AND status IN ('starting', 'recording')
-         ORDER BY id DESC LIMIT 1`,
-        [meeting.id]
-      );
-      if (active && active.egress_id) {
-        await recordingService.stopRecording(active.egress_id).catch(err =>
-          console.warn(`[meetings/end] auto-stop egress failed for ${active.egress_id}:`, err.message)
-        );
-        await req.db.run(
-          `UPDATE meeting_recordings
-           SET status = 'finalizing', ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-           WHERE id = $1`,
-          [active.id]
-        );
-      }
-    } catch (recErr) {
-      console.warn('[meetings/end] recording auto-stop step error:', recErr.message);
-    }
-
-    await req.db.run(
-      `UPDATE meetings SET status = 'ended', ended_at = CURRENT_TIMESTAMP, is_recording = false, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-      [meeting.id]
-    );
-
-    // Mark linked schedule as completed
-    await req.db.run(
-      `UPDATE schedules SET status = 'completed' WHERE meeting_id = $1`,
-      [meeting.id]
-    ).catch(e => console.warn('[meetings/end] update schedules status failed:', e.message));
-
-    // Bulk close all open attendance sessions
-    await req.db.run(
-      `UPDATE meeting_attendance
-       SET left_at = CURRENT_TIMESTAMP,
-           duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - joined_at)) / 60.0, 2)
-       WHERE meeting_id = $1 AND left_at IS NULL`,
-      [meeting.id]
-    );
-
-    // Update all summaries: duration = last_leave - first_join
-    await req.db.run(
-      `UPDATE meeting_attendance_summary
-       SET last_leave = CURRENT_TIMESTAMP,
-           total_duration_minutes = ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - first_join)) / 60.0, 2),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE meeting_id = $1 AND first_join IS NOT NULL`,
-      [meeting.id]
-    );
-
-    // Mark absent students (fire and forget for speed)
-    markAbsentStudents(req.db, meeting.id).catch(() => {});
-
-    // Everyone waiting is told, then the video room is closed server-side
-    access.lobbyClear(meeting.id);
-    await access.settleJoinRequests(req.db, meeting);
-    announce(req.io, 'meeting:ended', meeting);
-    access.closeLiveKitRoom(meeting);
+    await endMeeting(req.db, req.io, meeting);
 
     // Get summary
     const attendees = await req.db.all(

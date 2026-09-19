@@ -450,6 +450,9 @@ async function startServer() {
         const recordingCleanupService = require('./services/recordingCleanupService');
         recordingCleanupService.start(database);
 
+        // Live classes left open (never started, or nobody ended them) are tidied every 5 minutes
+        require('./services/meetingLifecycle').startMeetingSweeper(database, io);
+
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
@@ -475,6 +478,7 @@ process.on('SIGINT', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
+    try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
     await database.close();
     process.exit(0);
 });
@@ -483,6 +487,7 @@ process.on('SIGTERM', async () => {
     if (reconcileTimer) clearInterval(reconcileTimer);
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
+    try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
     await database.close();
     process.exit(0);
 });

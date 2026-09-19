@@ -16,7 +16,7 @@ import './ExamAdmin.css';
 /* ══════════════════════════════════════════
    ASSIGN EXAM CONTENT
    1 · pick content from the TCF tree (whole skills, years, months or single series)
-   2 · pick students / batches, optional name, access end date and AI credits.
+   2 · pick students / batches, optional name, access end date (required) and AI credits.
    Picking a parent includes everything under it, so its children show as "Included".
 ══════════════════════════════════════════ */
 
@@ -278,7 +278,8 @@ const ExamAssignmentModal: React.FC<{
     const byId = new Map(batches.map(b => [b.id, Number(b.student_count) || 0]));
     return studentIds.length + batchIds.reduce((t, id) => t + (byId.get(id) || 0), 0);
   }, [studentIds, batchIds, batches]);
-  const canSubmit = selected.length > 0 && recipients > 0 && !submitting;
+  const expiryOk = !!expiresAt && expiresAt.isAfter(dayjs());
+  const canSubmit = selected.length > 0 && recipients > 0 && expiryOk && !submitting;
 
   const studentOptions = useMemo(() => students.map(s => ({ value: s.id, label: personName(s), email: s.email, search: `${personName(s)} ${s.email}`.toLowerCase() })), [students]);
   const batchOptions = useMemo(() => batches.map(b => ({ value: b.id, label: b.name, count: Number(b.student_count) || 0, search: b.name.toLowerCase() })), [batches]);
@@ -294,7 +295,7 @@ const ExamAssignmentModal: React.FC<{
           items: selectedRows.map(row => ({ content_type: row.node.type, content_id: row.node.content_id ?? row.node.id })),
           student_ids: studentIds,
           batch_ids: batchIds,
-          expires_at: expiresAt ? expiresAt.toISOString() : null,
+          expires_at: expiresAt!.toISOString(),
           group_name: name.trim() || autoName,
           ee_credits: hasEe ? eeCredits || 0 : 0,
           eo_credits: hasEo ? eoCredits || 0 : 0,
@@ -446,8 +447,9 @@ const ExamAssignmentModal: React.FC<{
                       <Input value={name} onChange={e => setName(e.target.value)} maxLength={100} placeholder={autoName || 'e.g. CE practice — week 1'} />
                     </div>
                     <div className="ea-field">
-                      <label>Access until <em>optional</em></label>
-                      <DatePicker showTime={{ format: 'HH:mm' }} format="MMM D, YYYY HH:mm" value={expiresAt} onChange={setExpiresAt} placeholder="No end date"
+                      <label>Access until <b className="ea-req" aria-hidden>*</b></label>
+                      <DatePicker showTime={{ format: 'HH:mm' }} format="MMM D, YYYY HH:mm" value={expiresAt} onChange={setExpiresAt} placeholder="Choose an end date"
+                        status={expiresAt && !expiryOk ? 'error' : undefined} aria-required="true"
                         disabledDate={d => d.isBefore(dayjs(), 'day')} style={{ width: '100%' }}
                         presets={[
                           { label: 'In 1 week', value: dayjs().add(7, 'day').endOf('day') },
@@ -476,6 +478,8 @@ const ExamAssignmentModal: React.FC<{
               <div className="ea-summary">
                 {!selected.length ? 'Choose at least one content item.'
                   : !recipients ? 'Add students or batches.'
+                    : !expiresAt ? 'Choose until when students have access.'
+                      : !expiryOk ? 'The access end date must be in the future.'
                     : <><strong>{selected.length}</strong> {selected.length === 1 ? 'item' : 'items'} for <strong>{recipients}</strong> {recipients === 1 ? 'recipient' : 'recipients'}{reach ? <> · reaches up to <strong>{reach}</strong> {reach === 1 ? 'student' : 'students'}</> : null}{expiresAt ? ` · until ${expiresAt.format('MMM D')}` : ''}</>}
               </div>
               <Button onClick={onClose} disabled={submitting}>Cancel</Button>

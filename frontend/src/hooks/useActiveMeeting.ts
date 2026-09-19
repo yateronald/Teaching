@@ -36,17 +36,17 @@ export function useActiveMeeting() {
       if (!Array.isArray(list)) return;
 
       const now = Date.now();
-      // Find any meeting whose status is active/waiting, or where scheduled start has arrived and not ended
+      // Live = actually running, or opened / scheduled and still within its time slot.
+      // (A class the teacher opened but never started stays "waiting" — it must not
+      // look live once its scheduled end has passed; the meetings list files it under Past.)
       const found = list.find((m: any) => {
         if (m.status === 'ended') return false;
-        if (m.status === 'active' || m.status === 'waiting') return true;
-        const start = ms(m.started_at || m.scheduled_start);
-        const end = ms(m.ended_at || m.scheduled_end);
-        if (Number.isFinite(start) && now >= start) {
-          if (Number.isFinite(end) && now > end) return false;
-          return true;
-        }
-        return false;
+        if (m.status === 'active') return true;
+        const end = ms(m.scheduled_end);
+        if (Number.isFinite(end) && now > end) return false;
+        if (m.status === 'waiting') return true;
+        const start = ms(m.scheduled_start);
+        return Number.isFinite(start) && now >= start;
       });
 
       if (found) {

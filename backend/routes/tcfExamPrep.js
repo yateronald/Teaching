@@ -3048,6 +3048,14 @@ router.post('/exam-assignments', adminOnly, async (req, res) => {
     if (student_ids.length === 0 && batch_ids.length === 0) {
       return res.status(400).json({ error: 'At least one student_id or batch_id is required' });
     }
+    // Every assignment ends: access until a future date is compulsory
+    const expiresMs = Date.parse(expires_at);
+    if (!expires_at || !Number.isFinite(expiresMs)) {
+      return res.status(400).json({ error: 'Choose until when students have access (Access until).' });
+    }
+    if (expiresMs <= Date.now()) {
+      return res.status(400).json({ error: 'The access end date must be in the future.' });
+    }
 
     // Validate content types
     for (const item of items) {

@@ -52,7 +52,7 @@ const Donut: React.FC<{ parts: { label: string; value: number; color: string }[]
     const c = 2 * Math.PI * r;
     let offset = 0;
     return (
-        <div className="ad-donut" style={{ width: size, height: size }}>
+        <div className="dash-donut" style={{ width: size, height: size }}>
             <svg viewBox="0 0 132 132" width={size} height={size} aria-hidden>
                 <circle cx="66" cy="66" r={r} fill="none" stroke="#f1f5f9" strokeWidth="14" />
                 {total > 0 && parts.map(p => {
@@ -65,7 +65,7 @@ const Donut: React.FC<{ parts: { label: string; value: number; color: string }[]
                     return el;
                 })}
             </svg>
-            <div className="ad-donut-center">{center}</div>
+            <div className="dash-donut-center">{center}</div>
         </div>
     );
 };
@@ -75,7 +75,7 @@ const Ring: React.FC<{ value: number; tone: string }> = ({ value, tone }) => {
     const c = 2 * Math.PI * r;
     const v = Math.max(0, Math.min(100, value));
     return (
-        <div className={`ad-ring is-${tone}`}>
+        <div className={`dash-ring is-${tone}`}>
             <svg viewBox="0 0 104 104" width="104" height="104" aria-hidden>
                 <circle cx="52" cy="52" r={r} fill="none" stroke="#f1f5f9" strokeWidth="10" />
                 <circle cx="52" cy="52" r={r} fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round"
@@ -87,16 +87,16 @@ const Ring: React.FC<{ value: number; tone: string }> = ({ value, tone }) => {
 };
 
 const Card: React.FC<{ title: string; icon: React.ReactNode; action?: React.ReactNode; className?: string; children: React.ReactNode }> = ({ title, icon, action, className = '', children }) => (
-    <section className={`ad-card ${className}`}>
-        <header className="ad-card-head">
-            <span className="ad-card-title"><span className="ad-card-ic">{icon}</span>{title}</span>
+    <section className={`dash-card ${className}`}>
+        <header className="dash-card-head">
+            <span className="dash-card-title"><span className="dash-card-ic">{icon}</span>{title}</span>
             {action}
         </header>
-        <div className="ad-card-body">{children}</div>
+        <div className="dash-card-body">{children}</div>
     </section>
 );
 
-const Unavailable: React.FC<{ what: string }> = ({ what }) => <div className="ad-unavailable">{what} couldn’t be loaded right now.</div>;
+const Unavailable: React.FC<{ what: string }> = ({ what }) => <div className="dash-unavailable">{what} couldn’t be loaded right now.</div>;
 
 const AdminDashboard: React.FC = () => {
     const { apiCall, user } = useAuth();
@@ -238,12 +238,12 @@ const AdminDashboard: React.FC = () => {
     /* ═══════════ LOADING ═══════════ */
     if (loading) {
         return (
-            <div className="ad" aria-busy="true">
-                <div className="ad-header"><div><Skeleton.Input active size="small" style={{ width: 140, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 260, height: 26 }} /></div></div></div>
-                <div className="ad-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="ad-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
-                <div className="ad-grid">
-                    <div className="ad-card ad-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
-                    <div className="ad-card ad-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
+            <div className="dash" aria-busy="true">
+                <div className="dash-header"><div><Skeleton.Input active size="small" style={{ width: 140, height: 12 }} /><div style={{ marginTop: 10 }}><Skeleton.Input active style={{ width: 260, height: 26 }} /></div></div></div>
+                <div className="dash-kpis">{[0, 1, 2, 3, 4].map(i => <div key={i} className="dash-kpi"><Skeleton active title={false} paragraph={{ rows: 2 }} /></div>)}</div>
+                <div className="dash-grid">
+                    <div className="dash-card dash-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
+                    <div className="dash-card dash-pad"><Skeleton active paragraph={{ rows: 5 }} /></div>
                 </div>
             </div>
         );
@@ -259,18 +259,18 @@ const AdminDashboard: React.FC = () => {
 
     return (
         <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
-            <div className="ad">
+            <div className="dash">
                 {/* ── Header ── */}
-                <header className="ad-header">
+                <header className="dash-header">
                     <div>
-                        <div className="ad-overline">Admin console · {formatPlain(new Date(), tz, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-                        <h1 className="ad-title">{greeting}{user?.first_name ? `, ${user.first_name}` : ''}</h1>
-                        <p className="ad-subtitle">
+                        <div className="dash-overline">Admin console · {formatPlain(new Date(), tz, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+                        <h1 className="dash-title">{greeting}{user?.first_name ? `, ${user.first_name}` : ''}</h1>
+                        <p className="dash-subtitle">
                             {attention.length ? `${plural(attention.length, 'thing needs', 'things need')} your attention today.` : 'Everything is on track today.'}
                             {' '}Updated {formatPlain(updatedAt, tz, { hour: 'numeric', minute: '2-digit', hour12: true })} · {timezoneLabel(tz)}
                         </p>
                     </div>
-                    <div className="ad-header-actions">
+                    <div className="dash-header-actions">
                         <Tooltip title="Refresh"><Button icon={<ReloadOutlined spin={refreshing} />} aria-label="Refresh" onClick={() => { setRefreshing(true); load(); }} /></Tooltip>
                         <Button icon={<UserAddOutlined />} onClick={() => navigate('/app/users')}>Add user</Button>
                         <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/app/batches?new=1')}>New batch</Button>
@@ -278,33 +278,33 @@ const AdminDashboard: React.FC = () => {
                 </header>
 
                 {/* ── KPIs ── */}
-                <section className="ad-kpis" aria-label="Key numbers">
+                <section className="dash-kpis" aria-label="Key numbers">
                     {kpis.map(k => (
-                        <button key={k.key} type="button" className={`ad-kpi ad-k-${k.tone}`} onClick={() => navigate(k.to)}>
-                            <span className="ad-kpi-top"><span className="ad-kpi-ic">{k.icon}</span><ArrowRightOutlined className="ad-kpi-go" /></span>
-                            <span className="ad-kpi-label">{k.label}</span>
-                            <strong className="ad-kpi-value">{k.value}</strong>
-                            <span className="ad-kpi-sub">{k.sub}</span>
+                        <button key={k.key} type="button" className={`dash-kpi dash-k-${k.tone}`} onClick={() => navigate(k.to)}>
+                            <span className="dash-kpi-top"><span className="dash-kpi-ic">{k.icon}</span><ArrowRightOutlined className="dash-kpi-go" /></span>
+                            <span className="dash-kpi-label">{k.label}</span>
+                            <strong className="dash-kpi-value">{k.value}</strong>
+                            <span className="dash-kpi-sub">{k.sub}</span>
                         </button>
                     ))}
                 </section>
 
                 {/* ── Attention + next up ── */}
-                <div className="ad-grid">
-                    <Card title="Needs your attention" icon={<WarningOutlined />} className="ad-attention"
-                        action={attention.length > 0 && <span className="ad-badge">{attention.length}</span>}>
+                <div className="dash-grid">
+                    <Card title="Needs your attention" icon={<WarningOutlined />} className="dash-attention"
+                        action={attention.length > 0 && <span className="dash-badge">{attention.length}</span>}>
                         {attention.length === 0 ? (
-                            <div className="ad-allclear">
-                                <span className="ad-allclear-ic"><CheckCircleFilled /></span>
+                            <div className="dash-allclear">
+                                <span className="dash-allclear-ic"><CheckCircleFilled /></span>
                                 <strong>All clear</strong>
                                 <span>No pending requests, empty batches or struggling quizzes.</span>
                             </div>
                         ) : (
-                            <ul className="ad-alerts">
+                            <ul className="dash-alerts">
                                 {attention.map(a => (
                                     <li key={a.key} className={`is-${a.tone}`}>
-                                        <span className="ad-alert-ic">{a.icon}</span>
-                                        <span className="ad-alert-text"><strong>{a.title}</strong><em>{a.text}</em></span>
+                                        <span className="dash-alert-ic">{a.icon}</span>
+                                        <span className="dash-alert-text"><strong>{a.title}</strong><em>{a.text}</em></span>
                                         <Button size="small" onClick={() => navigate(a.to)}>{a.cta}</Button>
                                     </li>
                                 ))}
@@ -313,10 +313,10 @@ const AdminDashboard: React.FC = () => {
                     </Card>
 
                     <Card title="Coming up" icon={<ClockCircleOutlined />}
-                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/timetable')}>Timetable <ArrowRightOutlined /></button>}>
+                        action={<button type="button" className="dash-link" onClick={() => navigate('/app/timetable')}>Timetable <ArrowRightOutlined /></button>}>
                         {m.liveMeetings.length > 0 && (
-                            <div className="ad-live">
-                                <span className="ad-live-dot" />
+                            <div className="dash-live">
+                                <span className="dash-live-dot" />
                                 <div>
                                     <strong>{m.liveMeetings.length === 1 ? m.liveMeetings[0].title : `${m.liveMeetings.length} live classes`}</strong>
                                     <span>{m.liveMeetings.length === 1 ? `Live now · ${n(m.liveMeetings[0].participant_count)} joined` : 'Happening right now'}</span>
@@ -325,24 +325,24 @@ const AdminDashboard: React.FC = () => {
                             </div>
                         )}
                         {!data.schedules ? <Unavailable what="The schedule" /> : m.next.length === 0 ? (
-                            <div className="ad-empty-line">Nothing scheduled in the coming days.</div>
+                            <div className="dash-empty-line">Nothing scheduled in the coming days.</div>
                         ) : (
-                            <ul className="ad-agenda">
+                            <ul className="dash-agenda">
                                 {m.next.map(s => {
                                     const isLive = new Date(s.start_time).getTime() <= Date.now();
                                     const today = dayjs(s.start_time).isSame(dayjs(), 'day');
                                     return (
                                         <li key={s.id}>
-                                            <span className="ad-agenda-when">
+                                            <span className="dash-agenda-when">
                                                 <strong>{time(s.start_time)}</strong>
                                                 <em>{isLive ? 'Now' : today ? 'Today' : fmt(s.start_time, { weekday: 'short', day: 'numeric' })}</em>
                                             </span>
-                                            <span className={`ad-agenda-bar is-${s.type}`} />
-                                            <span className="ad-agenda-text">
+                                            <span className={`dash-agenda-bar is-${s.type}`} />
+                                            <span className="dash-agenda-text">
                                                 <strong>{s.title}</strong>
                                                 <em>{[s.batch_name, `${s.teacher_first_name || ''} ${s.teacher_last_name || ''}`.trim()].filter(Boolean).join(' · ') || s.type}</em>
                                             </span>
-                                            {isLive && <span className="ad-pill is-live">Live</span>}
+                                            {isLive && <span className="dash-pill is-live">Live</span>}
                                         </li>
                                     );
                                 })}
@@ -352,47 +352,47 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 {/* ── Growth + people ── */}
-                <div className="ad-grid is-wide">
+                <div className="dash-grid is-wide">
                     <Card title="Sign-ups" icon={<RiseOutlined />}
                         action={<Segmented size="small" value={months} onChange={v => setMonths(v as 6 | 12)} options={[{ value: 6, label: '6 months' }, { value: 12, label: '12 months' }]} />}>
                         {!data.users ? <Unavailable what="Users" /> : (
                             <>
-                                <div className="ad-growth-head">
+                                <div className="dash-growth-head">
                                     <div><strong>{m.newInPeriod}</strong><span>new accounts in {months} months</span></div>
                                     {growthDelta != null && (
-                                        <span className={`ad-delta ${growthDelta >= 0 ? 'is-up' : 'is-down'}`}>
+                                        <span className={`dash-delta ${growthDelta >= 0 ? 'is-up' : 'is-down'}`}>
                                             {growthDelta >= 0 ? '▲' : '▼'} {Math.abs(growthDelta)}% vs previous {months} months
                                         </span>
                                     )}
                                 </div>
-                                <div className="ad-bars" role="img" aria-label="New accounts per month">
+                                <div className="dash-bars" role="img" aria-label="New accounts per month">
                                     {m.growth.map(g => {
                                         const total = g.students + g.others;
                                         return (
                                             <Tooltip key={g.key} title={`${g.full}: ${g.students} students, ${g.others} staff`}>
-                                                <div className="ad-bar">
-                                                    <span className="ad-bar-val">{total || ''}</span>
-                                                    <div className="ad-bar-track">
-                                                        <div className="ad-bar-stack" style={{ height: `${(total / growthMax) * 100}%` }}>
+                                                <div className="dash-bar">
+                                                    <span className="dash-bar-val">{total || ''}</span>
+                                                    <div className="dash-bar-track">
+                                                        <div className="dash-bar-stack" style={{ height: `${(total / growthMax) * 100}%` }}>
                                                             {g.others > 0 && <i className="is-staff" style={{ flexGrow: g.others }} />}
                                                             {g.students > 0 && <i className="is-student" style={{ flexGrow: g.students }} />}
                                                         </div>
                                                     </div>
-                                                    <span className="ad-bar-label">{g.label}</span>
+                                                    <span className="dash-bar-label">{g.label}</span>
                                                 </div>
                                             </Tooltip>
                                         );
                                     })}
                                 </div>
-                                <div className="ad-legend"><span><i className="is-student" />Students</span><span><i className="is-staff" />Teachers & admins</span></div>
+                                <div className="dash-legend"><span><i className="is-student" />Students</span><span><i className="is-staff" />Teachers & admins</span></div>
                             </>
                         )}
                     </Card>
 
                     <Card title="People" icon={<TeamOutlined />}
-                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/users')}>Users <ArrowRightOutlined /></button>}>
+                        action={<button type="button" className="dash-link" onClick={() => navigate('/app/users')}>Users <ArrowRightOutlined /></button>}>
                         {!data.users ? <Unavailable what="Users" /> : (
-                            <div className="ad-people">
+                            <div className="dash-people">
                                 <Donut
                                     parts={[
                                         { label: 'Students', value: m.students.length, color: '#10b981' },
@@ -401,7 +401,7 @@ const AdminDashboard: React.FC = () => {
                                     ]}
                                     center={<><strong>{(data.users || []).length}</strong><span>users</span></>}
                                 />
-                                <ul className="ad-people-legend">
+                                <ul className="dash-people-legend">
                                     <li><i style={{ background: '#10b981' }} />Students<b>{m.students.length}</b></li>
                                     <li><i style={{ background: '#3b82f6' }} />Teachers<b>{m.teachers.length}</b></li>
                                     <li><i style={{ background: '#8b5cf6' }} />Admins<b>{m.admins}</b></li>
@@ -414,29 +414,29 @@ const AdminDashboard: React.FC = () => {
                 </div>
 
                 {/* ── Batches + quizzes + attendance ── */}
-                <div className="ad-grid is-three">
+                <div className="dash-grid is-three">
                     <Card title="Batches" icon={<BookOutlined />}
-                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/batches')}>Manage <ArrowRightOutlined /></button>}>
-                        {!data.batches ? <Unavailable what="Batches" /> : batchTotal === 0 ? <div className="ad-empty-line">No batches yet.</div> : (
+                        action={<button type="button" className="dash-link" onClick={() => navigate('/app/batches')}>Manage <ArrowRightOutlined /></button>}>
+                        {!data.batches ? <Unavailable what="Batches" /> : batchTotal === 0 ? <div className="dash-empty-line">No batches yet.</div> : (
                             <>
-                                <div className="ad-stack" aria-hidden>
+                                <div className="dash-stack" aria-hidden>
                                     {m.running.length > 0 && <i className="is-running" style={{ flexGrow: m.running.length }} />}
                                     {m.upcoming.length > 0 && <i className="is-upcoming" style={{ flexGrow: m.upcoming.length }} />}
                                     {m.ended.length > 0 && <i className="is-ended" style={{ flexGrow: m.ended.length }} />}
                                 </div>
-                                <div className="ad-stack-legend">
+                                <div className="dash-stack-legend">
                                     <span><i className="is-running" />Running <b>{m.running.length}</b></span>
                                     <span><i className="is-upcoming" />Upcoming <b>{m.upcoming.length}</b></span>
                                     <span><i className="is-ended" />Ended <b>{m.ended.length}</b></span>
                                 </div>
-                                <div className="ad-sub-title">Largest active batches</div>
-                                {m.topBatches.length === 0 ? <div className="ad-empty-line">No active batches.</div> : (
-                                    <ul className="ad-hbars">
+                                <div className="dash-sub-title">Largest active batches</div>
+                                {m.topBatches.length === 0 ? <div className="dash-empty-line">No active batches.</div> : (
+                                    <ul className="dash-hbars">
                                         {m.topBatches.map(b => (
                                             <li key={b.id}>
-                                                <span className="ad-hbar-name"><b className="ad-lv">{b.french_level}</b>{b.name}</span>
-                                                <span className="ad-hbar-track"><i style={{ width: `${Math.max(4, (countOf(b) / topMax) * 100)}%` }} /></span>
-                                                <span className="ad-hbar-val">{countOf(b)}</span>
+                                                <span className="dash-hbar-name"><b className="dash-lv">{b.french_level}</b>{b.name}</span>
+                                                <span className="dash-hbar-track"><i style={{ width: `${Math.max(4, (countOf(b) / topMax) * 100)}%` }} /></span>
+                                                <span className="dash-hbar-val">{countOf(b)}</span>
                                             </li>
                                         ))}
                                     </ul>
@@ -446,35 +446,35 @@ const AdminDashboard: React.FC = () => {
                     </Card>
 
                     <Card title="Quizzes" icon={<FileTextOutlined />}
-                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/quiz-management')}>Open <ArrowRightOutlined /></button>}>
-                        {!data.quizzes ? <Unavailable what="Quizzes" /> : quizTotal === 0 ? <div className="ad-empty-line">No quizzes yet.</div> : (
+                        action={<button type="button" className="dash-link" onClick={() => navigate('/app/quiz-management')}>Open <ArrowRightOutlined /></button>}>
+                        {!data.quizzes ? <Unavailable what="Quizzes" /> : quizTotal === 0 ? <div className="dash-empty-line">No quizzes yet.</div> : (
                             <>
-                                <div className="ad-quiz-stats">
+                                <div className="dash-quiz-stats">
                                     <div><strong>{m.live.length}</strong><span>Live now</span></div>
                                     <div><strong>{m.liveTotals.all ? `${Math.round((m.liveTotals.sub / m.liveTotals.all) * 100)}%` : '—'}</strong><span>Completion (live)</span></div>
                                     <div><strong>{m.avgScore != null ? `${Math.round(m.avgScore)}%` : '—'}</strong><span>Average score</span></div>
                                 </div>
-                                <div className="ad-stack" aria-hidden>
+                                <div className="dash-stack" aria-hidden>
                                     {m.quizCounts.published > 0 && <i className="is-published" style={{ flexGrow: m.quizCounts.published }} />}
                                     {m.quizCounts.draft > 0 && <i className="is-draft" style={{ flexGrow: m.quizCounts.draft }} />}
                                     {m.quizCounts.archived > 0 && <i className="is-archived" style={{ flexGrow: m.quizCounts.archived }} />}
                                 </div>
-                                <div className="ad-stack-legend">
+                                <div className="dash-stack-legend">
                                     <span><i className="is-published" />Published <b>{m.quizCounts.published}</b></span>
                                     <span><i className="is-draft" />Draft <b>{m.quizCounts.draft}</b></span>
                                     <span><i className="is-archived" />Archived <b>{m.quizCounts.archived}</b></span>
                                 </div>
                                 {m.live.length > 0 && (
                                     <>
-                                        <div className="ad-sub-title">Live quizzes</div>
-                                        <ul className="ad-hbars">
+                                        <div className="dash-sub-title">Live quizzes</div>
+                                        <ul className="dash-hbars">
                                             {m.live.slice(0, 4).map(q => {
                                                 const pct = n(q.total_students) ? Math.round((n(q.submitted_students) / n(q.total_students)) * 100) : 0;
                                                 return (
                                                     <li key={q.id}>
-                                                        <span className="ad-hbar-name">{q.title}</span>
-                                                        <span className={`ad-hbar-track${pct < 50 ? ' is-low' : ''}`}><i style={{ width: `${Math.max(4, pct)}%` }} /></span>
-                                                        <span className="ad-hbar-val">{pct}%</span>
+                                                        <span className="dash-hbar-name">{q.title}</span>
+                                                        <span className={`dash-hbar-track${pct < 50 ? ' is-low' : ''}`}><i style={{ width: `${Math.max(4, pct)}%` }} /></span>
+                                                        <span className="dash-hbar-val">{pct}%</span>
                                                     </li>
                                                 );
                                             })}
@@ -486,11 +486,11 @@ const AdminDashboard: React.FC = () => {
                     </Card>
 
                     <Card title="Attendance" icon={<CheckCircleFilled />}
-                        action={<button type="button" className="ad-link" onClick={() => navigate('/app/attendance')}>Details <ArrowRightOutlined /></button>}>
+                        action={<button type="button" className="dash-link" onClick={() => navigate('/app/attendance')}>Details <ArrowRightOutlined /></button>}>
                         {!data.attendance ? <Unavailable what="Attendance" /> : (
-                            <div className="ad-att">
+                            <div className="dash-att">
                                 <Ring value={attendanceRate || 0} tone={(attendanceRate || 0) >= 80 ? 'good' : (attendanceRate || 0) >= 60 ? 'ok' : 'low'} />
-                                <ul className="ad-att-list">
+                                <ul className="dash-att-list">
                                     <li><i className="is-present" />Present<b>{n(data.attendance.total_present)}</b></li>
                                     <li><i className="is-late" />Late<b>{n(data.attendance.total_late)}</b></li>
                                     <li><i className="is-absent" />Absent<b>{n(data.attendance.total_absent)}</b></li>
@@ -503,20 +503,20 @@ const AdminDashboard: React.FC = () => {
 
                 {/* ── Demo requests ── */}
                 <Card title="Latest demo requests" icon={<CustomerServiceOutlined />}
-                    action={<button type="button" className="ad-link" onClick={() => navigate('/app/demo-requests')}>All requests <ArrowRightOutlined /></button>}>
+                    action={<button type="button" className="dash-link" onClick={() => navigate('/app/demo-requests')}>All requests <ArrowRightOutlined /></button>}>
                     {!data.demos ? <Unavailable what="Demo requests" /> : data.demos.list.length === 0 ? (
-                        <div className="ad-empty-line">No demo requests yet.</div>
+                        <div className="dash-empty-line">No demo requests yet.</div>
                     ) : (
-                        <ul className="ad-demos">
+                        <ul className="dash-demos">
                             {data.demos.list.map(d => (
                                 <li key={d.id}>
-                                    <span className="ad-demo-av">{(d.full_name || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}</span>
-                                    <span className="ad-demo-text">
+                                    <span className="dash-demo-av">{(d.full_name || '?').split(/\s+/).map(p => p[0]).slice(0, 2).join('').toUpperCase()}</span>
+                                    <span className="dash-demo-text">
                                         <strong>{d.full_name}</strong>
                                         <em>{[d.country, d.interested_level || d.current_level].filter(Boolean).join(' · ') || d.email}</em>
                                     </span>
-                                    <span className={`ad-pill is-${d.status}`}>{DEMO_STATUS[d.status] || d.status}</span>
-                                    <span className="ad-demo-date">{fmt(d.created_at, { month: 'short', day: 'numeric' })}</span>
+                                    <span className={`dash-pill is-${d.status}`}>{DEMO_STATUS[d.status] || d.status}</span>
+                                    <span className="dash-demo-date">{fmt(d.created_at, { month: 'short', day: 'numeric' })}</span>
                                 </li>
                             ))}
                         </ul>
