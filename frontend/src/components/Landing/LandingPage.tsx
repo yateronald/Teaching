@@ -4,7 +4,7 @@ import i18next from 'i18next';
 import {
   ArrowRightOutlined, AudioOutlined, CalendarOutlined, CheckOutlined, CloseOutlined, CompassOutlined,
   CustomerServiceOutlined, DashboardOutlined, EditOutlined, ExperimentOutlined, FileTextOutlined, FolderOpenOutlined,
-  GlobalOutlined, LeftOutlined, MailOutlined, MenuOutlined, MessageOutlined, PlayCircleFilled, RightOutlined,
+  ClockCircleOutlined, GlobalOutlined, LeftOutlined, MailOutlined, MenuOutlined, MessageOutlined, PlayCircleFilled, RightOutlined,
   RiseOutlined, SafetyCertificateOutlined, StarFilled, TeamOutlined, TrophyOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
 import { ASSET_PATHS } from '../../utils/assets';
@@ -28,6 +28,7 @@ const VIDEOS = [
   { src: '/assets/Video1.mp4', poster: `${IMG}/video1-poster.webp`, duration: '1:04' },
   { src: '/assets/Video2.mp4', poster: `${IMG}/video2-poster.webp`, duration: '0:47' },
 ];
+const SKILL_ICONS = [<FileTextOutlined />, <CustomerServiceOutlined />, <EditOutlined />, <AudioOutlined />];
 const METHOD_ICONS = [<GlobalOutlined />, <TrophyOutlined />, <CalendarOutlined />, <MessageOutlined />, <RiseOutlined />, <SafetyCertificateOutlined />];
 const PLATFORM_ICONS = [<DashboardOutlined />, <EditOutlined />, <FileTextOutlined />, <ExperimentOutlined />, <FolderOpenOutlined />, <VideoCameraOutlined />];
 const SIM_ICONS = [<AudioOutlined />, <EditOutlined />, <SafetyCertificateOutlined />];
@@ -73,6 +74,8 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const [menuTop, setMenuTop] = useState(72);
   const [demoOpen, setDemoOpen] = useState(false);
   const [program, setProgram] = useState(0);
   const [quote, setQuote] = useState(0);
@@ -133,6 +136,15 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
     const id = window.setInterval(() => { if (!quotePaused.current) setQuote(q => (q + 1) % c.reviews.quotes.length); }, 7000);
     return () => window.clearInterval(id);
   }, [c.reviews.quotes.length]);
+
+  // The mobile menu opens right under the header, wherever the header is.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const place = () => setMenuTop(Math.round(headerRef.current?.getBoundingClientRect().bottom ?? 72));
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [menuOpen, announce, scrolled]);
 
   // Mobile menu: Escape closes it, the page behind does not scroll.
   useEffect(() => {
@@ -199,7 +211,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
       )}
 
       {/* ── Header ── */}
-      <header className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
+      <header ref={headerRef} className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
         <div className="lp-wrap lp-header-row">
           <Link to={PATHS[lang]} className="lp-brand" aria-label="Learn French with Natives">
             <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" />
@@ -217,17 +229,18 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             </button>
           </div>
         </div>
-        <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen}>
-          <nav aria-label="Mobile">
-            {navItems.map(n => <a key={n.id} href={`#${n.id}`} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
-          </nav>
-          <div className="lp-mobile-foot">
-            {langSwitch}
-            <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
-            <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.nav.demo}</button>
-          </div>
-        </div>
       </header>
+
+      <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen} style={{ '--lp-menu-top': `${menuTop}px` } as React.CSSProperties}>
+        <nav aria-label="Mobile">
+          {navItems.map(n => <a key={n.id} href={`#${n.id}`} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
+        </nav>
+        <div className="lp-mobile-foot">
+          {langSwitch}
+          <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
+          <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.nav.demo}</button>
+        </div>
+      </div>
 
       <main id="main">
         {/* ── Hero ── */}
@@ -406,6 +419,41 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         </section>
 
         {/* ── Method ── */}
+        {/* ── The four papers ── */}
+        <section id="skills" className="lp-section lp-tint" aria-labelledby="lp-skills-title">
+          <div className="lp-wrap">
+            <header className="lp-head" data-reveal>
+              <p className="lp-eyebrow">{c.skills.eyebrow}</p>
+              <h2 id="lp-skills-title">{c.skills.title}</h2>
+              <p>{c.skills.sub}</p>
+            </header>
+            <div className="lp-skills">
+              {c.skills.items.map((s, i) => (
+                <article key={s.code} className={`lp-skill is-${s.code.toLowerCase()}`} data-reveal>
+                  <header>
+                    <span className="lp-skill-icon" aria-hidden>{SKILL_ICONS[i]}</span>
+                    <span className="lp-skill-code">{s.code}</span>
+                  </header>
+                  <h3>{s.name}</h3>
+                  <p className="lp-skill-label">{s.label}</p>
+                  <p className="lp-skill-desc">{s.desc}</p>
+                  <ul className="lp-skill-meta">
+                    <li><ClockCircleOutlined aria-hidden /> {s.format}</li>
+                    <li><TrophyOutlined aria-hidden /> {s.score}</li>
+                  </ul>
+                </article>
+              ))}
+            </div>
+            <div className="lp-skills-foot" data-reveal>
+              <div>
+                <h3>{c.skills.foot.title}</h3>
+                <p>{c.skills.foot.desc}</p>
+              </div>
+              <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.skills.cta}<ArrowRightOutlined /></button>
+            </div>
+          </div>
+        </section>
+
         <section id="method" className="lp-section" aria-labelledby="lp-method-title">
           <div className="lp-wrap">
             <header className="lp-head" data-reveal>

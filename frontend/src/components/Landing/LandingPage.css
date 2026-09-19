@@ -304,6 +304,36 @@
 .lp-report-next { display: flex; align-items: center; gap: 8px; margin-top: 18px !important; padding: 10px 12px; border-radius: 10px; background: #eefaf4; font-size: 13.5px; font-weight: 600; color: var(--green); }
 .lp-report figcaption { margin-top: 12px; font-size: 12px; color: var(--subtle); }
 
+/* ── The four exam papers ── */
+.lp-skills { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.lp-skill {
+  display: flex; flex-direction: column; padding: 22px 20px 20px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow-sm);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.lp-skill:hover { transform: translateY(-3px); border-color: var(--sk-line); box-shadow: 0 18px 40px -28px rgba(11, 23, 51, 0.55); }
+.lp-skill > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.lp-skill-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 13px; background: var(--sk-soft); color: var(--sk); font-size: 19px; }
+.lp-skill-code { font-family: var(--display); font-size: 13px; font-weight: 800; letter-spacing: 0.1em; color: var(--sk); }
+.lp-skill h3 { font-size: 18px; font-weight: 750; letter-spacing: -0.02em; }
+.lp-skill-label { margin-top: 3px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--subtle); }
+.lp-skill-desc { margin-top: 12px; font-size: 14.5px; line-height: 1.6; color: var(--muted); }
+.lp-skill-meta { display: flex; flex-direction: column; gap: 7px; margin: 16px 0 0; padding: 14px 0 0; border-top: 1px solid var(--line-soft); list-style: none; }
+.lp-skill-meta li { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 550; color: var(--text); }
+.lp-skill-meta .anticon { flex-shrink: 0; color: var(--sk); }
+.lp-skill.is-ce { --sk: #1f44d6; --sk-soft: #edf1fe; --sk-line: #c9d5fb; }
+.lp-skill.is-co { --sk: #6d28d9; --sk-soft: #f5f3ff; --sk-line: #ddd6fe; }
+.lp-skill.is-ee { --sk: #be123c; --sk-soft: #fff1f2; --sk-line: #fecdd3; }
+.lp-skill.is-eo { --sk: #0f8a5f; --sk-soft: #ecfdf5; --sk-line: #a7f3d0; }
+.lp-skills-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 28px; margin-top: 18px;
+  padding: 26px 28px; border: 1px solid var(--blue-line); border-radius: var(--radius);
+  background: linear-gradient(120deg, var(--blue-soft), var(--card) 65%);
+}
+.lp-skills-foot h3 { font-size: clamp(18px, 2vw, 22px); font-weight: 750; letter-spacing: -0.022em; }
+.lp-skills-foot p { max-width: 760px; margin-top: 8px; font-size: 15px; line-height: 1.65; color: var(--muted); }
+.lp-skills-foot .lp-btn { flex-shrink: 0; }
+
 /* ── Method (bento) ── */
 .lp-bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: 'a a b' 'c d e' 'f f e'; gap: 16px; }
 .lp-bento-card {
@@ -480,12 +510,15 @@
   .lp-nav a { padding: 8px 9px; font-size: 14px; }
   .lp-signin { display: none; }
 }
+@media (max-width: 1080px) {
+  .lp-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 960px) {
   .lp-nav, .lp-header-end > .lp-lang, .lp-header-end > .lp-btn { display: none; }
   .lp-header-end { margin-left: auto; }
   .lp-burger { display: inline-flex; }
   .lp-mobile:not([hidden]) {
-    position: fixed; top: 72px; left: 0; right: 0; bottom: 0; z-index: 49;
+    position: fixed; top: var(--lp-menu-top, 72px); left: 0; right: 0; bottom: 0; z-index: 49;
     display: flex; flex-direction: column; justify-content: space-between; gap: 24px;
     padding: 12px clamp(18px, 4vw, 32px) calc(24px + env(safe-area-inset-bottom, 0px));
     overflow-y: auto; background: var(--paper); border-top: 1px solid var(--line);
@@ -548,4 +581,10 @@
   .lp *, .lp *::before, .lp *::after { animation: none !important; transition: none !important; }
   .lp-marquee-track { flex-wrap: wrap; justify-content: center; width: auto; row-gap: 12px; }
   .lp-marquee-track li[aria-hidden] { display: none; }
+}
+
+@media (max-width: 640px) {
+  .lp-skills { grid-template-columns: minmax(0, 1fr); }
+  .lp-skills-foot { flex-direction: column; align-items: flex-start; gap: 18px; padding: 20px; }
+  .lp-skills-foot .lp-btn { width: 100%; justify-content: center; }
 }

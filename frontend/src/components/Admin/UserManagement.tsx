@@ -45,9 +45,9 @@ interface User {
 
 const ROLES: Role[] = ['student', 'candidate', 'teacher', 'admin'];
 const ROLE_META: Record<Role, { label: string; plural: string; icon: React.ReactNode; desc: string }> = {
-    student: { label: 'Student', plural: 'Students', icon: <ReadOutlined />, desc: 'Joins classes, quizzes and exam practice.' },
-    candidate: { label: 'Exam candidate', plural: 'Candidates', icon: <AimOutlined />, desc: 'Exam practice only — no classes or batches.' },
-    teacher: { label: 'Teacher', plural: 'Teachers', icon: <SolutionOutlined />, desc: 'Runs batches, live classes and grading.' },
+    student: { label: 'Student', plural: 'Students', icon: <ReadOutlined />, desc: 'Classes, quizzes and exam practice.' },
+    candidate: { label: 'Exam candidate', plural: 'Candidates', icon: <AimOutlined />, desc: 'Exam practice only — no classes.' },
+    teacher: { label: 'Teacher', plural: 'Teachers', icon: <SolutionOutlined />, desc: 'Batches, live classes and grading.' },
     admin: { label: 'Admin', plural: 'Admins', icon: <CrownOutlined />, desc: 'Full access to the admin console.' },
 };
 const ATTENTION = 3; // failed sign-ins before a user is flagged

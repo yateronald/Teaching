@@ -47,6 +47,12 @@ export interface LandingCopy {
     report: { title: string; scoreLabel: string; level: string; nclc: string; criteria: [string, number][]; next: string; track: string };
     disclaimer: string; cta: string;
   };
+  skills: {
+    eyebrow: string; title: string; sub: string;
+    items: { code: string; name: string; label: string; desc: string; format: string; score: string }[];
+    foot: { title: string; desc: string };
+    cta: string;
+  };
   method: { eyebrow: string; title: string; sub: string; items: { title: string; desc: string }[] };
   platform: { eyebrow: string; title: string; sub: string; features: { title: string; desc: string }[]; altDashboard: string; altMarksheet: string };
   how: { eyebrow: string; title: string; sub: string; step: string; steps: { title: string; desc: string }[] };
@@ -166,6 +172,22 @@ const en: LandingCopy = {
     },
     disclaimer: 'Practice estimate. Official scores are awarded by certified examiners.',
     cta: 'Try it during your free demo',
+  },
+  skills: {
+    eyebrow: 'Complete preparation',
+    title: 'The four exam papers, all with us.',
+    sub: 'Reading, listening, writing and speaking: you prepare every paper of the TCF and TEF here, in the official format, and you see your level after each attempt. No other school or app to sign up for.',
+    items: [
+      { code: 'CE', name: 'Compréhension écrite', label: 'Reading', desc: 'Authentic documents from A1 to C2, in exam conditions, with the full correction afterwards.', format: '39 questions · 60 minutes', score: 'Scored on 699 points' },
+      { code: 'CO', name: 'Compréhension orale', label: 'Listening', desc: 'Timed audio series, played once like the real exam, with your result level by level.', format: '39 questions · 35 minutes', score: 'Scored on 699 points' },
+      { code: 'EE', name: 'Expression écrite', label: 'Writing', desc: 'The three official tasks, corrected on the official grid with your mistakes explained.', format: '3 tasks · 60 minutes', score: 'Detailed report on 20' },
+      { code: 'EO', name: 'Expression orale', label: 'Speaking', desc: 'A spoken exam with an AI examiner, then feedback on fluency, pronunciation and grammar.', format: '3 tasks · about 12 minutes', score: 'Detailed report on 20' },
+    ],
+    foot: {
+      title: 'One platform, from your first class to exam day.',
+      desc: 'Live classes with native teachers, practice for the four papers, corrections and your progress in one place — with your CEFR level and its NCLC equivalence at every step.',
+    },
+    cta: 'Book a free demo',
   },
   method: {
     eyebrow: 'Our method',
@@ -347,6 +369,22 @@ const fr: LandingCopy = {
     },
     disclaimer: 'Estimation d’entraînement. Le score officiel est attribué par des correcteurs habilités.',
     cta: 'L’essayer pendant ma démo gratuite',
+  },
+  skills: {
+    eyebrow: 'Préparation complète',
+    title: 'Les quatre épreuves, uniquement avec nous.',
+    sub: 'Compréhension écrite et orale, expression écrite et orale : vous préparez toutes les épreuves du TCF et du TEF ici, au format officiel, et vous voyez votre niveau après chaque tentative. Aucune autre école ni application.',
+    items: [
+      { code: 'CE', name: 'Compréhension écrite', label: 'Lecture', desc: 'Des documents authentiques, du A1 au C2, en conditions réelles, avec la correction complète.', format: '39 questions · 60 minutes', score: 'Noté sur 699 points' },
+      { code: 'CO', name: 'Compréhension orale', label: 'Écoute', desc: 'Des séries audio chronométrées, écoutées une seule fois comme le jour J, avec votre résultat par niveau.', format: '39 questions · 35 minutes', score: 'Noté sur 699 points' },
+      { code: 'EE', name: 'Expression écrite', label: 'Écrit', desc: 'Les trois tâches officielles, corrigées sur la grille du TCF, avec vos erreurs expliquées.', format: '3 tâches · 60 minutes', score: 'Rapport détaillé sur 20' },
+      { code: 'EO', name: 'Expression orale', label: 'Oral', desc: 'Un oral avec un examinateur IA, puis un bilan sur la fluidité, la prononciation et la grammaire.', format: '3 tâches · environ 12 minutes', score: 'Rapport détaillé sur 20' },
+    ],
+    foot: {
+      title: 'Une seule plateforme, du premier cours au jour de l’examen.',
+      desc: 'Cours en direct avec des professeurs natifs, entraînement aux quatre épreuves, corrections et suivi de votre progression au même endroit — avec votre niveau CECR et son équivalence NCLC à chaque étape.',
+    },
+    cta: 'Réserver une démo gratuite',
   },
   method: {
     eyebrow: 'Notre méthode',
