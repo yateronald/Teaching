@@ -2,9 +2,60 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const { sendDemoScheduleNotificationToStudent, sendDemoScheduleNotificationToTeacher } = require('../emails/emailService');
+const { createBulkNotifications } = require('../services/notificationService');
 
 const router = express.Router();
 const adminOnlyMw = authorizeRoles('admin');
+
+/** How many requests nobody has answered yet, and the newest of them. */
+async function waitingSummary(db) {
+    const [count, latest] = await Promise.all([
+        db.get(`SELECT COUNT(*)::int AS waiting,
+                       COUNT(*) FILTER (WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours')::int AS today
+                  FROM demo_requests WHERE status = 'new'`),
+        db.get(`SELECT id, full_name, country, created_at FROM demo_requests
+                 WHERE status = 'new' ORDER BY created_at DESC LIMIT 1`),
+    ]);
+    return { waiting: count?.waiting || 0, today: count?.today || 0, latest: latest || null };
+}
+
+/** Tells every administrator how many are waiting now (after one is picked up). */
+async function announceWaitingChanged(req) {
+    if (!req.io) return;
+    const summary = await waitingSummary(req.db);
+    const admins = await req.db.all("SELECT id FROM users WHERE role = 'admin' AND is_active = true");
+    admins.forEach(admin => req.io.to(`user:${admin.id}`).emit('demo:waiting', { waiting: summary.waiting }));
+}
+
+/**
+ * A new request is pushed to every administrator: a notification they will
+ * still find tomorrow, and a live event so the console lights up now.
+ */
+async function announceNewRequest(req, request) {
+    const admins = await req.db.all("SELECT id FROM users WHERE role = 'admin' AND is_active = true");
+    if (!admins.length) return;
+
+    const summary = await waitingSummary(req.db);
+    await createBulkNotifications(req.db, admins.map(a => a.id), {
+        type: 'demo_request',
+        title: 'New demo request',
+        message: `${request.full_name}${request.country ? ` (${request.country})` : ''} asked for a demo class. They are waiting for an answer.`,
+        link: '/app/demo-requests',
+        entity_type: 'demo_request',
+        entity_id: request.id,
+    });
+
+    if (req.io) {
+        const payload = {
+            id: request.id,
+            full_name: request.full_name,
+            country: request.country || null,
+            created_at: request.created_at,
+            waiting: summary.waiting,
+        };
+        admins.forEach(admin => req.io.to(`user:${admin.id}`).emit('demo:new', payload));
+    }
+}
 
 // Create a new demo request (public endpoint)
 router.post('/', [
@@ -75,10 +126,16 @@ router.post('/', [
             timezone || null
         ]);
 
+        const created = result.rows[0];
+
+        // Tell the administrators at once: a person waiting for an answer is
+        // the one thing in this platform that goes stale by the hour.
+        announceNewRequest(req, created).catch(e => console.error('Demo request alert failed:', e.message));
+
         res.status(201).json({
             success: true,
             message: 'Demo request submitted successfully',
-            data: result.rows[0]
+            data: created
         });
 
     } catch (error) {
@@ -88,6 +145,17 @@ router.post('/', [
             message: 'Failed to submit demo request',
             error: error.message 
         });
+    }
+});
+
+// How many people are waiting for an answer — polled by the admin console for
+// the badge on the Demo Requests tab. Deliberately tiny and cheap.
+router.get('/alerts', authenticateToken, adminOnlyMw, async (req, res) => {
+    try {
+        res.json(await waitingSummary(req.db));
+    } catch (error) {
+        console.error('Demo request alerts error:', error);
+        res.status(500).json({ error: 'Failed to load demo request alerts' });
     }
 });
 
@@ -337,6 +405,10 @@ router.patch('/:id/status', authenticateToken, adminOnlyMw, [
             });
         }
 
+        // Every open admin console drops its badge as soon as one of them
+        // picks a request up.
+        announceWaitingChanged(req).catch(() => { /* the badge also polls */ });
+
         res.json({
             success: true,
             message: 'Demo request updated successfully',
@@ -481,6 +553,8 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
             // Don't fail the request if email fails, just log the error
         }
 
+        announceWaitingChanged(req).catch(() => { /* the badge also polls */ });
+
         res.json({
             success: true,
             message: 'Demo scheduled successfully',
@@ -552,6 +626,8 @@ router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
         if (result && result.rowCount === 0) {
             return res.status(404).json({ success: false, message: 'Demo request not found' });
         }
+
+        announceWaitingChanged(req).catch(() => { /* the badge also polls */ });
 
         res.json({ success: true, message: 'Demo request deleted successfully' });
     } catch (error) {

@@ -16,6 +16,8 @@ interface User {
     timezone?: string;
     // Optional profile photo (kDrive file id). When null/undefined the UI shows a default icon.
     profile_photo_kdrive_file_id?: string | null;
+    /** Administrators only: may open the website monitoring space. */
+    can_view_monitoring?: boolean;
     // Password policy fields (may be undefined depending on endpoint)
     must_change_password?: number | boolean;
     password_expires_at?: string | null;
@@ -54,6 +56,8 @@ interface AuthContextType {
     isStudent: boolean;
     /** Exam-preparation-only account. */
     isCandidate: boolean;
+    /** An administrator who may also see website monitoring. */
+    canViewMonitoring: boolean;
     isForcePasswordChange: boolean;
     requestEmailChange: (newEmail: string) => Promise<{ success: boolean; error?: string; expiresAt?: string; attemptsLeft?: number; status?: number }>;
     verifyEmailChange: (code: string) => Promise<{ success: boolean; error?: string; user?: User; attemptsLeft?: number }>;
@@ -499,6 +503,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isTeacher: user?.role === 'teacher',
         isStudent: user?.role === 'student',
         isCandidate: user?.role === 'candidate',
+        canViewMonitoring: user?.role === 'admin' && !!user?.can_view_monitoring,
         isForcePasswordChange: !!user?.force_password_change,
         requestEmailChange,
         verifyEmailChange,

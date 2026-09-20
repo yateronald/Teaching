@@ -44,6 +44,8 @@ interface User {
     created_at: string;
     is_active?: boolean;
     failed_login_attempts?: number;
+    /** Administrators only: may open the website monitoring space. */
+    can_view_monitoring?: boolean;
     exam?: CandidateExam | null;
 }
 
@@ -230,7 +232,7 @@ const UserManagement: React.FC = () => {
         setFormError(null);
         usernameTouched.current = false;
         form.resetFields();
-        form.setFieldsValue({ role: roleTab !== 'all' ? roleTab : 'student', is_active: true, target_exam: 'tcf_canada' });
+        form.setFieldsValue({ role: roleTab !== 'all' ? roleTab : 'student', is_active: true, target_exam: 'tcf_canada', can_view_monitoring: false });
         setEditorOpen(true);
     };
 
@@ -246,6 +248,7 @@ const UserManagement: React.FC = () => {
             last_name: u.last_name,
             role: u.role,
             is_active: u.is_active ?? true,
+            can_view_monitoring: !!u.can_view_monitoring,
             target_exam: u.exam?.target_exam || 'tcf_canada',
             target_nclc: u.exam?.target_nclc ?? undefined,
             exam_date: u.exam?.exam_date ? dayjs(u.exam.exam_date) : null,
@@ -281,6 +284,7 @@ const UserManagement: React.FC = () => {
             };
             if (!editing) payload.username = String(values.username || '').trim();
             if (ownAdminEdit) { delete payload.is_active; delete payload.role; }
+            if (values.role === 'admin') payload.can_view_monitoring = !!values.can_view_monitoring;
             if (values.role === 'candidate') {
                 payload.target_exam = values.target_exam || 'tcf_canada';
                 payload.target_nclc = values.target_nclc ?? null;
@@ -866,6 +870,24 @@ const UserManagement: React.FC = () => {
                                     <Form.Item name="admin_notes" label="Private note" extra="Only administrators see this note.">
                                         <Input.TextArea rows={2} maxLength={2000} placeholder="e.g. Express Entry file, 3-month package" />
                                     </Form.Item>
+                                </section>
+                            )}
+
+                            {editRole === 'admin' && (
+                                <section className="um-md-section">
+                                    <div className="um-md-label">Administrator permissions</div>
+                                    <div className="um-switch-row">
+                                        <div>
+                                            <strong>Website monitoring</strong>
+                                            <span>
+                                                Let them open Monitoring: visitors to the public site, where they come
+                                                from and how fast the pages are. Administrators without this see no such tab.
+                                            </span>
+                                        </div>
+                                        <Form.Item name="can_view_monitoring" valuePropName="checked" noStyle>
+                                            <Switch aria-label="Can view website monitoring" />
+                                        </Form.Item>
+                                    </div>
                                 </section>
                             )}
 

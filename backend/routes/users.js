@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles, ROLES } = require('../middleware/auth');
 const candidates = require('../services/candidateService');
 const sessions = require('../services/sessionService');
+const { hasColumn } = require('../services/schemaFeatures');
 const { sendWelcomeEmail, sendAdminPasswordReset } = require('../emails/emailService');
 
 // Build local admin-only middleware using authorizeRoles to avoid any export mismatch
@@ -12,6 +13,17 @@ const adminOnlyMw = authorizeRoles('admin');
 console.log('[users.js] typeof authenticateToken:', typeof authenticateToken, ' typeof adminOnlyMw:', typeof adminOnlyMw, ' typeof teacherOrAdmin:', typeof teacherOrAdmin);
 
 const router = express.Router();
+
+/**
+ * The website-monitoring key is an administrator-only extra: it is only ever
+ * stored for an admin account, and is dropped the moment the role changes.
+ * The column is optional so the code runs before its migration is applied.
+ */
+const monitoringColumn = (db) => hasColumn(db, 'users', 'can_view_monitoring');
+const monitoringValue = (role, value) => (role === 'admin' ? value === true || value === 'true' : false);
+/** Extra columns for a SELECT, once the migration has run. */
+const extraUserColumns = async (db, prefix = '') =>
+    (await monitoringColumn(db)) ? `, ${prefix}can_view_monitoring` : '';
 
 // Helper: generate a temporary password of exact length 10 including letters (upper/lower) and digits
 function generateTempPassword(len = 10) {
@@ -80,7 +92,7 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
         }
         
         // For non-student roles, use the original logic
-        let sql = 'SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts FROM users';
+        let sql = `SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts${await extraUserColumns(req.db)} FROM users`;
         let params = [];
         
         const conditions = [];
@@ -120,7 +132,7 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
         const { id } = req.params;
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts FROM users WHERE id = ?',
+            `SELECT id, username, email, role, first_name, last_name, created_at, is_active, failed_login_attempts${await extraUserColumns(req.db)} FROM users WHERE id = ?`,
             [id]
         );
         
@@ -183,10 +195,18 @@ router.post('/', [
         // Hash password
         const passwordHash = await hashPassword(tempPassword);
 
+        // Only an administrator can be given the website-monitoring key, and
+        // only when the box was ticked.
+        const monitoring = monitoringValue(role, req.body.can_view_monitoring);
+        const withMonitoring = await monitoringColumn(req.db);
+
         // Create user with password policy defaults and require change on next login
         const result = await req.db.run(
-            "INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at, is_active, failed_login_attempts) VALUES (?, ?, ?, ?, ?, ?, 1, NOW() + INTERVAL '90 days', ?, 0) RETURNING id",
-            [username, email, passwordHash, role, first_name, last_name, is_active]
+            `INSERT INTO users (username, email, password_hash, role, first_name, last_name, must_change_password, password_expires_at, is_active, failed_login_attempts${withMonitoring ? ', can_view_monitoring' : ''})
+             VALUES (?, ?, ?, ?, ?, ?, 1, NOW() + INTERVAL '90 days', ?, 0${withMonitoring ? ', ?' : ''}) RETURNING id`,
+            withMonitoring
+                ? [username, email, passwordHash, role, first_name, last_name, is_active, monitoring]
+                : [username, email, passwordHash, role, first_name, last_name, is_active]
         );
 
         const userId = result.rows[0].id;
@@ -205,7 +225,7 @@ router.post('/', [
 
         // Get created user (without password)
         const newUser = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at FROM users WHERE id = ?',
+            `SELECT id, username, email, role, first_name, last_name, created_at${await extraUserColumns(req.db)} FROM users WHERE id = ?`,
             [userId]
         );
 
@@ -312,6 +332,16 @@ router.put('/:id', [
             updates.push('last_name = ?');
             params.push(last_name);
         }
+        // The monitoring key belongs to administrators: changing the role away
+        // from admin takes it away, and only an explicit tick grants it.
+        if (await monitoringColumn(req.db)) {
+            if (nextRole !== 'admin' && existingUser.role === 'admin') {
+                updates.push('can_view_monitoring = false');
+            } else if (nextRole === 'admin' && 'can_view_monitoring' in req.body) {
+                updates.push('can_view_monitoring = ?');
+                params.push(monitoringValue('admin', req.body.can_view_monitoring));
+            }
+        }
         if (typeof is_active === 'boolean') {
             updates.push('is_active = ?');
             params.push(is_active);
@@ -345,7 +375,7 @@ router.put('/:id', [
 
         // Get updated user
         const updatedUser = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, created_at, updated_at, is_active, failed_login_attempts FROM users WHERE id = ?',
+            `SELECT id, username, email, role, first_name, last_name, created_at, updated_at, is_active, failed_login_attempts${await extraUserColumns(req.db)} FROM users WHERE id = ?`,
             [id]
         );
         if (updatedUser.role === 'candidate') {

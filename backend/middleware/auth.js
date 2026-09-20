@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const sessions = require('../services/sessionService');
+const { hasColumn } = require('../services/schemaFeatures');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 const TOKEN_DAYS = 7;
@@ -59,9 +60,12 @@ async function authenticateToken(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        // Fetch user from DB and attach to request (include security fields)
+        // Fetch user from DB and attach to request (include security fields).
+        // The monitoring flag is only selected once its migration has run, so
+        // deploying this code before the migration cannot lock anyone out.
+        const monitoring = await hasColumn(req.db, 'users', 'can_view_monitoring') ? ', can_view_monitoring' : '';
         const user = await req.db.get(
-            'SELECT id, username, email, role, first_name, last_name, timezone, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id FROM users WHERE id = ?',
+            `SELECT id, username, email, role, first_name, last_name, timezone, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id${monitoring} FROM users WHERE id = ?`,
             [decoded.id]
         );
 
@@ -141,6 +145,19 @@ function authorizeRoles(...allowedRoles) {
     };
 }
 
+// Website monitoring is a separate key, given to an administrator one at a
+// time: being an admin is not enough, the account must also be allowed to see
+// what visitors do on the public site.
+function monitoringOnly(req, res, next) {
+    if (req.user?.role !== 'admin' || !req.user?.can_view_monitoring) {
+        return res.status(403).json({
+            error: 'Website monitoring is not part of your access.',
+            code: 'MONITORING_NOT_ALLOWED',
+        });
+    }
+    next();
+}
+
 // Compatibility helpers used by existing route files
 const adminOnly = authorizeRoles('admin');
 const teacherOrAdmin = authorizeRoles('teacher', 'admin');
@@ -203,6 +220,7 @@ module.exports = {
     authenticateToken,
     authorizeRoles,
     adminOnly,
+    monitoringOnly,
     teacherOrAdmin,
     authenticated,
     recordFailedLogin,

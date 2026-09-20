@@ -41,6 +41,7 @@ const MeetingPage = lazy(() => import('./components/Meeting/MeetingRoom'));
 const MeetingAttendance = lazy(() => import('./components/Meeting/MeetingAttendance'));
 const MeetingJoinLink = lazy(() => import('./components/Meeting/MeetingJoinLink'));
 const ForcePasswordChange = lazy(() => import('./components/Auth/ForcePasswordChange'));
+const MonitoringPage = lazy(() => import('./components/Admin/Monitoring/MonitoringPage'));
 const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDashboard'));
 const CandidateResults = lazy(() => import('./components/Candidate/CandidateResults'));
 
@@ -258,6 +259,13 @@ function App() {
                 <Route path="my-exams" element={
                   <ProtectedRoute requiredRole="student">
                     <StudentExamPreparation />
+                  </ProtectedRoute>
+                } />
+
+                {/* Website monitoring (administrators holding the monitoring key) */}
+                <Route path="monitoring" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <MonitoringPage />
                   </ProtectedRoute>
                 } />
 

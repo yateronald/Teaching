@@ -10,6 +10,7 @@ import {
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
+import useDemoAlerts from '../../hooks/useDemoAlerts';
 import useResponsive from '../../hooks/useResponsive';
 import { headerHeight } from '../Layout/layoutMetrics';
 import { formatPlain, timezoneLabel } from '../../utils/timezone';
@@ -165,6 +166,10 @@ const DemoRequests: React.FC = () => {
   }, [apiCall, query]);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  // A request submitted while this page is open appears without a refresh.
+  const alerts = useDemoAlerts(true, () => { fetchList(); });
+
   useEffect(() => {
     apiCall('/users/role/teachers').then(res => (res.ok ? res.json() : [])).then(d => setTeachers(Array.isArray(d) ? d : [])).catch(() => setTeachers([]));
   }, [apiCall]);
@@ -442,6 +447,26 @@ const DemoRequests: React.FC = () => {
 
         {error && (
           <div className="dr-alert" role="alert"><ExclamationCircleFilled /><span><strong>Couldn't load requests.</strong> {error}</span><Button size="small" onClick={fetchList}>Retry</Button></div>
+        )}
+
+        {/* People waiting for a first reply, said plainly at the top of the page. */}
+        {stats.new_requests > 0 && (
+          <div className="dr-waiting" role="status">
+            <span className="dr-waiting-dot" aria-hidden="true"><i /></span>
+            <div className="dr-waiting-text">
+              <strong>
+                {stats.new_requests} new {stats.new_requests === 1 ? 'request is' : 'requests are'} waiting for a reply
+              </strong>
+              <span>
+                {alerts.latest
+                  ? `Latest: ${alerts.latest.full_name}${alerts.latest.country ? ` from ${alerts.latest.country}` : ''} · ${agoText(alerts.latest.created_at)}`
+                  : 'Answer them while they are still warm.'}
+              </span>
+            </div>
+            {status !== 'new' && (
+              <Button type="primary" danger size="small" onClick={() => setStatus('new')}>Show them</Button>
+            )}
+          </div>
         )}
 
         {/* ── Pipeline ── */}

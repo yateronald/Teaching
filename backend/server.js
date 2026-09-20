@@ -124,6 +124,16 @@ app.use(cors(corsOptions));
 // drop the response unless the app answers it directly. Express 5 requires
 // a named splat pattern instead of the bare '*' used by Express 4.
 app.options(/.*/, cors(corsOptions));
+// The public website beacon gets its own tiny parser, registered first so the
+// generous app-wide limit can never apply to an unauthenticated endpoint. It
+// accepts text/plain because that is what navigator.sendBeacon sends.
+app.use('/api/site', express.json({ limit: '4kb', type: ['application/json', 'text/plain'] }));
+app.use('/api/site', (err, _req, res, next) => {
+    // A malformed or oversized beacon is simply ignored — never an error page.
+    if (err) return res.status(204).end();
+    return next();
+});
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
@@ -153,8 +163,17 @@ app.use('/api/auth/login', limiter(15, 30, 'Too many failed sign-in attempts. Pl
 app.use('/api/password-reset/request', limiter(15, 8, 'Too many reset requests. Please wait 15 minutes and try again.'));
 app.use('/api/password-reset', limiter(15, 40, 'Too many attempts. Please wait 15 minutes and try again.'));
 app.post('/api/demo-requests', limiter(60, 10, 'Too many requests. Please try again later.'));
+// The website beacon: generous enough for a real visitor reading several
+// pages, and silent when exceeded so a flood learns nothing from the answer.
+app.use('/api/site', limiter(5, 300, 'Too many requests', { handler: (_req, res) => res.status(204).end() }));
+
+// Every API request is timed for the monitoring space (route pattern only —
+// no user, no address, no body).
+app.use(require('./middleware/apiMetrics').track);
 
 // Routes
+app.use('/api/site', require('./routes/siteCollect'));
+app.use('/api/monitoring', require('./routes/monitoring'));
 app.use('/api/auth', authRoutes);
 // Profile photo upload/stream/delete — mounted under /api/auth so URLs are /api/auth/profile-photo
 app.use('/api/auth', profilePhotoRoutes);
@@ -458,6 +477,11 @@ async function startServer() {
 
         // Expired sign-ins are closed and old ones forgotten, once a day
         require('./services/sessionService').startSessionSweeper(database);
+
+        // Website monitoring: API timings are written once a minute, and old
+        // visit rows (and the salts that made them) are forgotten twice a day.
+        require('./middleware/apiMetrics').startApiMetrics(database);
+        require('./services/analyticsService').startAnalyticsSweeper(database);
 
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);

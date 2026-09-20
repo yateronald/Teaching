@@ -8,6 +8,7 @@ import {
   RiseOutlined, SafetyCertificateOutlined, StarFilled, TeamOutlined, TrophyOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
 import { ASSET_PATHS } from '../../utils/assets';
+import { trackPageView } from '../../utils/siteAnalytics';
 import DemoRequestModal from './DemoRequestModal';
 import SEO from '../SEO/SEO';
 import { CONTACT_EMAIL, EXAM_NAMES, LANDING, PATHS, type Lang } from './landingContent';
@@ -87,6 +88,10 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const quotePaused = useRef(false);
 
   const openDemo = useCallback(() => { setMenuOpen(false); setDemoOpen(true); }, []);
+
+  // Count this visit for the monitoring space. No cookie, no identifier that
+  // outlives the page — see utils/siteAnalytics.
+  useEffect(() => { trackPageView(); }, []);
 
   // The rest of the app (demo form, sign-in) follows the language of the page.
   useEffect(() => {

@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { Dropdown, Button, Tooltip, Drawer } from 'antd';
+import { Dropdown, Button, Tooltip, Drawer, notification } from 'antd';
 import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
@@ -23,12 +23,14 @@ import {
     DownOutlined,
     ScheduleOutlined,
     TrophyOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import NotificationBell from '../Notifications/NotificationBell';
 import useResponsive from '../../hooks/useResponsive';
 import { useActiveMeeting } from '../../hooks/useActiveMeeting';
+import useDemoAlerts from '../../hooks/useDemoAlerts';
 import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
 import './Layout.css';
 
@@ -40,7 +42,15 @@ import './Layout.css';
 
 type Role = 'admin' | 'teacher' | 'student' | 'candidate';
 
-interface NavItem { key: string; icon: React.ReactNode; label: string; }
+interface NavItem {
+    key: string;
+    icon: React.ReactNode;
+    label: string;
+    /** Shown only when the account holds this extra key. */
+    needs?: 'monitoring';
+    /** Draws a live count on the entry (people waiting for an answer). */
+    counter?: 'demoRequests';
+}
 interface NavGroup { label: string; items: NavItem[]; }
 
 const SIDEBAR_W = 256;
@@ -63,7 +73,7 @@ const NAV: Record<Role, NavGroup[]> = {
                 { key: '/app/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
                 { key: '/app/users', icon: <UserOutlined />, label: 'Users' },
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
-                { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests' },
+                { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
                 { key: '/app/timetable', icon: <CalendarOutlined />, label: 'Teacher Timetable' },
                 { key: '/app/attendance', icon: <BarChartOutlined />, label: 'Attendance' },
             ],
@@ -77,7 +87,10 @@ const NAV: Record<Role, NavGroup[]> = {
         },
         {
             label: 'System',
-            items: [{ key: '/app/settings', icon: <SettingOutlined />, label: 'Settings' }],
+            items: [
+                { key: '/app/monitoring', icon: <LineChartOutlined />, label: 'Monitoring', needs: 'monitoring' },
+                { key: '/app/settings', icon: <SettingOutlined />, label: 'Settings' },
+            ],
         },
     ],
     teacher: [
@@ -149,6 +162,13 @@ const NAV: Record<Role, NavGroup[]> = {
     ],
 };
 
+/** The navigation this account actually sees: entries needing a key they don't hold are dropped. */
+function navFor(role: Role, keys: { monitoring: boolean }): NavGroup[] {
+    return NAV[role]
+        .map(group => ({ ...group, items: group.items.filter(item => !item.needs || keys[item.needs]) }))
+        .filter(group => group.items.length > 0);
+}
+
 /** Routes that have no sidebar entry of their own highlight this entry instead. */
 const ACTIVE_ALIASES: Record<string, string> = {
     '/app/meeting': '/app/meetings',
@@ -170,6 +190,7 @@ const TITLES: Record<string, string> = {
     '/timetable': 'Teacher Timetable',
     '/attendance': 'Attendance',
     '/settings': 'Settings',
+    '/monitoring': 'Website Monitoring',
     '/admin-resources': 'Resources',
     '/exam-preparation': 'Exam Preparation',
     '/teacher-dashboard': 'Dashboard',
@@ -237,6 +258,10 @@ const Avatar: React.FC<{ user: any; token: string | null; size?: number }> = ({ 
 interface SidebarProps {
     role: Role;
     collapsed: boolean;
+    /** The groups this account may see (see navFor). */
+    groups: NavGroup[];
+    /** Live counts drawn on the entries that ask for one. */
+    counters?: Partial<Record<NonNullable<NavItem['counter']>, number>>;
     activeKey: string;
     user: any;
     token: string | null;
@@ -251,6 +276,8 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({
     role,
     collapsed,
+    groups,
+    counters = {},
     activeKey,
     user,
     token,
@@ -285,7 +312,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             )}
 
             <nav className="al-nav">
-                {NAV[role].map((group, gi) => (
+                {groups.map((group, gi) => (
                     <div key={group.label} className="al-group">
                         {collapsed
                             ? gi > 0 && <div className="al-group-divider" role="separator" />
@@ -298,7 +325,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                                 const liveTip = activeMeetingTitle
                                     ? `🔴 Live now: ${activeMeetingTitle} · Click to join`
                                     : '🔴 Live class in progress · Click to join';
-                                const tip = isLive ? liveTip : item.label;
+                                const waiting = item.counter ? (counters[item.counter] || 0) : 0;
+                                const tip = isLive ? liveTip
+                                    : waiting ? `${item.label} — ${waiting} waiting for an answer`
+                                        : item.label;
 
                                 const link = (
                                     <Link
@@ -310,6 +340,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     >
                                         <span className="al-item-icon">
                                             {item.icon}
+                                            {!!waiting && collapsed && (
+                                                <span className="al-count-dot" aria-hidden="true">{waiting > 9 ? '9+' : waiting}</span>
+                                            )}
                                             {isLive && (
                                                 <span className="al-live-icon-beacon" aria-hidden>
                                                     <span className="al-live-icon-ping" />
@@ -318,6 +351,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                                             )}
                                         </span>
                                         {!collapsed && <span className="al-item-label">{item.label}</span>}
+                                        {!collapsed && !!waiting && (
+                                            <span className="al-count" aria-label={`${waiting} waiting for an answer`}>
+                                                <span className="al-count-ping" aria-hidden="true" />
+                                                {waiting} new
+                                            </span>
+                                        )}
                                         {!collapsed && isLive && (
                                             <span className="al-live-badge" aria-label="Class is live">
                                                 <span className="al-live-badge-dot">
@@ -333,7 +372,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                                     <li key={item.key}>
                                         {collapsed ? (
                                             <Tooltip title={tip} placement="right">{link}</Tooltip>
-                                        ) : isLive ? (
+                                        ) : isLive || waiting ? (
                                             <Tooltip title={tip} placement="right">{link}</Tooltip>
                                         ) : (
                                             link
@@ -383,10 +422,28 @@ const writeCollapsePref = (value: boolean) => {
 
 const Layout: React.FC = () => {
     const r = useResponsive();
-    const { user, logout, isAdmin, isTeacher, isCandidate, token } = useAuth();
+    const { user, logout, isAdmin, isTeacher, isCandidate, canViewMonitoring, token } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const { hasActiveMeeting, activeMeeting } = useActiveMeeting();
+    const [notice, noticeHolder] = notification.useNotification();
+
+    // People waiting for an answer to a demo request (administrators only).
+    const demo = useDemoAlerts(isAdmin, (request) => {
+        notice.open({
+            key: `demo-${request.id}`,
+            message: 'New demo request',
+            description: `${request.full_name}${request.country ? ` from ${request.country}` : ''} is waiting for an answer.`,
+            icon: <PhoneOutlined style={{ color: '#dc2626' }} />,
+            placement: 'bottomRight',
+            duration: 8,
+            btn: (
+                <Button type="primary" size="small" onClick={() => { notice.destroy(`demo-${request.id}`); navigate('/app/demo-requests'); }}>
+                    Open
+                </Button>
+            ),
+        });
+    });
 
     const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : isCandidate ? 'candidate' : 'student';
     const meta = ROLE_META[role];
@@ -419,7 +476,8 @@ const Layout: React.FC = () => {
     const page = pageInfo(location.pathname, role);
     useEffect(() => { document.title = `${page.title} · ${BRAND}`; }, [page.title]);
 
-    const allItems = NAV[role].flatMap(g => g.items);
+    const nav = navFor(role, { monitoring: canViewMonitoring });
+    const allItems = nav.flatMap(g => g.items);
     const firstSegment = '/app/' + (location.pathname.replace(/^\/app\/?/, '').split('/')[0] || '');
     const activeKey = allItems.find(i => location.pathname === i.key || location.pathname.startsWith(i.key + '/'))?.key
         ?? ACTIVE_ALIASES[firstSegment]
@@ -447,6 +505,7 @@ const Layout: React.FC = () => {
 
     return (
         <div className={`al al-role-${role}`} style={{ '--al-sidebar-w': `${sideW}px` } as React.CSSProperties}>
+            {noticeHolder}
             <a href="#al-main" className="al-skip">Skip to content</a>
 
             {isMobile ? (
@@ -460,6 +519,8 @@ const Layout: React.FC = () => {
                     styles={{ body: { padding: 0 } }}
                 >
                     <Sidebar
+                        groups={nav}
+                        counters={{ demoRequests: demo.waiting }}
                         role={role}
                         collapsed={false}
                         activeKey={activeKey}
@@ -474,6 +535,8 @@ const Layout: React.FC = () => {
                 </Drawer>
             ) : (
                 <Sidebar
+                    groups={nav}
+                    counters={{ demoRequests: demo.waiting }}
                     role={role}
                     collapsed={collapsed}
                     activeKey={activeKey}

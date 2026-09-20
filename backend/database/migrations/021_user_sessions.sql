@@ -12,8 +12,8 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NOT NULL,
     ended_at TIMESTAMP,
-    -- how the session ended: logout · takeover (a new sign-in took its place)
-    -- · admin · password (password changed) · expired
+    -- how the session ended: logout | takeover (a new sign-in took its place)
+    -- | admin | password (password changed) | expired
     ended_reason VARCHAR(20),
     device VARCHAR(120),
     ip VARCHAR(45),
