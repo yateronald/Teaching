@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import ChangeEmailModal from './ChangeEmailModal';
 import TimezoneSelect from './TimezoneSelect';
 import ExamGoalSection from '../Candidate/ExamGoalSection';
+import SignedInDevices from './SignedInDevices';
 import { resolveTimezone, timezoneLabel } from '../../utils/timezone';
 import '../Teacher/Teacher.css';
 import './Profile.css';
@@ -364,6 +365,9 @@ const Profile: React.FC = () => {
                                 </li>
                             </ul>
                         </section>
+
+                        {/* ── Signed-in devices ── */}
+                        <SignedInDevices />
                     </div>
                 </div>
 
@@ -384,7 +388,7 @@ const Profile: React.FC = () => {
                 width="min(460px, calc(100vw - 24px))" wrapClassName="tc-modal pf-modal" styles={{ body: { padding: 0 } }} destroyOnHidden centered>
                 <header className="tc-up-head">
                     <span className="tc-up-ic"><LockOutlined /></span>
-                    <div><h2>Change password</h2><p>You stay signed in on this device.</p></div>
+                    <div><h2>Change password</h2><p>You stay signed in here; your other devices are signed out.</p></div>
                 </header>
                 <Form form={pwForm} layout="vertical" requiredMark={false} className="pf-pw" onFinish={submitPassword}>
                     <Form.Item name="currentPassword" label="Current password" rules={[{ required: true, message: 'Enter your current password' }]}>

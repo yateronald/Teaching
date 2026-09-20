@@ -1,0 +1,30 @@
+/* Signed-in devices — sits with the other profile sections (Profile.css). */
+
+.sd .pf-section-head { align-items: flex-start; }
+.sd-head-aside { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.sd-count { margin: 0; font-variant-numeric: tabular-nums; }
+
+.sd-list { margin: 0; padding: 0; list-style: none; }
+.sd-list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.sd-list li + li { border-top: 1px solid var(--tc-line-soft); }
+.sd-ic {
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+    width: 34px; height: 34px; border-radius: 10px;
+    background: var(--tc-soft); font-size: 15px; color: var(--tc-text);
+}
+.sd-list li.is-current .sd-ic { background: #ecfdf5; color: #047857; }
+.sd-text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.4; }
+.sd-text strong { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--tc-ink); }
+.sd-text em { font-size: 12.5px; font-style: normal; color: var(--tc-muted); }
+.sd-tag { margin: 0; font-weight: 600; }
+
+.sd-empty { margin: 0; font-size: 13px; color: var(--tc-muted); }
+.sd-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--tc-warn, #b45309); }
+
+.pf-section-ic.is-indigo { background: #eef2ff; color: #4338ca; }
+
+@media (max-width: 600px) {
+    .sd-list li { flex-wrap: wrap; }
+    .sd-list li > .ant-btn, .sd-list li > .ant-popconfirm + .ant-btn { width: 100%; }
+    .sd-head-aside { width: 100%; margin: 8px 0 0; justify-content: flex-start; }
+}

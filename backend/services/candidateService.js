@@ -6,6 +6,7 @@
  * follows their results. Their exam goal lives in exam_candidate_profiles.
  */
 const { hasTable } = require('./schemaFeatures');
+const { IDLE_MINUTES, limitFor } = require('./sessionService');
 
 const EXAM_TARGETS = ['tcf_canada', 'tcf_quebec', 'tcf_tp'];
 const NCLC_TARGETS = [4, 5, 6, 7, 8, 9, 10];
@@ -94,6 +95,7 @@ async function summaries(db, ids) {
     list.forEach(id => out.set(id, {
         target_exam: 'tcf_canada', target_nclc: null, exam_date: null, admin_notes: null,
         active_items: 0, total_items: 0, access_until: null, last_practice_at: null, attempts: 0,
+        devices: 0, device_limit: limitFor('candidate'), device_idle_seconds: null,
     }));
 
     if (await hasTable(db, 'exam_candidate_profiles')) {
@@ -128,6 +130,20 @@ async function summaries(db, ids) {
              WHERE user_id = ANY($1::int[]) AND status = 'completed'
          ) x GROUP BY uid`, [list]);
     activity.forEach(a => Object.assign(out.get(Number(a.user_id)), { attempts: a.attempts, last_practice_at: a.last_at }));
+
+    // How many devices hold the account right now — an account at its limit
+    // day after day is worth a second look.
+    if (await hasTable(db, 'user_sessions')) {
+        const devices = await db.all(
+            `SELECT user_id, COUNT(*)::int AS devices,
+                    EXTRACT(EPOCH FROM (LOCALTIMESTAMP - MAX(last_seen_at)))::int AS device_idle_seconds
+               FROM user_sessions
+              WHERE user_id = ANY($1::int[]) AND ended_at IS NULL
+                AND expires_at > LOCALTIMESTAMP
+                AND last_seen_at > LOCALTIMESTAMP - make_interval(mins => $2)
+              GROUP BY user_id`, [list, IDLE_MINUTES]);
+        devices.forEach(d => Object.assign(out.get(Number(d.user_id)), { devices: d.devices, device_idle_seconds: d.device_idle_seconds }));
+    }
     return out;
 }
 

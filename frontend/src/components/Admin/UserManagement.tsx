@@ -17,6 +17,8 @@ import { headerHeight } from '../Layout/layoutMetrics';
 import { formatPlain } from '../../utils/timezone';
 import { useNavigate } from 'react-router-dom';
 import ExamAssignmentModal from './ExamAssignmentModal';
+import UserDevices from './UserDevices';
+import { sinceText } from '../../utils/devices';
 import { EXAM_LABEL, NCLC_NOTE, NCLC_OPTIONS, daysUntil, type ExamTarget } from '../Candidate/candidateModel';
 import './UserManagement.css';
 
@@ -26,6 +28,8 @@ type Role = 'admin' | 'teacher' | 'student' | 'candidate';
 interface CandidateExam {
     target_exam: ExamTarget; target_nclc: number | null; exam_date: string | null; admin_notes: string | null;
     active_items: number; total_items: number; access_until: string | null; last_practice_at: string | null; attempts: number;
+    /** Devices signed in right now, and how many are allowed. */
+    devices: number; device_limit: number | null; device_idle_seconds: number | null;
 }
 type RoleTab = 'all' | Role;
 type StatusKey = 'active' | 'disabled' | 'attention' | 'new';
@@ -748,6 +752,7 @@ const UserManagement: React.FC = () => {
                                             <div><span>Exam date</span><b>{ex?.exam_date ? dayjs(ex.exam_date).format('MMM D, YYYY') : '—'}</b>{days != null && days >= 0 && <em>in {days} day{days === 1 ? '' : 's'}</em>}</div>
                                             <div><span>Open content</span><b>{ex?.active_items ?? 0}</b>{ex?.access_until && <em>until {fmtDate(ex.access_until)}</em>}</div>
                                             <div><span>Results</span><b>{ex?.attempts ?? 0}</b><em>{ex?.last_practice_at ? `last ${agoText(ex.last_practice_at).toLowerCase()}` : 'no practice yet'}</em></div>
+                                            <div><span>Devices</span><b>{ex?.devices ?? 0}{ex?.device_limit ? ` / ${ex.device_limit}` : ''}</b><em>{ex?.devices ? `active ${sinceText(ex.device_idle_seconds)}` : 'not signed in'}</em></div>
                                         </div>
                                         {ex?.admin_notes && <p className="um-exam-note"><LockOutlined /> {ex.admin_notes}</p>}
                                         {!ex?.active_items && (
@@ -760,6 +765,7 @@ const UserManagement: React.FC = () => {
                                     </div>
                                 );
                             })()}
+                            <UserDevices userId={profile.id} name={profile.first_name || fullName(profile)} />
                             {(profile.failed_login_attempts || 0) >= ATTENTION && (
                                 <div className="um-callout is-warn">
                                     <WarningOutlined />

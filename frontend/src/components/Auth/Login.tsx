@@ -16,6 +16,8 @@ import { brandingUtils } from '../../utils/branding';
 import { useTranslation } from 'react-i18next';
 import PasswordResetModal from './PasswordResetModal';
 import AccountDisabledModal from './AccountDisabledModal';
+import DeviceLimitModal from './DeviceLimitModal';
+import type { DeviceSession } from '../../utils/devices';
 import SEO from '../SEO/SEO';
 import './Login.css';
 import { homeFor } from '../../utils/roles';
@@ -39,6 +41,15 @@ const Login: React.FC = () => {
     lockedUntil?: string;
     failedAttempts?: number;
   }>({ type: 'disabled' });
+
+  // An exam account may only be signed in on so many devices; this holds the
+  // refusal until the person picks what to do.
+  const [deviceLimit, setDeviceLimit] = useState<{
+    limit: number;
+    devices: DeviceSession[];
+    canSignOutOthers: boolean;
+  } | null>(null);
+  const [takingOver, setTakingOver] = useState(false);
 
   const { t, i18n } = useTranslation();
   const [langOpen, setLangOpen] = useState(false);
@@ -96,11 +107,38 @@ const Login: React.FC = () => {
           lockedUntil: result.locked_until, failedAttempts: result.failed_attempts,
         });
         setAccountDisabledOpen(true);
+      } else if (result.code === 'SESSION_LIMIT' || result.code === 'SESSION_TAKEOVER_BLOCKED') {
+        setDeviceLimit({
+          limit: result.limit || 2,
+          devices: result.sessions || [],
+          canSignOutOthers: !!result.can_sign_out_others,
+        });
       }
     } catch {
       message.error(t('login.error_generic'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Sign the other devices out and come in here instead. The account holder is
+  // notified, so a shared password does not stay quiet.
+  const signOutOtherDevices = async () => {
+    setTakingOver(true);
+    try {
+      const result = await login(form.getFieldValue('email'), form.getFieldValue('password'), { signOutOthers: true });
+      if (result.success) {
+        setDeviceLimit(null);
+        if (result.signed_out_others) message.info(t('login.devices.done'));
+      } else if (result.code === 'SESSION_TAKEOVER_BLOCKED') {
+        setDeviceLimit({ limit: result.limit || 2, devices: result.sessions || [], canSignOutOthers: false });
+      } else {
+        setDeviceLimit(null);
+      }
+    } catch {
+      message.error(t('login.error_generic'));
+    } finally {
+      setTakingOver(false);
     }
   };
 
@@ -310,6 +348,15 @@ const Login: React.FC = () => {
         onClose={() => setResetOpen(false)}
         initialEmail={form.getFieldValue('email')}
         onSuccess={email => form.setFieldsValue({ email, password: '' })}
+      />
+      <DeviceLimitModal
+        open={!!deviceLimit}
+        onClose={() => setDeviceLimit(null)}
+        onSignOutOthers={signOutOtherDevices}
+        busy={takingOver}
+        limit={deviceLimit?.limit ?? 2}
+        devices={deviceLimit?.devices ?? []}
+        canSignOutOthers={!!deviceLimit?.canSignOutOthers}
       />
       <AccountDisabledModal
         visible={accountDisabledOpen}

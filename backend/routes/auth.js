@@ -1,8 +1,18 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { generateToken, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
+const { generateToken, tokenExpiry, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
+const sessions = require('../services/sessionService');
+const { createNotification } = require('../services/notificationService');
 
 const router = express.Router();
+
+/** The user as the client may see them, with the password-change flag resolved. */
+function withoutPassword(user) {
+    const { password_hash, ...rest } = user;
+    const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
+    rest.force_password_change = !!user.must_change_password || expired;
+    return rest;
+}
 
 // Login endpoint
 router.post('/login', [
@@ -79,20 +89,75 @@ router.post('/login', [
         // Successful login - reset failed attempts
         await resetFailedLogins(req.db, user.id);
 
+        // Some accounts may only be used on so many devices at a time (exam
+        // candidates: two). A further sign-in is refused and shows which devices
+        // hold the account, so a shared password simply runs out of room.
+        const limit = sessions.limitFor(user.role);
+        const tracked = await sessions.ready(req.db);
+        let signedOutOthers = 0;
+        if (limit !== null && tracked) {
+            const live = await sessions.activeSessions(req.db, user.id);
+            if (live.length >= limit) {
+                const used = await sessions.takeoversToday(req.db, user.id);
+                const mayTakeOver = used < sessions.TAKEOVERS_PER_DAY;
+                const devices = live.map(s => sessions.publicView(s));
+
+                if (req.body.sign_out_others !== true) {
+                    return res.status(403).json({
+                        error: 'Device limit reached',
+                        message: `This account may be signed in on ${limit} devices at a time, and both are in use. Sign out on one of them, or sign out the other devices from here.`,
+                        code: 'SESSION_LIMIT',
+                        limit,
+                        can_sign_out_others: mayTakeOver,
+                        sessions: devices,
+                    });
+                }
+                if (!mayTakeOver) {
+                    return res.status(403).json({
+                        error: 'Device limit reached',
+                        message: 'This account has already signed out its other devices too many times today. Please contact your administrator.',
+                        code: 'SESSION_TAKEOVER_BLOCKED',
+                        limit,
+                        can_sign_out_others: false,
+                        sessions: devices,
+                    });
+                }
+                signedOutOthers = await sessions.endAllForUser(req.db, user.id, 'takeover');
+            }
+        }
+
         // Generate JWT token
-        const token = generateToken(user.id, user.role);
+        const jti = tracked ? sessions.newId() : null;
+        const token = generateToken(user.id, user.role, jti);
+        if (jti) {
+            try {
+                await sessions.openSession(req.db, { userId: user.id, jti, expiresAt: tokenExpiry(), req, tookOver: signedOutOthers });
+            } catch (err) {
+                console.error('Session creation failed:', err.message);
+                // A capped account must be countable: refuse rather than let an
+                // untracked device through. Other roles sign in as before.
+                if (limit !== null) return res.status(503).json({ error: 'Sign-in unavailable', message: 'Please try again in a moment.' });
+                return res.json({ message: 'Login successful', token: generateToken(user.id, user.role), user: withoutPassword(user) });
+            }
+        }
+
+        if (signedOutOthers) {
+            // Tell the account holder: if someone else is using their password,
+            // this is how they find out.
+            await createNotification(req.db, {
+                user_id: user.id,
+                type: 'session_takeover',
+                title: 'Your other devices were signed out',
+                message: `A new sign-in on ${sessions.describeDevice(req.headers['user-agent'])} signed out ${signedOutOthers === 1 ? 'the other device' : `${signedOutOthers} other devices`} on your account. If this was not you, change your password and tell your administrator.`,
+            });
+        }
 
         // Return user data (without password) and token
-        const { password_hash, ...userWithoutPassword } = user;
-        // Compute force_password_change flag
-        const mustChange = !!user.must_change_password;
-        const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
-        userWithoutPassword.force_password_change = mustChange || expired;
-        
         res.json({
             message: 'Login successful',
             token,
-            user: userWithoutPassword
+            user: withoutPassword(user),
+            signed_out_others: signedOutOthers || undefined,
         });
 
     } catch (error) {
@@ -152,7 +217,12 @@ router.put('/change-password', [
             [newPasswordHash, userId]
         );
 
-        res.json({ message: 'Password changed successfully' });
+        // A new password signs out every other device: whoever had the old one
+        // loses access immediately.
+        const signedOut = await sessions.endAllForUser(req.db, userId, 'password', req.session?.id ?? null)
+            .catch(() => 0);
+
+        res.json({ message: 'Password changed successfully', signed_out_devices: signedOut || undefined });
 
     } catch (error) {
         console.error('Change password error:', error);
@@ -258,10 +328,57 @@ router.get('/timezones', (_req, res) => {
 
 // Verify token endpoint
 router.get('/verify', authenticateToken, (req, res) => {
-    res.json({ 
-        valid: true, 
-        user: req.user 
+    res.json({
+        valid: true,
+        user: req.user
     });
+});
+
+// ── Signed-in devices ──────────────────────────────────────────────────────
+// Ending a session takes effect at once: its token is refused from then on.
+
+// Sign out this device (frees one of the account's device slots).
+router.post('/logout', authenticateToken, async (req, res) => {
+    try {
+        if (req.session) await sessions.endSessions(req.db, req.session.id, 'logout');
+        res.json({ message: 'Signed out' });
+    } catch (error) {
+        console.error('Logout error:', error);
+        // The client clears its token regardless; never leave it stuck signed in.
+        res.json({ message: 'Signed out' });
+    }
+});
+
+// My devices, so I can see and cut off anything I don't recognise.
+router.get('/sessions', authenticateToken, async (req, res) => {
+    try {
+        const live = await sessions.activeSessions(req.db, req.user.id);
+        const limit = sessions.limitFor(req.user.role);
+        res.json({
+            limit,
+            idle_minutes: sessions.IDLE_MINUTES,
+            sessions: live.map(s => sessions.publicView(s, req.session?.id)),
+        });
+    } catch (error) {
+        console.error('Session list error:', error);
+        res.status(500).json({ error: 'Failed to load your devices' });
+    }
+});
+
+// Sign out one of my other devices.
+router.delete('/sessions/:id', authenticateToken, async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid device' });
+        const live = await sessions.activeSessions(req.db, req.user.id);
+        const target = live.find(s => Number(s.id) === id);
+        if (!target) return res.status(404).json({ error: 'That device is already signed out' });
+        await sessions.endSessions(req.db, id, 'logout');
+        res.json({ message: 'Device signed out', current: Number(req.session?.id) === id });
+    } catch (error) {
+        console.error('Session revoke error:', error);
+        res.status(500).json({ error: 'Failed to sign out that device' });
+    }
 });
 
 module.exports = router;

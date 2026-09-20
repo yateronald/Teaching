@@ -7,6 +7,7 @@ const RECHECK_MS = 60e3;
 const MIGRATION_HINT = {
   exam_candidate_profiles: 'backend/database/run-exam-candidates-migration.js',
   tcf_ce_quiz_attempts: 'backend/database/run-exam-candidates-migration.js',
+  user_sessions: 'backend/database/run-user-sessions-migration.js',
 };
 
 async function probe(db, key, sql, params, hint) {

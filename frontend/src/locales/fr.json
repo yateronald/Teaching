@@ -191,7 +191,17 @@
     "brand_sub": "Rejoignez 1 000+ étudiants qui nous ont fait confiance",
     "stat_pass": "de réussite",
     "stat_teachers": "Profs natifs",
-    "stat_students": "Étudiants"
+    "stat_students": "Étudiants",
+    "devices": {
+      "title": "Trop d’appareils",
+      "body": "Pour la sécurité de l’examen, ce compte peut être connecté sur {{limit}} appareils à la fois — et les deux sont utilisés en ce moment.",
+      "last_used": "utilisé {{when}}",
+      "hint": "Déconnectez-vous sur l’un de ces appareils, ou déconnectez-les depuis ici. Le titulaire du compte en est averti dans les deux cas.",
+      "blocked": "Ce compte a déjà déconnecté ses autres appareils plusieurs fois aujourd’hui. Veuillez contacter votre administrateur.",
+      "sign_out_others": "Déconnecter les autres appareils et continuer",
+      "cancel": "Annuler",
+      "done": "Vos autres appareils ont été déconnectés."
+    }
   },
   "reset": {
     "title": "Réinitialiser le mot de passe",

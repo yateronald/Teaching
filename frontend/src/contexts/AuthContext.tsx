@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { App as AntApp } from 'antd';
+import type { DeviceSession } from '../utils/devices';
 
 interface User {
     id: number;
@@ -21,12 +22,27 @@ interface User {
     force_password_change?: boolean;
 }
 
+export interface LoginResult {
+    success: boolean;
+    error?: string;
+    code?: string;
+    message?: string;
+    locked_until?: string;
+    failed_attempts?: number;
+    /** SESSION_LIMIT / SESSION_TAKEOVER_BLOCKED: the devices holding the account. */
+    sessions?: DeviceSession[];
+    limit?: number;
+    can_sign_out_others?: boolean;
+    /** How many devices this sign-in pushed out. */
+    signed_out_others?: number;
+}
+
 interface AuthContextType {
     user: User | null;
     token: string | null;
     loading: boolean;
-    login: (email: string, password: string) => Promise<{ success: boolean; error?: string; code?: string; message?: string; locked_until?: string; failed_attempts?: number }>;
-    logout: () => void;
+    login: (email: string, password: string, options?: { signOutOthers?: boolean }) => Promise<LoginResult>;
+    logout: () => Promise<void>;
     updateProfile: (profileData: Partial<User>) => Promise<{ success: boolean; error?: string }>;
     changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
     apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
@@ -133,14 +149,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         } catch { /* silent */ }
     };
 
-    const login = async (email: string, password: string) => {
+    const login = async (email: string, password: string, options: { signOutOthers?: boolean } = {}): Promise<LoginResult> => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ email, password })
+                body: JSON.stringify({ email, password, ...(options.signOutOthers ? { sign_out_others: true } : {}) })
             });
 
             const data = await response.json();
@@ -152,7 +168,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 message.success('Login successful!');
                 // Sync profile timezone to browser on fresh login too.
                 autoDetectTimezone(data.user, data.token);
-                return { success: true };
+                return { success: true, signed_out_others: data.signed_out_others };
             } else {
                 // Don't show message here for security errors - let the component handle it
                 if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED') {
@@ -163,6 +179,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                         message: data.message,
                         locked_until: data.locked_until,
                         failed_attempts: data.failed_attempts
+                    };
+                } else if (data.code === 'SESSION_LIMIT' || data.code === 'SESSION_TAKEOVER_BLOCKED') {
+                    // The account is on as many devices as it may be. The sign-in
+                    // screen shows them and offers to sign the others out.
+                    return {
+                        success: false,
+                        error: data.error,
+                        code: data.code,
+                        message: data.message,
+                        sessions: data.sessions || [],
+                        limit: data.limit,
+                        can_sign_out_others: !!data.can_sign_out_others,
                     };
                 } else {
                     message.error(data.message || data.error || 'Login failed');
@@ -176,10 +204,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
     };
 
-    const logout = () => {
+    /** Forgets the sign-in on this device. */
+    const clearSession = () => {
         localStorage.removeItem('token');
         setToken(null);
         setUser(null);
+    };
+
+    const logout = async () => {
+        // Tell the server first: the device slot is freed straight away and the
+        // old token stops working, even if it is still lying around somewhere.
+        const current = token || localStorage.getItem('token');
+        if (current) {
+            await fetch(`${API_BASE_URL}/auth/logout`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${current}` },
+            }).catch(() => { /* signing out locally is what matters to the user */ });
+        }
+        clearSession();
         message.success('Logged out successfully');
     };
 
@@ -333,8 +375,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
             const url = isAbsolute ? ep : `${API_BASE_URL}${ep}`;
             const response = await fetch(url, config);
-            if (response.status === 401 && !(await verifyToken())) {
-                throw new Error('Authentication token is invalid or expired.');
+            if (response.status === 401) {
+                // Ask the server whether this sign-in is still good. Only a clear
+                // answer counts: a network blip must not sign anybody out.
+                const check = await fetch(`${API_BASE_URL}/auth/verify`, {
+                    headers: { 'Authorization': `Bearer ${token}` },
+                }).catch(() => null);
+                if (check && !check.ok) {
+                    const body = await check.json().catch(() => ({} as any));
+                    clearSession();
+                    message.warning(body?.code === 'SESSION_ENDED'
+                        ? 'This device was signed out. Please sign in again.'
+                        : 'Your session has expired. Please sign in again.');
+                    throw new Error('Authentication token is invalid or expired.');
+                }
+                if (!check) throw new Error('Network error. Please try again.');
             }
             return response;
         } catch (error) {

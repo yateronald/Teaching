@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { hashPassword } = require('../middleware/auth');
+const sessions = require('../services/sessionService');
 const { sendPasswordResetOTP, sendPasswordResetSuccess } = require('../emails/emailService');
 
 const router = express.Router();
@@ -166,6 +167,9 @@ router.post('/reset', [
 
     // Update user password and clear must_change_password flag
     await db.run('UPDATE users SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP, password_expires_at = NOW() + INTERVAL \'90 days\', updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newPasswordHash, user.id]);
+
+    // The old password is gone, so every device signed in with it goes too.
+    await sessions.endAllForUser(db, user.id, 'password').catch(() => 0);
 
     // Mark request completed and clear token hash
     await db.run("UPDATE password_reset_requests SET status = 'completed', reset_token_hash = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [request.id]);

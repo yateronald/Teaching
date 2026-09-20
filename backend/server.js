@@ -456,6 +456,9 @@ async function startServer() {
         // Live classes left open (never started, or nobody ended them) are tidied every 5 minutes
         require('./services/meetingLifecycle').startMeetingSweeper(database, io);
 
+        // Expired sign-ins are closed and old ones forgotten, once a day
+        require('./services/sessionService').startSessionSweeper(database);
+
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });

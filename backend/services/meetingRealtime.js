@@ -10,6 +10,7 @@
  */
 const jwt = require('jsonwebtoken');
 const access = require('./meetingAccess');
+const sessions = require('./sessionService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 const REACTIONS = new Set(['👏', '❤️', '😂', '🎉', '🤔', '👍', '🔥', '😮', '💯', '🙌']);
@@ -30,6 +31,8 @@ function attachMeetingRealtime(io, db) {
                 [decoded.id],
             );
             if (!user || !user.is_active) return next(new Error('unauthorized'));
+            // A token whose session has been ended cannot open a socket either.
+            if (decoded.jti && !(await sessions.liveSession(db, decoded.jti))) return next(new Error('unauthorized'));
             socket.data.user = user;
             socket.data.meetings = new Map(); // meetingId → 'participant' | 'lobby'
             next();

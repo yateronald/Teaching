@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles, ROLES } = require('../middleware/auth');
 const candidates = require('../services/candidateService');
+const sessions = require('../services/sessionService');
 const { sendWelcomeEmail, sendAdminPasswordReset } = require('../emails/emailService');
 
 // Build local admin-only middleware using authorizeRoles to avoid any export mismatch
@@ -337,6 +338,10 @@ router.put('/:id', [
         if (nextRole === 'candidate' && (hasGoal || existingUser.role !== 'candidate')) {
             await candidates.saveGoal(req.db, targetIdForUpdate, goal || {}, req.user.id);
         }
+        // A disabled account — or one that changed role — keeps no signed-in device.
+        if (is_active === false || (role && role !== existingUser.role)) {
+            await sessions.endAllForUser(req.db, targetIdForUpdate, 'admin').catch(() => 0);
+        }
 
         // Get updated user
         const updatedUser = await req.db.get(
@@ -528,6 +533,9 @@ router.put('/:id/reset-password', [
             console.error('Failed to send admin reset email to', user.email, e && e.message);
         }
 
+        // The old password is gone, so every device signed in with it goes too.
+        await sessions.endAllForUser(req.db, Number(id), 'password').catch(() => 0);
+
         res.json({ message: 'Password reset successfully', mustChange: !!mustChange, emailed: !!sendEmail });
 
     } catch (error) {
@@ -535,5 +543,59 @@ router.put('/:id/reset-password', [
         res.status(500).json({ error: 'Failed to reset password' });
     }
 });
+
+// ── Signed-in devices (Admin only) ─────────────────────────────────────────
+// Exam candidates may only use two devices at a time; this is where an
+// administrator checks what an account is doing and frees it up.
+
+router.get('/:id/sessions', authenticateToken, adminOnlyMw, async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const user = await req.db.get('SELECT id, role FROM users WHERE id = ?', [id]);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const [live, takeovers] = await Promise.all([
+            sessions.activeSessions(req.db, id),
+            sessions.takeoversToday(req.db, id),
+        ]);
+        res.json({
+            limit: sessions.limitFor(user.role),
+            idle_minutes: sessions.IDLE_MINUTES,
+            takeovers_today: takeovers,
+            takeovers_allowed: sessions.TAKEOVERS_PER_DAY,
+            sessions: live.map(s => ({ ...sessions.publicView(s), ip: s.ip })),
+        });
+    } catch (error) {
+        console.error('Admin session list error:', error);
+        res.status(500).json({ error: 'Failed to load devices' });
+    }
+});
+
+// Sign out every device on an account, or just one of them.
+const revokeSessions = async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const user = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        if (req.params.sessionId) {
+            const target = Number(req.params.sessionId);
+            const live = await sessions.activeSessions(req.db, id);
+            if (!live.some(s => Number(s.id) === target)) {
+                return res.status(404).json({ error: 'That device is already signed out' });
+            }
+            await sessions.endSessions(req.db, target, 'admin');
+            return res.json({ message: 'Device signed out', signed_out: 1 });
+        }
+
+        const signedOut = await sessions.endAllForUser(req.db, id, 'admin');
+        res.json({ message: signedOut ? 'All devices signed out' : 'No device was signed in', signed_out: signedOut });
+    } catch (error) {
+        console.error('Admin session revoke error:', error);
+        res.status(500).json({ error: 'Failed to sign out the devices' });
+    }
+};
+router.delete('/:id/sessions', authenticateToken, adminOnlyMw, revokeSessions);
+router.delete('/:id/sessions/:sessionId', authenticateToken, adminOnlyMw, revokeSessions);
 
 module.exports = router;

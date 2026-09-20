@@ -191,7 +191,17 @@
     "brand_sub": "Join 1,000+ students who trusted us",
     "stat_pass": "Pass rate",
     "stat_teachers": "Native teachers",
-    "stat_students": "Students"
+    "stat_students": "Students",
+    "devices": {
+      "title": "Too many devices",
+      "body": "For exam security, this account can be signed in on {{limit}} devices at a time — and they are both in use right now.",
+      "last_used": "last used {{when}}",
+      "hint": "Sign out on one of those devices, or sign the other devices out from here. The account holder is notified either way.",
+      "blocked": "This account has already signed out its other devices several times today. Please contact your administrator.",
+      "sign_out_others": "Sign out the other devices and continue",
+      "cancel": "Cancel",
+      "done": "Your other devices were signed out."
+    }
   },
   "reset": {
     "title": "Reset password",

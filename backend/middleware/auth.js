@@ -1,7 +1,9 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const sessions = require('../services/sessionService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
+const TOKEN_DAYS = 7;
 
 const ROLES = ['admin', 'teacher', 'student', 'candidate'];
 
@@ -10,7 +12,7 @@ const ROLES = ['admin', 'teacher', 'student', 'candidate'];
 // quizzes, resources, schedules or meetings). Deny by default: a route added
 // later stays closed to them until it is listed here.
 const CANDIDATE_API = [
-    /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo)(\/|$)/,
+    /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo|logout|sessions)(\/|$)/,
     /^\/api\/email-change\//,
     /^\/api\/notifications(\/|$)/,
     /^\/api\/ai-credits\/me(\/|$)/,
@@ -24,10 +26,16 @@ const candidateMayUse = (req) => {
     return CANDIDATE_API.some(rule => rule.test(pathname));
 };
 
-// Generate JWT token
-function generateToken(userId, role) {
-    return jwt.sign({ id: userId, role }, JWT_SECRET, { expiresIn: '7d' });
+// Generate JWT token. A `jti` ties the token to a row in user_sessions, which
+// is what makes it revocable — sign-outs, takeovers and password changes end
+// the session, and every later request with that token is refused.
+function generateToken(userId, role, jti) {
+    const claims = jti ? { id: userId, role, jti } : { id: userId, role };
+    return jwt.sign(claims, JWT_SECRET, { expiresIn: `${TOKEN_DAYS}d` });
 }
+
+/** When a token signed now stops being accepted. */
+const tokenExpiry = () => new Date(Date.now() + TOKEN_DAYS * 24 * 60 * 60 * 1000);
 
 // Hash password
 async function hashPassword(password) {
@@ -85,6 +93,30 @@ async function authenticateToken(req, res, next) {
         const mustChange = !!user.must_change_password;
         const expired = user.password_expires_at ? (new Date(user.password_expires_at) <= new Date()) : false;
         user.force_password_change = mustChange || expired;
+
+        // The signed-in device must still be signed in. A token whose session was
+        // ended (sign-out, another device taking over, an administrator, a password
+        // change) or left idle too long stops working here.
+        if (decoded.jti) {
+            const session = await sessions.liveSession(req.db, decoded.jti);
+            if (!session || Number(session.user_id) !== Number(user.id)) {
+                return res.status(401).json({
+                    error: 'Session ended',
+                    message: 'You are signed out on this device. Please sign in again.',
+                    code: 'SESSION_ENDED',
+                });
+            }
+            req.session = session;
+            user.session_id = session.id;
+            await sessions.touch(req.db, session);
+        } else if (sessions.limitFor(user.role) !== null && await sessions.ready(req.db)) {
+            // A role with a device limit may only use tokens that can be counted.
+            return res.status(401).json({
+                error: 'Session ended',
+                message: 'Please sign in again to continue.',
+                code: 'SESSION_ENDED',
+            });
+        }
 
         if (user.role === 'candidate' && !candidateMayUse(req)) {
             return res.status(403).json({ error: 'This area is not part of your exam preparation space.', code: 'ROLE_NOT_ALLOWED' });
@@ -165,6 +197,7 @@ module.exports = {
     ROLES,
     candidateMayUse,
     generateToken,
+    tokenExpiry,
     hashPassword,
     verifyPassword,
     authenticateToken,
