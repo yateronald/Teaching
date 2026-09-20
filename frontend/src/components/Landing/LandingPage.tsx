@@ -121,18 +121,55 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
     return () => { window.removeEventListener('scroll', onScroll); io.disconnect(); };
   }, []);
 
-  // Reveal-on-scroll. Content above the fold is marked visible first, so nothing flashes.
+  // Reveal-on-scroll.
+  //
+  // The rule that matters: a section may never stay invisible. An earlier
+  // version watched a list of nodes captured once, so when React replaced one
+  // — a language switch, the rotating quotes, the banner closing — the new
+  // node was hidden with nobody watching it, and the section stayed blank
+  // until the page was reloaded.
+  //
+  // This version asks the document itself on every frame that could matter
+  // (scroll, resize, anchor jump, any change to the tree), and a short timer
+  // reveals anything still hidden near the viewport. Missing a node is no
+  // longer possible; the worst case is that it appears without its animation.
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    const items = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'));
-    items.forEach(el => { if (el.getBoundingClientRect().top < window.innerHeight * 0.92) el.classList.add('is-in'); });
+    if (!root) return;
+    // With reduced motion nothing is ever hidden in the first place.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    let frame = 0;
+    const reveal = (reach: number) => {
+      frame = 0;
+      const limit = window.innerHeight * reach;
+      root.querySelectorAll<HTMLElement>('[data-reveal]:not(.is-in)')
+        .forEach(el => { if (el.getBoundingClientRect().top < limit) el.classList.add('is-in'); });
+    };
+    const scan = () => reveal(0.92);
+    const schedule = () => { if (!frame) frame = window.requestAnimationFrame(scan); };
+
+    scan();                          // what is already on screen never animates in
     root.classList.add('lp-animate');
-    const io = new IntersectionObserver(entries => {
-      entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('is-in'); io.unobserve(e.target); } });
-    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
-    items.forEach(el => { if (!el.classList.contains('is-in')) io.observe(el); });
-    return () => io.disconnect();
+    scan();
+
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('hashchange', schedule);
+    // React replacing a node counts as a reason to look again.
+    const tree = new MutationObserver(schedule);
+    tree.observe(root, { childList: true, subtree: true });
+    // Last resort, just after the first paint: anything near the viewport shows.
+    const safety = window.setTimeout(() => reveal(1.6), 900);
+
+    return () => {
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('hashchange', schedule);
+      tree.disconnect();
+      window.clearTimeout(safety);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   // Rotating testimonials (paused on hover / focus, off with reduced motion).

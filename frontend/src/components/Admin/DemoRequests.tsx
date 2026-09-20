@@ -5,7 +5,7 @@ import type { ColumnsType } from 'antd/es/table';
 import {
   CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined,
   DownloadOutlined, EditOutlined, EnvironmentOutlined, ExclamationCircleFilled, LinkOutlined, MailOutlined, MoreOutlined,
-  PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, StopOutlined, TeamOutlined, UserOutlined,
+  PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -48,11 +48,43 @@ interface DemoRequest {
   teacher_first_name?: string | null;
   teacher_last_name?: string | null;
   teacher_email?: string | null;
+  /** What the person asked for: live classes, or exam practice only. */
+  interest?: 'classes' | 'exam' | null;
+  target_exam?: string | null;
+  exam_date?: string | null;
+  target_score?: string | null;
+  /** The papers they want, as 'ce,co,ee,eo'. */
+  skills?: string | null;
 }
-interface Stats { total: number; new_requests: number; contacted: number; demo_scheduled: number; completed: number; cancelled: number; this_week: number; this_month: number; }
+
+type Interest = 'classes' | 'exam';
+
+/** The per-status counters the pipeline reads; always present. */
+type StatusCount = 'new_requests' | 'contacted' | 'demo_scheduled' | 'completed' | 'cancelled';
+
+const INTEREST: Record<Interest, { label: string; short: string; hint: string }> = {
+  classes: { label: 'Live classes', short: 'Classes', hint: 'Wants a trial class with a teacher' },
+  exam: { label: 'Exam only', short: 'Exam only', hint: 'Wants mock exams and corrections, no classes' },
+};
+
+const EXAM_LABELS: Record<string, string> = {
+  tcf_canada: 'TCF Canada', tef_canada: 'TEF Canada', tcf_quebec: 'TCF Quebec', tefaq: 'TEFAQ',
+  tcf_tp: 'TCF Tout public', delf: 'DELF', dalf: 'DALF', other: 'Another exam',
+};
+
+const SKILL_LABELS: Record<string, string> = { co: 'Listening', ce: 'Reading', ee: 'Writing', eo: 'Speaking' };
+
+/** A request with no interest recorded predates the split, and was for classes. */
+const interestOf = (x: DemoRequest): Interest => (x.interest === 'exam' ? 'exam' : 'classes');
+interface Stats {
+  total: number; new_requests: number; contacted: number; demo_scheduled: number; completed: number; cancelled: number;
+  this_week: number; this_month: number;
+  /** Present once migration 023 has run. */
+  exam_requests?: number; class_requests?: number; exam_new?: number;
+}
 interface Teacher { id: number; first_name: string; last_name: string; email: string; }
 
-const STATUS: Record<Status, { label: string; stat: keyof Stats }> = {
+const STATUS: Record<Status, { label: string; stat: StatusCount }> = {
   new: { label: 'New', stat: 'new_requests' },
   contacted: { label: 'Contacted', stat: 'contacted' },
   demo_scheduled: { label: 'Scheduled', stat: 'demo_scheduled' },
@@ -105,6 +137,7 @@ const DemoRequests: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [status, setStatus] = useState<Status | ''>('');
+  const [interest, setInterest] = useState<Interest | ''>('');
   const [level, setLevel] = useState<string | undefined>();
   const [search, setSearch] = useState('');
   const [country, setCountry] = useState('');
@@ -134,12 +167,13 @@ const DemoRequests: React.FC = () => {
     page: String(page),
     limit: String(limit),
     ...(status && { status }),
+    ...(interest && { interest }),
     ...(level && { level }),
     ...(debounced.search && { search: debounced.search }),
     ...(debounced.country && { country: debounced.country }),
     ...(range && { start_date: range[0].format('YYYY-MM-DD'), end_date: range[1].format('YYYY-MM-DD') }),
     ...extra,
-  }).toString(), [page, limit, status, level, debounced, range]);
+  }).toString(), [page, limit, status, interest, level, debounced, range]);
 
   const fetchList = useCallback(async () => {
     setFetching(true);
@@ -154,6 +188,7 @@ const DemoRequests: React.FC = () => {
       setStats({
         total: n(s.total), new_requests: n(s.new_requests), contacted: n(s.contacted), demo_scheduled: n(s.demo_scheduled),
         completed: n(s.completed), cancelled: n(s.cancelled), this_week: n(s.this_week), this_month: n(s.this_month),
+        exam_requests: n(s.exam_requests), class_requests: n(s.class_requests), exam_new: n(s.exam_new),
       });
       setDrawer(cur => (cur ? list.find(x => x.id === cur.id) || cur : cur));
       setError(null);
@@ -286,8 +321,13 @@ const DemoRequests: React.FC = () => {
       const res = await apiCall(`/demo-requests?${query({ page: '1', limit: '1000' })}`);
       const d = await res.json();
       const list: DemoRequest[] = d.data || [];
-      const head = ['Name', 'Email', 'Phone', 'Country', 'Timezone', 'Current level', 'Target level', 'Experience', 'Goals', 'Expected start', 'Preferred schedule', 'Status', 'Demo date', 'Teacher', 'Notes', 'Received'];
-      const rows = list.map(x => [x.full_name, x.email, x.phone || '', x.country || '', x.timezone || '', x.current_level || '', x.interested_level || '',
+      const head = ['Name', 'Email', 'Phone', 'Country', 'Timezone', 'Looking for', 'Exam', 'Exam date', 'Score needed', 'Papers', 'Current level', 'Target level', 'Experience', 'Goals', 'Expected start', 'Preferred schedule', 'Status', 'Demo date', 'Teacher', 'Notes', 'Received'];
+      const rows = list.map(x => [x.full_name, x.email, x.phone || '', x.country || '', x.timezone || '',
+        INTEREST[interestOf(x)].label,
+        x.target_exam ? EXAM_LABELS[x.target_exam] || x.target_exam : '',
+        x.exam_date || '', x.target_score || '',
+        (x.skills || '').split(',').filter(Boolean).map(k => SKILL_LABELS[k] || k).join(' / '),
+        x.current_level || '', x.interested_level || '',
         hasExperience(x.has_previous_experience) ? 'Yes' : 'No', x.learning_goals || '', x.expected_start_time || '', x.preferred_schedule || '',
         STATUS[x.status]?.label || x.status, x.demo_scheduled_at ? dayjs(x.demo_scheduled_at).format('YYYY-MM-DD HH:mm') : '',
         `${x.teacher_first_name || ''} ${x.teacher_last_name || ''}`.trim(), x.notes || '', dayjs(x.created_at).format('YYYY-MM-DD HH:mm')]);
@@ -365,8 +405,20 @@ const DemoRequests: React.FC = () => {
   }
 
   const conversion = stats.total ? Math.round((stats.completed / stats.total) * 100) : 0;
-  const hasFilters = !!(status || level || search || country || range);
-  const clearFilters = () => { setStatus(''); setLevel(undefined); setSearch(''); setCountry(''); setRange(null); };
+  // An exam date is a calendar day, not an instant: it must not be moved by a
+  // time zone on its way to the screen.
+  const examDay = (day: string) => dayjs(day).format('MMM D, YYYY');
+
+  const daysTo = (day?: string | null) => {
+    if (!day) return '';
+    const left = dayjs(day).startOf('day').diff(dayjs().startOf('day'), 'day');
+    if (left < 0) return ' · already passed';
+    if (left === 0) return ' · today';
+    return ` · in ${left} day${left === 1 ? '' : 's'}`;
+  };
+
+  const hasFilters = !!(status || interest || level || search || country || range);
+  const clearFilters = () => { setStatus(''); setInterest(''); setLevel(undefined); setSearch(''); setCountry(''); setRange(null); };
 
   const columns: ColumnsType<DemoRequest> = [
     {
@@ -374,7 +426,15 @@ const DemoRequests: React.FC = () => {
       render: (_, x) => (
         <div className="dr-person">
           <span className="dr-av">{initialsOf(x.full_name)}</span>
-          <div className="dr-person-text"><strong>{x.full_name}</strong><em>{x.email}</em></div>
+          <div className="dr-person-text">
+            <strong>{x.full_name}</strong>
+            <em>
+              <Tooltip title={INTEREST[interestOf(x)].hint}>
+                <span className={`dr-kind is-${interestOf(x)}`}>{INTEREST[interestOf(x)].short}</span>
+              </Tooltip>
+              {x.email}
+            </em>
+          </div>
         </div>
       ),
     },
@@ -495,6 +555,9 @@ const DemoRequests: React.FC = () => {
             <span><b>{stats.this_month}</b> received in the last 30 days</span>
             <span><b>{conversion}%</b> reached a completed demo</span>
             {stats.new_requests > 0 && <span className="is-warn"><ClockCircleOutlined /> <b>{stats.new_requests}</b> waiting for a first reply</span>}
+            {!!stats.exam_requests && (
+              <span><b>{stats.exam_requests}</b> for exam practice only · <b>{stats.class_requests ?? (stats.total - stats.exam_requests)}</b> for classes</span>
+            )}
           </div>
         </section>
 
@@ -502,6 +565,14 @@ const DemoRequests: React.FC = () => {
         <section className="dr-panel" aria-label="Requests">
           <div className="dr-toolbar">
             <Input className="dr-search" prefix={<SearchOutlined />} allowClear placeholder="Search name or email" value={search} onChange={e => setSearch(e.target.value)} />
+            <Select
+              className="dr-filter"
+              allowClear
+              placeholder="Classes or exam"
+              value={interest || undefined}
+              onChange={(value) => { setInterest((value as Interest) || ''); setPage(1); }}
+              options={(['classes', 'exam'] as Interest[]).map(key => ({ value: key, label: INTEREST[key].label }))}
+            />
             <Select className="dr-filter" allowClear placeholder="Any level" value={level} onChange={setLevel} options={LEVELS.map(l => ({ value: l, label: `Level ${l}` }))} />
             <Input className="dr-filter" prefix={<EnvironmentOutlined />} allowClear placeholder="Country" value={country} onChange={e => setCountry(e.target.value)} />
             <DatePicker.RangePicker className="dr-range" value={range} format="MMM D, YYYY" placeholder={['Received from', 'To']}
@@ -628,14 +699,35 @@ const DemoRequests: React.FC = () => {
                 </dl>
               </section>
 
+              {interestOf(d) === 'exam' && (
+                <section className="dr-sec dr-exam">
+                  <h4><TrophyOutlined /> Exam preparation only</h4>
+                  <p className="dr-exam-note">No classes asked for — this person wants mock exams and corrections.</p>
+                  <dl className="dr-facts">
+                    <div><dt>Exam</dt><dd>{d.target_exam ? EXAM_LABELS[d.target_exam] || d.target_exam : '—'}</dd></div>
+                    <div><dt>Exam date</dt><dd>{d.exam_date ? `${examDay(d.exam_date)}${daysTo(d.exam_date)}` : 'Not booked yet'}</dd></div>
+                    <div><dt>Score needed</dt><dd>{d.target_score || '—'}</dd></div>
+                    <div><dt>Sat it before</dt><dd>{hasExperience(d.has_previous_experience) ? 'Yes' : 'Not yet'}</dd></div>
+                  </dl>
+                  {d.skills && (
+                    <div className="dr-exam-skills">
+                      {d.skills.split(',').filter(Boolean).map(skill => (
+                        <span key={skill}>{SKILL_LABELS[skill] || skill}</span>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
               <section className="dr-sec">
                 <h4>Learning profile</h4>
                 <dl className="dr-facts">
+                  <div><dt>Looking for</dt><dd>{INTEREST[interestOf(d)].label}</dd></div>
                   <div><dt>Level</dt><dd>{d.current_level || '—'}{d.interested_level && ` → wants ${d.interested_level}`}</dd></div>
                   <div><dt>Experience</dt><dd>{hasExperience(d.has_previous_experience) ? 'Has studied French before' : 'First time learning'}</dd></div>
                   {d.previous_study_method && <div><dt>Studied with</dt><dd>{d.previous_study_method}</dd></div>}
                   <div><dt>Wants to start</dt><dd>{d.expected_start_time || '—'}</dd></div>
-                  <div><dt>Availability</dt><dd>{d.preferred_schedule || '—'}</dd></div>
+                  {interestOf(d) === 'classes' && <div><dt>Availability</dt><dd>{d.preferred_schedule || '—'}</dd></div>}
                 </dl>
               </section>
 

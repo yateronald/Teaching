@@ -9,7 +9,14 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
-  ExclamationCircleOutlined
+  ExclamationCircleOutlined,
+  AimOutlined,
+  AudioOutlined,
+  CustomerServiceOutlined,
+  EditOutlined,
+  FileTextOutlined,
+  TeamOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import './DemoRequestModal.css';
 
@@ -39,7 +46,36 @@ interface FormData {
   expectedStartTime: string;
   preferredSchedule: string;
   timezone: string;
+
+  // Exam preparation only
+  targetExam: string;
+  examDate: string;
+  targetScore: string;
+  skills: string[];
 }
+
+/** What the visitor came for. Chosen before any question is asked. */
+type Interest = 'classes' | 'exam';
+
+/** The exams the platform prepares for. */
+const EXAM_OPTIONS: { value: string; label: string; note: string }[] = [
+  { value: 'tcf_canada', label: 'TCF Canada', note: 'Canadian immigration (IRCC)' },
+  { value: 'tef_canada', label: 'TEF Canada', note: 'Canadian immigration (IRCC)' },
+  { value: 'tcf_quebec', label: 'TCF Quebec', note: 'Quebec immigration' },
+  { value: 'tefaq', label: 'TEFAQ', note: 'Quebec immigration' },
+  { value: 'tcf_tp', label: 'TCF Tout public', note: 'Level certificate, studies' },
+  { value: 'delf', label: 'DELF', note: 'A1 to B2 diploma' },
+  { value: 'dalf', label: 'DALF', note: 'C1 to C2 diploma' },
+  { value: 'other', label: 'Another exam', note: 'Tell us below' },
+];
+
+/** The four papers, in the order every exam presents them. */
+const SKILL_OPTIONS: { value: string; label: string; icon: React.ReactNode }[] = [
+  { value: 'co', label: 'Listening', icon: <CustomerServiceOutlined /> },
+  { value: 'ce', label: 'Reading', icon: <FileTextOutlined /> },
+  { value: 'ee', label: 'Writing', icon: <EditOutlined /> },
+  { value: 'eo', label: 'Speaking', icon: <AudioOutlined /> },
+];
 
 // Commonly used timezones (IANA identifiers with friendly labels)
 const COMMON_TIMEZONES: { value: string; label: string }[] = [
@@ -92,6 +128,8 @@ const COMMON_TIMEZONES: { value: string; label: string }[] = [
 ];
 
 const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) => {
+  // Nothing is asked until the visitor says what they came for.
+  const [interest, setInterest] = useState<Interest | ''>('');
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -111,10 +149,16 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
     expectations: '',
     expectedStartTime: '',
     preferredSchedule: '',
-    timezone: ''
+    timezone: '',
+    targetExam: '',
+    examDate: '',
+    targetScore: '',
+    skills: [],
   });
 
-  const totalSteps = 4;
+  const isExam = interest === 'exam';
+  // Exam preparation asks three things; classes ask four.
+  const totalSteps = isExam ? 3 : 4;
   // Use the same base URL logic as AuthContext for consistency.
   const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://api.learnfrenchwithnatives.com/api';
 
@@ -123,6 +167,19 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
       ...prev,
       [field]: value
     }));
+  };
+
+  const toggleSkill = (skill: string) => {
+    setFormData(prev => ({
+      ...prev,
+      skills: prev.skills.includes(skill) ? prev.skills.filter(s => s !== skill) : [...prev.skills, skill],
+    }));
+  };
+
+  /** Picking what you came for is the first thing that happens. */
+  const chooseInterest = (choice: Interest) => {
+    setInterest(choice);
+    setCurrentStep(1);
   };
 
   const handleNext = () => {
@@ -149,7 +206,10 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
       }
       const payload = {
         ...formData,
+        interest: interest || 'classes',
         timezone: formData.timezone === 'other' ? (customTimezone.trim() || '') : formData.timezone,
+        // A weekly timetable and a target class level belong to class requests.
+        ...(isExam ? { interestedLevel: '', preferredSchedule: '' } : {}),
       };
       const response = await fetch(`${API_BASE_URL}/demo-requests`, {
         method: 'POST',
@@ -182,10 +242,15 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           expectations: '',
           expectedStartTime: '',
           preferredSchedule: '',
-          timezone: ''
+          timezone: '',
+          targetExam: '',
+          examDate: '',
+          targetScore: '',
+          skills: [],
         });
         setCustomTimezone('');
         setCurrentStep(1);
+        setInterest('');
       } else {
         setErrorMessage(
           (result && (result.message || result.error)) ||
@@ -208,6 +273,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
       setShowSuccessModal(false);
       setShowErrorModal(false);
       setErrorMessage('');
+      setInterest('');
+      setCurrentStep(1);
     }
   };
 
@@ -222,21 +289,210 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   };
 
   const isStepValid = () => {
+    if (isExam) {
+      switch (currentStep) {
+        case 1:
+          return !!(formData.fullName && formData.email && formData.country);
+        case 2:
+          return !!(formData.targetExam && formData.currentLevel && formData.hasPreviousExperience);
+        case 3:
+          return !!(formData.expectedStartTime && formData.learningGoals);
+        default:
+          return false;
+      }
+    }
     switch (currentStep) {
       case 1:
-        return formData.fullName && formData.email && formData.country;
+        return !!(formData.fullName && formData.email && formData.country);
       case 2:
-        return formData.hasPreviousExperience && formData.currentLevel;
+        return !!(formData.hasPreviousExperience && formData.currentLevel);
       case 3:
-        return formData.interestedLevel && formData.learningGoals;
+        return !!(formData.interestedLevel && formData.learningGoals);
       case 4:
-        return formData.expectedStartTime && formData.preferredSchedule;
+        return !!(formData.expectedStartTime && formData.preferredSchedule);
       default:
         return false;
     }
   };
 
+  /** Step 1 is shared; steps 2 and 3 ask about the exam itself. */
+  const renderExamStep = () => {
+    switch (currentStep) {
+      case 2:
+        return (
+          <div className="step-content">
+            <div className="step-header">
+              <TrophyOutlined className="step-icon" />
+              <h3>Your exam</h3>
+              <p>So the mock exams you get are the ones you actually sit</p>
+            </div>
+
+            <div className="form-group">
+              <label>Which exam are you preparing? *</label>
+              <div className="choice-grid">
+                {EXAM_OPTIONS.map(option => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    className={`choice-tile${formData.targetExam === option.value ? ' is-selected' : ''}`}
+                    onClick={() => handleInputChange('targetExam', option.value)}
+                    aria-pressed={formData.targetExam === option.value}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>{option.note}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Your level today *</label>
+                <select
+                  value={formData.currentLevel}
+                  onChange={(e) => handleInputChange('currentLevel', e.target.value)}
+                  className="form-input"
+                >
+                  <option value="">Select your level</option>
+                  <option value="A1">A1 - Beginner</option>
+                  <option value="A2">A2 - Elementary</option>
+                  <option value="B1">B1 - Intermediate</option>
+                  <option value="B2">B2 - Upper intermediate</option>
+                  <option value="C1">C1 - Advanced</option>
+                  <option value="C2">C2 - Proficient</option>
+                  <option value="unsure">I am not sure</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Have you sat this exam before? *</label>
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      name="examTaken"
+                      value="yes"
+                      checked={formData.hasPreviousExperience === 'yes'}
+                      onChange={(e) => handleInputChange('hasPreviousExperience', e.target.value)}
+                    />
+                    <span>Yes</span>
+                  </label>
+                  <label className="radio-option">
+                    <input
+                      type="radio"
+                      name="examTaken"
+                      value="no"
+                      checked={formData.hasPreviousExperience === 'no'}
+                      onChange={(e) => handleInputChange('hasPreviousExperience', e.target.value)}
+                    />
+                    <span>Not yet</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>Exam date</label>
+                <input
+                  type="date"
+                  value={formData.examDate}
+                  onChange={(e) => handleInputChange('examDate', e.target.value)}
+                  className="form-input"
+                  min={new Date().toISOString().slice(0, 10)}
+                />
+                <small className="form-hint">Leave empty if it is not booked yet.</small>
+              </div>
+              <div className="form-group">
+                <label>Score you need</label>
+                <input
+                  type="text"
+                  value={formData.targetScore}
+                  onChange={(e) => handleInputChange('targetScore', e.target.value)}
+                  placeholder="e.g. NCLC 7, B2, 450 points"
+                  className="form-input"
+                  maxLength={32}
+                />
+                <small className="form-hint">The target your file or school asks for.</small>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 3:
+        return (
+          <div className="step-content">
+            <div className="step-header">
+              <AimOutlined className="step-icon" />
+              <h3>Your practice plan</h3>
+              <p>What to open for you, and when</p>
+            </div>
+
+            <div className="form-group">
+              <label>Which papers do you want to practise?</label>
+              <div className="skill-grid">
+                {SKILL_OPTIONS.map(skill => (
+                  <button
+                    type="button"
+                    key={skill.value}
+                    className={`skill-tile${formData.skills.includes(skill.value) ? ' is-selected' : ''}`}
+                    onClick={() => toggleSkill(skill.value)}
+                    aria-pressed={formData.skills.includes(skill.value)}
+                  >
+                    <span className="skill-tile-icon">{skill.icon}</span>
+                    {skill.label}
+                  </button>
+                ))}
+              </div>
+              <small className="form-hint">Pick as many as you like, or leave empty for all four.</small>
+            </div>
+
+            <div className="form-group">
+              <label>When do you want to start? *</label>
+              <select
+                value={formData.expectedStartTime}
+                onChange={(e) => handleInputChange('expectedStartTime', e.target.value)}
+                className="form-input"
+              >
+                <option value="">Select a time</option>
+                <option value="immediately">Right away</option>
+                <option value="within_week">Within a week</option>
+                <option value="within_month">Within a month</option>
+                <option value="in_2_3_months">In two or three months</option>
+                <option value="just_exploring">Just exploring for now</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>What do you want to get out of it? *</label>
+              <textarea
+                value={formData.learningGoals}
+                onChange={(e) => handleInputChange('learningGoals', e.target.value)}
+                placeholder="e.g. I keep losing points in writing and I need NCLC 7 before March."
+                className="form-input form-textarea"
+                rows={3}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Anything else we should know?</label>
+              <textarea
+                value={formData.expectations}
+                onChange={(e) => handleInputChange('expectations', e.target.value)}
+                placeholder="Previous scores, deadlines, anything that helps us prepare."
+                className="form-input form-textarea"
+                rows={2}
+              />
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   const renderStepContent = () => {
+    if (isExam && currentStep > 1) return renderExamStep();
     switch (currentStep) {
       case 1:
         return (
@@ -756,20 +1012,79 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
     );
   }
 
-  // Main Form Modal
+  // ── What are you here for? ──
+  // Two very different people press this button: one wants a teacher, the
+  // other only wants mock exams. Asking first means neither has to answer
+  // questions meant for the other.
+  if (!interest) {
+    return (
+      <div className="modal-overlay" onClick={handleCloseModal}>
+        <div className="demo-modal is-chooser" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <div>
+              <h2>Book a free demo</h2>
+              <p className="modal-subtitle">Tell us what you are looking for — it takes two minutes.</p>
+            </div>
+            <button className="close-button" onClick={handleCloseModal} aria-label="Close">
+              <CloseOutlined />
+            </button>
+          </div>
+
+          <div className="modal-body">
+            <div className="intent-grid">
+              <button type="button" className="intent-card is-classes" onClick={() => chooseInterest('classes')}>
+                <span className="intent-icon"><TeamOutlined /></span>
+                <strong>Live classes with a teacher</strong>
+                <p>A free trial class with a native teacher, then a plan built around your level and your timetable.</p>
+                <ul>
+                  <li><CheckCircleOutlined /> One-to-one or small group</li>
+                  <li><CheckCircleOutlined /> A teacher who follows your progress</li>
+                  <li><CheckCircleOutlined /> Exam practice included</li>
+                </ul>
+                <span className="intent-go">Book a trial class <RightOutlined /></span>
+              </button>
+
+              <button type="button" className="intent-card is-exam" onClick={() => chooseInterest('exam')}>
+                <span className="intent-icon"><TrophyOutlined /></span>
+                <strong>Exam preparation only</strong>
+                <p>No classes — full mock exams of the four papers, scored like the real thing, with corrections.</p>
+                <ul>
+                  <li><CheckCircleOutlined /> TCF, TEF, TEFAQ, DELF, DALF</li>
+                  <li><CheckCircleOutlined /> Listening, reading, writing and speaking</li>
+                  <li><CheckCircleOutlined /> A score and a correction on every attempt</li>
+                </ul>
+                <span className="intent-go">Prepare my exam <RightOutlined /></span>
+              </button>
+            </div>
+
+            <p className="intent-note">Not sure? Choose live classes — exam practice comes with them.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── The form, in the shape of whichever was chosen ──
   return (
     <div className="modal-overlay" onClick={handleCloseModal}>
-      <div className="demo-modal" onClick={(e) => e.stopPropagation()}>
+      <div className={`demo-modal${isExam ? ' is-exam' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Request a Demo</h2>
-          <button className="close-button" onClick={handleCloseModal} disabled={isLoading}>
+          <div>
+            <h2>{isExam ? 'Exam preparation' : 'Book a free demo class'}</h2>
+            <p className="modal-subtitle">
+              {isExam
+                ? 'Mock exams and corrections, without classes'
+                : 'A free trial class with a native teacher'}
+            </p>
+          </div>
+          <button className="close-button" onClick={handleCloseModal} disabled={isLoading} aria-label="Close">
             <CloseOutlined />
           </button>
         </div>
 
         <div className="progress-bar">
           <div className="progress-steps">
-            {[1, 2, 3, 4].map((step) => (
+            {Array.from({ length: totalSteps }, (_, i) => i + 1).map((step) => (
               <div
                 key={step}
                 className={`progress-step ${currentStep >= step ? 'active' : ''} ${currentStep > step ? 'completed' : ''}`}
@@ -779,8 +1094,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
             ))}
           </div>
           <div className="progress-line">
-            <div 
-              className="progress-fill" 
+            <div
+              className="progress-fill"
               style={{ width: `${((currentStep - 1) / (totalSteps - 1)) * 100}%` }}
             />
           </div>
@@ -792,43 +1107,41 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
 
         <div className="modal-footer">
           <div className="footer-buttons">
-            {currentStep > 1 && (
-              <button 
-                className="btn-secondary" 
-                onClick={handlePrevious}
-                disabled={isLoading}
-              >
-                <LeftOutlined /> Previous
-              </button>
-            )}
-            
+            <button
+              className="btn-secondary"
+              onClick={currentStep > 1 ? handlePrevious : () => setInterest('')}
+              disabled={isLoading}
+            >
+              <LeftOutlined /> {currentStep > 1 ? 'Previous' : 'Back'}
+            </button>
+
             {currentStep < totalSteps ? (
-              <button 
-                className="btn-primary" 
+              <button
+                className="btn-primary"
                 onClick={handleNext}
                 disabled={!isStepValid() || isLoading}
               >
                 Next <RightOutlined />
               </button>
             ) : (
-              <button 
-                className="btn-primary" 
+              <button
+                className="btn-primary"
                 onClick={handleSubmit}
                 disabled={!isStepValid() || isLoading}
               >
                 {isLoading ? (
                   <>
-                    <LoadingOutlined /> Submitting...
+                    <LoadingOutlined /> Sending...
                   </>
                 ) : (
                   <>
-                    Submit Request <CheckCircleOutlined />
+                    {isExam ? 'Send my request' : 'Book my demo'} <CheckCircleOutlined />
                   </>
                 )}
               </button>
             )}
           </div>
-          
+
           <div className="step-indicator">
             Step {currentStep} of {totalSteps}
           </div>

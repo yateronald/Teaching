@@ -521,3 +521,135 @@
 .modal-body::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+/* ══════════════════════════════════════════
+   WHAT ARE YOU HERE FOR?
+   Classes and exam-only practice are two different products, so the modal
+   asks once, up front, and then only asks questions that apply.
+══════════════════════════════════════════ */
+
+.demo-modal.is-chooser { max-width: 820px; }
+
+.modal-header { align-items: flex-start; }
+.modal-subtitle {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.5;
+  /* The header is a pale gradient, so the subtitle is dark like the title. */
+  color: #64748b;
+}
+
+.intent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.intent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 20px 18px;
+  border: 1.5px solid #e6e9f0;
+  border-radius: 16px;
+  background: #fff;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+}
+.intent-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--intent-accent, #2563eb);
+  box-shadow: 0 16px 34px -20px rgba(15, 23, 42, .5);
+}
+.intent-card:focus-visible { outline: 2px solid var(--intent-accent, #2563eb); outline-offset: 3px; }
+.intent-card.is-classes { --intent-accent: #2563eb; --intent-soft: #eff4ff; }
+.intent-card.is-exam { --intent-accent: #0e7490; --intent-soft: #ecfeff; }
+
+.intent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--intent-soft);
+  color: var(--intent-accent);
+  font-size: 22px;
+}
+.intent-card strong { font-size: 17px; font-weight: 700; color: #0f172a; letter-spacing: -0.01em; }
+.intent-card > p { margin: 0; font-size: 13.5px; line-height: 1.55; color: #64748b; }
+.intent-card ul { margin: 2px 0 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.intent-card li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: #334155; }
+.intent-card li .anticon { margin-top: 2px; color: var(--intent-accent); font-size: 13px; flex-shrink: 0; }
+.intent-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid #eef1f6;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--intent-accent);
+}
+.intent-card:hover .intent-go .anticon { transform: translateX(3px); }
+.intent-go .anticon { transition: transform .18s ease; }
+
+.intent-note { margin: 16px 0 0; text-align: center; font-size: 12.5px; color: #94a3b8; }
+
+/* ── Choosing an exam, and the papers to practise ── */
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+.choice-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1.5px solid #e6e9f0;
+  border-radius: 12px;
+  background: #fff;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease;
+}
+.choice-tile:hover { border-color: #94a3b8; }
+.choice-tile strong { font-size: 14px; font-weight: 650; color: #0f172a; }
+.choice-tile span { font-size: 12px; color: #64748b; }
+.choice-tile.is-selected { border-color: #0e7490; background: #ecfeff; box-shadow: inset 0 0 0 1px #0e7490; }
+.choice-tile.is-selected strong { color: #0e5163; }
+
+.skill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.skill-tile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1.5px solid #e6e9f0;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease;
+}
+.skill-tile:hover { border-color: #94a3b8; }
+.skill-tile-icon { display: inline-flex; color: #0e7490; font-size: 16px; }
+.skill-tile.is-selected { border-color: #0e7490; background: #ecfeff; color: #0e5163; }
+
+.form-hint { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; color: #94a3b8; }
+.form-textarea { resize: vertical; min-height: 72px; font-family: inherit; }
+
+@media (max-width: 720px) {
+  .intent-grid { grid-template-columns: minmax(0, 1fr); }
+  .intent-card { padding: 18px 16px 14px; }
+  .choice-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .skill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

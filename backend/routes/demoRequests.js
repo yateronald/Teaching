@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const { sendDemoScheduleNotificationToStudent, sendDemoScheduleNotificationToTeacher } = require('../emails/emailService');
 const { createBulkNotifications } = require('../services/notificationService');
+const { hasColumn } = require('../services/schemaFeatures');
 
 const router = express.Router();
 const adminOnlyMw = authorizeRoles('admin');
@@ -57,21 +58,36 @@ async function announceNewRequest(req, request) {
     }
 }
 
+// What a request can be for, and what an exam request may say about the exam.
+const INTERESTS = ['classes', 'exam'];
+const EXAMS = ['tcf_canada', 'tcf_quebec', 'tcf_tp', 'tef_canada', 'tefaq', 'delf', 'dalf', 'other'];
+const SKILLS = ['ce', 'co', 'ee', 'eo'];
+
+const isExamRequest = (req) => String(req.body ? req.body.interest || '' : '').trim() === 'exam';
+const classOnly = (chain) => chain.if((_value, { req }) => !isExamRequest(req));
+
 // Create a new demo request (public endpoint)
 router.post('/', [
     body('fullName').notEmpty().withMessage('Full name is required'),
     body('email').isEmail().withMessage('Valid email is required'),
     body('phone').optional().isString(),
     body('country').notEmpty().withMessage('Country is required'),
+    body('interest').optional().isIn(INTERESTS).withMessage('Choose classes or exam preparation'),
     body('hasPreviousExperience').isIn(['yes', 'no']).withMessage('Previous experience must be yes or no'),
     body('currentLevel').notEmpty().withMessage('Current level is required'),
     body('previousStudyMethod').optional().isString(),
-    body('interestedLevel').notEmpty().withMessage('Interested level is required'),
+    // A class level and a weekly timetable only mean something for classes.
+    classOnly(body('interestedLevel')).notEmpty().withMessage('Interested level is required'),
+    classOnly(body('preferredSchedule')).notEmpty().withMessage('Preferred schedule is required'),
     body('learningGoals').notEmpty().withMessage('Learning goals are required'),
     body('expectations').optional().isString(),
     body('expectedStartTime').notEmpty().withMessage('Expected start time is required'),
-    body('preferredSchedule').notEmpty().withMessage('Preferred schedule is required'),
-    body('timezone').optional().isString()
+    body('timezone').optional().isString(),
+    // Exam preparation: which exam, when, what score, which papers.
+    body('targetExam').if((_value, { req }) => isExamRequest(req)).isIn(EXAMS).withMessage('Choose the exam you are preparing'),
+    body('examDate').optional({ values: 'falsy' }).isISO8601().withMessage('Enter a valid exam date'),
+    body('targetScore').optional().isString().isLength({ max: 32 }),
+    body('skills').optional().isArray({ max: 4 }),
 ], async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -99,18 +115,32 @@ router.post('/', [
             timezone
         } = req.body;
 
+        const interest = INTERESTS.includes(req.body.interest) ? req.body.interest : 'classes';
+        const exam = interest === 'exam';
+        // Only ever stored for an exam request, and only from the allowlists.
+        const targetExam = exam && EXAMS.includes(req.body.targetExam) ? req.body.targetExam : null;
+        const examDate = exam && req.body.examDate ? String(req.body.examDate).slice(0, 10) : null;
+        const targetScore = exam && req.body.targetScore ? String(req.body.targetScore).trim().slice(0, 32) : null;
+        const skills = exam && Array.isArray(req.body.skills)
+            ? [...new Set(req.body.skills.filter(skill => SKILLS.includes(skill)))].join(',') || null
+            : null;
+
+        // The new columns are only written once their migration has run.
+        const withInterest = await hasColumn(req.db, 'demo_requests', 'interest');
         const insertQuery = `
             INSERT INTO demo_requests (
                 full_name, email, phone, country, has_previous_experience,
                 current_level, previous_study_method, interested_level,
                 learning_goals, expectations, expected_start_time,
                 preferred_schedule, timezone, status, created_at, updated_at
+                ${withInterest ? ', interest, target_exam, exam_date, target_score, skills' : ''}
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'new', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ${withInterest ? ', $14, $15, $16, $17, $18' : ''}
             ) RETURNING *
         `;
 
-        const result = await req.db.run(insertQuery, [
+        const values = [
             fullName,
             email,
             phone || null,
@@ -118,13 +148,16 @@ router.post('/', [
             hasPreviousExperience,
             currentLevel,
             previousStudyMethod || null,
-            interestedLevel,
+            interestedLevel || null,
             learningGoals,
             expectations || null,
             expectedStartTime,
-            preferredSchedule,
-            timezone || null
-        ]);
+            preferredSchedule || null,
+            timezone || null,
+        ];
+        if (withInterest) values.push(interest, targetExam, examDate, targetScore, skills);
+
+        const result = await req.db.run(insertQuery, values);
 
         const created = result.rows[0];
 
@@ -162,7 +195,12 @@ router.get('/alerts', authenticateToken, adminOnlyMw, async (req, res) => {
 // Get all demo requests with filtering and statistics
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
-        const { status, country, level, page = 1, limit = 10, search, start_date, end_date } = req.query;
+        const { status, country, level, interest, page = 1, limit = 10, search, start_date, end_date } = req.query;
+        // The interest columns exist only once migration 023 has run.
+        const withInterest = await hasColumn(req.db, 'demo_requests', 'interest');
+        const interestColumns = withInterest
+            ? ', dr.interest, dr.target_exam, dr.exam_date::text AS exam_date, dr.target_score, dr.skills'
+            : '';
         // Ensure numeric pagination values for PostgreSQL LIMIT/OFFSET
         const pageNum = parseInt(page, 10) || 1;
         const limitNum = parseInt(limit, 10) || 10;
@@ -188,6 +226,11 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
             queryParams.push(level);
         }
 
+        if (interest && withInterest && INTERESTS.includes(interest)) {
+            whereConditions.push(`dr.interest = $${paramIndex++}`);
+            queryParams.push(interest);
+        }
+
         if (search) {
             whereConditions.push(`(dr.full_name ILIKE $${paramIndex++} OR dr.email ILIKE $${paramIndex++})`);
             queryParams.push(`%${search}%`, `%${search}%`);
@@ -208,7 +251,7 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
                 dr.learning_goals, dr.expectations, dr.expected_start_time,
                 dr.preferred_schedule, dr.timezone, dr.status, dr.notes,
                 dr.contacted_at, dr.demo_scheduled_at, dr.created_at, dr.updated_at,
-                dr.teacher_id, dr.meeting_link,
+                dr.teacher_id, dr.meeting_link${interestColumns},
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name, u.email as teacher_email
             FROM demo_requests dr
             LEFT JOIN users u ON dr.teacher_id = u.id AND u.role = 'teacher'
@@ -238,6 +281,10 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
                 COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
                 COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as this_week,
                 COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as this_month
+                ${withInterest ? `,
+                COUNT(CASE WHEN interest = 'exam' THEN 1 END) as exam_requests,
+                COUNT(CASE WHEN interest <> 'exam' THEN 1 END) as class_requests,
+                COUNT(CASE WHEN interest = 'exam' AND status = 'new' THEN 1 END) as exam_new` : ''}
             FROM demo_requests
         `;
         const statsResult = await req.db.get(statsQuery);
