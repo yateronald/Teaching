@@ -469,7 +469,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                 onChange={(e) => handleInputChange('learningGoals', e.target.value)}
                 placeholder="e.g. I keep losing points in writing and I need NCLC 7 before March."
                 className="form-input form-textarea"
-                rows={3}
+                rows={2}
               />
             </div>
 
@@ -860,7 +860,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                   onChange={(e) => handleInputChange('learningGoals', e.target.value)}
                   placeholder="e.g., Immigration to Canada, Business communication, Travel, Academic purposes..."
                   className="form-textarea"
-                  rows={3}
+                  rows={2}
                 />
               </div>
               
@@ -871,7 +871,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                   onChange={(e) => handleInputChange('expectations', e.target.value)}
                   placeholder="Tell us what you hope to achieve and any specific areas you'd like to focus on..."
                   className="form-textarea"
-                  rows={3}
+                  rows={2}
                 />
               </div>
             </div>
@@ -1106,6 +1106,10 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
         </div>
 
         <div className="modal-footer">
+          <div className="step-indicator">
+            Step {currentStep} of {totalSteps}
+          </div>
+
           <div className="footer-buttons">
             <button
               className="btn-secondary"
@@ -1140,10 +1144,6 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
                 )}
               </button>
             )}
-          </div>
-
-          <div className="step-indicator">
-            Step {currentStep} of {totalSteps}
           </div>
         </div>
       </div>
