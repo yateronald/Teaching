@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   CloseOutlined,
   RightOutlined,
@@ -287,6 +287,36 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
     setShowErrorModal(false);
     setErrorMessage('');
   };
+
+  const isShowing = isOpen || showSuccessModal || showErrorModal;
+
+  // While the sheet is up the page behind it stays put, and Escape closes it.
+  // Without this the page scrolls under the sheet on a phone as soon as the
+  // finger leaves the body of the modal.
+  useEffect(() => {
+    if (!isShowing) return;
+
+    const { body } = document;
+    const previousOverflow = body.style.overflow;
+    const previousPaddingRight = body.style.paddingRight;
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = 'hidden';
+    if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (showSuccessModal) handleSuccessClose();
+      else if (showErrorModal) handleErrorClose();
+      else handleCloseModal();
+    };
+    document.addEventListener('keydown', onKey);
+
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      body.style.overflow = previousOverflow;
+      body.style.paddingRight = previousPaddingRight;
+    };
+  }, [isShowing, showSuccessModal, showErrorModal, isLoading]);
 
   const isStepValid = () => {
     if (isExam) {
@@ -957,19 +987,19 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   if (showSuccessModal) {
     return (
       <div className="modal-overlay" onClick={handleSuccessClose}>
-        <div className="demo-modal success-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="demo-modal success-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+          <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header success-header">
-            <h2>Request Submitted Successfully!</h2>
-            <button className="close-button" onClick={handleSuccessClose}>
+            <h2 id="demo-modal-title">Request sent</h2>
+            <button className="close-button" onClick={handleSuccessClose} aria-label="Close">
               <CloseOutlined />
             </button>
           </div>
           <div className="modal-body success-body">
             <div className="success-content">
               <CheckCircleOutlined className="success-icon" />
-              <h3>Request Submitted Successfully!</h3>
-              <p>Thank you for your interest in learning French with us.</p>
-              <p>We have received your demo request and <strong>an administrator will contact you soon</strong> to schedule your personalized French learning session.</p>
+              <p className="status-lead">Thank you for your interest in learning French with us.</p>
+              <p>We have received your request and <strong>an administrator will contact you soon</strong> to schedule your session.</p>
               <p>Please check your email for confirmation details and further instructions.</p>
             </div>
           </div>
@@ -987,19 +1017,19 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   if (showErrorModal) {
     return (
       <div className="modal-overlay" onClick={handleErrorClose}>
-        <div className="demo-modal error-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="demo-modal error-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+          <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header error-header">
-            <h2>Submission Failed</h2>
-            <button className="close-button" onClick={handleErrorClose}>
+            <h2 id="demo-modal-title">Something went wrong</h2>
+            <button className="close-button" onClick={handleErrorClose} aria-label="Close">
               <CloseOutlined />
             </button>
           </div>
           <div className="modal-body error-body">
             <div className="error-content">
               <ExclamationCircleOutlined className="error-icon" />
-              <h3>Oops! Something went wrong</h3>
-              <p>{errorMessage}</p>
-              <p>Please try again or contact our support team if the problem persists.</p>
+              <p className="status-lead">{errorMessage}</p>
+              <p>Please try again, or contact our support team if the problem persists.</p>
             </div>
           </div>
           <div className="modal-footer">
@@ -1019,10 +1049,11 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   if (!interest) {
     return (
       <div className="modal-overlay" onClick={handleCloseModal}>
-        <div className="demo-modal is-chooser" onClick={(e) => e.stopPropagation()}>
+        <div className="demo-modal is-chooser" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+          <span className="sheet-grabber" aria-hidden="true" />
           <div className="modal-header">
-            <div>
-              <h2>Book a free demo</h2>
+            <div className="modal-heading">
+              <h2 id="demo-modal-title">Book a free demo</h2>
               <p className="modal-subtitle">Tell us what you are looking for — it takes two minutes.</p>
             </div>
             <button className="close-button" onClick={handleCloseModal} aria-label="Close">
@@ -1034,25 +1065,25 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
             <div className="intent-grid">
               <button type="button" className="intent-card is-classes" onClick={() => chooseInterest('classes')}>
                 <span className="intent-icon"><TeamOutlined /></span>
-                <strong>Live classes with a teacher</strong>
-                <p>A free trial class with a native teacher, then a plan built around your level and your timetable.</p>
-                <ul>
-                  <li><CheckCircleOutlined /> One-to-one or small group</li>
-                  <li><CheckCircleOutlined /> A teacher who follows your progress</li>
-                  <li><CheckCircleOutlined /> Exam practice included</li>
-                </ul>
+                <span className="intent-title">Live classes with a teacher</span>
+                <span className="intent-desc">A free trial class with a native teacher, then a plan built around your level and your timetable.</span>
+                <span className="intent-points">
+                  <span className="intent-point"><CheckCircleOutlined /> One-to-one or small group</span>
+                  <span className="intent-point"><CheckCircleOutlined /> A teacher who follows your progress</span>
+                  <span className="intent-point"><CheckCircleOutlined /> Exam practice included</span>
+                </span>
                 <span className="intent-go">Book a trial class <RightOutlined /></span>
               </button>
 
               <button type="button" className="intent-card is-exam" onClick={() => chooseInterest('exam')}>
                 <span className="intent-icon"><TrophyOutlined /></span>
-                <strong>Exam preparation only</strong>
-                <p>No classes — full mock exams of the four papers, scored like the real thing, with corrections.</p>
-                <ul>
-                  <li><CheckCircleOutlined /> TCF, TEF, TEFAQ, DELF, DALF</li>
-                  <li><CheckCircleOutlined /> Listening, reading, writing and speaking</li>
-                  <li><CheckCircleOutlined /> A score and a correction on every attempt</li>
-                </ul>
+                <span className="intent-title">Exam preparation only</span>
+                <span className="intent-desc">No classes — full mock exams of the four papers, scored like the real thing, with corrections.</span>
+                <span className="intent-points">
+                  <span className="intent-point"><CheckCircleOutlined /> TCF, TEF, TEFAQ, DELF, DALF</span>
+                  <span className="intent-point"><CheckCircleOutlined /> Listening, reading, writing and speaking</span>
+                  <span className="intent-point"><CheckCircleOutlined /> A score and a correction on every attempt</span>
+                </span>
                 <span className="intent-go">Prepare my exam <RightOutlined /></span>
               </button>
             </div>
@@ -1067,10 +1098,11 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   // ── The form, in the shape of whichever was chosen ──
   return (
     <div className="modal-overlay" onClick={handleCloseModal}>
-      <div className={`demo-modal${isExam ? ' is-exam' : ''}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`demo-modal${isExam ? ' is-exam' : ''}`} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+        <span className="sheet-grabber" aria-hidden="true" />
         <div className="modal-header">
-          <div>
-            <h2>{isExam ? 'Exam preparation' : 'Book a free demo class'}</h2>
+          <div className="modal-heading">
+            <h2 id="demo-modal-title">{isExam ? 'Exam preparation' : 'Book a free demo class'}</h2>
             <p className="modal-subtitle">
               {isExam
                 ? 'Mock exams and corrections, without classes'
@@ -1082,12 +1114,13 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           </button>
         </div>
 
-        <div className="progress-bar">
+        <div className="progress-bar" role="group" aria-label={`Step ${currentStep} of ${totalSteps}`}>
           <div className="progress-steps">
             {Array.from({ length: totalSteps }, (_, i) => i + 1).map((step) => (
               <div
                 key={step}
                 className={`progress-step ${currentStep >= step ? 'active' : ''} ${currentStep > step ? 'completed' : ''}`}
+                aria-current={currentStep === step ? 'step' : undefined}
               >
                 {currentStep > step ? <CheckCircleOutlined /> : step}
               </div>
@@ -1106,12 +1139,13 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
         </div>
 
         <div className="modal-footer">
-          <div className="step-indicator">
+          <div className="step-indicator" aria-live="polite">
             Step {currentStep} of {totalSteps}
           </div>
 
           <div className="footer-buttons">
             <button
+              type="button"
               className="btn-secondary"
               onClick={currentStep > 1 ? handlePrevious : () => setInterest('')}
               disabled={isLoading}
@@ -1121,6 +1155,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
 
             {currentStep < totalSteps ? (
               <button
+                type="button"
                 className="btn-primary"
                 onClick={handleNext}
                 disabled={!isStepValid() || isLoading}
@@ -1129,6 +1164,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
               </button>
             ) : (
               <button
+                type="button"
                 className="btn-primary"
                 onClick={handleSubmit}
                 disabled={!isStepValid() || isLoading}
