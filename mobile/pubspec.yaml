@@ -1,0 +1,54 @@
+name: mobile
+description: "Learn French with Natives - Mobile App (Teacher Space)"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Ships the French strings for the date and time pickers, which otherwise
+  # open in English in the middle of a French interface.
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State Management
+  flutter_riverpod: ^2.6.1
+
+  # Networking & Storage
+  dio: ^5.8.0+1
+  flutter_secure_storage: ^9.2.4
+  shared_preferences: ^2.5.3
+
+  # WebRTC Video & Realtime Signaling
+  livekit_client: ^2.4.5
+  socket_io_client: ^3.0.2
+
+  # Audio Playback
+  just_audio: ^0.9.42
+
+  # UI, Charts & Styling
+  google_fonts: ^6.2.1
+  intl: ^0.20.2
+  fl_chart: ^0.70.2
+  flutter_svg: ^2.0.17
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+
+  # System & Device
+  file_picker: ^8.1.7
+  permission_handler: ^11.4.0
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
