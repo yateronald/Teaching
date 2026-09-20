@@ -29,10 +29,13 @@
     "@mui/x-charts": "^8.11.2",
     "@tabler/icons-react": "^3.35.0",
     "@tanstack/react-table": "^8.21.3",
+    "@types/d3-geo": "^3.1.1",
     "@types/react-transition-group": "^4.4.12",
+    "@types/topojson-client": "^3.1.5",
     "antd": "^5.27.3",
     "axios": "^1.12.2",
     "chart.js": "^4.5.0",
+    "d3-geo": "^3.1.1",
     "dayjs": "^1.11.18",
     "emoji-picker-react": "^4.15.0",
     "i18next": "25.3.2",
@@ -50,7 +53,9 @@
     "react-transition-group": "^4.4.5",
     "react-zoom-pan-pinch": "^3.7.0",
     "recharts": "^3.2.1",
-    "socket.io-client": "^4.8.1"
+    "socket.io-client": "^4.8.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",

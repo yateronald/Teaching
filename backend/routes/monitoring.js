@@ -158,6 +158,100 @@ router.get('/overview', async (req, res) => {
     }
 });
 
+// ── Geography ──────────────────────────────────────────────────────────────
+// One row per country, with everything the map shows on hover. Countries the
+// platform could not place (no time zone, no proxy header) are returned under
+// the key '??' so they are still counted somewhere.
+
+router.get('/geo', async (req, res) => {
+    try {
+        if (!(await analytics.ready(req.db))) return res.json({ ready: false });
+        const range = rangeOf(req.query.range);
+        const params = [range.hours, 0];
+
+        const [rows, sessions, pages, totals] = await Promise.all([
+            req.db.all(
+                `SELECT COALESCE(country, '??') AS country,
+                        COUNT(*)::int AS visits,
+                        COUNT(DISTINCT visitor_hash)::int AS visitors,
+                        COALESCE(ROUND(AVG(NULLIF(dwell_ms, 0)) / 1000)::int, 0) AS avg_seconds,
+                        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY load_ms)::int AS load_p75,
+                        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY lcp_ms)::int AS lcp_p75,
+                        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ttfb_ms)::int AS ttfb_p75,
+                        COUNT(*) FILTER (WHERE device = 'phone')::int AS phone,
+                        COUNT(*) FILTER (WHERE device = 'tablet')::int AS tablet,
+                        COUNT(*) FILTER (WHERE device = 'desktop')::int AS desktop,
+                        COUNT(*) FILTER (WHERE channel = 'search')::int AS search,
+                        COUNT(*) FILTER (WHERE channel = 'social')::int AS social,
+                        COUNT(*) FILTER (WHERE channel = 'campaign')::int AS campaign,
+                        MIN(EXTRACT(EPOCH FROM (LOCALTIMESTAMP - created_at))::int) AS seconds_since_last
+                   FROM site_visits WHERE ${WINDOW}
+                  GROUP BY 1 ORDER BY visits DESC`, params),
+
+            // Visits and bounce rate, per country, on the same 30-minute rule
+            // the rest of the space uses.
+            req.db.all(
+                `WITH steps AS (
+                    SELECT COALESCE(country, '??') AS country, visitor_hash, created_at,
+                           CASE WHEN created_at - LAG(created_at) OVER (PARTITION BY visitor_hash ORDER BY created_at)
+                                     > INTERVAL '30 minutes'
+                                OR LAG(created_at) OVER (PARTITION BY visitor_hash ORDER BY created_at) IS NULL
+                                THEN 1 ELSE 0 END AS starts
+                      FROM site_visits WHERE ${WINDOW} AND visitor_hash IS NOT NULL
+                 ), numbered AS (
+                    SELECT country, visitor_hash,
+                           SUM(starts) OVER (PARTITION BY visitor_hash ORDER BY created_at) AS session_no
+                      FROM steps
+                 ), grouped AS (
+                    SELECT country, visitor_hash, session_no, COUNT(*)::int AS views
+                      FROM numbered GROUP BY 1, 2, 3
+                 )
+                 SELECT country, COUNT(*)::int AS sessions,
+                        COUNT(*) FILTER (WHERE views = 1)::int AS single_page
+                   FROM grouped GROUP BY 1`, params),
+
+            // The page most read in each country.
+            req.db.all(
+                `SELECT country, path, visits FROM (
+                    SELECT COALESCE(country, '??') AS country, path, COUNT(*)::int AS visits,
+                           ROW_NUMBER() OVER (PARTITION BY COALESCE(country, '??') ORDER BY COUNT(*) DESC) AS rank
+                      FROM site_visits WHERE ${WINDOW}
+                     GROUP BY 1, 2
+                 ) ranked WHERE rank = 1`, params),
+
+            req.db.get(
+                `SELECT COUNT(*)::int AS visits,
+                        COUNT(DISTINCT visitor_hash)::int AS visitors,
+                        COUNT(DISTINCT country)::int AS countries,
+                        COUNT(*) FILTER (WHERE country IS NULL)::int AS unplaced
+                   FROM site_visits WHERE ${WINDOW}`, params),
+        ]);
+
+        const bySession = new Map(sessions.map(s => [s.country, s]));
+        const byPage = new Map(pages.map(p => [p.country, p]));
+        const total = totals?.visits || 0;
+
+        res.json({
+            ready: true,
+            range: { key: Object.keys(RANGES).find(k => RANGES[k] === range), label: range.label },
+            totals: totals || { visits: 0, visitors: 0, countries: 0, unplaced: 0 },
+            countries: rows.map(row => {
+                const session = bySession.get(row.country);
+                return {
+                    ...row,
+                    share: pct(row.visits, total),
+                    sessions: session?.sessions || 0,
+                    bounce_rate: pct(session?.single_page || 0, session?.sessions || 0),
+                    top_page: byPage.get(row.country)?.path || null,
+                };
+            }),
+        });
+    } catch (error) {
+        console.error('Monitoring geo error:', error);
+        res.status(500).json({ error: 'Failed to load the map' });
+    }
+});
+
 // ── Live ───────────────────────────────────────────────────────────────────
 
 router.get('/live', async (req, res) => {

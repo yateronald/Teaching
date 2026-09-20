@@ -44,8 +44,16 @@ const initialsOf = (p: UserProfile | null) => {
     const s = `${p.first_name?.[0] || ''}${p.last_name?.[0] || ''}`.trim() || p.username?.[0] || '?';
     return s.toUpperCase();
 };
-const sameValues = (a: Partial<Editable>, b: Partial<Editable>) =>
-    (['first_name', 'last_name', 'username', 'email', 'timezone'] as const).every(k => (a[k] ?? '') === (b[k] ?? ''));
+/**
+ * Only the fields actually on screen may count as a change. The email input is
+ * rendered for administrators alone — everyone else changes their address
+ * through the verification dialog — and a field that is not rendered is absent
+ * from the watched values, so comparing it would leave the page looking
+ * permanently unsaved.
+ */
+const EDITABLE_FIELDS = ['first_name', 'last_name', 'username', 'email', 'timezone'] as const;
+const sameValues = (a: Partial<Editable>, b: Partial<Editable>, fields: readonly (keyof Editable)[]) =>
+    fields.every(k => (a[k] ?? '') === (b[k] ?? ''));
 
 /** A live "10:42 AM" in a zone, updated each minute. */
 const useClock = (tz: string) => {
@@ -139,7 +147,9 @@ const Profile: React.FC = () => {
     const saved: Partial<Editable> = useMemo(() => profile
         ? { first_name: profile.first_name, last_name: profile.last_name, username: profile.username, email: profile.email, timezone: profile.timezone }
         : {}, [profile]);
-    const dirty = !!profile && !!values && !sameValues(values, saved);
+    const editableFields = useMemo(
+        () => EDITABLE_FIELDS.filter(field => field !== 'email' || isAdmin), [isAdmin]);
+    const dirty = !!profile && !!values && !sameValues(values, saved, editableFields);
 
     const tz = resolveTimezone(values?.timezone ?? profile?.timezone);
     const clock = useClock(tz);

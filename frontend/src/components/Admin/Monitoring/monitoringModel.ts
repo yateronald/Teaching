@@ -77,6 +77,35 @@ export interface Performance {
     retention_days: number;
 }
 
+/** One country on the map, with everything shown on hover. */
+export interface GeoCountry {
+    country: string;
+    visits: number;
+    visitors: number;
+    sessions: number;
+    bounce_rate: number;
+    share: number;
+    avg_seconds: number;
+    load_p75: number | null;
+    lcp_p75: number | null;
+    ttfb_p75: number | null;
+    phone: number;
+    tablet: number;
+    desktop: number;
+    search: number;
+    social: number;
+    campaign: number;
+    seconds_since_last: number | null;
+    top_page: string | null;
+}
+
+export interface GeoData {
+    ready: boolean;
+    range: { key: RangeKey; label: string };
+    totals: { visits: number; visitors: number; countries: number; unplaced: number };
+    countries: GeoCountry[];
+}
+
 export interface Live {
     ready: boolean;
     visitors: number;

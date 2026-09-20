@@ -204,8 +204,52 @@
 .cx-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 20px 24px; text-align: center; }
 .cx-empty > .anticon { margin-bottom: 4px; font-size: 26px; color: var(--cx-subtle); }
 .cx-empty strong { font-size: 14px; color: var(--cx-ink); }
-.cx-empty span { max-width: 360px; color: var(--cx-muted); }
+.cx-empty > span { max-width: 360px; color: var(--cx-muted); }
 .cx-empty .ant-btn { margin-top: 8px; }
+
+/* Solid calls to action.
+   A thin 400-weight white label on a mid-tone fill turns to mush at 125-150%
+   display scaling, so every filled button here gets a deeper background, a
+   heavier label and a little more room. */
+.cx .ant-btn-primary,
+.cx-drawer .ant-btn-primary,
+.cx-modal .ant-btn-primary {
+  height: 40px;
+  padding-inline: 20px;
+  border-color: transparent;
+  background: var(--cx-accent-deep);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  box-shadow: 0 10px 20px -14px rgba(21, 94, 117, 0.9);
+}
+.cx .ant-btn-primary:not(:disabled):hover,
+.cx-drawer .ant-btn-primary:not(:disabled):hover,
+.cx-modal .ant-btn-primary:not(:disabled):hover {
+  background: #0e7490 !important;
+  border-color: transparent !important;
+  color: #ffffff !important;
+}
+.cx .ant-btn > span,
+.cx-drawer .ant-btn > span,
+.cx-modal .ant-btn > span { color: inherit; }
+.cx .ant-btn-primary:not(:disabled):active,
+.cx-drawer .ant-btn-primary:not(:disabled):active,
+.cx-modal .ant-btn-primary:not(:disabled):active { background: #114b5f !important; }
+.cx .ant-btn-primary.ant-btn-sm,
+.cx-drawer .ant-btn-primary.ant-btn-sm,
+.cx-modal .ant-btn-primary.ant-btn-sm { height: 34px; padding-inline: 14px; font-size: 13px; }
+
+/* A button nobody may press should read as unavailable, not as broken. */
+.cx .ant-btn:disabled,
+.cx-drawer .ant-btn:disabled,
+.cx-modal .ant-btn:disabled {
+  border-color: var(--cx-line);
+  background: var(--cx-soft);
+  color: var(--cx-subtle);
+  box-shadow: none;
+}
 .cx-empty-note { padding: 34px 0 20px; font-size: 12.5px; color: var(--cx-subtle); text-align: center; }
 
 /* ── Chart ── */

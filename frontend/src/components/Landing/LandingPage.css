@@ -121,13 +121,56 @@
 .lp-nav a:hover { color: var(--ink); background: rgba(11, 23, 51, 0.04); }
 .lp-nav a.is-active { color: var(--blue); }
 .lp-nav a.is-active::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 2px; height: 2px; border-radius: 2px; background: var(--blue); }
-.lp-header-end { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-.lp-lang { display: inline-flex; align-items: center; gap: 2px; padding: 3px 3px 3px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--subtle); font-size: 13px; }
-.lp-lang a { padding: 4px 8px; border-radius: 7px; font-weight: 650; color: var(--muted); }
-.lp-lang a:hover { color: var(--ink); }
-.lp-lang a.is-current { background: var(--ink); color: #fff; }
-.lp-signin { font-size: 14.5px; font-weight: 600; color: var(--ink); }
-.lp-signin:hover { color: var(--blue); }
+.lp-header-end { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* Language — a segmented control, sized like the buttons beside it so the
+   two letters are readable at a glance and comfortable to tap. */
+.lp-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 4px 4px 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--subtle);
+  font-size: 15px;
+}
+.lp-lang > .anticon { margin-right: 6px; font-size: 15px; }
+.lp-lang a {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  transition: background .18s ease, color .18s ease;
+}
+.lp-lang a:hover { background: var(--paper); color: var(--ink); }
+.lp-lang a.is-current { background: var(--ink); color: #fff; box-shadow: 0 2px 6px rgba(15, 23, 42, .22); }
+.lp-lang a.is-current:hover { background: var(--ink); color: #fff; }
+
+/* Sign in — a real button, not a word floating between two buttons. */
+.lp-signin {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+  white-space: nowrap;
+  transition: border-color .18s ease, color .18s ease, background .18s ease;
+}
+.lp-signin:hover { border-color: var(--blue); background: var(--blue-soft, #eef2ff); color: var(--blue); }
+.lp-signin:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 .lp-burger { display: none; align-items: center; justify-content: center; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-size: 18px; }
 .lp-mobile { display: none; }
 
@@ -505,10 +548,18 @@
 .lp-bento-card.is-5 { transition-delay: 0.14s; }
 
 /* ── Responsive ── */
+@media (max-width: 1180px) {
+  .lp-header-end { gap: 8px; }
+  .lp-lang { padding-left: 8px; }
+  .lp-lang > .anticon { display: none; }
+}
 @media (max-width: 1080px) {
   .lp-nav { gap: 0; }
   .lp-nav a { padding: 8px 9px; font-size: 14px; }
-  .lp-signin { display: none; }
+  /* Signing in matters to returning students, so it stays — it only gets narrower. */
+  .lp-signin { padding: 0 12px; }
+  .lp-lang a { padding: 0 9px; }
+  .lp-btn-sm { padding: 0 13px; }
 }
 @media (max-width: 1080px) {
   .lp-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -528,7 +579,8 @@
   .lp-mobile nav a { display: flex; align-items: center; justify-content: space-between; padding: 16px 4px; border-bottom: 1px solid var(--line); font-family: var(--display); font-size: 21px; font-weight: 700; letter-spacing: -0.02em; color: var(--ink); }
   .lp-mobile nav a .anticon { font-size: 13px; color: var(--subtle); }
   .lp-mobile-foot { display: flex; flex-direction: column; gap: 12px; }
-  .lp-mobile-foot .lp-lang { align-self: flex-start; }
+  .lp-mobile-foot .lp-lang { align-self: stretch; justify-content: center; height: 48px; padding: 5px; }
+  .lp-mobile-foot .lp-lang a { flex: 1; justify-content: center; height: 38px; font-size: 15px; }
   .lp-mobile-foot .lp-btn { width: 100%; height: 50px; }
 
   .lp-hero-grid, .lp-sim-grid, .lp-platform-grid, .lp-reviews-grid, .lp-faq-grid, .lp-program { grid-template-columns: minmax(0, 1fr); }

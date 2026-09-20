@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Segmented, Skeleton, Switch, Tooltip, message } from 'antd';
 import {
     AreaChartOutlined, CloudDownloadOutlined, DashboardOutlined, LineChartOutlined,
-    LockOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined,
+    GlobalOutlined, LockOutlined, ReloadOutlined, SafetyOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import MonitoringOverview from './MonitoringOverview';
+import MonitoringMap from './MonitoringMap';
 import MonitoringPerformance from './MonitoringPerformance';
 import MonitoringLive from './MonitoringLive';
-import { RANGES, type Live, type Overview, type Performance, type RangeKey } from './monitoringModel';
+import { RANGES, type GeoData, type Live, type Overview, type Performance, type RangeKey } from './monitoringModel';
 import './Monitoring.css';
 
 /* ══════════════════════════════════════════
@@ -20,10 +21,11 @@ import './Monitoring.css';
    server checks that on every request as well.
 ══════════════════════════════════════════ */
 
-type TabKey = 'overview' | 'performance' | 'live';
+type TabKey = 'overview' | 'map' | 'performance' | 'live';
 
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: 'overview', label: 'Audience', icon: <AreaChartOutlined /> },
+    { key: 'map', label: 'Map', icon: <GlobalOutlined /> },
     { key: 'performance', label: 'Performance', icon: <ThunderboltOutlined /> },
     { key: 'live', label: 'Live', icon: <DashboardOutlined /> },
 ];
@@ -39,6 +41,7 @@ const MonitoringPage: React.FC = () => {
     const [overview, setOverview] = useState<Overview | null>(null);
     const [performance, setPerformance] = useState<Performance | null>(null);
     const [live, setLive] = useState<Live | null>(null);
+    const [geo, setGeo] = useState<GeoData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [denied, setDenied] = useState(false);
@@ -52,8 +55,9 @@ const MonitoringPage: React.FC = () => {
         if (!silent) setLoading(true);
         try {
             const path = which === 'overview' ? `/monitoring/overview?range=${range}`
-                : which === 'performance' ? `/monitoring/performance?range=${range}`
-                    : '/monitoring/live';
+                : which === 'map' ? `/monitoring/geo?range=${range}`
+                    : which === 'performance' ? `/monitoring/performance?range=${range}`
+                        : '/monitoring/live';
             const res = await apiCall(path);
             if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
@@ -62,6 +66,7 @@ const MonitoringPage: React.FC = () => {
             }
             const data = await res.json();
             if (which === 'overview') setOverview(data);
+            else if (which === 'map') setGeo(data);
             else if (which === 'performance') setPerformance(data);
             else setLive(data);
             setRefreshedAt(new Date());
@@ -100,7 +105,8 @@ const MonitoringPage: React.FC = () => {
         }
     };
 
-    const notReady = (overview && overview.ready === false) || (performance && performance.ready === false);
+    const notReady = (overview && overview.ready === false) || (performance && performance.ready === false)
+        || (geo && geo.ready === false);
 
     return (
         <div className="mon">
@@ -184,13 +190,14 @@ const MonitoringPage: React.FC = () => {
                     </p>
                     <code>node backend/database/run-site-monitoring-migration.js</code>
                 </div>
-            ) : loading && !overview && !performance && !live ? (
+            ) : loading && !overview && !performance && !live && !geo ? (
                 <div className="mon-grid">
                     {[0, 1, 2, 3].map(i => <div key={i} className="mon-card"><Skeleton active paragraph={{ rows: 3 }} /></div>)}
                 </div>
             ) : (
                 <>
                     {tab === 'overview' && <MonitoringOverview data={overview} />}
+                    {tab === 'map' && <MonitoringMap data={geo} loading={loading} />}
                     {tab === 'performance' && <MonitoringPerformance data={performance} />}
                     {tab === 'live' && <MonitoringLive data={live} />}
                 </>
