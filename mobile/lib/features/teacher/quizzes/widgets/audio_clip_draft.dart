@@ -5,6 +5,7 @@ class AudioClipDraft {
   String voiceName;
   String sourceType; // 'tts' | 'upload'
   String? kdriveFileId;
+  String? localFilePath;
   String? fileName;
   int? durationSeconds;
   int maxPlays;
@@ -16,6 +17,7 @@ class AudioClipDraft {
     this.voiceName = 'Kore',
     this.sourceType = 'tts',
     this.kdriveFileId,
+    this.localFilePath,
     this.fileName,
     this.durationSeconds,
     this.maxPlays = 0,

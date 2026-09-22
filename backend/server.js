@@ -335,6 +335,9 @@ async function calculateQuizResultsServer(db, submissionId) {
             }
         }
 
+        // Keep the core scoring invariant aligned with the quiz route grader.
+        if (isCorrect) marksAwarded = marks;
+
         await db.run(
             'UPDATE student_answers SET marks_awarded = ?, is_correct = ? WHERE id = ?',
             [marksAwarded, isCorrect, answer.id]

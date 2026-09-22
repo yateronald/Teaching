@@ -46,7 +46,8 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
       if (mounted) {
         setState(() => _isInit = true);
       }
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('AudioPreviewPlayer error loading audio: $e\n$st');
       if (mounted) {
         setState(() => _error = 'Unable to load audio');
       }

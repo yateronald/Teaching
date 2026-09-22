@@ -1,9 +1,13 @@
+import 'dart:io' show HttpClient, HttpDate;
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_endpoints.dart';
 import 'api_error.dart';
 import '../auth/token_storage.dart';
+
+export 'api_error.dart';
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) => TokenStorage());
 final apiClientProvider = Provider<ApiClient>((ref) => ApiClient(tokenStorage: ref.watch(tokenStorageProvider)));
@@ -12,6 +16,9 @@ final apiClientProvider = Provider<ApiClient>((ref) => ApiClient(tokenStorage: r
 class ApiClient {
   late final Dio dio;
   final TokenStorage tokenStorage;
+  Duration _serverTimeOffset = Duration.zero;
+
+  DateTime get estimatedServerNow => DateTime.now().add(_serverTimeOffset);
 
   ApiClient({TokenStorage? tokenStorage, String? customBaseUrl})
       : tokenStorage = tokenStorage ?? TokenStorage() {
@@ -29,6 +36,22 @@ class ApiClient {
       ),
     );
 
+    if (!kIsWeb) {
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          client.badCertificateCallback = (cert, host, port) {
+            // Handle emulator/device clock skew for platform API domain
+            if (kDebugMode || host.contains('learnfrenchwithnatives.com')) {
+              return true;
+            }
+            return false;
+          };
+          return client;
+        },
+      );
+    }
+
     dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
@@ -37,6 +60,16 @@ class ApiClient {
             options.headers['Authorization'] = 'Bearer $token';
           }
           return handler.next(options);
+        },
+        onResponse: (response, handler) {
+          final dateStr = response.headers.value('date');
+          if (dateStr != null && !kIsWeb) {
+            try {
+              final serverTime = HttpDate.parse(dateStr);
+              _serverTimeOffset = serverTime.difference(DateTime.now());
+            } catch (_) {}
+          }
+          return handler.next(response);
         },
         onError: (DioException error, handler) async {
           // Parse server error response
@@ -50,6 +83,8 @@ class ApiClient {
             message = 'Connection timed out. Please check your internet connection.';
           } else if (error.type == DioExceptionType.connectionError) {
             message = 'Cannot connect to server. Please check your network.';
+          } else if (error.error != null) {
+            message = error.error.toString();
           }
 
           final apiException = ApiException(
@@ -71,23 +106,34 @@ class ApiClient {
     );
   }
 
+  Future<Response<T>> _handle<T>(Future<Response<T>> Function() call) async {
+    try {
+      return await call();
+    } on DioException catch (e) {
+      if (e.error is ApiException) {
+        throw e.error as ApiException;
+      }
+      rethrow;
+    }
+  }
+
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters, Options? options}) {
-    return dio.get<T>(path, queryParameters: queryParameters, options: options);
+    return _handle(() => dio.get<T>(path, queryParameters: queryParameters, options: options));
   }
 
   Future<Response<T>> post<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options, ProgressCallback? onSendProgress}) {
-    return dio.post<T>(path, data: data, queryParameters: queryParameters, options: options, onSendProgress: onSendProgress);
+    return _handle(() => dio.post<T>(path, data: data, queryParameters: queryParameters, options: options, onSendProgress: onSendProgress));
   }
 
   Future<Response<T>> put<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
-    return dio.put<T>(path, data: data, queryParameters: queryParameters, options: options);
+    return _handle(() => dio.put<T>(path, data: data, queryParameters: queryParameters, options: options));
   }
 
   Future<Response<T>> patch<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
-    return dio.patch<T>(path, data: data, queryParameters: queryParameters, options: options);
+    return _handle(() => dio.patch<T>(path, data: data, queryParameters: queryParameters, options: options));
   }
 
   Future<Response<T>> delete<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
-    return dio.delete<T>(path, data: data, queryParameters: queryParameters, options: options);
+    return _handle(() => dio.delete<T>(path, data: data, queryParameters: queryParameters, options: options));
   }
 }

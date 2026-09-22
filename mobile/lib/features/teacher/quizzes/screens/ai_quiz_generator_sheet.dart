@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/api/api_client.dart';
-import '../../../../core/api/api_error.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
 import '../../../../core/localization/app_locale_notifier.dart';
@@ -399,10 +398,8 @@ class _AiQuizGeneratorSheetState extends ConsumerState<AiQuizGeneratorSheet> {
         final qType = (qTypeRaw == 'yes_no' || qTypeRaw == 'boolean')
             ? 'yes_no'
             : (qTypeRaw == 'mcq_multiple' ? 'mcq_multiple' : 'mcq_single');
-        final points =
-            (q['points'] as num?)?.toInt() ??
-            (q['marks'] as num?)?.toInt() ??
-            1;
+        final rawPoints = (q['points'] as num?) ?? (q['marks'] as num?);
+        final num points = rawPoints != null && rawPoints > 0 ? rawPoints : 1;
         final explanation = q['explanation'] ?? '';
 
         String? yesNoAnswer;
@@ -442,6 +439,7 @@ class _AiQuizGeneratorSheetState extends ConsumerState<AiQuizGeneratorSheet> {
             explanation: explanation,
             yesNoAnswer: yesNoAnswer ?? 'yes',
             options: options,
+            startCollapsed: true,
           ),
         );
       }

@@ -18,6 +18,7 @@ class AudioResult {
   final String tempId;
   final String sourceType; // 'tts' | 'upload'
   final String kdriveFileId;
+  final String? localFilePath;
   final String? fileName;
   final int? durationSeconds;
   final String transcript;
@@ -29,6 +30,7 @@ class AudioResult {
     required this.tempId,
     required this.sourceType,
     required this.kdriveFileId,
+    this.localFilePath,
     this.fileName,
     this.durationSeconds,
     required this.transcript,
@@ -381,6 +383,7 @@ class _AudioQuestionSheetState extends ConsumerState<AudioQuestionSheet> {
           options: options,
           audioClipTempId: clipTempId,
           audioFileId: _generatedFileId,
+          startCollapsed: true,
         );
         if (draft.validate(parsed.length + 1) == null) parsed.add(draft);
       }
@@ -428,6 +431,7 @@ class _AudioQuestionSheetState extends ConsumerState<AudioQuestionSheet> {
         tempId: clipTempId,
         sourceType: _sourceType,
         kdriveFileId: _generatedFileId!,
+        localFilePath: _previewAudioPath,
         fileName: _uploadedFileName,
         durationSeconds: _durationSeconds,
         transcript: _transcriptCtrl.text.trim(),

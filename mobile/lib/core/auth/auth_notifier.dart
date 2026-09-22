@@ -1,9 +1,9 @@
 import 'dart:convert';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../api/api_endpoints.dart';
-import '../api/api_error.dart';
 import 'token_storage.dart';
 import '../../features/auth/models/user_model.dart';
 
@@ -129,11 +129,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       debugPrint('LOGIN ApiException: ${e.message}, status: ${e.statusCode}');
       state = state.copyWith(isLoading: false, errorMessage: e.message);
       return false;
+    } on DioException catch (e) {
+      debugPrint('LOGIN DioException: ${e.message}, error: ${e.error}');
+      final msg = (e.error is ApiException)
+          ? (e.error as ApiException).message
+          : (e.error != null ? e.error.toString() : (e.message ?? 'Network error occurred. Please try again.'));
+      state = state.copyWith(isLoading: false, errorMessage: msg);
+      return false;
     } catch (e, st) {
       debugPrint('LOGIN Generic Exception: $e\n$st');
       state = state.copyWith(
         isLoading: false,
-        errorMessage: 'Connection failed ($e). Please check your network and try again.',
+        errorMessage: 'An unexpected error occurred: $e',
       );
       return false;
     }
@@ -150,6 +157,108 @@ class AuthNotifier extends StateNotifier<AuthState> {
   void updateUser(UserModel updatedUser) {
     state = state.copyWith(user: updatedUser);
     _tokenStorage.saveUserJson(jsonEncode(updatedUser.toJson()));
+  }
+
+  Future<UserModel?> fetchProfile() async {
+    try {
+      final res = await _apiClient.get('/auth/profile');
+      if (res.data != null && res.data['user'] != null) {
+        final u = UserModel.fromJson(res.data['user']);
+        updateUser(u);
+        return u;
+      }
+    } catch (e) {
+      debugPrint('Error fetching profile: $e');
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>> updateProfile({
+    String? firstName,
+    String? lastName,
+    String? username,
+    String? timezone,
+    String? email,
+  }) async {
+    try {
+      final data = <String, dynamic>{};
+      if (firstName != null) data['first_name'] = firstName.trim();
+      if (lastName != null) data['last_name'] = lastName.trim();
+      if (username != null) data['username'] = username.trim();
+      if (timezone != null) data['timezone'] = timezone;
+      if (email != null && email.isNotEmpty) data['email'] = email.trim();
+
+      final res = await _apiClient.put('/auth/profile', data: data);
+      if (res.data != null && res.data['user'] != null) {
+        final u = UserModel.fromJson(res.data['user']);
+        updateUser(u);
+        return {'success': true, 'user': u, 'message': res.data['message']};
+      }
+      return {'success': true};
+    } on ApiException catch (e) {
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final res = await _apiClient.put(
+        '/auth/change-password',
+        data: {
+          'currentPassword': currentPassword,
+          'newPassword': newPassword,
+        },
+      );
+      final msg = res.data?['message'] ?? 'Password changed successfully';
+      return {'success': true, 'message': msg};
+    } on ApiException catch (e) {
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> uploadProfilePhoto({
+    List<int>? bytes,
+    String? filePath,
+    required String filename,
+  }) async {
+    try {
+      MultipartFile file;
+      if (bytes != null) {
+        file = MultipartFile.fromBytes(bytes, filename: filename);
+      } else if (filePath != null) {
+        file = await MultipartFile.fromFile(filePath, filename: filename);
+      } else {
+        return {'success': false, 'error': 'No file provided'};
+      }
+
+      final formData = FormData.fromMap({'photo': file});
+      await _apiClient.post('/auth/profile-photo', data: formData);
+      await fetchProfile();
+      return {'success': true};
+    } on ApiException catch (e) {
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
+  }
+
+  Future<Map<String, dynamic>> removeProfilePhoto() async {
+    try {
+      await _apiClient.delete('/auth/profile-photo');
+      await fetchProfile();
+      return {'success': true};
+    } on ApiException catch (e) {
+      return {'success': false, 'error': e.message};
+    } catch (e) {
+      return {'success': false, 'error': e.toString()};
+    }
   }
 }
 

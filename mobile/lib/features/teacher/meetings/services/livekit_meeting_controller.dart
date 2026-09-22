@@ -1,5 +1,9 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter_background/flutter_background.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart' show Helper;
 import 'package:livekit_client/livekit_client.dart';
+
+enum ScreenShareToggleResult { started, stopped, cancelled, failed }
 
 class LiveKitMeetingController extends ChangeNotifier {
   Room? _room;
@@ -29,7 +33,9 @@ class LiveKitMeetingController extends ChangeNotifier {
     if (_room == null) return false;
     for (final p in _room!.remoteParticipants.values) {
       for (final pub in p.trackPublications.values) {
-        if (pub.source == TrackSource.screenShareVideo && !pub.muted && pub.subscribed) {
+        if (pub.source == TrackSource.screenShareVideo &&
+            !pub.muted &&
+            pub.subscribed) {
           return true;
         }
       }
@@ -41,7 +47,9 @@ class LiveKitMeetingController extends ChangeNotifier {
     if (_room == null) return null;
     for (final p in _room!.remoteParticipants.values) {
       for (final pub in p.trackPublications.values) {
-        if (pub.source == TrackSource.screenShareVideo && !pub.muted && pub.subscribed) {
+        if (pub.source == TrackSource.screenShareVideo &&
+            !pub.muted &&
+            pub.subscribed) {
           return p;
         }
       }
@@ -53,7 +61,8 @@ class LiveKitMeetingController extends ChangeNotifier {
     final p = screenShareParticipant;
     if (p == null) return null;
     for (final pub in p.trackPublications.values) {
-      if (pub.source == TrackSource.screenShareVideo && pub.track is VideoTrack) {
+      if (pub.source == TrackSource.screenShareVideo &&
+          pub.track is VideoTrack) {
         return pub.track as VideoTrack;
       }
     }
@@ -85,9 +94,7 @@ class LiveKitMeetingController extends ChangeNotifier {
       final roomOptions = const RoomOptions(
         adaptiveStream: true,
         dynacast: true,
-        defaultVideoPublishOptions: VideoPublishOptions(
-          simulcast: true,
-        ),
+        defaultVideoPublishOptions: VideoPublishOptions(simulcast: true),
       );
 
       _room = Room(roomOptions: roomOptions);
@@ -138,7 +145,9 @@ class LiveKitMeetingController extends ChangeNotifier {
     if (raw.contains('timeout') || raw.contains('timed out')) {
       return 'La connexion a expiré. Veuillez vérifier votre connexion internet et réessayer.';
     }
-    if (raw.contains('network') || raw.contains('socket') || raw.contains('connection')) {
+    if (raw.contains('network') ||
+        raw.contains('socket') ||
+        raw.contains('connection')) {
       return 'Impossible de se connecter à la classe. Vérifiez votre connexion internet.';
     }
     if (raw.contains('permission') || raw.contains('denied')) {
@@ -148,7 +157,9 @@ class LiveKitMeetingController extends ChangeNotifier {
   }
 
   bool _isScreenSharing = false;
+  bool _isScreenShareBusy = false;
   bool get isScreenSharing => _isScreenSharing;
+  bool get isScreenShareBusy => _isScreenShareBusy;
 
   void _onRoomUpdate() {
     _updateConnectionQuality();
@@ -161,15 +172,94 @@ class LiveKitMeetingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> toggleScreenShare() async {
-    if (_room?.localParticipant == null) return;
+  Future<ScreenShareToggleResult> toggleScreenShare() async {
+    if (_room?.localParticipant == null || _isScreenShareBusy) {
+      return ScreenShareToggleResult.failed;
+    }
+
+    _isScreenShareBusy = true;
+    notifyListeners();
+
+    final shouldStart = !_isScreenSharing;
     try {
-      final next = !_isScreenSharing;
-      await _room!.localParticipant!.setScreenShareEnabled(next);
-      _isScreenSharing = next;
+      if (shouldStart && defaultTargetPlatform == TargetPlatform.android) {
+        // Let Android offer both entire-screen and single-app sharing. The
+        // foreground media-projection service below keeps the meeting alive
+        // when the selected app moves this activity to the background.
+        final hasCapturePermission = await Helper.requestCapturePermission(
+          fullScreenOnly: false,
+        );
+        if (!hasCapturePermission) {
+          return ScreenShareToggleResult.cancelled;
+        }
+
+        final backgroundReady = await _enableAndroidProjectionService();
+        if (!backgroundReady) {
+          return ScreenShareToggleResult.failed;
+        }
+      }
+
+      await _room!.localParticipant!.setScreenShareEnabled(shouldStart);
+      _isScreenSharing = shouldStart;
       notifyListeners();
+      if (!shouldStart) {
+        await _disableAndroidProjectionService();
+      }
+      return shouldStart
+          ? ScreenShareToggleResult.started
+          : ScreenShareToggleResult.stopped;
     } catch (e) {
       debugPrint('[LiveKit] Screen share error: $e');
+      if (shouldStart) {
+        await _disableAndroidProjectionService();
+      }
+      _isScreenSharing = false;
+      return ScreenShareToggleResult.failed;
+    } finally {
+      _isScreenShareBusy = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> _enableAndroidProjectionService() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return true;
+
+    try {
+      const androidConfig = FlutterBackgroundAndroidConfig(
+        notificationTitle: 'Screen sharing is active',
+        notificationText: 'Learn French with Natives is sharing your screen.',
+        notificationImportance: AndroidNotificationImportance.normal,
+        notificationIcon: AndroidResource(
+          name: 'ic_launcher',
+          defType: 'mipmap',
+        ),
+        showBadge: false,
+        // A foreground media-projection service is sufficient here. Opening
+        // Android's battery-settings screen would interrupt the share flow
+        // and make the meeting appear to have closed.
+        shouldRequestBatteryOptimizationsOff: false,
+      );
+      final initialized = await FlutterBackground.initialize(
+        androidConfig: androidConfig,
+      );
+      if (!initialized) return false;
+      if (FlutterBackground.isBackgroundExecutionEnabled) return true;
+      return await FlutterBackground.enableBackgroundExecution();
+    } catch (e) {
+      debugPrint('[LiveKit] Could not start media projection service: $e');
+      return false;
+    }
+  }
+
+  Future<void> _disableAndroidProjectionService() async {
+    if (defaultTargetPlatform != TargetPlatform.android ||
+        !FlutterBackground.isBackgroundExecutionEnabled) {
+      return;
+    }
+    try {
+      await FlutterBackground.disableBackgroundExecution();
+    } catch (e) {
+      debugPrint('[LiveKit] Could not stop media projection service: $e');
     }
   }
 
@@ -191,7 +281,8 @@ class LiveKitMeetingController extends ChangeNotifier {
   CameraPosition get cameraPosition => _cameraPosition;
 
   Future<void> flipCamera() async {
-    final track = _room?.localParticipant?.videoTrackPublications.firstOrNull?.track;
+    final track =
+        _room?.localParticipant?.videoTrackPublications.firstOrNull?.track;
     if (track is LocalVideoTrack) {
       try {
         final newPosition = _cameraPosition.switched();
@@ -214,6 +305,7 @@ class LiveKitMeetingController extends ChangeNotifier {
 
   Future<void> leaveRoom() async {
     try {
+      await _disableAndroidProjectionService();
       await _room?.disconnect();
       await _room?.dispose();
     } catch (_) {}
@@ -224,6 +316,7 @@ class LiveKitMeetingController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disableAndroidProjectionService();
     _room?.removeListener(_onRoomUpdate);
     _room?.disconnect();
     _room?.dispose();

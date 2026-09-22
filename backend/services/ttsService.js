@@ -253,6 +253,7 @@ class TTSService {
             throw new Error('kDrive is not configured.');
         }
 
+        res.setHeader('Content-Type', 'audio/wav');
         await kdrive.streamFile(kdriveFileId, res, reqHeaders, 'inline', 'audio.wav');
     }
 

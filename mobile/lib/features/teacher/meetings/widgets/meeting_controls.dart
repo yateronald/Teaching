@@ -9,6 +9,7 @@ class MeetingControls extends StatelessWidget {
   final bool isHandRaised;
   final bool hasScreenShare;
   final bool isScreenSharing;
+  final bool isScreenShareBusy;
   final int unreadChatCount;
   final bool isHost;
   final bool isRecording;
@@ -35,6 +36,7 @@ class MeetingControls extends StatelessWidget {
     required this.isHandRaised,
     this.hasScreenShare = false,
     this.isScreenSharing = false,
+    this.isScreenShareBusy = false,
     this.unreadChatCount = 0,
     this.isHost = false,
     this.isRecording = false,
@@ -72,7 +74,9 @@ class MeetingControls extends StatelessWidget {
           children: [
             Text(
               isFr ? 'Réactions' : 'Reactions',
-              style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.w700),
+              style: AppTypography.titleSmall.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 16),
             Wrap(
@@ -196,19 +200,30 @@ class MeetingControls extends StatelessWidget {
 
               // Screen Share
               _buildControlBtn(
-                icon: isScreenSharing ? Icons.stop_screen_share : Icons.screen_share_outlined,
+                icon: isScreenSharing
+                    ? Icons.stop_screen_share
+                    : Icons.screen_share_outlined,
                 color: AppColors.pureWhite,
-                bg: isScreenSharing ? const Color(0xFF10B981) : const Color(0xFF1F242D),
+                bg: isScreenSharing
+                    ? const Color(0xFF10B981)
+                    : const Color(0xFF1F242D),
                 onPressed: onToggleScreenShare ?? () {},
-                tooltip: isScreenSharing ? 'Arrêter le partage' : 'Partager l\'écran',
+                tooltip: isScreenSharing
+                    ? 'Arrêter le partage'
+                    : 'Partager l\'écran',
+                isLoading: isScreenShareBusy,
               ),
               const SizedBox(width: 8),
 
               // Hand Raise
               _buildControlBtn(
                 icon: Icons.front_hand_outlined,
-                color: isHandRaised ? const Color(0xFF0F172A) : AppColors.pureWhite,
-                bg: isHandRaised ? const Color(0xFFF59E0B) : const Color(0xFF1F242D),
+                color: isHandRaised
+                    ? const Color(0xFF0F172A)
+                    : AppColors.pureWhite,
+                bg: isHandRaised
+                    ? const Color(0xFFF59E0B)
+                    : const Color(0xFF1F242D),
                 onPressed: onToggleHand,
                 tooltip: isHandRaised ? 'Baisser la main' : 'Lever la main',
               ),
@@ -329,10 +344,15 @@ class MeetingControls extends StatelessWidget {
 
           // Screen Share
           _buildCircleButton(
-            icon: isScreenSharing ? Icons.stop_screen_share : Icons.screen_share_outlined,
+            icon: isScreenSharing
+                ? Icons.stop_screen_share
+                : Icons.screen_share_outlined,
             color: AppColors.pureWhite,
-            bg: isScreenSharing ? const Color(0xFF10B981) : AppColors.pureWhite.withValues(alpha: 0.12),
+            bg: isScreenSharing
+                ? const Color(0xFF10B981)
+                : AppColors.pureWhite.withValues(alpha: 0.12),
             onPressed: onToggleScreenShare ?? () {},
+            isLoading: isScreenShareBusy,
           ),
           const SizedBox(width: 5),
 
@@ -396,9 +416,10 @@ class MeetingControls extends StatelessWidget {
     String? tooltip,
     bool showDot = false,
     bool isWide = false,
+    bool isLoading = false,
   }) {
     final btn = InkWell(
-      onTap: onPressed,
+      onTap: isLoading ? null : onPressed,
       borderRadius: BorderRadius.circular(isWide ? 22 : 21),
       child: Container(
         width: isWide ? 56 : 42,
@@ -410,7 +431,14 @@ class MeetingControls extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            Icon(icon, color: color, size: 20),
+            if (isLoading)
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: color),
+              )
+            else
+              Icon(icon, color: color, size: 20),
             if (showDot)
               Positioned(
                 top: 8,
@@ -454,9 +482,7 @@ class MeetingControls extends StatelessWidget {
               : const Color(0xFF171B22),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isActive
-                ? const Color(0xFF10B981)
-                : const Color(0x1FFFFFFF),
+            color: isActive ? const Color(0xFF10B981) : const Color(0x1FFFFFFF),
             width: 1,
           ),
         ),
@@ -465,7 +491,9 @@ class MeetingControls extends StatelessWidget {
           children: [
             Icon(
               icon,
-              color: isActive ? const Color(0xFF10B981) : const Color(0xFFE7EAEE),
+              color: isActive
+                  ? const Color(0xFF10B981)
+                  : const Color(0xFFE7EAEE),
               size: 18,
             ),
             if (label != null) ...[
@@ -473,7 +501,9 @@ class MeetingControls extends StatelessWidget {
               Text(
                 label,
                 style: TextStyle(
-                  color: isActive ? const Color(0xFF10B981) : const Color(0xFFE7EAEE),
+                  color: isActive
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFFE7EAEE),
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                 ),
@@ -509,18 +539,27 @@ class MeetingControls extends StatelessWidget {
     required Color bg,
     required VoidCallback onPressed,
     double size = 42,
+    bool isLoading = false,
   }) {
     return InkWell(
-      onTap: onPressed,
+      onTap: isLoading ? null : onPressed,
       borderRadius: BorderRadius.circular(size / 2),
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(
-          color: bg,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: color, size: size * 0.45),
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+        child: isLoading
+            ? Center(
+                child: SizedBox(
+                  width: size * 0.42,
+                  height: size * 0.42,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: color,
+                  ),
+                ),
+              )
+            : Icon(icon, color: color, size: size * 0.45),
       ),
     );
   }
@@ -544,10 +583,7 @@ class MeetingControls extends StatelessWidget {
             Container(
               width: 42,
               height: 42,
-              decoration: BoxDecoration(
-                color: bg,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
               child: Icon(icon, color: color, size: 19),
             ),
             if (badgeCount > 0)
@@ -555,12 +591,18 @@ class MeetingControls extends StatelessWidget {
                 top: 2,
                 right: 2,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: AppColors.bad,
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  constraints: const BoxConstraints(minWidth: 16, minHeight: 14),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 14,
+                  ),
                   child: Text(
                     badgeCount > 99 ? '99+' : '$badgeCount',
                     style: const TextStyle(

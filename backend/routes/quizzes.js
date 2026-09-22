@@ -123,6 +123,9 @@ const calculateQuizResults = async (db, submissionId) => {
             }
         }
 
+        // Full correctness always means the question's full current value.
+        if (isCorrect) marksAwarded = marks;
+
         await db.run(
             'UPDATE student_answers SET marks_awarded = ?, is_correct = ? WHERE id = ?',
             [marksAwarded, isCorrect, answer.id]
@@ -208,7 +211,10 @@ const autoSubmitExpiredSubmissions = async (db) => {
 // silently erased every answer students had given to it. Each step is a single statement, so a
 // 25-question quiz saves in about a dozen round trips instead of ~125.
 // ════════════════════════════════════════════════════════════════════
-const FINISHED_STATUSES = ['submitted', 'auto_submitted', 'graded'];
+// A published grade is still a finished submission. Keeping it in the same set is
+// important when a teacher changes a question's points or answer key after grading:
+// the stored per-answer score must be recomputed along with the question's new value.
+const FINISHED_STATUSES = ['submitted', 'auto_submitted', 'graded', 'published'];
 const isMcqType = (type) => type === 'mcq' || type === 'mcq_single' || type === 'mcq_multiple';
 const groupRows = (rows, key) => {
     const map = new Map();
@@ -459,6 +465,9 @@ async function regradeQuiz(db, quizId, state) {
                 isCorrect = right === totalCorrect && wrong === 0;
             }
         }
+        // A fully correct objective answer must never retain a partial/stale award.
+        // This also protects old submissions whose question value changed later.
+        if (isCorrect) awarded = marks;
         graded.id.push(Number(answer.id));
         graded.marks.push(awarded);
         graded.correct.push(isCorrect);
@@ -487,6 +496,47 @@ async function regradeQuiz(db, quizId, state) {
         [subIds, subIds.map(sid => totals.get(sid)), percentages, maxScore]
     );
     return subIds.length;
+}
+
+// Older submissions can contain a score calculated before a question's point value
+// was edited (for example is_correct=true, marks_awarded=1.5 while q.marks=2). Detect
+// that impossible state and repair every finished submission for the quiz so totals,
+// percentages, analytics, and the detailed result all stay in agreement.
+async function repairQuizScoresIfStale(db, quizId) {
+    const stale = await db.get(
+        `SELECT EXISTS (
+             SELECT 1
+             FROM quiz_submissions qs
+             JOIN student_answers sa ON sa.submission_id = qs.id
+             JOIN questions q ON q.id = sa.question_id
+             WHERE qs.quiz_id = $1
+               AND qs.status = ANY($2::text[])
+               AND sa.is_correct = TRUE
+               AND ABS(COALESCE(sa.marks_awarded, 0) - COALESCE(q.marks, 0)) > 0.000001
+         ) OR EXISTS (
+             SELECT 1
+             FROM quiz_submissions qs
+             WHERE qs.quiz_id = $1
+               AND qs.status = ANY($2::text[])
+               AND ABS(
+                   COALESCE(qs.max_score, 0) -
+                   COALESCE((SELECT SUM(q.marks) FROM questions q WHERE q.quiz_id = qs.quiz_id), 0)
+               ) > 0.000001
+         ) OR EXISTS (
+             SELECT 1
+             FROM quiz_submissions qs
+             WHERE qs.quiz_id = $1
+               AND qs.status = ANY($2::text[])
+               AND ABS(
+                   COALESCE(qs.total_score, 0) -
+                   COALESCE((SELECT SUM(sa.marks_awarded) FROM student_answers sa WHERE sa.submission_id = qs.id), 0)
+               ) > 0.000001
+         ) AS needs_regrade`,
+        [quizId, FINISHED_STATUSES]
+    );
+
+    if (!stale?.needs_regrade) return 0;
+    return regradeQuiz(db, quizId);
 }
 
 // Makes a published quiz reachable — one 'not_started' submission per student, in one statement —
@@ -1963,6 +2013,8 @@ router.get('/:id/results', [
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
 
+        await repairQuizScoresIfStale(req.db, id);
+
         // Get batch information
         let batchFilter = '';
         let batchParams = [id];
@@ -2010,7 +2062,7 @@ router.get('/:id/results', [
             const batch = batchResults[student.batch_id];
             batch.total_students++;
 
-            if (student.status === 'submitted' || student.status === 'auto_submitted' || student.status === 'graded') {
+            if (FINISHED_STATUSES.includes(student.status)) {
                 batch.submitted_count++;
             } else {
                 batch.not_submitted_count++;
@@ -2066,6 +2118,7 @@ router.get('/:id/analysis', authenticateToken, teacherOrAdmin, async (req, res) 
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
+        await repairQuizScoresIfStale(req.db, id);
         const finished = Number(quiz.finished) || 0;
 
         const questions = await req.db.all(
@@ -2311,6 +2364,8 @@ router.get('/:id/submissions', authenticateToken, teacherOrAdmin, async (req, re
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
 
+        await repairQuizScoresIfStale(req.db, id);
+
         const submissions = await req.db.all(`
             SELECT 
                 qs.id, qs.status, qs.submitted_at, qs.graded_at, qs.published_at,
@@ -2348,6 +2403,8 @@ router.get('/:id/submissions/:submissionId', authenticateToken, teacherOrAdmin, 
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
+
+        await repairQuizScoresIfStale(req.db, id);
 
         // Get submission details
         const submission = await req.db.get(`
@@ -2569,7 +2626,7 @@ router.get('/:id/result', authenticateToken, authenticated, async (req, res) => 
             return res.status(403).json({ error: 'Only students can view quiz results' });
         }
 
-        const result = await req.db.get(`
+        let result = await req.db.get(`
             SELECT 
                 qs.id, qs.status, qs.submitted_at, qs.published_at,
                 qs.total_score, qs.max_score, qs.teacher_comments,
@@ -2585,6 +2642,19 @@ router.get('/:id/result', authenticateToken, authenticated, async (req, res) => 
 
         if (result.status !== 'published') {
             return res.status(400).json({ error: 'Results not yet published' });
+        }
+
+        const repaired = await repairQuizScoresIfStale(req.db, id);
+        if (repaired) {
+            result = await req.db.get(`
+                SELECT
+                    qs.id, qs.status, qs.submitted_at, qs.published_at,
+                    qs.total_score, qs.max_score, qs.teacher_comments,
+                    q.title as quiz_title
+                FROM quiz_submissions qs
+                JOIN quizzes q ON qs.quiz_id = q.id
+                WHERE qs.quiz_id = ? AND qs.student_id = ?
+            `, [id, req.user.id]);
         }
 
         // Get question-wise results
@@ -2734,8 +2804,16 @@ router.get('/:id/student-results', authenticateToken, async (req, res) => {
             WHERE quiz_id = ? AND student_id = ?
         `, [id, req.user.id]);
 
-        if (!submission || (submission.status !== 'submitted' && submission.status !== 'auto_submitted' && submission.status !== 'graded')) {
+        if (!submission || !FINISHED_STATUSES.includes(submission.status)) {
             return res.status(400).json({ error: 'Quiz not submitted yet' });
+        }
+
+        const repaired = await repairQuizScoresIfStale(req.db, id);
+        if (repaired) {
+            Object.assign(submission, await req.db.get(
+                'SELECT * FROM quiz_submissions WHERE id = ?',
+                [submission.id]
+            ));
         }
 
         // Get detailed results

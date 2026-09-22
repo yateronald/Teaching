@@ -43,9 +43,12 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Flutter WebRTC Screen Share Foreground Service -->
+        <!-- Keeps Android media projection alive while the shared app is in
+             the background. LiveKit requires this foreground service before
+             it creates the MediaProjection capture track. -->
         <service
-            android:name="com.cloudwebrtc.webrtc.FlutterWebRTCService"
+            android:name="de.julianassmann.flutter_background.IsolateHolderService"
+            android:enabled="true"
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 

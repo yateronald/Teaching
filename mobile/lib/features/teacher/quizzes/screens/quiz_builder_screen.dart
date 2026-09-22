@@ -1,10 +1,14 @@
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/localization/app_locale_notifier.dart';
 import '../../../../core/responsive/responsive_layout.dart';
+import '../../../../core/widgets/audio_preview_player.dart';
 import '../../../../core/widgets/authenticated_audio_player.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
@@ -252,6 +256,7 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
               tempId: result.tempId,
               sourceType: result.sourceType,
               kdriveFileId: result.kdriveFileId,
+              localFilePath: result.localFilePath,
               fileName: result.fileName,
               durationSeconds: result.durationSeconds,
               transcript: result.transcript,
@@ -471,17 +476,26 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       _errorMessage = null;
     });
 
+    final client = ref.read(apiClientProvider);
+    final DateTime now = client.estimatedServerNow;
+    final DateTime quizStart;
+    final DateTime quizEnd;
+    if (_hasWindow && _startDate != null && _endDate != null) {
+      quizStart = _startDate!;
+      quizEnd = _endDate!;
+    } else {
+      // Dès publication : début = maintenant + 5 minutes, clôture = début + durée de passation
+      quizStart = now.add(const Duration(minutes: 5));
+      quizEnd = quizStart.add(Duration(minutes: _durationMinutes));
+    }
+
     final payload = {
       'title': title,
       'description': _descCtrl.text.trim(),
       'instructions': _instructionsCtrl.text.trim(),
       'duration_minutes': _durationMinutes,
-      'start_date': _hasWindow && _startDate != null
-          ? _startDate!.toUtc().toIso8601String()
-          : null,
-      'end_date': _hasWindow && _endDate != null
-          ? _endDate!.toUtc().toIso8601String()
-          : null,
+      'start_date': quizStart.toUtc().toIso8601String(),
+      'end_date': quizEnd.toUtc().toIso8601String(),
       'randomize_questions': _shuffleQuestions,
       'randomize_options': _shuffleOptions,
       'auto_submit': _autoSubmit,
@@ -492,31 +506,94 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
     };
 
     try {
-      final client = ref.read(apiClientProvider);
       final quizId = widget.existingQuiz?['id'];
       if (quizId != null) {
         await client.put('/quizzes/$quizId', data: payload);
+        final targetStatus = publish ? 'published' : 'draft';
+        try {
+          await client.patch(
+            '/quizzes/$quizId/status',
+            data: {'status': targetStatus},
+          );
+        } catch (patchErr) {
+          debugPrint('Failed to patch quiz status: $patchErr');
+        }
       } else {
-        await client.post('/quizzes', data: payload);
+        final res = await client.post('/quizzes', data: payload);
+        // Replicate webapp QuizBuilder.tsx: explicitly PATCH /quizzes/:id/status to 'published'
+        int? newId;
+        if (res.data is Map) {
+          final map = res.data as Map;
+          final quizMap = map['quiz'];
+          if (quizMap is Map && quizMap['id'] != null) {
+            newId = int.tryParse(quizMap['id'].toString());
+          } else if (map['id'] != null) {
+            newId = int.tryParse(map['id'].toString());
+          }
+        }
+        if (publish && newId != null) {
+          try {
+            await client.patch(
+              '/quizzes/$newId/status',
+              data: {'status': 'published'},
+            );
+          } catch (patchErr) {
+            debugPrint('Failed to patch quiz status to published: $patchErr');
+          }
+        }
       }
 
       if (mounted) {
+        final isFr = ref.read(appLocaleProvider).languageCode == 'fr';
+        final successMsg = publish
+            ? (widget.existingQuiz?['status'] == 'published'
+                ? (isFr
+                    ? 'Quiz mis à jour avec succès !'
+                    : 'Quiz updated successfully!')
+                : (isFr
+                    ? 'Quiz publié avec succès !'
+                    : 'Quiz published successfully!'))
+            : (isFr ? 'Brouillon enregistré !' : 'Draft saved successfully!');
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              publish ? 'Quiz publié avec succès !' : 'Brouillon enregistré !',
-            ),
+            content: Text(successMsg),
             backgroundColor: AppColors.good,
           ),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
+      debugPrint('Save quiz error: $e');
       if (mounted) {
+        String errorMsg = 'Échec de l\'enregistrement : vérifiez vos informations.';
+        dynamic details;
+
+        if (e is ApiException) {
+          errorMsg = e.message;
+          details = e.details;
+        } else if (e is DioException) {
+          final data = e.response?.data;
+          if (data is Map) {
+            errorMsg = data['error'] ?? data['message'] ?? errorMsg;
+            details = data['details'];
+          }
+        } else {
+          errorMsg = e.toString();
+        }
+
+        if (details is List && details.isNotEmpty) {
+          final detailMsgs = details
+              .map((d) => d is Map ? '${d['param'] ?? d['path'] ?? ''}: ${d['msg'] ?? ''}' : d.toString())
+              .join(', ');
+          errorMsg = '$errorMsg ($detailMsgs)';
+        } else if (details is Map && details.isNotEmpty) {
+          errorMsg = '$errorMsg : ${details['error'] ?? details['message'] ?? details}';
+        }
+
         setState(() {
           _isSaving = false;
-          _errorMessage =
-              'Échec de l\'enregistrement : vérifiez vos informations.';
+          _errorMessage = errorMsg;
         });
       }
     }
@@ -754,6 +831,7 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isFr = ref.watch(appLocaleProvider).languageCode == 'fr';
     return Scaffold(
       backgroundColor: AppColors.frenchPaper,
       appBar: AppBar(
@@ -1182,6 +1260,40 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
                                       ],
                                     ),
                                   ),
+                                ] else ...[
+                                  const SizedBox(height: 10),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surfaceSoft,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: AppColors.borderSoft,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.timer_outlined,
+                                          size: 18,
+                                          color: AppColors.frenchNavy,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            isFr
+                                                ? 'Début : maintenant + 5 min (délai de connexion)\nClôture : heure de début + $_durationMinutes min'
+                                                : 'Start: now + 5 min (login grace period)\nEnd: start time + $_durationMinutes min',
+                                            style: AppTypography.caption
+                                                .copyWith(
+                                                  color: AppColors.ink,
+                                                  height: 1.35,
+                                                ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                                 const SizedBox(height: 18),
 
@@ -1340,7 +1452,14 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
                                         ),
                                       ),
                                     ],
-                                    if (audioEndpoint != null) ...[
+                                    if (clip.localFilePath != null &&
+                                        File(clip.localFilePath!).existsSync()) ...[
+                                      const SizedBox(height: 12),
+                                      AudioPreviewPlayer(
+                                        audioPath: clip.localFilePath,
+                                        title: 'Écouter l\'audio',
+                                      ),
+                                    ] else if (audioEndpoint != null) ...[
                                       const SizedBox(height: 12),
                                       AuthenticatedAudioPlayer(
                                         endpoint: audioEndpoint,
@@ -1553,7 +1672,7 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
                       children: [
                         Expanded(
                           child: CustomButton(
-                            text: 'Brouillon',
+                            text: isFr ? 'Brouillon' : 'Draft',
                             variant: ButtonVariant.secondary,
                             isLoading: _isSaving,
                             onPressed: () => _saveQuiz(publish: false),
@@ -1563,8 +1682,8 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
                         Expanded(
                           child: CustomButton(
                             text: widget.existingQuiz?['status'] == 'published'
-                                ? 'Sauvegarder'
-                                : 'Publier',
+                                ? (isFr ? 'Sauvegarder' : 'Save changes')
+                                : (isFr ? 'Publier' : 'Publish'),
                             icon: Icons.rocket_launch,
                             variant: ButtonVariant.primary,
                             isLoading: _isSaving,

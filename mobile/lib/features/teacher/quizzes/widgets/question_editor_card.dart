@@ -37,6 +37,7 @@ class QuizQuestionDraft {
   int? audioClipId;
   String? audioFileId;
   String? audioUrl;
+  bool startCollapsed;
 
   QuizQuestionDraft({
     this.id,
@@ -50,6 +51,7 @@ class QuizQuestionDraft {
     this.audioClipId,
     this.audioFileId,
     this.audioUrl,
+    this.startCollapsed = false,
   }) : options =
            options ??
            [
@@ -138,6 +140,7 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
   @override
   void initState() {
     super.initState();
+    _isEditing = !widget.question.startCollapsed;
     _textCtrl = TextEditingController(text: widget.question.questionText);
     _explainCtrl = TextEditingController(text: widget.question.explanation);
   }
@@ -145,6 +148,10 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
   @override
   void didUpdateWidget(covariant QuestionEditorCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.question, widget.question)) {
+      _isEditing = !widget.question.startCollapsed;
+      _validationError = null;
+    }
     if (oldWidget.question.questionText != widget.question.questionText &&
         _textCtrl.text != widget.question.questionText) {
       _textCtrl.text = widget.question.questionText;

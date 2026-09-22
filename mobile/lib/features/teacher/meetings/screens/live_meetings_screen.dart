@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../../core/api/api_client.dart';
 import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -71,7 +72,8 @@ class LiveMeetingsScreen extends ConsumerStatefulWidget {
   ConsumerState<LiveMeetingsScreen> createState() => _LiveMeetingsScreenState();
 }
 
-class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
+class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen>
+    with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _error;
   List<Map<String, dynamic>> _meetings = [];
@@ -83,6 +85,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
   /// the screen keeps its own notion of now and refreshes it on a timer.
   DateTime _now = DateTime.now();
   Timer? _ticker;
+  io.Socket? _socket;
 
   /// Once the teacher picks a tab we stop moving it for them.
   bool _tabChosenByUser = false;
@@ -90,20 +93,145 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchMeetings();
-    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
+    _initSocket();
+    _ticker = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) {
+        setState(() => _now = DateTime.now());
+        _fetchMeetings(silent: true);
+      }
     });
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _fetchMeetings(silent: true);
+      _initSocket();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    try {
+      _socket?.clearListeners();
+      _socket?.disconnect();
+      _socket?.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
-  Future<void> _fetchMeetings() async {
-    if (mounted) setState(() => _error = null);
+  Future<void> _initSocket() async {
+    try {
+      final client = ref.read(apiClientProvider);
+      final uri = Uri.parse(client.dio.options.baseUrl);
+      final socketUrl = uri.origin;
+      final token = await client.tokenStorage.getToken() ?? '';
+      if (!mounted) return;
+
+      try {
+        _socket?.clearListeners();
+        _socket?.disconnect();
+        _socket?.dispose();
+      } catch (_) {}
+
+      final s = io.io(
+        socketUrl,
+        io.OptionBuilder()
+            .setTransports(['websocket', 'polling'])
+            .setAuth({'token': token})
+            .setExtraHeaders({'Authorization': 'Bearer $token'})
+            .enableAutoConnect()
+            .enableReconnection()
+            .setReconnectionDelay(1000)
+            .setReconnectionDelayMax(5000)
+            .build(),
+      );
+
+      s.onConnect((_) {
+        debugPrint('[LiveMeetings] Connected to realtime socket at $socketUrl');
+        if (mounted) _fetchMeetings(silent: true);
+      });
+
+      s.on('connect', (_) {
+        debugPrint('[LiveMeetings] Socket connect event');
+        if (mounted) _fetchMeetings(silent: true);
+      });
+
+      s.on('meeting:created', (_) {
+        debugPrint('[LiveMeetings] Socket event meeting:created');
+        if (mounted) _fetchMeetings(silent: true);
+      });
+
+      s.on('meeting:started', (data) {
+        debugPrint('[LiveMeetings] Socket event meeting:started: $data');
+        _handleMeetingStatusChange(data, 'active');
+      });
+
+      s.on('meeting:waiting', (data) {
+        debugPrint('[LiveMeetings] Socket event meeting:waiting: $data');
+        _handleMeetingStatusChange(data, 'waiting');
+      });
+
+      s.on('meeting:ended', (data) {
+        debugPrint('[LiveMeetings] Socket event meeting:ended: $data');
+        _handleMeetingStatusChange(data, 'ended');
+      });
+
+      _socket = s;
+    } catch (e) {
+      debugPrint('[LiveMeetings] Error initializing socket: $e');
+    }
+  }
+
+  int? _extractMeetingId(dynamic data) {
+    if (data == null) return null;
+    if (data is int) return data;
+    if (data is String) return int.tryParse(data);
+    if (data is Map) {
+      final mid = data['meetingId'] ?? data['id'] ?? data['meeting_id'];
+      if (mid is int) return mid;
+      if (mid != null) return int.tryParse(mid.toString());
+      if (data['meeting'] is Map) {
+        final innerId = data['meeting']['id'];
+        if (innerId is int) return innerId;
+        if (innerId != null) return int.tryParse(innerId.toString());
+      }
+    }
+    return null;
+  }
+
+  void _handleMeetingStatusChange(dynamic data, String newStatus) {
+    final meetingId = _extractMeetingId(data);
+    if (!mounted) return;
+    if (meetingId != null) {
+      setState(() {
+        _meetings = _meetings.map((m) {
+          if (m['id'] == meetingId) {
+            final updated = Map<String, dynamic>.from(m);
+            updated['status'] = newStatus;
+            if (newStatus == 'ended') {
+              updated['ended_at'] = DateTime.now().toUtc().toIso8601String();
+            } else if (newStatus == 'active') {
+              updated['started_at'] = updated['started_at'] ??
+                  DateTime.now().toUtc().toIso8601String();
+            }
+            return updated;
+          }
+          return m;
+        }).toList();
+      });
+      _fetchMeetings(silent: true);
+    } else {
+      _fetchMeetings(silent: true);
+    }
+  }
+
+  Future<void> _fetchMeetings({bool silent = false}) async {
+    if (!silent && mounted) setState(() => _error = null);
     try {
       final client = ref.read(apiClientProvider);
       final results = await Future.wait([
@@ -124,10 +252,12 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
       });
     } catch (_) {
       if (!mounted) return;
-      setState(() {
-        _error = 'Impossible de charger les réunions en direct.';
-        _isLoading = false;
-      });
+      if (!silent) {
+        setState(() {
+          _error = 'Impossible de charger les réunions en direct.';
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -235,11 +365,14 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
 
   // ── Actions ──
 
-  void _openMeeting(Map<String, dynamic> m) {
-    Navigator.push(
+  Future<void> _openMeeting(Map<String, dynamic> m) async {
+    await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PreJoinScreen(meeting: m)),
     );
+    if (mounted) {
+      await _fetchMeetings(silent: true);
+    }
   }
 
   /// The host has to tell the server the room is opening before anyone can be
@@ -250,7 +383,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
       final client = ref.read(apiClientProvider);
       await client.post('/meetings/${m['id']}/prepare');
       if (!mounted) return;
-      _openMeeting(m);
+      await _openMeeting(m);
     } catch (_) {
       if (!mounted) return;
       _snack("Impossible d'ouvrir la classe.");
@@ -307,13 +440,16 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
     );
   }
 
-  void _openJoinWithIdSheet() {
-    showModalBottomSheet(
+  Future<void> _openJoinWithIdSheet() async {
+    await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => const JoinWithIdSheet(),
     );
+    if (mounted) {
+      await _fetchMeetings(silent: true);
+    }
   }
 
   @override

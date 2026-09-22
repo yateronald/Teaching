@@ -120,6 +120,20 @@ void main() {
       expect(json['audio_clip_temp_id'], 'audio_temp_123');
       expect((json['options'] as List).length, 2);
     });
+
+    test('Preserves fractional AI marks without truncating them to zero', () {
+      final draft = QuizQuestionDraft(
+        questionText: 'Complétez la phrase.',
+        points: 0.5,
+        options: [
+          QuizOptionDraft(text: 'Réponse correcte', isCorrect: true),
+          QuizOptionDraft(text: 'Distracteur', isCorrect: false),
+        ],
+      );
+
+      expect(draft.toJson()['marks'], 0.5);
+      expect(draft.validate(1), isNull);
+    });
   });
 
   group('AudioClipDraft Tests', () {
@@ -247,6 +261,50 @@ void main() {
         find.textContaining('le libellé de la question est requis'),
         findsOneWidget,
       );
+      expect(find.text('Énoncé de la question'), findsOneWidget);
+    });
+
+    testWidgets('Generated question starts in completed summary mode', (
+      WidgetTester tester,
+    ) async {
+      final draft = QuizQuestionDraft(
+        questionText: 'Quelle expression convient ?',
+        points: 0.5,
+        startCollapsed: true,
+        options: [
+          QuizOptionDraft(text: 'La bonne expression', isCorrect: true),
+          QuizOptionDraft(text: 'Une autre expression', isCorrect: false),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('fr', 'FR'),
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [Locale('fr', 'FR')],
+          home: Scaffold(
+            body: QuestionEditorCard(
+              question: draft,
+              index: 0,
+              onDuplicate: () {},
+              onDelete: () {},
+              onChanged: () {},
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Quelle expression convient ?'), findsOneWidget);
+      expect(find.text('La bonne expression'), findsOneWidget);
+      expect(find.text('0.5 pts'), findsOneWidget);
+      expect(find.text('Énoncé de la question'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('question-edit-0')));
+      await tester.pump();
       expect(find.text('Énoncé de la question'), findsOneWidget);
     });
   });
