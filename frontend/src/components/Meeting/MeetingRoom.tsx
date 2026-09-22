@@ -284,7 +284,10 @@ const MeetingPage: React.FC = () => {
       }
       const verifiedNow = () => { setNeedsPass(false); subscribeRef.current(); };
       switch (data.action) {
-        case 'join': enterRoom(data.token, data.livekitUrl); break;
+        case 'join':
+          subscribeRef.current();
+          enterRoom(data.token, data.livekitUrl);
+          break;
         case 'start': handleStart(); break;
         case 'passcode': setNeedsPass(true); setPreStatus('idle'); break;
         case 'lobby': verifiedNow(); setPreStatus('lobby'); setLobbySince(t => t ?? Date.now()); break;
@@ -329,6 +332,7 @@ const MeetingPage: React.FC = () => {
         if (!mine(d)) return;
         setMeeting(m => (m ? { ...m, my_role: 'guest', needs_passcode: false } : m));
         joinRef.current();
+        subscribeRef.current();
       }],
       ['meeting:declined', d => { if (mine(d)) { setDeclined({ retryAfter: 120 }); setPreStatus('idle'); setPhase('declined'); } }],
       ['meeting:ended', d => { if (mine(d) && !leavingRef.current) setPhase('ended'); }],

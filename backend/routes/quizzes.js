@@ -900,7 +900,14 @@ router.post('/ai-generate', [
 
     } catch (error) {
         console.error('AI quiz generation error:', error);
-        res.status(500).json({ error: error.message || 'Failed to generate quiz with AI' });
+        const status = Number(error.status) || 500;
+        const retryable = error.retryable === true || [429, 500, 502, 503, 504].includes(status);
+        res.status(status).json({
+            error: retryable
+                ? 'The AI service is temporarily busy. Please try again in a moment.'
+                : (error.message || 'Failed to generate quiz with AI'),
+            retryable
+        });
     }
 });
 

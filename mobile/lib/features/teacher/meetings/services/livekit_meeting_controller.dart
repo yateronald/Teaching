@@ -20,6 +20,46 @@ class LiveKitMeetingController extends ChangeNotifier {
   bool get isCamOn => _isCamOn;
   bool get isHandRaised => _isHandRaised;
 
+  // ── Connection quality ──
+  ConnectionQuality _connectionQuality = ConnectionQuality.unknown;
+  ConnectionQuality get connectionQuality => _connectionQuality;
+
+  // ── Screen share detection ──
+  bool get hasRemoteScreenShare {
+    if (_room == null) return false;
+    for (final p in _room!.remoteParticipants.values) {
+      for (final pub in p.trackPublications.values) {
+        if (pub.source == TrackSource.screenShareVideo && !pub.muted && pub.subscribed) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  RemoteParticipant? get screenShareParticipant {
+    if (_room == null) return null;
+    for (final p in _room!.remoteParticipants.values) {
+      for (final pub in p.trackPublications.values) {
+        if (pub.source == TrackSource.screenShareVideo && !pub.muted && pub.subscribed) {
+          return p;
+        }
+      }
+    }
+    return null;
+  }
+
+  VideoTrack? get screenShareTrack {
+    final p = screenShareParticipant;
+    if (p == null) return null;
+    for (final pub in p.trackPublications.values) {
+      if (pub.source == TrackSource.screenShareVideo && pub.track is VideoTrack) {
+        return pub.track as VideoTrack;
+      }
+    }
+    return null;
+  }
+
   List<Participant> get allParticipants {
     final list = <Participant>[];
     if (_room?.localParticipant != null) {
@@ -42,8 +82,6 @@ class LiveKitMeetingController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _room = Room();
-
       final roomOptions = const RoomOptions(
         adaptiveStream: true,
         dynacast: true,
@@ -57,6 +95,10 @@ class LiveKitMeetingController extends ChangeNotifier {
       // Listen to room events
       _room!.addListener(_onRoomUpdate);
 
+      _room!.events.listen((_) {
+        _onRoomUpdate();
+      });
+
       await _room!.connect(url, token);
 
       _isMicOn = startWithMic;
@@ -69,19 +111,66 @@ class LiveKitMeetingController extends ChangeNotifier {
         await _room!.localParticipant?.setCameraEnabled(true);
       }
 
+      // Update connection quality from local participant
+      _updateConnectionQuality();
+
       _isConnected = true;
       _isConnecting = false;
       notifyListeners();
     } catch (e) {
       _isConnected = false;
       _isConnecting = false;
-      _errorMessage = 'Échec de connexion à la salle de visioconférence : $e';
+      // Sanitize error message — never expose LiveKit/WebRTC internals
+      _errorMessage = _sanitizeError(e);
       notifyListeners();
     }
   }
 
+  void _updateConnectionQuality() {
+    final lp = _room?.localParticipant;
+    if (lp != null) {
+      _connectionQuality = lp.connectionQuality;
+    }
+  }
+
+  String _sanitizeError(dynamic e) {
+    final raw = e.toString().toLowerCase();
+    if (raw.contains('timeout') || raw.contains('timed out')) {
+      return 'La connexion a expiré. Veuillez vérifier votre connexion internet et réessayer.';
+    }
+    if (raw.contains('network') || raw.contains('socket') || raw.contains('connection')) {
+      return 'Impossible de se connecter à la classe. Vérifiez votre connexion internet.';
+    }
+    if (raw.contains('permission') || raw.contains('denied')) {
+      return 'Accès à la caméra ou au microphone refusé. Veuillez autoriser l\'accès dans les paramètres.';
+    }
+    return 'Impossible de rejoindre la classe. Veuillez réessayer.';
+  }
+
+  bool _isScreenSharing = false;
+  bool get isScreenSharing => _isScreenSharing;
+
   void _onRoomUpdate() {
+    _updateConnectionQuality();
+    final lp = _room?.localParticipant;
+    if (lp != null) {
+      _isScreenSharing = lp.trackPublications.values.any(
+        (pub) => pub.source == TrackSource.screenShareVideo && !pub.muted,
+      );
+    }
     notifyListeners();
+  }
+
+  Future<void> toggleScreenShare() async {
+    if (_room?.localParticipant == null) return;
+    try {
+      final next = !_isScreenSharing;
+      await _room!.localParticipant!.setScreenShareEnabled(next);
+      _isScreenSharing = next;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[LiveKit] Screen share error: $e');
+    }
   }
 
   Future<void> toggleMicrophone() async {
@@ -115,6 +204,11 @@ class LiveKitMeetingController extends ChangeNotifier {
 
   void toggleHandRaise() {
     _isHandRaised = !_isHandRaised;
+    notifyListeners();
+  }
+
+  void setHandRaised(bool raised) {
+    _isHandRaised = raised;
     notifyListeners();
   }
 

@@ -150,12 +150,21 @@ RULES:
 
         console.log(`🤖 AI Quiz: Generating ${totalQuestions} questions (${totalPoints} pts) via ${this.model}...`);
 
-        let attempts = 0;
-        
-        while (attempts < this.apiKeys.length) {
+        const models = [...new Set([
+            this.model,
+            process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.5-flash'
+        ].filter(Boolean))];
+        const maxAttempts = Math.max(3, this.apiKeys.length * models.length);
+        let lastError = null;
+
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            const keyIndex = attempt % this.apiKeys.length;
+            const modelIndex = Math.floor(attempt / this.apiKeys.length) % models.length;
+            const model = models[modelIndex];
+            const client = new GoogleGenAI({ apiKey: this.apiKeys[keyIndex] });
             try {
-                const response = await this.client.models.generateContent({
-                    model: this.model,
+                const response = await client.models.generateContent({
+                    model,
                     contents: dynamicPrompt,
                     config: {
                         systemInstruction: this.systemPrompt,
@@ -185,29 +194,43 @@ RULES:
                     totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints
                 });
 
-                console.log(`✅ AI Quiz: Generated ${validated.questions.length} questions successfully`);
+                this.currentKeyIndex = keyIndex;
+                this.client = client;
+                console.log(`✅ AI Quiz: Generated ${validated.questions.length} questions successfully via ${model}`);
                 return validated;
 
             } catch (error) {
-                if (error.status === 429) {
-                    console.warn(`⚠️ AI rate limit reached on key (Index: ${this.currentKeyIndex}).`);
-                    attempts++;
-                    if (attempts < this.apiKeys.length) {
-                        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
-                        console.log(`🔄 Switching to alternate API key (Index: ${this.currentKeyIndex})...`);
-                        this.client = new GoogleGenAI({ apiKey: this.apiKeys[this.currentKeyIndex] });
-                        continue;
-                    } else {
-                        throw new Error('All AI rate limits reached. Please try again later.');
-                    }
+                lastError = error;
+                let nested = null;
+                try { nested = JSON.parse(error?.message || ''); } catch (_) { /* not JSON */ }
+                const status = Number(error?.status || error?.code || nested?.error?.code || nested?.code || 0);
+                const message = nested?.error?.message || nested?.message || error?.message || '';
+                if (status === 401 || status === 403) {
+                    const authError = new Error('AI API key is invalid or lacks permissions. Check your GEMINI_API_KEY.');
+                    authError.status = 503;
+                    throw authError;
                 }
-                if (error.status === 403) {
-                    throw new Error('AI API key is invalid or lacks permissions. Check your GEMINI_API_KEY.');
+
+                const transient = [429, 500, 502, 503, 504].includes(status) ||
+                    /high demand|rate|quota|overload|unavailable|temporar|timeout|empty response|invalid json/i.test(message);
+                if (!transient) {
+                    console.error('🤖 AI Quiz generation error:', message);
+                    throw error;
                 }
-                console.error('🤖 AI Quiz generation error:', error.message);
-                throw error;
+
+                if (attempt + 1 < maxAttempts) {
+                    const waitMs = [800, 1600, 3000][Math.min(attempt, 2)];
+                    console.warn(`⚠️ AI temporarily unavailable (${status || 'transient'}); retrying with key ${keyIndex + 1}/${this.apiKeys.length}, model ${model}, in ${waitMs}ms.`);
+                    await new Promise(resolve => setTimeout(resolve, waitMs));
+                }
             }
         }
+
+        console.error('🤖 AI Quiz unavailable after retries:', lastError?.message || lastError);
+        const unavailable = new Error('The AI service is temporarily busy. Please try again in a moment.');
+        unavailable.status = 503;
+        unavailable.retryable = true;
+        throw unavailable;
     }
 
     // --------------------------------------------------------

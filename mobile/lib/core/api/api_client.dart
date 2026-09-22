@@ -71,23 +71,23 @@ class ApiClient {
     );
   }
 
-  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters}) {
-    return dio.get<T>(path, queryParameters: queryParameters);
+  Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters, Options? options}) {
+    return dio.get<T>(path, queryParameters: queryParameters, options: options);
   }
 
-  Future<Response<T>> post<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, ProgressCallback? onSendProgress}) {
-    return dio.post<T>(path, data: data, queryParameters: queryParameters, onSendProgress: onSendProgress);
+  Future<Response<T>> post<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options, ProgressCallback? onSendProgress}) {
+    return dio.post<T>(path, data: data, queryParameters: queryParameters, options: options, onSendProgress: onSendProgress);
   }
 
-  Future<Response<T>> put<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters}) {
-    return dio.put<T>(path, data: data, queryParameters: queryParameters);
+  Future<Response<T>> put<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
+    return dio.put<T>(path, data: data, queryParameters: queryParameters, options: options);
   }
 
-  Future<Response<T>> patch<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters}) {
-    return dio.patch<T>(path, data: data, queryParameters: queryParameters);
+  Future<Response<T>> patch<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
+    return dio.patch<T>(path, data: data, queryParameters: queryParameters, options: options);
   }
 
-  Future<Response<T>> delete<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters}) {
-    return dio.delete<T>(path, data: data, queryParameters: queryParameters);
+  Future<Response<T>> delete<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) {
+    return dio.delete<T>(path, data: data, queryParameters: queryParameters, options: options);
   }
 }

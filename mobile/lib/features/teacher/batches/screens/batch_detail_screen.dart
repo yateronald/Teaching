@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/localization/translations.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../../core/widgets/empty_state.dart';
@@ -30,6 +32,19 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
     _fetchStudents();
   }
 
+  String _formatDateRange(dynamic start, dynamic end, bool isFrench) {
+    if (start == null && end == null) return isFrench ? 'Dates non définies' : 'Dates not set';
+    final sDate = start != null ? DateTime.tryParse(start.toString()) : null;
+    final eDate = end != null ? DateTime.tryParse(end.toString()) : null;
+    final fmt = DateFormat('d MMM yyyy', isFrench ? 'fr_FR' : 'en_US');
+    if (sDate != null && eDate != null) {
+      return isFrench ? 'Du ${fmt.format(sDate)} au ${fmt.format(eDate)}' : '${fmt.format(sDate)} - ${fmt.format(eDate)}';
+    } else if (sDate != null) {
+      return isFrench ? 'À partir du ${fmt.format(sDate)}' : 'From ${fmt.format(sDate)}';
+    }
+    return start?.toString() ?? '';
+  }
+
   Future<void> _fetchStudents() async {
     setState(() {
       _isLoading = true;
@@ -39,18 +54,19 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
     final batchId = widget.batch['id'];
     try {
       final client = ref.read(apiClientProvider);
-      final res = await client.get('/batches/$batchId/students');
+      final res = await client.get('/batches/$batchId');
       final data = res.data;
       if (mounted) {
+        final list = data is Map ? (data['students'] ?? data['batch']?['students'] ?? data['data']) : data;
         setState(() {
-          _students = data is List ? data : (data?['students'] ?? data?['data'] ?? []);
+          _students = list is List ? list : [];
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Impossible de charger les étudiants de cette cohorte.';
+          _error = context.isFrench ? 'Impossible de charger les étudiants de cette cohorte.' : 'Could not load the students for this batch.';
           _isLoading = false;
         });
       }
@@ -119,7 +135,7 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
                     children: [
                       StatusBadge.cefr(level),
                       CustomButton(
-                        text: 'Insights & Notes',
+                        text: context.isFrench ? 'Aperçu & Notes' : 'Insights & Notes',
                         icon: Icons.bar_chart,
                         variant: ButtonVariant.secondary,
                         height: 36,
@@ -147,9 +163,12 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
                     children: [
                       const Icon(Icons.date_range, size: 16, color: AppColors.textMuted),
                       const SizedBox(width: 6),
-                      Text(
-                        'Période: du $startDate au $endDate',
-                        style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                      Expanded(
+                        child: Text(
+                          _formatDateRange(startDate, endDate, context.isFrench),
+                          style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ],
                   ),
@@ -163,7 +182,7 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Liste des étudiants (${_students.length})',
+                  context.isFrench ? 'Liste des étudiants (${_students.length})' : 'Student List (${_students.length})',
                   style: AppTypography.titleMedium.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppColors.ink,
@@ -179,7 +198,7 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
 
             // Search student
             CustomTextField(
-              hintText: 'Rechercher par nom ou email...',
+              hintText: context.isFrench ? 'Rechercher par nom ou email...' : 'Search by name or email...',
               prefixIcon: Icons.search,
               onChanged: (val) => setState(() => _searchQuery = val),
             ),
@@ -194,18 +213,18 @@ class _BatchDetailScreenState extends ConsumerState<BatchDetailScreen> {
               )
             else if (_error != null)
               EmptyState(
-                title: 'Erreur',
+                title: context.isFrench ? 'Erreur' : 'Error',
                 message: _error!,
                 icon: Icons.error_outline,
-                actionText: 'Réessayer',
+                actionText: context.isFrench ? 'Réessayer' : 'Retry',
                 onAction: _fetchStudents,
               )
             else if (filteredStudents.isEmpty)
               EmptyState(
-                title: 'Aucun étudiant',
+                title: context.isFrench ? 'Aucun étudiant' : 'No students',
                 message: _searchQuery.isNotEmpty
-                    ? 'Aucun étudiant ne correspond à votre recherche.'
-                    : 'Aucun étudiant n\'est encore inscrit dans cette cohorte.',
+                    ? (context.isFrench ? 'Aucun étudiant ne correspond à votre recherche.' : 'No students match your search.')
+                    : (context.isFrench ? 'Aucun étudiant n\'est encore inscrit dans cette cohorte.' : 'No students enrolled in this cohort yet.'),
                 icon: Icons.person_off_outlined,
               )
             else

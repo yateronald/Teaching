@@ -2,13 +2,12 @@
 class ApiEndpoints {
   ApiEndpoints._();
 
-  // In Android emulator: 10.0.2.2 points to host machine's localhost:5000.
-  // In iOS simulator or web: localhost:5000.
-  // In physical device: configure target IP or production URL.
-  static const String baseUrl = 'http://10.0.2.2:5000/api';
-  static const String webBaseUrl = 'http://localhost:5000/api';
-  static const String socketUrl = 'http://10.0.2.2:5000';
-  static const String webSocketUrl = 'http://localhost:5000';
+  // Production API: https://api.learnfrenchwithnatives.com/api
+  static const String baseUrl = 'https://api.learnfrenchwithnatives.com/api';
+  static const String webBaseUrl = 'https://api.learnfrenchwithnatives.com/api';
+  static const String socketUrl = 'https://api.learnfrenchwithnatives.com';
+  static const String webSocketUrl = 'https://api.learnfrenchwithnatives.com';
+  static const String liveKitUrl = 'wss://livekit.learnfrenchwithnatives.com';
 
   // ── Auth ──
   static const String login = '/auth/login';

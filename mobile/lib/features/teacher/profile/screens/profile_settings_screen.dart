@@ -4,16 +4,20 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/localization/translations.dart';
+import '../../../../core/responsive/responsive_layout.dart';
 import '../../../../core/widgets/brand_logo.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
+import '../../../../core/widgets/language_switcher_button.dart';
 import '../../../auth/screens/welcome_screen.dart';
 
 class ProfileSettingsScreen extends ConsumerStatefulWidget {
   const ProfileSettingsScreen({super.key});
 
   @override
-  ConsumerState<ProfileSettingsScreen> createState() => _ProfileSettingsScreenState();
+  ConsumerState<ProfileSettingsScreen> createState() =>
+      _ProfileSettingsScreenState();
 }
 
 class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
@@ -39,17 +43,25 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
     final confP = _confirmPassCtrl.text.trim();
 
     if (oldP.isEmpty || newP.isEmpty || confP.isEmpty) {
-      setState(() => _passError = 'Veuillez remplir tous les champs de mot de passe.');
+      setState(
+        () => _passError = 'Veuillez remplir tous les champs de mot de passe.',
+      );
       return;
     }
 
     if (newP != confP) {
-      setState(() => _passError = 'Le nouveau mot de passe et sa confirmation ne concordent pas.');
+      setState(
+        () => _passError =
+            'Le nouveau mot de passe et sa confirmation ne concordent pas.',
+      );
       return;
     }
 
     if (newP.length < 6) {
-      setState(() => _passError = 'Le mot de passe doit comporter au moins 6 caractères.');
+      setState(
+        () => _passError =
+            'Le mot de passe doit comporter au moins 6 caractères.',
+      );
       return;
     }
 
@@ -61,10 +73,10 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
 
     try {
       final client = ref.read(apiClientProvider);
-      await client.post('/auth/change-password', data: {
-        'oldPassword': oldP,
-        'newPassword': newP,
-      });
+      await client.post(
+        '/auth/change-password',
+        data: {'oldPassword': oldP, 'newPassword': newP},
+      );
 
       if (mounted) {
         setState(() {
@@ -79,7 +91,8 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
       if (mounted) {
         setState(() {
           _isSavingPass = false;
-          _passError = 'Échec de la modification. Vérifiez votre mot de passe actuel.';
+          _passError =
+              'Échec de la modification. Vérifiez votre mot de passe actuel.';
         });
       }
     }
@@ -90,7 +103,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Déconnexion'),
-        content: const Text('Souhaitez-vous vraiment vous déconnecter de l\'application ?'),
+        content: const Text(
+          'Souhaitez-vous vraiment vous déconnecter de l\'application ?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -123,13 +138,8 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authNotifierProvider).user;
-    final isTablet = MediaQuery.of(context).size.width >= 768;
-
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(
-        horizontal: isTablet ? 32 : 16,
-        vertical: 24,
-      ),
+      padding: ResponsiveLayout.pageInsets(context),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -163,8 +173,13 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                   backgroundColor: AppColors.frenchNavy,
                   foregroundColor: AppColors.pureWhite,
                   child: Text(
-                    user?.fullName.isNotEmpty == true ? user!.fullName[0].toUpperCase() : 'P',
-                    style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
+                    user?.fullName.isNotEmpty == true
+                        ? user!.fullName[0].toUpperCase()
+                        : 'P',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 18),
@@ -175,11 +190,18 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.teacherRoseBg,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.teacherDot.withValues(alpha: 0.3)),
+                              border: Border.all(
+                                color: AppColors.teacherDot.withValues(
+                                  alpha: 0.3,
+                                ),
+                              ),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -217,7 +239,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       const SizedBox(height: 2),
                       Text(
                         user?.email ?? '',
-                        style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -240,18 +264,26 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.lock_outline, color: AppColors.frenchNavy, size: 22),
+                    const Icon(
+                      Icons.lock_outline,
+                      color: AppColors.frenchNavy,
+                      size: 22,
+                    ),
                     const SizedBox(width: 10),
                     Text(
                       'Sécurité du Compte',
-                      style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w700),
+                      style: AppTypography.titleMedium.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
                 Text(
                   'Modifiez votre mot de passe pour garantir la sécurité de vos données de cours.',
-                  style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 20),
 
@@ -263,7 +295,13 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.badBorder),
                     ),
-                    child: Text(_passError!, style: AppTypography.caption.copyWith(color: AppColors.bad, fontWeight: FontWeight.w600)),
+                    child: Text(
+                      _passError!,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.bad,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -275,7 +313,13 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: AppColors.goodBorder),
                     ),
-                    child: Text(_passSuccess!, style: AppTypography.caption.copyWith(color: AppColors.good, fontWeight: FontWeight.w600)),
+                    child: Text(
+                      _passSuccess!,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.good,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 14),
                 ],
@@ -312,6 +356,45 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
               ],
             ),
           ),
+          // Language Preference Card
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: AppColors.pureWhite,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border, width: 1.1),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.tr('app_language_setting'),
+                        style: AppTypography.titleSmall.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.frenchNavy,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        context.tr('app_language_desc'),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const LanguageSwitcherButton(),
+              ],
+            ),
+          ),
           // About & Version Card with Official Brand Logo
           Container(
             width: double.infinity,
@@ -335,7 +418,9 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                 const SizedBox(height: 4),
                 Text(
                   'Application Enseignant · Version 1.0.0 (Build 1)',
-                  style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textMuted,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -361,21 +446,34 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Session Enseignant',
-                      style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink),
-                    ),
-                    Text(
-                      'Fermer la session sur cet appareil.',
-                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-                    ),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.isFrench
+                            ? 'Session Enseignant'
+                            : 'Teacher Session',
+                        style: AppTypography.bodyMedium.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        context.isFrench
+                            ? 'Fermer la session sur cet appareil.'
+                            : 'Sign out of your session on this device.',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 12),
                 CustomButton(
-                  text: 'Déconnexion',
+                  text: context.isFrench ? 'Déconnexion' : 'Log Out',
                   icon: Icons.logout,
                   variant: ButtonVariant.danger,
                   height: 42,

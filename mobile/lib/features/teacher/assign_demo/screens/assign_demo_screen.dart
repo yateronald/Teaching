@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/responsive/responsive_layout.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/status_badge.dart';
@@ -22,7 +23,8 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
   bool _isLoading = true;
   String? _error;
   List<dynamic> _demos = [];
-  String _selectedBucket = 'all'; // all, upcoming, to_schedule, completed, cancelled
+  String _selectedBucket =
+      'all'; // all, upcoming, to_schedule, completed, cancelled
   String _search = '';
 
   @override
@@ -66,7 +68,8 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
     final scheduledAtStr = d['demo_scheduled_at'];
     if (scheduledAtStr != null && status == 'demo_scheduled') {
       final dt = DateTime.tryParse(scheduledAtStr);
-      if (dt != null && dt.isAfter(DateTime.now().subtract(const Duration(minutes: 90)))) {
+      if (dt != null &&
+          dt.isAfter(DateTime.now().subtract(const Duration(minutes: 90)))) {
         return 'upcoming';
       }
     }
@@ -75,8 +78,6 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.width >= 768;
-
     final filtered = _demos.where((d) {
       final map = d as Map<String, dynamic>;
       final b = _computeBucket(map);
@@ -88,7 +89,9 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
         final email = (map['email'] ?? '').toString().toLowerCase();
         final country = (map['country'] ?? '').toString().toLowerCase();
         final q = _search.toLowerCase();
-        if (!name.contains(q) && !email.contains(q) && !country.contains(q)) return false;
+        if (!name.contains(q) && !email.contains(q) && !country.contains(q)) {
+          return false;
+        }
       }
 
       return true;
@@ -99,10 +102,7 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
       color: AppColors.frenchNavy,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.symmetric(
-          horizontal: isTablet ? 32 : 16,
-          vertical: 24,
-        ),
+        padding: ResponsiveLayout.pageInsets(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -117,7 +117,9 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
             const SizedBox(height: 4),
             Text(
               'Évaluez de nouveaux étudiants, faites passer le test de niveau et rédigez vos recommandations.',
-              style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textMuted,
+              ),
             ),
             const SizedBox(height: 20),
 
@@ -177,7 +179,8 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 itemCount: filtered.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 14),
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 14),
                 itemBuilder: (context, idx) {
                   final demo = filtered[idx] as Map<String, dynamic>;
                   final name = demo['full_name'] ?? 'Étudiant Démo';
@@ -188,8 +191,12 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                   final goals = demo['learning_goals'] ?? '';
                   final status = (demo['status'] ?? 'new').toString();
                   final scheduledAt = demo['demo_scheduled_at'];
-                  final dt = scheduledAt != null ? DateTime.tryParse(scheduledAt) : null;
-                  final timeLabel = dt != null ? DateFormat('EEEE d MMM à HH:mm', 'fr_FR').format(dt) : 'Non planifié';
+                  final dt = scheduledAt != null
+                      ? DateTime.tryParse(scheduledAt)
+                      : null;
+                  final timeLabel = dt != null
+                      ? DateFormat('EEEE d MMM à HH:mm', 'fr_FR').format(dt)
+                      : 'Non planifié';
 
                   return Container(
                     padding: const EdgeInsets.all(18),
@@ -211,8 +218,12 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                                   backgroundColor: AppColors.teacherAccentSoft,
                                   foregroundColor: AppColors.teacherAccent,
                                   child: Text(
-                                    name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                    name.isNotEmpty
+                                        ? name[0].toUpperCase()
+                                        : '?',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -228,7 +239,9 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                                     ),
                                     Text(
                                       '$country · $email',
-                                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.textMuted,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -243,12 +256,18 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                         Row(
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppColors.surfaceSoft,
                                 borderRadius: BorderRadius.circular(6),
                               ),
-                              child: Text('Niveau : $curLevel → $goalLevel', style: AppTypography.caption),
+                              child: Text(
+                                'Niveau : $curLevel → $goalLevel',
+                                style: AppTypography.caption,
+                              ),
                             ),
                             const SizedBox(width: 8),
                             if (goals.isNotEmpty)
@@ -268,9 +287,18 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            const Icon(Icons.event_outlined, size: 14, color: AppColors.textSubtle),
+                            const Icon(
+                              Icons.event_outlined,
+                              size: 14,
+                              color: AppColors.textSubtle,
+                            ),
                             const SizedBox(width: 5),
-                            Text('Séance : $timeLabel', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                            Text(
+                              'Séance : $timeLabel',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 16),
@@ -291,7 +319,11 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                                   ),
                                 );
                               },
-                              icon: const Icon(Icons.edit_note, size: 18, color: AppColors.teacherAccent),
+                              icon: const Icon(
+                                Icons.edit_note,
+                                size: 18,
+                                color: AppColors.teacherAccent,
+                              ),
                               label: Text(
                                 'Compte-rendu & Notes',
                                 style: AppTypography.caption.copyWith(
@@ -303,7 +335,9 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                             const SizedBox(width: 8),
                             ElevatedButton.icon(
                               onPressed: () {
-                                widget.onNavigateTab?.call(6); // Open Live Meetings tab
+                                widget.onNavigateTab?.call(
+                                  6,
+                                ); // Open Live Meetings tab
                               },
                               icon: const Icon(Icons.videocam, size: 16),
                               label: const Text('Démarrer l\'essai'),
@@ -311,8 +345,13 @@ class _AssignDemoScreenState extends ConsumerState<AssignDemoScreen> {
                                 backgroundColor: AppColors.frenchNavy,
                                 foregroundColor: AppColors.pureWhite,
                                 elevation: 0,
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 8,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                             ),
                           ],

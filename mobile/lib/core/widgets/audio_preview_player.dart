@@ -7,13 +7,18 @@ class AudioPreviewPlayer extends StatefulWidget {
   final String? audioUrl;
   final String? audioPath;
   final String? title;
+  final Map<String, String>? headers;
 
   const AudioPreviewPlayer({
     super.key,
     this.audioUrl,
     this.audioPath,
     this.title,
-  }) : assert(audioUrl != null || audioPath != null, 'Either audioUrl or audioPath must be provided');
+    this.headers,
+  }) : assert(
+         audioUrl != null || audioPath != null,
+         'Either audioUrl or audioPath must be provided',
+       );
 
   @override
   State<AudioPreviewPlayer> createState() => _AudioPreviewPlayerState();
@@ -34,7 +39,7 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
   Future<void> _initAudio() async {
     try {
       if (widget.audioUrl != null && widget.audioUrl!.isNotEmpty) {
-        await _player.setUrl(widget.audioUrl!);
+        await _player.setUrl(widget.audioUrl!, headers: widget.headers);
       } else if (widget.audioPath != null && widget.audioPath!.isNotEmpty) {
         await _player.setFilePath(widget.audioPath!);
       }
@@ -51,7 +56,9 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
   @override
   void didUpdateWidget(covariant AudioPreviewPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.audioUrl != widget.audioUrl || oldWidget.audioPath != widget.audioPath) {
+    if (oldWidget.audioUrl != widget.audioUrl ||
+        oldWidget.audioPath != widget.audioPath ||
+        oldWidget.headers != widget.headers) {
       _player.stop();
       _initAudio();
     }
@@ -131,7 +138,8 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
               final processingState = playerState?.processingState;
               final playing = playerState?.playing ?? false;
 
-              final isLoading = processingState == ProcessingState.loading ||
+              final isLoading =
+                  processingState == ProcessingState.loading ||
                   processingState == ProcessingState.buffering;
 
               return Row(
@@ -139,7 +147,10 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
                   IconButton(
                     iconSize: 32,
                     padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
                     icon: isLoading
                         ? const SizedBox(
                             width: 24,
@@ -147,7 +158,9 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
                             child: CircularProgressIndicator(strokeWidth: 2.2),
                           )
                         : Icon(
-                            playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                            playing
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_fill,
                             color: AppColors.frenchNavy,
                           ),
                     onPressed: _isInit
@@ -155,7 +168,8 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
                             if (playing) {
                               _player.pause();
                             } else {
-                              if (processingState == ProcessingState.completed) {
+                              if (processingState ==
+                                  ProcessingState.completed) {
                                 _player.seek(Duration.zero);
                               }
                               _player.play();
@@ -171,41 +185,55 @@ class _AudioPreviewPlayerState extends State<AudioPreviewPlayer> {
                         final position = posSnap.data ?? Duration.zero;
                         final duration = _player.duration ?? Duration.zero;
                         final maxVal = duration.inMilliseconds.toDouble();
-                        final curVal = position.inMilliseconds
-                            .toDouble()
-                            .clamp(0.0, maxVal > 0 ? maxVal : 0.0);
+                        final curVal = position.inMilliseconds.toDouble().clamp(
+                          0.0,
+                          maxVal > 0 ? maxVal : 0.0,
+                        );
 
                         return Column(
                           children: [
                             SliderTheme(
                               data: SliderTheme.of(context).copyWith(
                                 trackHeight: 4,
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6,
+                                ),
                                 activeTrackColor: AppColors.frenchNavy,
                                 inactiveTrackColor: AppColors.border,
                                 thumbColor: AppColors.frenchNavy,
-                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12,
+                                ),
                               ),
                               child: Slider(
                                 value: curVal,
                                 max: maxVal > 0 ? maxVal : 1.0,
                                 onChanged: (val) {
-                                  _player.seek(Duration(milliseconds: val.toInt()));
+                                  _player.seek(
+                                    Duration(milliseconds: val.toInt()),
+                                  );
                                 },
                               ),
                             ),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                              ),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     _formatDuration(position),
-                                    style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textMuted,
+                                    ),
                                   ),
                                   Text(
                                     _formatDuration(duration),
-                                    style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textMuted,
+                                    ),
                                   ),
                                 ],
                               ),

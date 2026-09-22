@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/auth/auth_notifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/localization/translations.dart';
 import '../../../core/widgets/brand_logo.dart';
 import '../../../core/widgets/custom_button.dart';
 import '../../../core/widgets/custom_text_field.dart';
+import '../../../core/widgets/language_switcher_button.dart';
 import '../../../core/widgets/tricolore_bar.dart';
 import '../../teacher/shell/teacher_shell.dart';
 
@@ -31,7 +33,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    debugPrint('_handleLogin CALLED: email="${_emailController.text}", pwdLen=${_passwordController.text.length}');
+    if (!_formKey.currentState!.validate()) {
+      debugPrint('_handleLogin: form validation failed!');
+      return;
+    }
 
     setState(() => _errorMessage = null);
 
@@ -58,7 +64,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTablet = MediaQuery.of(context).size.width >= 768;
+    final isTablet = MediaQuery.of(context).size.width >= 720;
     final authState = ref.watch(authNotifierProvider);
 
     return Scaffold(
@@ -67,6 +73,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Column(
           children: [
             const TricoloreBar(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back, color: AppColors.frenchNavy),
+                    tooltip: context.isFrench ? 'Retour' : 'Back',
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                  const LanguageSwitcherButton(),
+                ],
+              ),
+            ),
             Expanded(
               child: isTablet
                   ? _buildTabletSplitLayout(authState.isLoading)
@@ -272,7 +292,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'ESPACE ENSEIGNANT',
+                  context.tr('teacher_space').toUpperCase(),
                   style: AppTypography.caption.copyWith(
                     color: AppColors.teacherDot,
                     fontWeight: FontWeight.w700,
@@ -283,7 +303,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Connexion',
+              context.tr('login'),
               style: AppTypography.headlineLarge.copyWith(
                 color: AppColors.frenchNavy,
                 fontWeight: FontWeight.w700,
@@ -291,7 +311,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Renseignez vos identifiants pour accéder à vos cohortes et sessions.',
+              context.tr('login_subtitle'),
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textMuted,
               ),
@@ -327,17 +347,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
             // Email
             CustomTextField(
-              label: 'Adresse e-mail',
+              label: context.tr('email'),
               hintText: 'professeur@learnfrench.com',
               prefixIcon: Icons.mail_outline,
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               validator: (val) {
                 if (val == null || val.trim().isEmpty) {
-                  return 'Veuillez saisir votre adresse e-mail.';
+                  return context.isFrench ? 'Veuillez saisir votre adresse e-mail.' : 'Please enter your email address.';
                 }
                 if (!val.contains('@') || !val.contains('.')) {
-                  return 'Format d\'adresse e-mail invalide.';
+                  return context.isFrench ? 'Format d\'adresse e-mail invalide.' : 'Invalid email format.';
                 }
                 return null;
               },
@@ -346,14 +366,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
             // Password
             CustomTextField(
-              label: 'Mot de passe',
+              label: context.tr('password'),
               hintText: '••••••••',
               prefixIcon: Icons.lock_outline,
               controller: _passwordController,
               isPassword: true,
               validator: (val) {
                 if (val == null || val.isEmpty) {
-                  return 'Veuillez renseigner votre mot de passe.';
+                  return context.isFrench ? 'Veuillez renseigner votre mot de passe.' : 'Please enter your password.';
                 }
                 return null;
               },
@@ -375,7 +395,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Se souvenir de moi',
+                  context.tr('remember_me'),
                   style: AppTypography.bodySmall.copyWith(color: AppColors.text),
                 ),
               ],
@@ -384,7 +404,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
             // Submit Button
             CustomButton(
-              text: 'Se connecter',
+              text: context.tr('login'),
               icon: Icons.login,
               height: 50,
               width: double.infinity,

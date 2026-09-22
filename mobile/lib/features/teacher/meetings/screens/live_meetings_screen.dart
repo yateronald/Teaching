@@ -12,6 +12,7 @@ import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../widgets/join_with_id_sheet.dart';
+import '../widgets/meeting_attendance_sheet.dart';
 import '../widgets/meeting_share_sheet.dart';
 import 'pre_join_screen.dart';
 
@@ -360,7 +361,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
           else ...[
             // The next class gets a card of its own, as on the web list.
             if (upcoming.isNotEmpty) ...[
-              _heroCard(upcoming.first, isCompact: isCompact),
+              _heroCard(upcoming.first, isWide: isWide, isCompact: isCompact),
               const SizedBox(height: 18),
             ],
 
@@ -444,11 +445,15 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
     final actions = [
       OutlinedButton.icon(
         onPressed: _openJoinWithIdSheet,
-        icon: const Icon(Icons.tag, size: 18),
-        label: const Text('Rejoindre avec un ID'),
+        icon: const Icon(Icons.tag, size: 16),
+        label: const FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text('Rejoindre avec ID'),
+        ),
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.frenchNavy,
           side: const BorderSide(color: AppColors.border),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           minimumSize: const Size(0, 46),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
@@ -457,6 +462,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
         text: 'Nouvelle réunion',
         icon: Icons.video_call,
         height: 46,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
         onPressed: _openCreateSheet,
       ),
     ];
@@ -519,7 +525,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
 
   // ── The next class ──
 
-  Widget _heroCard(Map<String, dynamic> m, {required bool isCompact}) {
+  Widget _heroCard(Map<String, dynamic> m, {required bool isWide, required bool isCompact}) {
     final isLive = (m['status'] ?? '').toString().toLowerCase() == 'active';
     final left = _startsIn(m);
     final when = _whenOf(m);
@@ -545,6 +551,182 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
     final fg = onDark ? AppColors.pureWhite : AppColors.ink;
     final fgMuted = onDark ? AppColors.pureWhite.withValues(alpha: 0.78) : AppColors.textMuted;
 
+    final headerTags = Wrap(
+      spacing: 10,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: onDark
+                ? Colors.white.withValues(alpha: 0.18)
+                : const Color(0xFFECFDF5),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isLive) ...[
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF34D399),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Text(
+                overline.toUpperCase(),
+                style: TextStyle(
+                  color: onDark ? Colors.white : const Color(0xFF047857),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (countdown != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(
+              color: onDark
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.schedule, size: 13, color: fgMuted),
+                const SizedBox(width: 5),
+                Text(
+                  countdown,
+                  style: AppTypography.caption.copyWith(
+                    color: fgMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+
+    final metaRow = Wrap(
+      spacing: 16,
+      runSpacing: 6,
+      children: [
+        if (when != null)
+          _metaChip(Icons.calendar_today_outlined, '${_dayLabel(when)} · ${_rangeOf(m)}', fgMuted),
+        _metaChip(Icons.person_outline, _teacherOf(m), fgMuted),
+        if ((m['batch_name'] ?? '').toString().isNotEmpty)
+          _metaChip(Icons.groups_outlined, m['batch_name'].toString(), fgMuted),
+        if (isLive) _metaChip(Icons.videocam_outlined, '${_peopleOf(m)} connectés', fgMuted),
+      ],
+    );
+
+    if (isWide) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+        decoration: BoxDecoration(
+          gradient: onDark
+              ? const LinearGradient(
+                  colors: [Color(0xFF064E3B), Color(0xFF047857), Color(0xFF0F766E)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : const LinearGradient(
+                  colors: [Colors.white, Color(0xFFF8FAFC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: onDark ? Colors.transparent : AppColors.border,
+            width: 1.1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: onDark
+                  ? const Color(0xFF047857).withValues(alpha: 0.25)
+                  : Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 4,
+              height: 76,
+              decoration: BoxDecoration(
+                color: isLive ? const Color(0xFF34D399) : const Color(0xFF047857),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  headerTags,
+                  const SizedBox(height: 8),
+                  Text(
+                    (m['title'] ?? 'Réunion').toString(),
+                    style: AppTypography.titleLarge.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: fg,
+                    ),
+                  ),
+                  if ((m['description'] ?? '').toString().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      m['description'].toString(),
+                      style: AppTypography.bodySmall.copyWith(color: fgMuted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 10),
+                  metaRow,
+                ],
+              ),
+            ),
+            const SizedBox(width: 20),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _actionsFor(m, onDark: onDark),
+                if (_isHost(m)) ...[
+                  const SizedBox(width: 10),
+                  OutlinedButton.icon(
+                    onPressed: () => _openShareSheet(m),
+                    icon: const Icon(Icons.link, size: 16),
+                    label: const Text('Partager'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: onDark ? Colors.white : AppColors.ink,
+                      side: BorderSide(
+                        color: onDark ? Colors.white.withValues(alpha: 0.4) : AppColors.border,
+                      ),
+                      minimumSize: const Size(0, 46),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: EdgeInsets.all(isCompact ? 16 : 20),
       decoration: BoxDecoration(
@@ -562,37 +744,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Wrap(
-            spacing: 10,
-            runSpacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                if (isLive) ...[
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(color: AppColors.good, shape: BoxShape.circle),
-                  ),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  overline.toUpperCase(),
-                  style: AppTypography.labelSmall.copyWith(
-                    color: onDark ? AppColors.pureWhite : AppColors.teacherDot,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ]),
-              if (countdown != null)
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.schedule, size: 14, color: fgMuted),
-                  const SizedBox(width: 4),
-                  Text(countdown, style: AppTypography.caption.copyWith(color: fgMuted)),
-                ]),
-            ],
-          ),
+          headerTags,
           const SizedBox(height: 10),
           Text(
             (m['title'] ?? 'Réunion').toString(),
@@ -609,18 +761,7 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
             ),
           ],
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 14,
-            runSpacing: 6,
-            children: [
-              if (when != null)
-                _metaChip(Icons.calendar_today_outlined, '${_dayLabel(when)} · ${_rangeOf(m)}', fgMuted),
-              _metaChip(Icons.person_outline, _teacherOf(m), fgMuted),
-              if ((m['batch_name'] ?? '').toString().isNotEmpty)
-                _metaChip(Icons.groups_outlined, m['batch_name'].toString(), fgMuted),
-              if (isLive) _metaChip(Icons.videocam_outlined, '${_peopleOf(m)} connectés', fgMuted),
-            ],
-          ),
+          metaRow,
           const SizedBox(height: 16),
           _actionsFor(m, onDark: onDark, fullWidth: true),
         ],
@@ -933,6 +1074,56 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
       ],
     );
 
+    if (isWide) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+        decoration: BoxDecoration(
+          color: isEnded ? AppColors.surfaceSoft : AppColors.pureWhite,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: status == 'active' ? AppColors.goodBorder : AppColors.border,
+            width: 1.1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.02),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _dateBlock(when, muted: isEnded),
+            const SizedBox(width: 16),
+            Expanded(child: body),
+            const SizedBox(width: 16),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _statusPill(m),
+                const SizedBox(width: 12),
+                if (!isEnded) ...[
+                  _actionsFor(m),
+                  const SizedBox(width: 8),
+                  if (host) ...[
+                    _iconAction(Icons.link, 'Partager', () => _openShareSheet(m)),
+                    const SizedBox(width: 6),
+                    _iconAction(Icons.delete_outline, 'Supprimer', () => _confirmDelete(m), danger: true),
+                    const SizedBox(width: 6),
+                  ],
+                  _iconAction(Icons.fact_check_outlined, 'Émargement', () => _openAttendanceSheet(m)),
+                ] else ...[
+                  _iconAction(Icons.fact_check_outlined, 'Voir l\'émargement', () => _openAttendanceSheet(m)),
+                ],
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
     return Container(
       padding: EdgeInsets.all(isCompact ? 14 : 16),
       decoration: BoxDecoration(
@@ -964,13 +1155,36 @@ class _LiveMeetingsScreenState extends ConsumerState<LiveMeetingsScreen> {
                   _iconAction(Icons.link, 'Partager', () => _openShareSheet(m)),
                   const SizedBox(width: 6),
                   _iconAction(Icons.delete_outline, 'Supprimer', () => _confirmDelete(m), danger: true),
+                  const SizedBox(width: 6),
                 ],
+                _iconAction(Icons.fact_check_outlined, 'Émargement', () => _openAttendanceSheet(m)),
                 const Spacer(),
                 Flexible(child: _actionsFor(m)),
               ],
             ),
+          ] else ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                _iconAction(Icons.fact_check_outlined, 'Voir l\'émargement', () => _openAttendanceSheet(m)),
+              ],
+            ),
           ],
         ],
+      ),
+    );
+  }
+
+  void _openAttendanceSheet(Map<String, dynamic> m) {
+    final meetingId = (m['id'] as num?)?.toInt() ?? int.tryParse(m['id'].toString()) ?? 0;
+    final title = (m['title'] ?? 'Réunion').toString();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => MeetingAttendanceSheet(
+        meetingId: meetingId,
+        meetingTitle: title,
       ),
     );
   }

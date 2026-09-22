@@ -61,7 +61,7 @@ class KpiStatCard extends StatelessWidget {
                       color: AppColors.textMuted,
                       fontWeight: FontWeight.w500,
                     ),
-                    maxLines: 1,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),

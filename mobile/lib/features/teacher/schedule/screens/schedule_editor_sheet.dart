@@ -377,7 +377,7 @@ class _ScheduleEditorSheetState extends ConsumerState<ScheduleEditorSheet> {
                     children: [
                       ChoiceChip(
                         avatar: const Icon(Icons.videocam_outlined, size: 16),
-                        label: const Text('En ligne (LiveKit)'),
+                        label: const Text('En ligne (Visioconférence)'),
                         selected: _locationMode == 'online',
                         selectedColor: AppColors.frenchNavy,
                         backgroundColor: AppColors.pureWhite,

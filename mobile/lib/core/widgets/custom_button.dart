@@ -52,28 +52,46 @@ class CustomButton extends StatelessWidget {
         break;
     }
 
+    final bool isCompact = height <= 40;
+    final EdgeInsetsGeometry resolvedPadding = padding ??
+        (isCompact
+            ? const EdgeInsets.symmetric(horizontal: 12, vertical: 0)
+            : const EdgeInsets.symmetric(horizontal: 20, vertical: 12));
+    final TextStyle textStyle = isCompact
+        ? AppTypography.caption.copyWith(
+            color: fg,
+            fontWeight: FontWeight.w600,
+            fontSize: 13,
+          )
+        : AppTypography.button.copyWith(color: fg);
+
     return SizedBox(
       width: width,
       height: height,
       child: ElevatedButton(
-        onPressed: isLoading ? null : onPressed,
+        onPressed: isLoading
+            ? null
+            : () {
+                debugPrint('CustomButton tapped! Calling onPressed: $onPressed');
+                onPressed?.call();
+              },
         style: ElevatedButton.styleFrom(
           backgroundColor: bg,
           foregroundColor: fg,
           elevation: variant == ButtonVariant.primary ? 1.5 : 0,
           shadowColor: AppColors.frenchNavy.withValues(alpha: 0.2),
           side: borderSide,
-          padding: padding ?? const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          padding: resolvedPadding,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(isCompact ? 8 : 10),
           ),
         ),
         child: isLoading
             ? SizedBox(
-                width: 20,
-                height: 20,
+                width: isCompact ? 16 : 20,
+                height: isCompact ? 16 : 20,
                 child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
+                  strokeWidth: 2.0,
                   valueColor: AlwaysStoppedAnimation<Color>(fg),
                 ),
               )
@@ -82,12 +100,16 @@ class CustomButton extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (icon != null) ...[
-                    Icon(icon, size: 18, color: fg),
-                    const SizedBox(width: 8),
+                    Icon(icon, size: isCompact ? 16 : 18, color: fg),
+                    const SizedBox(width: 6),
                   ],
-                  Text(
-                    text,
-                    style: AppTypography.button.copyWith(color: fg),
+                  Flexible(
+                    child: Text(
+                      text,
+                      style: textStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
               ),

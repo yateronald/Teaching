@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
+import '../../../core/localization/translations.dart';
 import '../../../core/widgets/brand_logo.dart';
 import '../../../core/widgets/custom_button.dart';
+import '../../../core/widgets/language_switcher_button.dart';
 import '../../../core/widgets/tricolore_bar.dart';
 import 'login_screen.dart';
 
@@ -21,18 +23,24 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
   final List<Map<String, dynamic>> _features = [
     {
       'icon': Icons.video_call_outlined,
+      'titleKey': 'feat_live_title',
+      'descKey': 'feat_live_desc',
       'title': 'Classes en direct',
-      'desc': 'Salles virtuelles immersives avec LiveKit & outils interactifs.',
+      'desc': 'Salles virtuelles immersives avec visioconférence HD & outils interactifs.',
       'color': AppColors.frenchBlue,
     },
     {
       'icon': Icons.school_outlined,
+      'titleKey': 'feat_exam_title',
+      'descKey': 'feat_exam_desc',
       'title': 'Préparation TCF & TEF',
       'desc': 'Suivi rigoureux des 4 compétences (CE, CO, EE, EO) selon le CECRL.',
       'color': AppColors.teacherAccent,
     },
     {
       'icon': Icons.psychology_outlined,
+      'titleKey': 'feat_ai_title',
+      'descKey': 'feat_ai_desc',
       'title': 'Quiz & Studios IA',
       'desc': 'Génération IA de questions et synthèses vocales natives pour la compréhension orale.',
       'color': AppColors.good,
@@ -71,12 +79,21 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
         child: Column(
           children: [
             const TricoloreBar(height: 4),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: const [
+                  LanguageSwitcherButton(),
+                ],
+              ),
+            ),
             Expanded(
               child: Center(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.symmetric(
                     horizontal: isTablet ? 48.0 : 24.0,
-                    vertical: 32.0,
+                    vertical: 20.0,
                   ),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 680),
@@ -116,7 +133,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Espace Enseignant · Teacher Space',
+                                    '${context.tr('teacher_space')} · ${context.tr('faculty')}',
                                     style: AppTypography.caption.copyWith(
                                       color: AppColors.teacherDot,
                                       fontWeight: FontWeight.w700,
@@ -130,7 +147,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
 
                             // Main Title
                             Text(
-                              'Enseignez le français avec excellence',
+                              context.tr('welcome_title'),
                               style: AppTypography.displayMedium.copyWith(
                                 color: AppColors.frenchNavy,
                                 fontSize: isTablet ? 36 : 28,
@@ -142,7 +159,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
 
                             // Subtitle
                             Text(
-                              'Plateforme pédagogique tout-en-un pour gérer vos promotions, animer vos cours LiveKit et préparer vos étudiants aux examens officiels.',
+                              context.tr('welcome_subtitle'),
                               style: AppTypography.bodyLarge.copyWith(
                                 color: AppColors.textMuted,
                                 height: 1.5,
@@ -153,6 +170,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
 
                             // Feature cards
                             ..._features.map((feat) {
+                              final title = feat['titleKey'] != null ? context.tr(feat['titleKey'] as String) : feat['title'] as String;
+                              final desc = feat['descKey'] != null ? context.tr(feat['descKey'] as String) : feat['desc'] as String;
+
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 14),
                                 padding: const EdgeInsets.all(16),
@@ -188,7 +208,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            feat['title'] as String,
+                                            title,
                                             style: AppTypography.titleMedium.copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: AppColors.ink,
@@ -196,7 +216,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                                           ),
                                           const SizedBox(height: 4),
                                           Text(
-                                            feat['desc'] as String,
+                                            desc,
                                             style: AppTypography.bodySmall.copyWith(
                                               color: AppColors.textMuted,
                                               height: 1.4,
@@ -214,7 +234,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
 
                             // CTA Button
                             CustomButton(
-                              text: 'Accéder à l\'espace Enseignant',
+                              text: context.tr('enter_teacher_space'),
                               icon: Icons.arrow_forward,
                               height: 52,
                               width: double.infinity,

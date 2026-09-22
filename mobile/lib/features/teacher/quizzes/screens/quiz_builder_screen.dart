@@ -4,6 +4,8 @@ import 'package:intl/intl.dart';
 import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/responsive/responsive_layout.dart';
+import '../../../../core/widgets/authenticated_audio_player.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../widgets/audio_clip_draft.dart';
@@ -65,7 +67,8 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       _titleCtrl.text = eq['title'] ?? '';
       _descCtrl.text = eq['description'] ?? '';
       _durationMinutes = eq['duration_minutes'] ?? 30;
-      _shuffleQuestions = eq['randomize_questions'] == true || eq['shuffle_questions'] == true;
+      _shuffleQuestions =
+          eq['randomize_questions'] == true || eq['shuffle_questions'] == true;
       _shuffleOptions = eq['randomize_options'] == true;
 
       final rawBatchIds = eq['batch_ids'];
@@ -75,11 +78,13 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
     }
 
     if (_questions.isEmpty) {
-      _questions.add(QuizQuestionDraft(
-        questionText: '',
-        questionType: 'mcq_single',
-        points: 1,
-      ));
+      _questions.add(
+        QuizQuestionDraft(
+          questionText: '',
+          questionType: 'mcq_single',
+          points: 1,
+        ),
+      );
     }
   }
 
@@ -129,23 +134,28 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
             for (final q in rawQuestions) {
               final rawOptions = q['options'] as List? ?? [];
               final options = rawOptions
-                  .map((o) => QuizOptionDraft(
-                        id: (o['id'] as num?)?.toInt(),
-                        text: o['option_text'] ?? o['text'] ?? '',
-                        isCorrect: o['is_correct'] == true || o['isCorrect'] == true,
-                      ))
+                  .map(
+                    (o) => QuizOptionDraft(
+                      id: (o['id'] as num?)?.toInt(),
+                      text: o['option_text'] ?? o['text'] ?? '',
+                      isCorrect:
+                          o['is_correct'] == true || o['isCorrect'] == true,
+                    ),
+                  )
                   .toList();
 
-              _questions.add(QuizQuestionDraft(
-                id: (q['id'] as num?)?.toInt(),
-                questionText: q['question_text'] ?? q['question'] ?? '',
-                questionType: q['question_type'] ?? 'mcq_single',
-                points: (q['marks'] as num?) ?? (q['points'] as num?) ?? 1,
-                explanation: q['explanation'] ?? '',
-                yesNoAnswer: q['correct_answer'] ?? 'yes',
-                audioClipId: (q['audio_clip_id'] as num?)?.toInt(),
-                options: options,
-              ));
+              _questions.add(
+                QuizQuestionDraft(
+                  id: (q['id'] as num?)?.toInt(),
+                  questionText: q['question_text'] ?? q['question'] ?? '',
+                  questionType: q['question_type'] ?? 'mcq_single',
+                  points: (q['marks'] as num?) ?? (q['points'] as num?) ?? 1,
+                  explanation: q['explanation'] ?? '',
+                  yesNoAnswer: q['correct_answer'] ?? 'yes',
+                  audioClipId: (q['audio_clip_id'] as num?)?.toInt(),
+                  options: options,
+                ),
+              );
             }
           }
         });
@@ -164,7 +174,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       final data = res.data;
       if (mounted) {
         setState(() {
-          _availableBatches = data is List ? data : (data?['batches'] ?? data?['data'] ?? []);
+          _availableBatches = data is List
+              ? data
+              : (data?['batches'] ?? data?['data'] ?? []);
           _isLoadingBatches = false;
         });
       }
@@ -176,22 +188,52 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
   num get _totalPoints => _questions.fold(0, (sum, q) => sum + q.points);
 
   void _openAiGenerator() {
-    showModalBottomSheet(
+    void addGeneratedQuestions(
+      List<QuizQuestionDraft> newQuestions,
+      String? title,
+      String? desc,
+    ) {
+      setState(() {
+        if (_titleCtrl.text.isEmpty && title != null) {
+          _titleCtrl.text = title;
+        }
+        if (_descCtrl.text.isEmpty && desc != null) _descCtrl.text = desc;
+        if (_questions.length == 1 && _questions[0].questionText.isEmpty) {
+          _questions.clear();
+        }
+        _questions.addAll(newQuestions);
+      });
+    }
+
+    final size = MediaQuery.sizeOf(context);
+    if (size.width >= 700) {
+      showDialog<void>(
+        context: context,
+        builder: (dialogContext) => Dialog(
+          clipBehavior: Clip.antiAlias,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+            vertical: 24,
+          ),
+          child: SizedBox(
+            width: 1000,
+            height: (size.height * 0.9).clamp(560, 900),
+            child: AiQuizGeneratorSheet(
+              isDialog: true,
+              onAddQuestions: addGeneratedQuestions,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => AiQuizGeneratorSheet(
-        onAddQuestions: (newQuestions, title, desc) {
-          setState(() {
-            if (_titleCtrl.text.isEmpty && title != null) _titleCtrl.text = title;
-            if (_descCtrl.text.isEmpty && desc != null) _descCtrl.text = desc;
-            if (_questions.length == 1 && _questions[0].questionText.isEmpty) {
-              _questions.clear();
-            }
-            _questions.addAll(newQuestions);
-          });
-        },
-      ),
+      builder: (sheetContext) =>
+          AiQuizGeneratorSheet(onAddQuestions: addGeneratedQuestions),
     );
   }
 
@@ -201,7 +243,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => AudioQuestionSheet(
-        quizTitle: _titleCtrl.text.isNotEmpty ? _titleCtrl.text : 'Quiz de Compréhension Orale',
+        quizTitle: _titleCtrl.text.isNotEmpty
+            ? _titleCtrl.text
+            : 'Quiz de Compréhension Orale',
         onSave: (result) {
           setState(() {
             final clip = AudioClipDraft(
@@ -217,17 +261,20 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
             _audioClips.add(clip);
 
             if (result.questions.isNotEmpty) {
-              if (_questions.length == 1 && _questions[0].questionText.isEmpty) {
+              if (_questions.length == 1 &&
+                  _questions[0].questionText.isEmpty) {
                 _questions.clear();
               }
               _questions.addAll(result.questions);
             } else {
-              _questions.add(QuizQuestionDraft(
-                questionText: 'Compréhension du document audio :',
-                questionType: 'mcq_single',
-                points: 1,
-                audioClipTempId: clip.tempId,
-              ));
+              _questions.add(
+                QuizQuestionDraft(
+                  questionText: 'Compréhension du document audio :',
+                  questionType: 'mcq_single',
+                  points: 1,
+                  audioClipTempId: clip.tempId,
+                ),
+              );
             }
           });
         },
@@ -240,7 +287,12 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Harmoniser le barème', style: AppTypography.titleMedium.copyWith(color: AppColors.frenchNavy)),
+        title: Text(
+          'Harmoniser le barème',
+          style: AppTypography.titleMedium.copyWith(
+            color: AppColors.frenchNavy,
+          ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -252,7 +304,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: ctrl,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               autofocus: true,
               decoration: const InputDecoration(
                 labelText: 'Points par question',
@@ -268,7 +322,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
             child: const Text('Annuler'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.frenchNavy),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.frenchNavy,
+            ),
             onPressed: () {
               final p = num.tryParse(ctrl.text);
               if (p != null && p > 0) {
@@ -280,7 +336,10 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
                 Navigator.pop(context);
               }
             },
-            child: const Text('Appliquer', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'Appliquer',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -332,7 +391,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
 
     final pickedEndTime = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_endDate ?? start.add(const Duration(hours: 48))),
+      initialTime: TimeOfDay.fromDateTime(
+        _endDate ?? start.add(const Duration(hours: 48)),
+      ),
       helpText: 'Heure de fermeture',
     );
     if (pickedEndTime == null || !mounted) return;
@@ -359,12 +420,17 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
     }
 
     if (_selectedBatchIds.isEmpty) {
-      setState(() => _errorMessage = 'Veuillez sélectionner au moins une promotion assignée.');
+      setState(
+        () => _errorMessage =
+            'Veuillez sélectionner au moins une promotion assignée.',
+      );
       return;
     }
 
     if (_questions.isEmpty) {
-      setState(() => _errorMessage = 'Veuillez ajouter au moins une question au quiz.');
+      setState(
+        () => _errorMessage = 'Veuillez ajouter au moins une question au quiz.',
+      );
       return;
     }
 
@@ -378,15 +444,24 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
 
     if (_hasWindow) {
       if (_startDate == null || _endDate == null) {
-        setState(() => _errorMessage = 'Veuillez définir les dates d\'ouverture et de fermeture.');
+        setState(
+          () => _errorMessage =
+              'Veuillez définir les dates d\'ouverture et de fermeture.',
+        );
         return;
       }
       if (_endDate!.isBefore(_startDate!)) {
-        setState(() => _errorMessage = 'La date de fermeture doit être postérieure à la date d\'ouverture.');
+        setState(
+          () => _errorMessage =
+              'La date de fermeture doit être postérieure à la date d\'ouverture.',
+        );
         return;
       }
       if (_endDate!.difference(_startDate!).inMinutes < _durationMinutes) {
-        setState(() => _errorMessage = 'La période d\'ouverture doit être supérieure à la durée du quiz.');
+        setState(
+          () => _errorMessage =
+              'La période d\'ouverture doit être supérieure à la durée du quiz.',
+        );
         return;
       }
     }
@@ -401,8 +476,12 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       'description': _descCtrl.text.trim(),
       'instructions': _instructionsCtrl.text.trim(),
       'duration_minutes': _durationMinutes,
-      'start_date': _hasWindow && _startDate != null ? _startDate!.toUtc().toIso8601String() : null,
-      'end_date': _hasWindow && _endDate != null ? _endDate!.toUtc().toIso8601String() : null,
+      'start_date': _hasWindow && _startDate != null
+          ? _startDate!.toUtc().toIso8601String()
+          : null,
+      'end_date': _hasWindow && _endDate != null
+          ? _endDate!.toUtc().toIso8601String()
+          : null,
       'randomize_questions': _shuffleQuestions,
       'randomize_options': _shuffleOptions,
       'auto_submit': _autoSubmit,
@@ -424,7 +503,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(publish ? 'Quiz publié avec succès !' : 'Brouillon enregistré !'),
+            content: Text(
+              publish ? 'Quiz publié avec succès !' : 'Brouillon enregistré !',
+            ),
             backgroundColor: AppColors.good,
           ),
         );
@@ -434,10 +515,241 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       if (mounted) {
         setState(() {
           _isSaving = false;
-          _errorMessage = 'Échec de l\'enregistrement : vérifiez vos informations.';
+          _errorMessage =
+              'Échec de l\'enregistrement : vérifiez vos informations.';
         });
       }
     }
+  }
+
+  bool _belongsToClip(QuizQuestionDraft question, AudioClipDraft clip) {
+    if (clip.id != null && question.audioClipId == clip.id) return true;
+    return question.audioClipTempId != null &&
+        question.audioClipTempId == clip.tempId;
+  }
+
+  Iterable<MapEntry<int, QuizQuestionDraft>> _questionsForClip(
+    AudioClipDraft clip,
+  ) {
+    return _questions.asMap().entries.where(
+      (entry) => _belongsToClip(entry.value, clip),
+    );
+  }
+
+  bool _isAudioQuestion(QuizQuestionDraft question) {
+    return _audioClips.any((clip) => _belongsToClip(question, clip));
+  }
+
+  void _duplicateQuestion(int index, QuizQuestionDraft question) {
+    final copiedOptions = question.options
+        .map(
+          (option) =>
+              QuizOptionDraft(text: option.text, isCorrect: option.isCorrect),
+        )
+        .toList();
+    _questions.insert(
+      index + 1,
+      QuizQuestionDraft(
+        questionText: '${question.questionText} (Copie)',
+        questionType: question.questionType,
+        points: question.points,
+        explanation: question.explanation,
+        yesNoAnswer: question.yesNoAnswer,
+        audioClipTempId: question.audioClipTempId,
+        audioClipId: question.audioClipId,
+        options: copiedOptions,
+        audioFileId: question.audioFileId,
+      ),
+    );
+  }
+
+  Widget _buildQuestionEditor(int index) {
+    final question = _questions[index];
+    return Padding(
+      key: ValueKey(question.id ?? question),
+      padding: const EdgeInsets.only(bottom: 14),
+      child: QuestionEditorCard(
+        index: index,
+        question: question,
+        onChanged: () => setState(() {}),
+        onDuplicate: () => setState(() => _duplicateQuestion(index, question)),
+        onDelete: () => setState(() => _questions.remove(question)),
+        onMoveUp: index > 0
+            ? () => setState(() {
+                final item = _questions.removeAt(index);
+                _questions.insert(index - 1, item);
+              })
+            : null,
+        onMoveDown: index < _questions.length - 1
+            ? () => setState(() {
+                final item = _questions.removeAt(index);
+                _questions.insert(index + 1, item);
+              })
+            : null,
+      ),
+    );
+  }
+
+  String? _audioEndpoint(AudioClipDraft clip) {
+    if (clip.id != null) return '/quizzes/audio/${clip.id}/stream';
+    final fileId = clip.kdriveFileId;
+    if (fileId == null || fileId.isEmpty) return null;
+    return '/quizzes/audio/preview/${Uri.encodeComponent(fileId)}';
+  }
+
+  Widget _summaryMetric(IconData icon, String value, String label) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 130),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surfaceSoft,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.borderSoft),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 19, color: AppColors.frenchBlue),
+          const SizedBox(width: 9),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: AppTypography.bodyMedium.copyWith(
+                  color: AppColors.frenchNavy,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              Text(
+                label,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuizSummary() {
+    final single = _questions
+        .where((question) => question.questionType == 'mcq_single')
+        .length;
+    final multiple = _questions
+        .where((question) => question.questionType == 'mcq_multiple')
+        .length;
+    final yesNo = _questions
+        .where((question) => question.questionType == 'yes_no')
+        .length;
+    final complete = _questions.asMap().entries.every(
+      (entry) => entry.value.validate(entry.key + 1) == null,
+    );
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: AppColors.pureWhite,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border, width: 1.1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.summarize_outlined,
+                color: AppColors.frenchBlue,
+                size: 21,
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  'Résumé du quiz',
+                  style: AppTypography.titleMedium.copyWith(
+                    color: AppColors.frenchNavy,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: complete ? AppColors.goodBg : AppColors.frenchGoldBg,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  complete ? 'Prêt' : 'À compléter',
+                  style: AppTypography.caption.copyWith(
+                    color: complete ? AppColors.good : AppColors.frenchGold,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _summaryMetric(
+                Icons.quiz_outlined,
+                '${_questions.length}',
+                'questions',
+              ),
+              _summaryMetric(
+                Icons.stars_outlined,
+                _totalPoints.toStringAsFixed(
+                  _totalPoints.truncateToDouble() == _totalPoints ? 0 : 1,
+                ),
+                'points',
+              ),
+              _summaryMetric(
+                Icons.timer_outlined,
+                '$_durationMinutes min',
+                'durée',
+              ),
+              if (_audioClips.isNotEmpty)
+                _summaryMetric(
+                  Icons.headphones_outlined,
+                  '${_audioClips.length}',
+                  'section${_audioClips.length > 1 ? 's' : ''} audio',
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              Chip(label: Text('$single choix unique')),
+              if (multiple > 0) Chip(label: Text('$multiple choix multiples')),
+              if (yesNo > 0) Chip(label: Text('$yesNo vrai / faux')),
+            ],
+          ),
+          if (_titleCtrl.text.trim().isEmpty ||
+              _selectedBatchIds.isEmpty ||
+              !complete) ...[
+            const SizedBox(height: 8),
+            Text(
+              [
+                if (_titleCtrl.text.trim().isEmpty) 'Ajoutez un titre',
+                if (_selectedBatchIds.isEmpty) 'Choisissez une promotion',
+                if (!complete) 'Terminez les questions incomplètes',
+              ].join(' · '),
+              style: AppTypography.caption.copyWith(
+                color: AppColors.frenchGold,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
@@ -446,7 +758,9 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
       backgroundColor: AppColors.frenchPaper,
       appBar: AppBar(
         title: Text(
-          widget.existingQuiz != null ? 'Modifier le Quiz' : 'Studio de Création de Quiz',
+          widget.existingQuiz != null
+              ? 'Modifier le Quiz'
+              : 'Studio de Création de Quiz',
           style: AppTypography.titleMedium.copyWith(color: AppColors.ink),
         ),
         backgroundColor: AppColors.pureWhite,
@@ -457,7 +771,10 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.auto_awesome, color: AppColors.teacherAccent),
+            icon: const Icon(
+              Icons.auto_awesome,
+              color: AppColors.teacherAccent,
+            ),
             tooltip: 'Générateur IA',
             onPressed: _openAiGenerator,
           ),
@@ -469,607 +786,793 @@ class _QuizBuilderScreenState extends ConsumerState<QuizBuilderScreen> {
         ],
       ),
       body: _isLoadingDetails
-          ? const Center(child: CircularProgressIndicator(color: AppColors.frenchNavy))
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.frenchNavy),
+            )
           : Column(
               children: [
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_errorMessage != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppColors.badBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: AppColors.badBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline, color: AppColors.bad, size: 20),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage!,
-                                    style: AppTypography.caption.copyWith(color: AppColors.bad, fontWeight: FontWeight.w600),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-
-                        // Metadata Card
-                        Container(
-                          padding: const EdgeInsets.all(20),
-                          decoration: BoxDecoration(
-                            color: AppColors.pureWhite,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border, width: 1.1),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Informations générales',
-                                style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w700, color: AppColors.frenchNavy),
-                              ),
-                              const SizedBox(height: 16),
-                              CustomTextField(
-                                label: 'Titre du quiz',
-                                hintText: 'ex: Évaluation TCF – Compréhension Écrite A2',
-                                controller: _titleCtrl,
-                              ),
-                              const SizedBox(height: 14),
-                              CustomTextField(
-                                label: 'Description courte',
-                                hintText: 'Ce que couvre cette évaluation...',
-                                controller: _descCtrl,
-                                maxLines: 2,
-                              ),
-                              const SizedBox(height: 10),
-
-                              // Instructions Toggle
-                              if (!_showInstructions)
-                                TextButton.icon(
-                                  onPressed: () => setState(() => _showInstructions = true),
-                                  icon: const Icon(Icons.add, size: 16, color: AppColors.frenchNavy),
-                                  label: Text(
-                                    'Ajouter des consignes spécifiques pour les étudiants',
-                                    style: AppTypography.caption.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: AppColors.frenchNavy,
-                                    ),
-                                  ),
-                                )
-                              else ...[
-                                const SizedBox(height: 4),
-                                CustomTextField(
-                                  label: 'Consignes préalables à la passation',
-                                  hintText: 'ex: Pas de dictionnaire. Toutes les questions doivent être répondues...',
-                                  controller: _instructionsCtrl,
-                                  maxLines: 3,
-                                ),
-                              ],
-                              const SizedBox(height: 18),
-
-                              // Duration chips
-                              Text(
-                                'Durée de passation (minutes)',
-                                style: AppTypography.label.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 8,
-                                children: _durationChips.map((mins) {
-                                  final isSelected = _durationMinutes == mins;
-                                  return ChoiceChip(
-                                    label: Text('$mins min'),
-                                    selected: isSelected,
-                                    selectedColor: AppColors.frenchNavy,
-                                    backgroundColor: AppColors.pureWhite,
-                                    labelStyle: AppTypography.caption.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                      color: isSelected ? AppColors.pureWhite : AppColors.textMuted,
-                                    ),
-                                    side: BorderSide(color: isSelected ? AppColors.frenchNavy : AppColors.border),
-                                    onSelected: (_) => setState(() => _durationMinutes = mins),
-                                  );
-                                }).toList(),
-                              ),
-                              const SizedBox(height: 18),
-
-                              // Target Batches Multi-Select
-                              Text(
-                                'Promotions assignées',
-                                style: AppTypography.label.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 8),
-                              if (_isLoadingBatches)
-                                const LinearProgressIndicator(minHeight: 2)
-                              else if (_availableBatches.isEmpty)
-                                Text('Aucune promotion disponible.', style: AppTypography.caption)
-                              else
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 6,
-                                  children: _availableBatches.map((b) {
-                                    final bId = (b['id'] as num).toInt();
-                                    final isSelected = _selectedBatchIds.contains(bId);
-                                    return FilterChip(
-                                      label: Text(b['name'] ?? 'Cohort'),
-                                      selected: isSelected,
-                                      selectedColor: AppColors.teacherAccentSoft,
-                                      checkmarkColor: AppColors.teacherAccent,
-                                      labelStyle: AppTypography.caption.copyWith(
-                                        fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                        color: isSelected ? AppColors.teacherAccent : AppColors.text,
-                                      ),
-                                      onSelected: (sel) {
-                                        setState(() {
-                                          if (sel) {
-                                            _selectedBatchIds.add(bId);
-                                          } else {
-                                            _selectedBatchIds.remove(bId);
-                                          }
-                                        });
-                                      },
-                                    );
-                                  }).toList(),
-                                ),
-                              const SizedBox(height: 18),
-
-                              // Availability Mode (Open vs Window)
-                              Text(
-                                'Disponibilité du quiz',
-                                style: AppTypography.label.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.all(3),
-                                decoration: BoxDecoration(
-                                  color: AppColors.surfaceSoft,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: AppColors.borderSoft),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: InkWell(
-                                        onTap: () => setState(() {
-                                          _hasWindow = false;
-                                          _startDate = null;
-                                          _endDate = null;
-                                        }),
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 8),
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: !_hasWindow ? AppColors.pureWhite : Colors.transparent,
-                                            borderRadius: BorderRadius.circular(8),
-                                            boxShadow: !_hasWindow
-                                                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
-                                                : null,
-                                          ),
-                                          child: Text(
-                                            'Dès publication',
-                                            style: AppTypography.caption.copyWith(
-                                              fontWeight: !_hasWindow ? FontWeight.w700 : FontWeight.w500,
-                                              color: !_hasWindow ? AppColors.frenchNavy : AppColors.textMuted,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    Expanded(
-                                      child: InkWell(
-                                        onTap: () {
-                                          setState(() => _hasWindow = true);
-                                          if (_startDate == null || _endDate == null) {
-                                            _applyWindowPreset(72);
-                                          }
-                                        },
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 8),
-                                          alignment: Alignment.center,
-                                          decoration: BoxDecoration(
-                                            color: _hasWindow ? AppColors.pureWhite : Colors.transparent,
-                                            borderRadius: BorderRadius.circular(8),
-                                            boxShadow: _hasWindow
-                                                ? [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 4)]
-                                                : null,
-                                          ),
-                                          child: Text(
-                                            'Période planifiée',
-                                            style: AppTypography.caption.copyWith(
-                                              fontWeight: _hasWindow ? FontWeight.w700 : FontWeight.w500,
-                                              color: _hasWindow ? AppColors.frenchNavy : AppColors.textMuted,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              if (_hasWindow) ...[
-                                const SizedBox(height: 12),
-                                Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surfaceSoft,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(color: AppColors.border),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text('Créneau horaire :', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700)),
-                                          TextButton.icon(
-                                            onPressed: _pickDateTimeRange,
-                                            icon: const Icon(Icons.edit_calendar, size: 16),
-                                            label: const Text('Modifier'),
-                                          ),
-                                        ],
-                                      ),
-                                      if (_startDate != null && _endDate != null) ...[
-                                        Text(
-                                          'Ouverture : ${DateFormat('dd MMM yyyy à HH:mm').format(_startDate!)}',
-                                          style: AppTypography.caption,
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Clôture : ${DateFormat('dd MMM yyyy à HH:mm').format(_endDate!)}',
-                                          style: AppTypography.caption,
-                                        ),
-                                      ],
-                                      const SizedBox(height: 8),
-                                      Wrap(
-                                        spacing: 6,
-                                        children: [
-                                          ActionChip(
-                                            label: const Text('24h'),
-                                            onPressed: () => _applyWindowPreset(24),
-                                          ),
-                                          ActionChip(
-                                            label: const Text('3 jours'),
-                                            onPressed: () => _applyWindowPreset(72),
-                                          ),
-                                          ActionChip(
-                                            label: const Text('7 jours'),
-                                            onPressed: () => _applyWindowPreset(168),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 18),
-
-                              // Delivery options
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text('Mélanger l\'ordre des questions', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
-                                subtitle: Text('Ordre aléatoire des questions pour chaque candidat.', style: AppTypography.caption),
-                                activeThumbColor: AppColors.frenchNavy,
-                                value: _shuffleQuestions,
-                                onChanged: (val) => setState(() => _shuffleQuestions = val),
-                              ),
-                              SwitchListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text('Mélanger l\'ordre des réponses', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
-                                subtitle: Text('Ordre aléatoire des options A, B, C, D.', style: AppTypography.caption),
-                                activeThumbColor: AppColors.frenchNavy,
-                                value: _shuffleOptions,
-                                onChanged: (val) => setState(() => _shuffleOptions = val),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        const SizedBox(height: 24),
-
-                        // Listening Sections (if any)
-                        if (_audioClips.isNotEmpty) ...[
-                          Text(
-                            'Sections d\'écoute audio (${_audioClips.length})',
-                            style: AppTypography.titleMedium.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.frenchNavy,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          ..._audioClips.asMap().entries.map((entry) {
-                            final cIdx = entry.key;
-                            final clip = entry.value;
-
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 14),
-                              padding: const EdgeInsets.all(16),
+                    padding: ResponsiveLayout.pageInsets(context),
+                    child: AdaptiveContent(
+                      maxWidth: 1080,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_errorMessage != null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: AppColors.pureWhite,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: AppColors.frenchBlue.withValues(alpha: 0.3), width: 1.3),
+                                color: AppColors.badBg,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.badBorder),
                               ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Row(
                                 children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.surfaceSoft,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: const Icon(Icons.headphones, color: AppColors.frenchBlue, size: 20),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Section Audio #${cIdx + 1}',
-                                              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700),
-                                            ),
-                                            Text(
-                                              clip.sourceType == 'tts'
-                                                  ? 'Voix native · ${clip.voiceName}'
-                                                  : (clip.fileName ?? 'Enregistrement importé'),
-                                              style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete_outline, color: AppColors.bad, size: 20),
-                                        tooltip: 'Supprimer la section audio',
-                                        onPressed: () {
-                                          setState(() {
-                                            _audioClips.removeAt(cIdx);
-                                            // Detach questions from this clip
-                                            for (final q in _questions) {
-                                              if (q.audioClipTempId == clip.tempId) {
-                                                q.audioClipTempId = null;
-                                                q.audioClipId = null;
-                                              }
-                                            }
-                                          });
-                                        },
-                                      ),
-                                    ],
+                                  const Icon(
+                                    Icons.error_outline,
+                                    color: AppColors.bad,
+                                    size: 20,
                                   ),
-                                  if (clip.transcript.isNotEmpty) ...[
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      clip.transcript,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: AppTypography.caption.copyWith(fontStyle: FontStyle.italic),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _errorMessage!,
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.bad,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ],
-                                  const SizedBox(height: 10),
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.surfaceSoft,
-                                          borderRadius: BorderRadius.circular(6),
-                                        ),
-                                        child: Text(
-                                          clip.maxPlays == 0 ? 'Écoutes illimitées' : '${clip.maxPlays} écoute(s) max',
-                                          style: AppTypography.caption.copyWith(fontWeight: FontWeight.w600),
-                                        ),
-                                      ),
-                                      const Spacer(),
-                                      TextButton.icon(
-                                        icon: const Icon(Icons.add, size: 16),
-                                        label: const Text('Question sur cet audio'),
-                                        onPressed: () {
-                                          setState(() {
-                                            _questions.add(QuizQuestionDraft(
-                                              questionText: '',
-                                              questionType: 'mcq_single',
-                                              points: 1,
-                                              audioClipTempId: clip.tempId,
-                                              audioClipId: clip.id,
-                                            ));
-                                          });
-                                        },
-                                      ),
-                                    ],
                                   ),
                                 ],
                               ),
-                            );
-                          }),
-                          const SizedBox(height: 12),
-                        ],
+                            ),
+                            const SizedBox(height: 16),
+                          ],
 
-                        // Questions Section Header
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Column(
+                          // Metadata Card
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: AppColors.pureWhite,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: AppColors.border,
+                                width: 1.1,
+                              ),
+                            ),
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Questions (${_questions.length})',
-                                  style: AppTypography.titleLarge.copyWith(
+                                  'Informations générales',
+                                  style: AppTypography.titleMedium.copyWith(
                                     fontWeight: FontWeight.w700,
-                                    color: AppColors.ink,
+                                    color: AppColors.frenchNavy,
                                   ),
                                 ),
-                                Text(
-                                  'Total : ${_totalPoints.toStringAsFixed(_totalPoints.truncateToDouble() == _totalPoints ? 0 : 1)} point${_totalPoints > 1 ? "s" : ""}',
-                                  style: AppTypography.caption.copyWith(
-                                    color: AppColors.teacherAccent,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                const SizedBox(height: 16),
+                                CustomTextField(
+                                  label: 'Titre du quiz',
+                                  hintText:
+                                      'ex: Évaluation TCF – Compréhension Écrite A2',
+                                  controller: _titleCtrl,
+                                  onChanged: (_) => setState(() {}),
                                 ),
-                              ],
-                            ),
-                            Row(
-                              children: [
-                                TextButton.icon(
-                                  onPressed: _openSetAllPointsDialog,
-                                  icon: const Icon(Icons.tune, size: 16, color: AppColors.frenchNavy),
-                                  label: Text(
-                                    'Harmoniser le barème',
-                                    style: AppTypography.caption.copyWith(
-                                      fontWeight: FontWeight.w600,
+                                const SizedBox(height: 14),
+                                CustomTextField(
+                                  label: 'Description courte',
+                                  hintText: 'Ce que couvre cette évaluation...',
+                                  controller: _descCtrl,
+                                  maxLines: 2,
+                                ),
+                                const SizedBox(height: 10),
+
+                                // Instructions Toggle
+                                if (!_showInstructions)
+                                  TextButton.icon(
+                                    onPressed: () => setState(
+                                      () => _showInstructions = true,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.add,
+                                      size: 16,
                                       color: AppColors.frenchNavy,
                                     ),
+                                    label: Text(
+                                      'Ajouter des consignes spécifiques pour les étudiants',
+                                      style: AppTypography.caption.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.frenchNavy,
+                                      ),
+                                    ),
+                                  )
+                                else ...[
+                                  const SizedBox(height: 4),
+                                  CustomTextField(
+                                    label:
+                                        'Consignes préalables à la passation',
+                                    hintText:
+                                        'ex: Pas de dictionnaire. Toutes les questions doivent être répondues...',
+                                    controller: _instructionsCtrl,
+                                    maxLines: 3,
                                   ),
+                                ],
+                                const SizedBox(height: 18),
+
+                                // Duration chips
+                                Text(
+                                  'Durée de passation (minutes)',
+                                  style: AppTypography.label.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  children: _durationChips.map((mins) {
+                                    final isSelected = _durationMinutes == mins;
+                                    return ChoiceChip(
+                                      label: Text('$mins min'),
+                                      selected: isSelected,
+                                      selectedColor: AppColors.frenchNavy,
+                                      backgroundColor: AppColors.pureWhite,
+                                      labelStyle: AppTypography.caption
+                                          .copyWith(
+                                            fontWeight: FontWeight.w700,
+                                            color: isSelected
+                                                ? AppColors.pureWhite
+                                                : AppColors.textMuted,
+                                          ),
+                                      side: BorderSide(
+                                        color: isSelected
+                                            ? AppColors.frenchNavy
+                                            : AppColors.border,
+                                      ),
+                                      onSelected: (_) => setState(
+                                        () => _durationMinutes = mins,
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                                const SizedBox(height: 18),
+
+                                // Target Batches Multi-Select
+                                Text(
+                                  'Promotions assignées',
+                                  style: AppTypography.label.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                if (_isLoadingBatches)
+                                  const LinearProgressIndicator(minHeight: 2)
+                                else if (_availableBatches.isEmpty)
+                                  Text(
+                                    'Aucune promotion disponible.',
+                                    style: AppTypography.caption,
+                                  )
+                                else
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 6,
+                                    children: _availableBatches.map((b) {
+                                      final bId = (b['id'] as num).toInt();
+                                      final isSelected = _selectedBatchIds
+                                          .contains(bId);
+                                      return FilterChip(
+                                        label: Text(b['name'] ?? 'Cohort'),
+                                        selected: isSelected,
+                                        selectedColor:
+                                            AppColors.teacherAccentSoft,
+                                        checkmarkColor: AppColors.teacherAccent,
+                                        labelStyle: AppTypography.caption
+                                            .copyWith(
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
+                                              color: isSelected
+                                                  ? AppColors.teacherAccent
+                                                  : AppColors.text,
+                                            ),
+                                        onSelected: (sel) {
+                                          setState(() {
+                                            if (sel) {
+                                              _selectedBatchIds.add(bId);
+                                            } else {
+                                              _selectedBatchIds.remove(bId);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    }).toList(),
+                                  ),
+                                const SizedBox(height: 18),
+
+                                // Availability Mode (Open vs Window)
+                                Text(
+                                  'Disponibilité du quiz',
+                                  style: AppTypography.label.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceSoft,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: AppColors.borderSoft,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: () => setState(() {
+                                            _hasWindow = false;
+                                            _startDate = null;
+                                            _endDate = null;
+                                          }),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                            ),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: !_hasWindow
+                                                  ? AppColors.pureWhite
+                                                  : Colors.transparent,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              boxShadow: !_hasWindow
+                                                  ? [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withValues(
+                                                              alpha: 0.05,
+                                                            ),
+                                                        blurRadius: 4,
+                                                      ),
+                                                    ]
+                                                  : null,
+                                            ),
+                                            child: Text(
+                                              'Dès publication',
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                    fontWeight: !_hasWindow
+                                                        ? FontWeight.w700
+                                                        : FontWeight.w500,
+                                                    color: !_hasWindow
+                                                        ? AppColors.frenchNavy
+                                                        : AppColors.textMuted,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      Expanded(
+                                        child: InkWell(
+                                          onTap: () {
+                                            setState(() => _hasWindow = true);
+                                            if (_startDate == null ||
+                                                _endDate == null) {
+                                              _applyWindowPreset(72);
+                                            }
+                                          },
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                            ),
+                                            alignment: Alignment.center,
+                                            decoration: BoxDecoration(
+                                              color: _hasWindow
+                                                  ? AppColors.pureWhite
+                                                  : Colors.transparent,
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              boxShadow: _hasWindow
+                                                  ? [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withValues(
+                                                              alpha: 0.05,
+                                                            ),
+                                                        blurRadius: 4,
+                                                      ),
+                                                    ]
+                                                  : null,
+                                            ),
+                                            child: Text(
+                                              'Période planifiée',
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                    fontWeight: _hasWindow
+                                                        ? FontWeight.w700
+                                                        : FontWeight.w500,
+                                                    color: _hasWindow
+                                                        ? AppColors.frenchNavy
+                                                        : AppColors.textMuted,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                                if (_hasWindow) ...[
+                                  const SizedBox(height: 12),
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.surfaceSoft,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: AppColors.border,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Text(
+                                              'Créneau horaire :',
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                            ),
+                                            TextButton.icon(
+                                              onPressed: _pickDateTimeRange,
+                                              icon: const Icon(
+                                                Icons.edit_calendar,
+                                                size: 16,
+                                              ),
+                                              label: const Text('Modifier'),
+                                            ),
+                                          ],
+                                        ),
+                                        if (_startDate != null &&
+                                            _endDate != null) ...[
+                                          Text(
+                                            'Ouverture : ${DateFormat('dd MMM yyyy à HH:mm').format(_startDate!)}',
+                                            style: AppTypography.caption,
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Clôture : ${DateFormat('dd MMM yyyy à HH:mm').format(_endDate!)}',
+                                            style: AppTypography.caption,
+                                          ),
+                                        ],
+                                        const SizedBox(height: 8),
+                                        Wrap(
+                                          spacing: 6,
+                                          children: [
+                                            ActionChip(
+                                              label: const Text('24h'),
+                                              onPressed: () =>
+                                                  _applyWindowPreset(24),
+                                            ),
+                                            ActionChip(
+                                              label: const Text('3 jours'),
+                                              onPressed: () =>
+                                                  _applyWindowPreset(72),
+                                            ),
+                                            ActionChip(
+                                              label: const Text('7 jours'),
+                                              onPressed: () =>
+                                                  _applyWindowPreset(168),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 18),
+
+                                // Delivery options
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    'Mélanger l\'ordre des questions',
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'Ordre aléatoire des questions pour chaque candidat.',
+                                    style: AppTypography.caption,
+                                  ),
+                                  activeThumbColor: AppColors.frenchNavy,
+                                  value: _shuffleQuestions,
+                                  onChanged: (val) =>
+                                      setState(() => _shuffleQuestions = val),
+                                ),
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                    'Mélanger l\'ordre des réponses',
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    'Ordre aléatoire des options A, B, C, D.',
+                                    style: AppTypography.caption,
+                                  ),
+                                  activeThumbColor: AppColors.frenchNavy,
+                                  value: _shuffleOptions,
+                                  onChanged: (val) =>
+                                      setState(() => _shuffleOptions = val),
                                 ),
                               ],
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
+                          ),
 
-                        // Questions list
-                        ..._questions.asMap().entries.map((entry) {
-                          final idx = entry.key;
-                          final q = entry.value;
+                          const SizedBox(height: 24),
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: QuestionEditorCard(
-                              index: idx,
-                              question: q,
-                              onChanged: () => setState(() {}),
-                              onDuplicate: () {
-                                setState(() {
-                                  final copiedOptions = q.options
-                                      .map((o) => QuizOptionDraft(text: o.text, isCorrect: o.isCorrect))
-                                      .toList();
-                                  _questions.insert(
-                                    idx + 1,
-                                    QuizQuestionDraft(
-                                      questionText: '${q.questionText} (Copie)',
-                                      questionType: q.questionType,
-                                      points: q.points,
-                                      explanation: q.explanation,
-                                      yesNoAnswer: q.yesNoAnswer,
-                                      audioClipTempId: q.audioClipTempId,
-                                      audioClipId: q.audioClipId,
-                                      options: copiedOptions,
-                                      audioFileId: q.audioFileId,
+                          _buildQuizSummary(),
+                          const SizedBox(height: 24),
+
+                          // Listening Sections (if any)
+                          if (_audioClips.isNotEmpty) ...[
+                            Text(
+                              'Sections d\'écoute audio (${_audioClips.length})',
+                              style: AppTypography.titleMedium.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.frenchNavy,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            ..._audioClips.asMap().entries.map((entry) {
+                              final cIdx = entry.key;
+                              final clip = entry.value;
+                              final linkedQuestions = _questionsForClip(
+                                clip,
+                              ).toList();
+                              final audioEndpoint = _audioEndpoint(clip);
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 14),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: AppColors.pureWhite,
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(
+                                    color: AppColors.frenchBlue.withValues(
+                                      alpha: 0.3,
                                     ),
-                                  );
-                                });
-                              },
-                              onDelete: () {
-                                setState(() => _questions.removeAt(idx));
-                              },
-                              onMoveUp: idx > 0
-                                  ? () {
-                                      setState(() {
-                                        final item = _questions.removeAt(idx);
-                                        _questions.insert(idx - 1, item);
-                                      });
-                                    }
-                                  : null,
-                              onMoveDown: idx < _questions.length - 1
-                                  ? () {
-                                      setState(() {
-                                        final item = _questions.removeAt(idx);
-                                        _questions.insert(idx + 1, item);
-                                      });
-                                    }
-                                  : null,
-                            ),
-                          );
-                        }),
-
-                        // Add Question Action Buttons
-                        Row(
-                          children: [
-                            Expanded(
-                              child: CustomButton(
-                                text: 'Ajouter question',
-                                icon: Icons.add,
-                                variant: ButtonVariant.secondary,
-                                height: 48,
-                                onPressed: () {
-                                  setState(() {
-                                    _questions.add(QuizQuestionDraft(
-                                      questionText: '',
-                                      questionType: 'mcq_single',
-                                      points: 1,
-                                    ));
-                                  });
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            IconButton(
-                              style: IconButton.styleFrom(
-                                backgroundColor: AppColors.teacherAccentSoft,
-                                padding: const EdgeInsets.all(12),
-                              ),
-                              icon: const Icon(Icons.auto_awesome, color: AppColors.teacherAccent),
-                              tooltip: 'Générer avec l\'IA',
-                              onPressed: _openAiGenerator,
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton(
-                              style: IconButton.styleFrom(
-                                backgroundColor: AppColors.frenchGoldBg,
-                                padding: const EdgeInsets.all(12),
-                              ),
-                              icon: const Icon(Icons.headphones, color: AppColors.frenchGold),
-                              tooltip: 'Section Audio',
-                              onPressed: _openAudioStudio,
-                            ),
+                                    width: 1.3,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.surfaceSoft,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
+                                          ),
+                                          child: const Icon(
+                                            Icons.headphones,
+                                            color: AppColors.frenchBlue,
+                                            size: 20,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Section Audio #${cIdx + 1}',
+                                                style: AppTypography.bodyMedium
+                                                    .copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                    ),
+                                              ),
+                                              Text(
+                                                clip.sourceType == 'tts'
+                                                    ? 'Voix native · ${clip.voiceName}'
+                                                    : (clip.fileName ??
+                                                          'Enregistrement importé'),
+                                                style: AppTypography.caption
+                                                    .copyWith(
+                                                      color:
+                                                          AppColors.textMuted,
+                                                    ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            color: AppColors.bad,
+                                            size: 20,
+                                          ),
+                                          tooltip: 'Supprimer la section audio',
+                                          onPressed: () {
+                                            setState(() {
+                                              _audioClips.removeAt(cIdx);
+                                              // Detach questions from this clip
+                                              for (final q in _questions) {
+                                                if (_belongsToClip(q, clip)) {
+                                                  q.audioClipTempId = null;
+                                                  q.audioClipId = null;
+                                                }
+                                              }
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    if (clip.transcript.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        clip.transcript,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppTypography.caption.copyWith(
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ],
+                                    if (audioEndpoint != null) ...[
+                                      const SizedBox(height: 12),
+                                      AuthenticatedAudioPlayer(
+                                        endpoint: audioEndpoint,
+                                        title: 'Écouter l\'audio',
+                                      ),
+                                    ],
+                                    const SizedBox(height: 10),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 3,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.surfaceSoft,
+                                            borderRadius: BorderRadius.circular(
+                                              6,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            clip.maxPlays == 0
+                                                ? 'Écoutes illimitées'
+                                                : '${clip.maxPlays} écoute(s) max',
+                                            style: AppTypography.caption
+                                                .copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        TextButton.icon(
+                                          icon: const Icon(Icons.add, size: 16),
+                                          label: const Text(
+                                            'Question sur cet audio',
+                                          ),
+                                          onPressed: () {
+                                            setState(() {
+                                              _questions.add(
+                                                QuizQuestionDraft(
+                                                  questionText: '',
+                                                  questionType: 'mcq_single',
+                                                  points: 1,
+                                                  audioClipTempId: clip.tempId,
+                                                  audioClipId: clip.id,
+                                                ),
+                                              );
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    const Divider(
+                                      height: 1,
+                                      color: AppColors.borderSoft,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          '${linkedQuestions.length} question${linkedQuestions.length > 1 ? 's' : ''} liée${linkedQuestions.length > 1 ? 's' : ''}',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.frenchNavy,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const Spacer(),
+                                        Text(
+                                          '${linkedQuestions.fold<num>(0, (sum, item) => sum + item.value.points)} pts',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.textMuted,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    ...linkedQuestions.map(
+                                      (item) => _buildQuestionEditor(item.key),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                            const SizedBox(height: 12),
                           ],
-                        ),
-                      ],
+
+                          // Questions Section Header
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Questions indépendantes (${_questions.where((question) => !_isAudioQuestion(question)).length})',
+                                    style: AppTypography.titleLarge.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Total : ${_totalPoints.toStringAsFixed(_totalPoints.truncateToDouble() == _totalPoints ? 0 : 1)} point${_totalPoints > 1 ? "s" : ""}',
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.teacherAccent,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Row(
+                                children: [
+                                  TextButton.icon(
+                                    onPressed: _openSetAllPointsDialog,
+                                    icon: const Icon(
+                                      Icons.tune,
+                                      size: 16,
+                                      color: AppColors.frenchNavy,
+                                    ),
+                                    label: Text(
+                                      'Harmoniser le barème',
+                                      style: AppTypography.caption.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.frenchNavy,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Questions list
+                          ..._questions
+                              .asMap()
+                              .entries
+                              .where((entry) => !_isAudioQuestion(entry.value))
+                              .map((entry) => _buildQuestionEditor(entry.key)),
+
+                          // Add Question Action Buttons
+                          Row(
+                            children: [
+                              Expanded(
+                                child: CustomButton(
+                                  text: 'Ajouter question',
+                                  icon: Icons.add,
+                                  variant: ButtonVariant.secondary,
+                                  height: 48,
+                                  onPressed: () {
+                                    setState(() {
+                                      _questions.add(
+                                        QuizQuestionDraft(
+                                          questionText: '',
+                                          questionType: 'mcq_single',
+                                          points: 1,
+                                        ),
+                                      );
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              IconButton(
+                                style: IconButton.styleFrom(
+                                  backgroundColor: AppColors.teacherAccentSoft,
+                                  padding: const EdgeInsets.all(12),
+                                ),
+                                icon: const Icon(
+                                  Icons.auto_awesome,
+                                  color: AppColors.teacherAccent,
+                                ),
+                                tooltip: 'Générer avec l\'IA',
+                                onPressed: _openAiGenerator,
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                style: IconButton.styleFrom(
+                                  backgroundColor: AppColors.frenchGoldBg,
+                                  padding: const EdgeInsets.all(12),
+                                ),
+                                icon: const Icon(
+                                  Icons.headphones,
+                                  color: AppColors.frenchGold,
+                                ),
+                                tooltip: 'Section Audio',
+                                onPressed: _openAudioStudio,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
 
                 // Bottom Bar
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   decoration: const BoxDecoration(
                     color: AppColors.pureWhite,
                     border: Border(top: BorderSide(color: AppColors.border)),
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: CustomButton(
-                          text: 'Brouillon',
-                          variant: ButtonVariant.secondary,
-                          isLoading: _isSaving,
-                          onPressed: () => _saveQuiz(publish: false),
+                  child: AdaptiveContent(
+                    maxWidth: 1080,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: CustomButton(
+                            text: 'Brouillon',
+                            variant: ButtonVariant.secondary,
+                            isLoading: _isSaving,
+                            onPressed: () => _saveQuiz(publish: false),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: CustomButton(
-                          text: widget.existingQuiz?['status'] == 'published' ? 'Sauvegarder' : 'Publier',
-                          icon: Icons.rocket_launch,
-                          variant: ButtonVariant.primary,
-                          isLoading: _isSaving,
-                          onPressed: () => _saveQuiz(publish: true),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: CustomButton(
+                            text: widget.existingQuiz?['status'] == 'published'
+                                ? 'Sauvegarder'
+                                : 'Publier',
+                            icon: Icons.rocket_launch,
+                            variant: ButtonVariant.primary,
+                            isLoading: _isSaving,
+                            onPressed: () => _saveQuiz(publish: true),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ],

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/api_client.dart';
 import '../api/api_endpoints.dart';
@@ -81,16 +82,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
         await _tokenStorage.clearAll();
         state = const AuthState(isLoading: false, isAuthenticated: false);
       }
-    } catch (_) {
-      // If network error but we have cached user, keep user logged in
-      final cachedUserJson = await _tokenStorage.getUserJson();
-      if (cachedUserJson != null) {
-        try {
-          final user = UserModel.fromJson(jsonDecode(cachedUserJson));
-          state = AuthState(isLoading: false, isAuthenticated: true, user: user);
-          return;
-        } catch (_) {}
-      }
+    } catch (e) {
+      // Token expired, invalid or unauthorized — clear session and show login
+      await _tokenStorage.clearAll();
       state = const AuthState(isLoading: false, isAuthenticated: false);
     }
   }
@@ -132,12 +126,14 @@ class AuthNotifier extends StateNotifier<AuthState> {
       );
       return true;
     } on ApiException catch (e) {
+      debugPrint('LOGIN ApiException: ${e.message}, status: ${e.statusCode}');
       state = state.copyWith(isLoading: false, errorMessage: e.message);
       return false;
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('LOGIN Generic Exception: $e\n$st');
       state = state.copyWith(
         isLoading: false,
-        errorMessage: 'Connection failed. Please check your network and try again.',
+        errorMessage: 'Connection failed ($e). Please check your network and try again.',
       );
       return false;
     }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/localization/translations.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 
 class QuizOptionDraft {
@@ -8,19 +9,16 @@ class QuizOptionDraft {
   String text;
   bool isCorrect;
 
-  QuizOptionDraft({
-    this.id,
-    required this.text,
-    this.isCorrect = false,
-  });
+  QuizOptionDraft({this.id, required this.text, this.isCorrect = false});
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'option_text': text.trim(),
-        'is_correct': isCorrect,
-      };
+    if (id != null) 'id': id,
+    'option_text': text.trim(),
+    'is_correct': isCorrect,
+  };
 
-  factory QuizOptionDraft.fromJson(Map<String, dynamic> json) => QuizOptionDraft(
+  factory QuizOptionDraft.fromJson(Map<String, dynamic> json) =>
+      QuizOptionDraft(
         id: (json['id'] as num?)?.toInt(),
         text: json['option_text'] ?? json['text'] ?? '',
         isCorrect: json['is_correct'] == true || json['isCorrect'] == true,
@@ -52,30 +50,32 @@ class QuizQuestionDraft {
     this.audioClipId,
     this.audioFileId,
     this.audioUrl,
-  }) : options = options ?? [
-          QuizOptionDraft(text: '', isCorrect: true),
-          QuizOptionDraft(text: '', isCorrect: false),
-          QuizOptionDraft(text: '', isCorrect: false),
-          QuizOptionDraft(text: '', isCorrect: false),
-        ];
+  }) : options =
+           options ??
+           [
+             QuizOptionDraft(text: '', isCorrect: true),
+             QuizOptionDraft(text: '', isCorrect: false),
+             QuizOptionDraft(text: '', isCorrect: false),
+             QuizOptionDraft(text: '', isCorrect: false),
+           ];
 
   Map<String, dynamic> toJson() => {
-        if (id != null) 'id': id,
-        'question_text': questionText.trim(),
-        'question_type': questionType,
-        'marks': points,
-        'correct_answer': questionType == 'yes_no' ? (yesNoAnswer ?? 'yes') : null,
-        'explanation': explanation.trim(),
-        if (audioClipTempId != null) 'audio_clip_temp_id': audioClipTempId,
-        if (audioClipId != null) 'audio_clip_id': audioClipId,
-        if (audioFileId != null) 'kdrive_file_id': audioFileId,
-        'options': questionType == 'yes_no'
-            ? []
-            : options
-                .where((o) => o.text.trim().isNotEmpty)
-                .map((o) => o.toJson())
-                .toList(),
-      };
+    if (id != null) 'id': id,
+    'question_text': questionText.trim(),
+    'question_type': questionType,
+    'marks': points,
+    'correct_answer': questionType == 'yes_no' ? (yesNoAnswer ?? 'yes') : null,
+    'explanation': explanation.trim(),
+    if (audioClipTempId != null) 'audio_clip_temp_id': audioClipTempId,
+    if (audioClipId != null) 'audio_clip_id': audioClipId,
+    if (audioFileId != null) 'kdrive_file_id': audioFileId,
+    'options': questionType == 'yes_no'
+        ? []
+        : options
+              .where((o) => o.text.trim().isNotEmpty)
+              .map((o) => o.toJson())
+              .toList(),
+  };
 
   String? validate(int number) {
     if (questionText.trim().isEmpty) {
@@ -132,6 +132,8 @@ class QuestionEditorCard extends StatefulWidget {
 class _QuestionEditorCardState extends State<QuestionEditorCard> {
   late TextEditingController _textCtrl;
   late TextEditingController _explainCtrl;
+  bool _isEditing = true;
+  String? _validationError;
 
   @override
   void initState() {
@@ -160,12 +162,134 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
     super.dispose();
   }
 
+  String _typeLabel(BuildContext context, String type) {
+    switch (type) {
+      case 'mcq_multiple':
+        return context.isFrench ? 'Choix multiples' : 'Multiple choice';
+      case 'yes_no':
+        return context.isFrench ? 'Vrai / Faux' : 'True / False';
+      default:
+        return context.isFrench ? 'Choix unique' : 'Single choice';
+    }
+  }
+
+  String _answerSummary(BuildContext context, QuizQuestionDraft q) {
+    if (q.questionType == 'yes_no') {
+      if (q.yesNoAnswer == 'yes') return context.isFrench ? 'Vrai' : 'True';
+      return context.isFrench ? 'Faux' : 'False';
+    }
+    final answers = q.options
+        .where((option) => option.isCorrect && option.text.trim().isNotEmpty)
+        .map((option) => option.text.trim())
+        .join(' · ');
+    return answers.isEmpty
+        ? (context.isFrench ? 'Réponse à compléter' : 'Answer required')
+        : answers;
+  }
+
+  Widget _buildCollapsedSummary(BuildContext context) {
+    final q = widget.question;
+    return Container(
+      key: ValueKey('question-summary-${widget.index}'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.pureWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border, width: 1.1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: AppColors.frenchNavy,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: Text(
+                  'Q${widget.index + 1}',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.pureWhite,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  _typeLabel(context, q.questionType),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Text(
+                '${q.points} pt${q.points == 1 ? '' : 's'}',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.frenchNavy,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              IconButton(
+                key: ValueKey('question-edit-${widget.index}'),
+                tooltip: context.isFrench ? 'Modifier' : 'Edit',
+                onPressed: () => setState(() => _isEditing = true),
+                icon: const Icon(
+                  Icons.edit_outlined,
+                  size: 19,
+                  color: AppColors.frenchBlue,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            q.questionText.trim(),
+            style: AppTypography.bodyMedium.copyWith(
+              color: AppColors.ink,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.goodBg,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, size: 16, color: AppColors.good),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    _answerSummary(context, q),
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.good,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final q = widget.question;
     final isMcqSingle = q.questionType == 'mcq_single';
     final isMcqMulti = q.questionType == 'mcq_multiple';
     final isYesNo = q.questionType == 'yes_no';
+
+    if (!_isEditing) return _buildCollapsedSummary(context);
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -188,7 +312,10 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
                   color: AppColors.frenchNavy,
                   borderRadius: BorderRadius.circular(8),
@@ -206,19 +333,45 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
               Expanded(
                 child: DropdownButtonFormField<String>(
                   initialValue: q.questionType,
+                  isExpanded: true,
                   decoration: const InputDecoration(
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8))),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
                   ),
                   style: AppTypography.caption.copyWith(
                     fontWeight: FontWeight.w600,
                     color: AppColors.ink,
                   ),
-                  items: const [
-                    DropdownMenuItem(value: 'mcq_single', child: Text('Choix unique (QCM)')),
-                    DropdownMenuItem(value: 'mcq_multiple', child: Text('Choix multiples')),
-                    DropdownMenuItem(value: 'yes_no', child: Text('Vrai / Faux')),
+                  items: [
+                    DropdownMenuItem(
+                      value: 'mcq_single',
+                      child: Text(
+                        context.isFrench ? 'Choix unique' : 'Single choice',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'mcq_multiple',
+                      child: Text(
+                        context.isFrench
+                            ? 'Choix multiples'
+                            : 'Multiple choice',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    DropdownMenuItem(
+                      value: 'yes_no',
+                      child: Text(
+                        context.isFrench ? 'Vrai / Faux' : 'True / False',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ],
                   onChanged: (val) {
                     if (val == null) return;
@@ -239,20 +392,29 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                   },
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               // Points
               SizedBox(
-                width: 75,
+                width: 60,
                 child: TextFormField(
                   initialValue: '${q.points}',
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
                   decoration: const InputDecoration(
                     labelText: 'Pts',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(8))),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 8,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
                   ),
-                  style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
                   onChanged: (val) {
                     final p = num.tryParse(val);
                     if (p != null && p > 0) {
@@ -264,7 +426,11 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
               ),
               // Actions menu
               PopupMenuButton<String>(
-                icon: const Icon(Icons.more_vert, size: 20, color: AppColors.textMuted),
+                icon: const Icon(
+                  Icons.more_vert,
+                  size: 20,
+                  color: AppColors.textMuted,
+                ),
                 onSelected: (action) {
                   if (action == 'duplicate') widget.onDuplicate();
                   if (action == 'delete') widget.onDelete();
@@ -273,13 +439,25 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                 },
                 itemBuilder: (context) => [
                   if (widget.onMoveUp != null)
-                    const PopupMenuItem(value: 'up', child: Text('Déplacer vers le haut')),
+                    const PopupMenuItem(
+                      value: 'up',
+                      child: Text('Déplacer vers le haut'),
+                    ),
                   if (widget.onMoveDown != null)
-                    const PopupMenuItem(value: 'down', child: Text('Déplacer vers le bas')),
-                  const PopupMenuItem(value: 'duplicate', child: Text('Dupliquer')),
+                    const PopupMenuItem(
+                      value: 'down',
+                      child: Text('Déplacer vers le bas'),
+                    ),
+                  const PopupMenuItem(
+                    value: 'duplicate',
+                    child: Text('Dupliquer'),
+                  ),
                   const PopupMenuItem(
                     value: 'delete',
-                    child: Text('Supprimer', style: TextStyle(color: AppColors.bad)),
+                    child: Text(
+                      'Supprimer',
+                      style: TextStyle(color: AppColors.bad),
+                    ),
                   ),
                 ],
               ),
@@ -320,11 +498,18 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 16,
+                      ),
                       decoration: BoxDecoration(
-                        color: q.yesNoAnswer == 'yes' ? AppColors.goodBg : AppColors.pureWhite,
+                        color: q.yesNoAnswer == 'yes'
+                            ? AppColors.goodBg
+                            : AppColors.pureWhite,
                         border: Border.all(
-                          color: q.yesNoAnswer == 'yes' ? AppColors.good : AppColors.border,
+                          color: q.yesNoAnswer == 'yes'
+                              ? AppColors.good
+                              : AppColors.border,
                           width: q.yesNoAnswer == 'yes' ? 1.5 : 1,
                         ),
                         borderRadius: BorderRadius.circular(10),
@@ -333,8 +518,12 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            q.yesNoAnswer == 'yes' ? Icons.check_circle : Icons.radio_button_unchecked,
-                            color: q.yesNoAnswer == 'yes' ? AppColors.good : AppColors.textMuted,
+                            q.yesNoAnswer == 'yes'
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            color: q.yesNoAnswer == 'yes'
+                                ? AppColors.good
+                                : AppColors.textMuted,
                             size: 18,
                           ),
                           const SizedBox(width: 8),
@@ -342,7 +531,9 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                             'Vrai (Oui)',
                             style: AppTypography.bodyMedium.copyWith(
                               fontWeight: FontWeight.w700,
-                              color: q.yesNoAnswer == 'yes' ? AppColors.good : AppColors.text,
+                              color: q.yesNoAnswer == 'yes'
+                                  ? AppColors.good
+                                  : AppColors.text,
                             ),
                           ),
                         ],
@@ -359,11 +550,18 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                     },
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 16,
+                      ),
                       decoration: BoxDecoration(
-                        color: q.yesNoAnswer == 'no' ? AppColors.goodBg : AppColors.pureWhite,
+                        color: q.yesNoAnswer == 'no'
+                            ? AppColors.goodBg
+                            : AppColors.pureWhite,
                         border: Border.all(
-                          color: q.yesNoAnswer == 'no' ? AppColors.good : AppColors.border,
+                          color: q.yesNoAnswer == 'no'
+                              ? AppColors.good
+                              : AppColors.border,
                           width: q.yesNoAnswer == 'no' ? 1.5 : 1,
                         ),
                         borderRadius: BorderRadius.circular(10),
@@ -372,8 +570,12 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
-                            q.yesNoAnswer == 'no' ? Icons.check_circle : Icons.radio_button_unchecked,
-                            color: q.yesNoAnswer == 'no' ? AppColors.good : AppColors.textMuted,
+                            q.yesNoAnswer == 'no'
+                                ? Icons.check_circle
+                                : Icons.radio_button_unchecked,
+                            color: q.yesNoAnswer == 'no'
+                                ? AppColors.good
+                                : AppColors.textMuted,
                             size: 18,
                           ),
                           const SizedBox(width: 8),
@@ -381,7 +583,9 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                             'Faux (Non)',
                             style: AppTypography.bodyMedium.copyWith(
                               fontWeight: FontWeight.w700,
-                              color: q.yesNoAnswer == 'no' ? AppColors.good : AppColors.text,
+                              color: q.yesNoAnswer == 'no'
+                                  ? AppColors.good
+                                  : AppColors.text,
                             ),
                           ),
                         ],
@@ -415,8 +619,12 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                     if (isMcqSingle)
                       IconButton(
                         icon: Icon(
-                          opt.isCorrect ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                          color: opt.isCorrect ? AppColors.good : AppColors.textMuted,
+                          opt.isCorrect
+                              ? Icons.radio_button_checked
+                              : Icons.radio_button_unchecked,
+                          color: opt.isCorrect
+                              ? AppColors.good
+                              : AppColors.textMuted,
                         ),
                         tooltip: 'Définir comme bonne réponse',
                         onPressed: () {
@@ -432,7 +640,9 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                       Checkbox(
                         value: opt.isCorrect,
                         activeColor: AppColors.good,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(4),
+                        ),
                         onChanged: (val) {
                           setState(() => opt.isCorrect = val ?? false);
                           widget.onChanged();
@@ -445,7 +655,9 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                         letter,
                         style: AppTypography.caption.copyWith(
                           fontWeight: FontWeight.w800,
-                          color: opt.isCorrect ? AppColors.good : AppColors.textMuted,
+                          color: opt.isCorrect
+                              ? AppColors.good
+                              : AppColors.textMuted,
                         ),
                       ),
                     ),
@@ -456,11 +668,16 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                         decoration: InputDecoration(
                           hintText: 'Option $letter...',
                           isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 10,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide(
-                              color: opt.isCorrect ? AppColors.good : AppColors.border,
+                              color: opt.isCorrect
+                                  ? AppColors.good
+                                  : AppColors.border,
                             ),
                           ),
                         ),
@@ -472,7 +689,11 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                     ),
                     if (q.options.length > 2)
                       IconButton(
-                        icon: const Icon(Icons.close, size: 18, color: AppColors.bad),
+                        icon: const Icon(
+                          Icons.close,
+                          size: 18,
+                          color: AppColors.bad,
+                        ),
                         tooltip: 'Supprimer option',
                         onPressed: () {
                           setState(() => q.options.removeAt(optIdx));
@@ -492,7 +713,11 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
                   });
                   widget.onChanged();
                 },
-                icon: const Icon(Icons.add, size: 16, color: AppColors.frenchNavy),
+                icon: const Icon(
+                  Icons.add,
+                  size: 16,
+                  color: AppColors.frenchNavy,
+                ),
                 label: Text(
                   'Ajouter une option (jusqu\'à 8)',
                   style: AppTypography.caption.copyWith(
@@ -508,7 +733,8 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
           // Pedagogical explanation
           CustomTextField(
             label: 'Explication pédagogique (affichée lors de la correction)',
-            hintText: 'Pourquoi cette réponse est-elle la bonne ? Précisez la règle...',
+            hintText:
+                'Pourquoi cette réponse est-elle la bonne ? Précisez la règle...',
             controller: _explainCtrl,
             maxLines: 2,
             prefixIcon: Icons.lightbulb_outline,
@@ -516,6 +742,49 @@ class _QuestionEditorCardState extends State<QuestionEditorCard> {
               q.explanation = val;
               widget.onChanged();
             },
+          ),
+          if (_validationError != null) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(
+                color: AppColors.badBg,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.badBorder),
+              ),
+              child: Text(
+                _validationError!,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.bad,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton.icon(
+              key: ValueKey('question-done-${widget.index}'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.frenchBlue,
+                foregroundColor: AppColors.pureWhite,
+              ),
+              onPressed: () {
+                final error = q.validate(widget.index + 1);
+                if (error != null) {
+                  setState(() => _validationError = error);
+                  return;
+                }
+                setState(() {
+                  _validationError = null;
+                  _isEditing = false;
+                });
+              },
+              icon: const Icon(Icons.check, size: 17),
+              label: Text(context.isFrench ? 'Terminé' : 'Done'),
+            ),
           ),
         ],
       ),

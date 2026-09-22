@@ -40,6 +40,51 @@ class AppTheme {
         ),
         margin: EdgeInsets.zero,
       ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.pureWhite,
+        surfaceTintColor: Colors.transparent,
+        elevation: 10,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: AppColors.border),
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: AppColors.pureWhite,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        dragHandleColor: AppColors.border,
+        constraints: const BoxConstraints(maxWidth: 720),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+      ),
+      dataTableTheme: DataTableThemeData(
+        headingRowColor: const WidgetStatePropertyAll(AppColors.surfaceSoft),
+        headingTextStyle: GoogleFonts.inter(
+          color: AppColors.textMuted,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.4,
+        ),
+        dataTextStyle: GoogleFonts.inter(
+          color: AppColors.text,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
+        dividerThickness: 1,
+        horizontalMargin: 20,
+        columnSpacing: 28,
+        headingRowHeight: 48,
+        dataRowMinHeight: 56,
+        dataRowMaxHeight: 68,
+        decoration: BoxDecoration(
+          color: AppColors.pureWhite,
+          border: Border.all(color: AppColors.border),
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.frenchBlue,
@@ -49,7 +94,10 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
-          textStyle: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+          textStyle: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
@@ -60,13 +108,19 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
-          textStyle: GoogleFonts.inter(fontSize: 13.5, fontWeight: FontWeight.w600),
+          textStyle: GoogleFonts.inter(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.pureWhite,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: AppColors.border, width: 1.5),
@@ -83,8 +137,15 @@ class AppTheme {
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: AppColors.bad, width: 1.5),
         ),
-        hintStyle: GoogleFonts.inter(color: AppColors.textSubtle, fontSize: 13.5),
-        labelStyle: GoogleFonts.inter(color: AppColors.text, fontSize: 13, fontWeight: FontWeight.w500),
+        hintStyle: GoogleFonts.inter(
+          color: AppColors.textSubtle,
+          fontSize: 13.5,
+        ),
+        labelStyle: GoogleFonts.inter(
+          color: AppColors.text,
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: AppColors.borderSoft,

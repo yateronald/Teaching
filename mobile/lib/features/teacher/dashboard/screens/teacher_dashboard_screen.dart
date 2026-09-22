@@ -5,6 +5,8 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
+import '../../../../core/localization/translations.dart';
+import '../../../../core/responsive/responsive_layout.dart';
 import '../../../../core/widgets/empty_state.dart';
 import '../../../../core/widgets/kpi_stat_card.dart';
 import '../../../../core/widgets/status_badge.dart';
@@ -16,10 +18,12 @@ class TeacherDashboardScreen extends ConsumerStatefulWidget {
   const TeacherDashboardScreen({super.key, this.onNavigateTab});
 
   @override
-  ConsumerState<TeacherDashboardScreen> createState() => _TeacherDashboardScreenState();
+  ConsumerState<TeacherDashboardScreen> createState() =>
+      _TeacherDashboardScreenState();
 }
 
-class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen> {
+class _TeacherDashboardScreenState
+    extends ConsumerState<TeacherDashboardScreen> {
   bool _isLoading = true;
   String? _error;
   String _period = '90d'; // 30d, 90d, all
@@ -96,10 +100,13 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
             if (cutoff != null && submittedAt.isBefore(cutoff)) continue;
             final score = (s['score'] as num?)?.toDouble() ?? 0.0;
             final maxScore = (s['max_score'] as num?)?.toDouble();
-            final pct = (maxScore != null && maxScore > 0) ? (score / maxScore) * 100 : null;
+            final pct = (maxScore != null && maxScore > 0)
+                ? (score / maxScore) * 100
+                : null;
 
             subs.add({
-              'studentName': '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim(),
+              'studentName':
+                  '${row['first_name'] ?? ''} ${row['last_name'] ?? ''}'.trim(),
               'batchName': row['batch_name'] ?? 'Cohort',
               'quizTitle': s['quiz_title'] ?? 'Quiz',
               'score': score,
@@ -111,7 +118,11 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         }
       }
     }
-    subs.sort((a, b) => (b['submittedAt'] as DateTime).compareTo(a['submittedAt'] as DateTime));
+    subs.sort(
+      (a, b) => (b['submittedAt'] as DateTime).compareTo(
+        a['submittedAt'] as DateTime,
+      ),
+    );
     return subs;
   }
 
@@ -142,6 +153,25 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
         count: list.length,
       );
     }).toList();
+  }
+
+  String _formatDateRange(dynamic start, dynamic end, bool isFrench) {
+    if (start == null && end == null) {
+      return isFrench ? 'Dates non définies' : 'Dates not set';
+    }
+    final sDate = start != null ? DateTime.tryParse(start.toString()) : null;
+    final eDate = end != null ? DateTime.tryParse(end.toString()) : null;
+    final fmt = DateFormat('d MMM yyyy', isFrench ? 'fr_FR' : 'en_US');
+    if (sDate != null && eDate != null) {
+      return isFrench
+          ? 'Du ${fmt.format(sDate)} au ${fmt.format(eDate)}'
+          : '${fmt.format(sDate)} - ${fmt.format(eDate)}';
+    } else if (sDate != null) {
+      return isFrench
+          ? 'À partir du ${fmt.format(sDate)}'
+          : 'From ${fmt.format(sDate)}';
+    }
+    return start?.toString() ?? '';
   }
 
   @override
@@ -175,7 +205,10 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       0,
       (sum, b) => sum + ((b['student_count'] as num?)?.toInt() ?? 0),
     );
-    final gradedScores = submissions.where((s) => s['pct'] != null).map((s) => s['pct'] as double).toList();
+    final gradedScores = submissions
+        .where((s) => s['pct'] != null)
+        .map((s) => s['pct'] as double)
+        .toList();
     final avgScore = gradedScores.isNotEmpty
         ? gradedScores.reduce((a, b) => a + b) / gradedScores.length
         : null;
@@ -185,10 +218,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
       color: AppColors.frenchNavy,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.symmetric(
-          horizontal: isTablet ? 32 : 16,
-          vertical: 24,
-        ),
+        padding: ResponsiveLayout.pageInsets(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -211,7 +241,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                       const SizedBox(height: 4),
                       Text(
                         'Aperçu de vos cohortes et de l\'assiduité pédagogique.',
-                        style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.textMuted,
+                        ),
                       ),
                     ],
                   ),
@@ -240,7 +272,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
               builder: (context, constraints) {
                 final crossAxisCount = isTablet ? 4 : 2;
                 final spacing = 12.0;
-                final cardWidth = (constraints.maxWidth - (spacing * (crossAxisCount - 1))) / crossAxisCount;
+                final cardWidth =
+                    (constraints.maxWidth - (spacing * (crossAxisCount - 1))) /
+                    crossAxisCount;
 
                 return Wrap(
                   spacing: spacing,
@@ -249,9 +283,13 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                     SizedBox(
                       width: cardWidth,
                       child: KpiStatCard(
-                        title: 'Cohortes actives',
+                        title: context.isFrench
+                            ? 'Cohortes actives'
+                            : 'Active Cohorts',
                         value: '$totalBatches',
-                        subtitle: 'Groupes d\'apprentissage',
+                        subtitle: context.isFrench
+                            ? 'Groupes d\'apprentissage'
+                            : 'Learning groups',
                         icon: Icons.groups_outlined,
                         iconColor: AppColors.frenchBlue,
                         onTap: () => widget.onNavigateTab?.call(1),
@@ -260,9 +298,13 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                     SizedBox(
                       width: cardWidth,
                       child: KpiStatCard(
-                        title: 'Quiz en cours',
+                        title: context.isFrench
+                            ? 'Quiz en cours'
+                            : 'Active Quizzes',
                         value: '$activeQuizzes',
-                        subtitle: 'Évaluations actives',
+                        subtitle: context.isFrench
+                            ? 'Évaluations actives'
+                            : 'Active evaluations',
                         icon: Icons.quiz_outlined,
                         iconColor: AppColors.teacherAccent,
                         onTap: () => widget.onNavigateTab?.call(2),
@@ -271,9 +313,13 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                     SizedBox(
                       width: cardWidth,
                       child: KpiStatCard(
-                        title: 'Total Étudiants',
+                        title: context.isFrench
+                            ? 'Total Étudiants'
+                            : 'Total Students',
                         value: '$totalSeats',
-                        subtitle: 'Inscriptions actives',
+                        subtitle: context.isFrench
+                            ? 'Inscriptions actives'
+                            : 'Active enrollments',
                         icon: Icons.person_outline,
                         iconColor: AppColors.good,
                       ),
@@ -281,9 +327,14 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                     SizedBox(
                       width: cardWidth,
                       child: KpiStatCard(
-                        title: 'Moyenne générale',
-                        value: avgScore != null ? '${avgScore.toStringAsFixed(1)}%' : '—',
-                        subtitle: '${gradedScores.length} soumissions',
+                        title: context.isFrench
+                            ? 'Moyenne générale'
+                            : 'Overall Average',
+                        value: avgScore != null
+                            ? '${avgScore.toStringAsFixed(1)}%'
+                            : '—',
+                        subtitle:
+                            '${gradedScores.length} ${context.isFrench ? 'soumissions' : 'submissions'}',
                         icon: Icons.emoji_events_outlined,
                         iconColor: AppColors.frenchGold,
                         progress: avgScore != null ? avgScore / 100 : 0.0,
@@ -310,25 +361,37 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Évolution des scores moyens',
-                            style: AppTypography.titleMedium.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink,
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              context.isFrench
+                                  ? 'Évolution des scores moyens'
+                                  : 'Average Score Trend',
+                              style: AppTypography.titleMedium.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.ink,
+                              ),
                             ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Moyenne mensuelle obtenue par vos étudiants aux quiz',
-                            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-                          ),
-                        ],
+                            const SizedBox(height: 2),
+                            Text(
+                              context.isFrench
+                                  ? 'Moyenne mensuelle obtenue par vos étudiants aux quiz'
+                                  : 'Monthly quiz average achieved by your students',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
+                      const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: AppColors.teacherAccentSoft,
                           borderRadius: BorderRadius.circular(8),
@@ -355,7 +418,7 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Mes Cohortes',
+                  context.isFrench ? 'Mes Cohortes' : 'My Cohorts',
                   style: AppTypography.titleLarge.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppColors.ink,
@@ -363,10 +426,16 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 ),
                 TextButton.icon(
                   onPressed: () => widget.onNavigateTab?.call(1),
-                  icon: const Icon(Icons.arrow_forward, size: 16, color: AppColors.frenchNavy),
+                  icon: const Icon(
+                    Icons.arrow_forward,
+                    size: 16,
+                    color: AppColors.frenchNavy,
+                  ),
                   label: Text(
-                    'Voir tout',
-                    style: AppTypography.label.copyWith(color: AppColors.frenchNavy),
+                    context.isFrench ? 'Voir tout' : 'View all',
+                    style: AppTypography.label.copyWith(
+                      color: AppColors.frenchNavy,
+                    ),
                   ),
                 ),
               ],
@@ -385,7 +454,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 child: Center(
                   child: Text(
                     'Aucune cohorte assignée pour le moment.',
-                    style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 ),
               )
@@ -395,7 +466,8 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   itemCount: _batches.length,
-                  separatorBuilder: (context, index) => const SizedBox(width: 14),
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(width: 14),
                   itemBuilder: (context, idx) {
                     final batch = _batches[idx];
                     final level = batch['french_level'] ?? 'A1';
@@ -417,11 +489,17 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                               StatusBadge.cefr(level),
                               Row(
                                 children: [
-                                  const Icon(Icons.people_outline, size: 16, color: AppColors.textMuted),
+                                  const Icon(
+                                    Icons.people_outline,
+                                    size: 16,
+                                    color: AppColors.textMuted,
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     '${batch['student_count'] ?? 0} élèves',
-                                    style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textMuted,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -437,8 +515,14 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            'Du ${batch['start_date'] ?? 'N/A'} au ${batch['end_date'] ?? 'N/A'}',
-                            style: AppTypography.caption.copyWith(color: AppColors.textSubtle),
+                            _formatDateRange(
+                              batch['start_date'],
+                              batch['end_date'],
+                              context.isFrench,
+                            ),
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSubtle,
+                            ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -473,7 +557,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                 child: Center(
                   child: Text(
                     'Aucune soumission récente.',
-                    style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.textMuted,
+                    ),
                   ),
                 ),
               )
@@ -488,7 +574,8 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: submissions.take(6).length,
-                  separatorBuilder: (context, index) => const Divider(height: 1, color: AppColors.borderSoft),
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 1, color: AppColors.borderSoft),
                   itemBuilder: (context, idx) {
                     final sub = submissions[idx];
                     final pct = sub['pct'] as double?;
@@ -496,7 +583,10 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                     final timeAgo = DateFormat('dd/MM HH:mm').format(dt);
 
                     return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 6,
+                      ),
                       leading: CircleAvatar(
                         backgroundColor: AppColors.surfaceSoft,
                         foregroundColor: AppColors.frenchNavy,
@@ -516,7 +606,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                       ),
                       subtitle: Text(
                         '${sub['batchName']} · ${sub['quizTitle']}',
-                        style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textMuted,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -527,7 +619,9 @@ class _TeacherDashboardScreenState extends ConsumerState<TeacherDashboardScreen>
                           const SizedBox(width: 10),
                           Text(
                             timeAgo,
-                            style: AppTypography.caption.copyWith(color: AppColors.textSubtle),
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSubtle,
+                            ),
                           ),
                         ],
                       ),

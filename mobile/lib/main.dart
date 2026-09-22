@@ -10,12 +10,15 @@ import 'core/widgets/tricolore_bar.dart';
 import 'features/auth/screens/welcome_screen.dart';
 import 'features/teacher/shell/teacher_shell.dart';
 
+import 'core/localization/app_locale_notifier.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Every screen that shows a date formats it with DateFormat(..., 'fr_FR').
-  // That throws LocaleDataException until the locale's symbols are loaded, so
-  // it has to happen before the first frame.
-  await initializeDateFormatting('fr_FR', null);
+  // Initialize date formatting for both supported locales
+  await Future.wait([
+    initializeDateFormatting('fr_FR', null),
+    initializeDateFormatting('en_US', null),
+  ]);
   runApp(
     const ProviderScope(
       child: LearnFrenchTeacherApp(),
@@ -23,16 +26,18 @@ void main() async {
   );
 }
 
-class LearnFrenchTeacherApp extends StatelessWidget {
+class LearnFrenchTeacherApp extends ConsumerWidget {
   const LearnFrenchTeacherApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final currentLocale = ref.watch(appLocaleProvider);
+
     return MaterialApp(
       title: 'Learn French with Natives – Teacher Space',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      locale: const Locale('fr', 'FR'),
+      locale: currentLocale,
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
