@@ -58,6 +58,12 @@ function attachMeetingRealtime(io, db) {
                 [id],
             );
             if (!meeting) return { ok: false };
+            // A device may reconnect after the original end broadcast. Give it
+            // the terminal state immediately instead of letting it re-subscribe.
+            if (meeting.status === 'ended') {
+                socket.emit('meeting:ended', { meetingId: id, status: 'ended' });
+                return { ok: false, ended: true };
+            }
             const who = await access.resolveAccess(db, meeting, me);
             if (who.direct) {
                 socket.join(access.rooms.participants(id));

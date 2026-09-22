@@ -77,8 +77,11 @@ async function endMeeting(db, io, meeting) {
 
     access.lobbyClear(meeting.id);
     await access.settleJoinRequests(db, meeting);
-    if (io) io.emit('meeting:ended', { meetingId: meeting.id });
-    access.closeLiveKitRoom(meeting);
+    if (io) io.emit('meeting:ended', { meetingId: meeting.id, status: 'ended' });
+    // Deleting the LiveKit room is the authoritative fallback: even a client
+    // that missed the Socket.IO event is disconnected before this operation
+    // reports success to the host.
+    await access.closeLiveKitRoom(meeting);
 }
 
 async function roomIsEmpty(meeting) {
