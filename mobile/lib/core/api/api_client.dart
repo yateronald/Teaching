@@ -20,6 +20,14 @@ class ApiClient {
 
   DateTime get estimatedServerNow => DateTime.now().add(_serverTimeOffset);
 
+  /// Called when the server says this device's session is over (signed out
+  /// elsewhere, password changed, account disabled). Set by the auth notifier.
+  void Function()? onSessionEnded;
+
+  /// Identifies the mobile app, which gets a six-month session.
+  static String get clientAppHeader =>
+      'lfwn-mobile/1 (${kIsWeb ? 'web' : defaultTargetPlatform.name.toLowerCase()})';
+
   ApiClient({TokenStorage? tokenStorage, String? customBaseUrl})
       : tokenStorage = tokenStorage ?? TokenStorage() {
     final baseUrl = customBaseUrl ?? (kIsWeb ? ApiEndpoints.webBaseUrl : ApiEndpoints.baseUrl);
@@ -32,6 +40,7 @@ class ApiClient {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'X-Client-App': clientAppHeader,
         },
       ),
     );
@@ -85,6 +94,17 @@ class ApiClient {
             message = 'Cannot connect to server. Please check your network.';
           } else if (error.error != null) {
             message = error.error.toString();
+          }
+
+          // Only a refusal of a token we actually sent ends the session;
+          // network errors and server trouble never sign the user out.
+          final status = error.response?.statusCode;
+          final sentToken =
+              error.requestOptions.headers['Authorization'] != null;
+          final disabled =
+              status == 403 && data is Map && data['code'] == 'ACCOUNT_DISABLED';
+          if (sentToken && (status == 401 || disabled)) {
+            onSessionEnded?.call();
           }
 
           final apiException = ApiException(

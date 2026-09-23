@@ -672,7 +672,7 @@ class _MyBatchesScreenState extends ConsumerState<MyBatchesScreen> {
         physics: const NeverScrollableScrollPhysics(),
         itemCount: list.length,
         separatorBuilder: (context, index) => const SizedBox(height: 14),
-        itemBuilder: (context, idx) => _buildBatchCard(list[idx] as Map<String, dynamic>, isFr),
+        itemBuilder: (context, idx) => _buildBatchCard(list[idx] as Map<String, dynamic>, isFr, isGrid: false),
       );
     }
 
@@ -686,12 +686,12 @@ class _MyBatchesScreenState extends ConsumerState<MyBatchesScreen> {
         mainAxisSpacing: 16,
         mainAxisExtent: 280,
       ),
-      itemBuilder: (context, idx) => _buildBatchCard(list[idx] as Map<String, dynamic>, isFr),
+      itemBuilder: (context, idx) => _buildBatchCard(list[idx] as Map<String, dynamic>, isFr, isGrid: true),
     );
   }
 
   // ── Batch Card (matches reference media_1790001341785.jpg) ──
-  Widget _buildBatchCard(Map<String, dynamic> batch, bool isFr) {
+  Widget _buildBatchCard(Map<String, dynamic> batch, bool isFr, {bool isGrid = false}) {
     final level = (batch['french_level'] ?? 'A1').toString().toUpperCase();
     final status = _computeStatus(batch);
     final progress = _computeProgress(batch, status, isFr);
@@ -833,7 +833,7 @@ class _MyBatchesScreenState extends ConsumerState<MyBatchesScreen> {
               ),
             ],
           ),
-          const Spacer(),
+          if (isGrid) const Spacer() else const SizedBox(height: 14),
 
           // Progress Section: Progress ... 100%
           if (progress != null) ...[

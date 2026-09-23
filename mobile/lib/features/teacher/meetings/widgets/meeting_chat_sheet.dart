@@ -1,8 +1,7 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
-import '../../../../core/api/api_client.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/translations.dart';
 
@@ -23,10 +22,11 @@ class MeetingChatMessage {
 }
 
 /// Standalone chat view usable in both docked side panel (tablet) and bottom sheet (mobile).
-class MeetingChatView extends ConsumerStatefulWidget {
+class MeetingChatView extends StatefulWidget {
   final int meetingId;
   final List<MeetingChatMessage> messages;
   final Function(MeetingChatMessage msg) onNewMessage;
+  final Future<bool> Function(String text)? onSendMessage;
   final io.Socket? socket;
   final bool isSocketConnected;
   final String myName;
@@ -40,6 +40,7 @@ class MeetingChatView extends ConsumerStatefulWidget {
     required this.meetingId,
     required this.messages,
     required this.onNewMessage,
+    this.onSendMessage,
     this.socket,
     this.isSocketConnected = true,
     this.myName = 'Vous',
@@ -50,12 +51,13 @@ class MeetingChatView extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<MeetingChatView> createState() => _MeetingChatViewState();
+  State<MeetingChatView> createState() => _MeetingChatViewState();
 }
 
-class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
+class _MeetingChatViewState extends State<MeetingChatView> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  bool _isSending = false;
 
   @override
   void initState() {
@@ -92,26 +94,37 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
     }
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isSending) return;
 
-    final isConnected = widget.isSocketConnected || (widget.socket?.connected ?? false);
-    debugPrint('[MeetingChat] Sending message: "$text" for meetingId: ${widget.meetingId}, isConnected: $isConnected, socket: ${widget.socket != null}');
+    setState(() => _isSending = true);
 
-    // Send via Socket.IO
-    if (widget.socket != null) {
-      if (!widget.socket!.connected) {
-        widget.socket!.connect();
+    var sent = false;
+    try {
+      if (widget.onSendMessage != null) {
+        sent = await widget.onSendMessage!(text);
       }
-      widget.socket!.emit('meeting:chat-message', {
-        'meetingId': widget.meetingId,
-        'text': text,
-      });
-      debugPrint('[MeetingChat] Emitted meeting:chat-message: meetingId=${widget.meetingId}, text="$text"');
-    } else {
-      // Fallback: send via HTTP API
-      _sendViaApi(text);
+    } catch (e) {
+      debugPrint('[MeetingChat] Send failed: $e');
+    }
+
+    if (!mounted) return;
+    setState(() => _isSending = false);
+    if (!sent) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              context.isFrench
+                  ? 'Message non envoyé. Reconnexion en cours — réessayez.'
+                  : 'Message not sent. Reconnecting — please try again.',
+            ),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      return;
     }
 
     // Add local message immediately for responsive feel
@@ -119,28 +132,23 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
     final timeStr =
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
-    widget.onNewMessage(MeetingChatMessage(
-      sender: widget.myName,
-      text: text,
-      time: timeStr,
-      isMe: true,
-    ));
+    widget.onNewMessage(
+      MeetingChatMessage(
+        sender: widget.myName,
+        text: text,
+        time: timeStr,
+        isMe: true,
+      ),
+    );
 
     _msgCtrl.clear();
-  }
-
-  Future<void> _sendViaApi(String text) async {
-    try {
-      final client = ref.read(apiClientProvider);
-      await client.post('/meetings/${widget.meetingId}/chat', data: {'text': text});
-    } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
     final isFr = context.isFrench;
     final isDark = widget.isDark;
-    final isConnected = widget.isSocketConnected || (widget.socket?.connected ?? false);
+    final isConnected = widget.isSocketConnected;
 
     final bgColor = isDark ? const Color(0xFF171B22) : AppColors.pureWhite;
     final borderColor = isDark ? const Color(0x1FFFFFFF) : AppColors.borderSoft;
@@ -160,14 +168,18 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                     children: [
                       Icon(
                         Icons.chat_bubble_outline,
-                        color: isDark ? const Color(0xFFE7EAEE) : AppColors.frenchNavy,
+                        color: isDark
+                            ? const Color(0xFFE7EAEE)
+                            : AppColors.frenchNavy,
                         size: 18,
                       ),
                       const SizedBox(width: 8),
                       Text(
                         isFr ? 'Messages en direct' : 'Live Chat',
                         style: TextStyle(
-                          color: isDark ? const Color(0xFFE7EAEE) : AppColors.ink,
+                          color: isDark
+                              ? const Color(0xFFE7EAEE)
+                              : AppColors.ink,
                           fontSize: 15,
                           fontWeight: FontWeight.w700,
                         ),
@@ -178,7 +190,10 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                     children: [
                       // Status indicator
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: isConnected
                               ? const Color(0xFF10B981).withValues(alpha: 0.16)
@@ -219,7 +234,9 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                         IconButton(
                           icon: Icon(
                             Icons.close,
-                            color: isDark ? const Color(0xFF9AA4B1) : AppColors.textMuted,
+                            color: isDark
+                                ? const Color(0xFF9AA4B1)
+                                : AppColors.textMuted,
                             size: 20,
                           ),
                           onPressed: widget.onClose,
@@ -249,18 +266,26 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          isFr ? 'Aucun message pour le moment' : 'No messages yet',
+                          isFr
+                              ? 'Aucun message pour le moment'
+                              : 'No messages yet',
                           style: TextStyle(
-                            color: isDark ? const Color(0xFF9AA4B1) : AppColors.textMuted,
+                            color: isDark
+                                ? const Color(0xFF9AA4B1)
+                                : AppColors.textMuted,
                             fontSize: 13,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          isFr ? 'Envoyez un message à tous' : 'Send a message to everyone',
+                          isFr
+                              ? 'Envoyez un message à tous'
+                              : 'Send a message to everyone',
                           style: TextStyle(
-                            color: isDark ? const Color(0xFF6B7482) : AppColors.textSubtle,
+                            color: isDark
+                                ? const Color(0xFF6B7482)
+                                : AppColors.textSubtle,
                             fontSize: 11,
                           ),
                         ),
@@ -269,7 +294,10 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                   )
                 : ListView.builder(
                     controller: _scrollCtrl,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 12,
+                    ),
                     itemCount: widget.messages.length,
                     itemBuilder: (context, idx) {
                       final m = widget.messages[idx];
@@ -301,24 +329,37 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                       fontSize: 13,
                     ),
                     decoration: InputDecoration(
-                      hintText: isFr ? 'Envoyer un message à tous...' : 'Send a message to everyone...',
+                      hintText: isFr
+                          ? 'Envoyer un message à tous...'
+                          : 'Send a message to everyone...',
                       hintStyle: TextStyle(
-                        color: isDark ? const Color(0xFF6B7482) : AppColors.textSubtle,
+                        color: isDark
+                            ? const Color(0xFF6B7482)
+                            : AppColors.textSubtle,
                         fontSize: 12.5,
                       ),
                       filled: true,
-                      fillColor: isDark ? const Color(0xFF1F242D) : const Color(0xFFF8FAFC),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      fillColor: isDark
+                          ? const Color(0xFF1F242D)
+                          : const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                         borderSide: BorderSide(
-                          color: isDark ? const Color(0x2AFFFFFF) : AppColors.border,
+                          color: isDark
+                              ? const Color(0x2AFFFFFF)
+                              : AppColors.border,
                         ),
                       ),
                       enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(20),
                         borderSide: BorderSide(
-                          color: isDark ? const Color(0x2AFFFFFF) : AppColors.border,
+                          color: isDark
+                              ? const Color(0x2AFFFFFF)
+                              : AppColors.border,
                         ),
                       ),
                       focusedBorder: OutlineInputBorder(
@@ -330,12 +371,13 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                       ),
                       isDense: true,
                     ),
+                    enabled: !_isSending,
                     onSubmitted: (_) => _send(),
                   ),
                 ),
                 const SizedBox(width: 8),
                 InkWell(
-                  onTap: _send,
+                  onTap: _isSending ? null : _send,
                   borderRadius: BorderRadius.circular(20),
                   child: Container(
                     width: 38,
@@ -344,11 +386,19 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                       color: Color(0xFF10B981),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(
-                      Icons.send,
-                      color: AppColors.pureWhite,
-                      size: 17,
-                    ),
+                    child: _isSending
+                        ? const Padding(
+                            padding: EdgeInsets.all(10),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppColors.pureWhite,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.send,
+                            color: AppColors.pureWhite,
+                            size: 17,
+                          ),
                   ),
                 ),
               ],
@@ -379,10 +429,14 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
               bottomLeft: Radius.circular(m.isMe ? 14 : 4),
               bottomRight: Radius.circular(m.isMe ? 4 : 14),
             ),
-            border: (!m.isMe && !isDark) ? Border.all(color: AppColors.borderSoft) : null,
+            border: (!m.isMe && !isDark)
+                ? Border.all(color: AppColors.borderSoft)
+                : null,
           ),
           child: Column(
-            crossAxisAlignment: m.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            crossAxisAlignment: m.isMe
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -404,7 +458,9 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
                       fontSize: 9.5,
                       color: m.isMe
                           ? Colors.white.withValues(alpha: 0.7)
-                          : (isDark ? const Color(0xFF6B7482) : AppColors.textSubtle),
+                          : (isDark
+                                ? const Color(0xFF6B7482)
+                                : AppColors.textSubtle),
                     ),
                   ),
                 ],
@@ -431,20 +487,22 @@ class _MeetingChatViewState extends ConsumerState<MeetingChatView> {
 /// Bottom sheet wrapper for mobile phones
 class MeetingChatSheet extends StatelessWidget {
   final int meetingId;
-  final List<MeetingChatMessage> messages;
+  final ValueListenable<List<MeetingChatMessage>> messagesListenable;
+  final ValueListenable<bool> connectionListenable;
   final Function(MeetingChatMessage msg) onNewMessage;
+  final Future<bool> Function(String text)? onSendMessage;
   final io.Socket? socket;
-  final bool isSocketConnected;
   final String myName;
   final String myIdentity;
 
   const MeetingChatSheet({
     super.key,
     required this.meetingId,
-    required this.messages,
+    required this.messagesListenable,
+    required this.connectionListenable,
     required this.onNewMessage,
+    this.onSendMessage,
     this.socket,
-    this.isSocketConnected = true,
     this.myName = 'Vous',
     this.myIdentity = '',
   });
@@ -473,17 +531,25 @@ class MeetingChatSheet extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: MeetingChatView(
-              meetingId: meetingId,
-              messages: messages,
-              onNewMessage: onNewMessage,
-              socket: socket,
-              isSocketConnected: isSocketConnected,
-              myName: myName,
-              myIdentity: myIdentity,
-              isDark: true,
-              onClose: () => Navigator.pop(context),
-              showHeader: true,
+            child: ValueListenableBuilder<List<MeetingChatMessage>>(
+              valueListenable: messagesListenable,
+              builder: (context, currentMessages, _) =>
+                  ValueListenableBuilder<bool>(
+                    valueListenable: connectionListenable,
+                    builder: (context, connected, _) => MeetingChatView(
+                      meetingId: meetingId,
+                      messages: currentMessages,
+                      onNewMessage: onNewMessage,
+                      onSendMessage: onSendMessage,
+                      socket: socket,
+                      isSocketConnected: connected,
+                      myName: myName,
+                      myIdentity: myIdentity,
+                      isDark: true,
+                      onClose: () => Navigator.pop(context),
+                      showHeader: true,
+                    ),
+                  ),
             ),
           ),
         ],

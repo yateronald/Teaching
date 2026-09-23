@@ -1,6 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { generateToken, tokenExpiry, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
+const { generateToken, tokenExpiry, tokenDaysFor, MOBILE_TOKEN_DAYS, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
 const sessions = require('../services/sessionService');
 const { createNotification } = require('../services/notificationService');
 
@@ -126,18 +126,19 @@ router.post('/login', [
             }
         }
 
-        // Generate JWT token
+        // Generate JWT token (six months for the mobile app, a week elsewhere)
+        const days = tokenDaysFor(req, user.role);
         const jti = tracked ? sessions.newId() : null;
-        const token = generateToken(user.id, user.role, jti);
+        const token = generateToken(user.id, user.role, jti, days);
         if (jti) {
             try {
-                await sessions.openSession(req.db, { userId: user.id, jti, expiresAt: tokenExpiry(), req, tookOver: signedOutOthers });
+                await sessions.openSession(req.db, { userId: user.id, jti, expiresAt: tokenExpiry(days), req, tookOver: signedOutOthers });
             } catch (err) {
                 console.error('Session creation failed:', err.message);
                 // A capped account must be countable: refuse rather than let an
                 // untracked device through. Other roles sign in as before.
                 if (limit !== null) return res.status(503).json({ error: 'Sign-in unavailable', message: 'Please try again in a moment.' });
-                return res.json({ message: 'Login successful', token: generateToken(user.id, user.role), user: withoutPassword(user) });
+                return res.json({ message: 'Login successful', token: generateToken(user.id, user.role, null, days), user: withoutPassword(user) });
             }
         }
 
@@ -324,6 +325,29 @@ router.put('/profile', [
 router.get('/timezones', (_req, res) => {
     const { listTimezones } = require('../services/timezoneService');
     res.json({ groups: listTimezones() });
+});
+
+// Mobile app: renew the six-month session while the app is being used, so a
+// teacher who opens it regularly is never asked to sign in again. The session
+// (and so every sign-out, password change or admin action) stays the same.
+router.post('/refresh', authenticateToken, async (req, res) => {
+    try {
+        // Also upgrades a week-long token the app received before six-month
+        // sessions existed, so current users are not asked to sign in again.
+        const mobile = req.tokenClaims?.app === 'mobile'
+            || tokenDaysFor(req, req.user.role) === MOBILE_TOKEN_DAYS;
+        if (!mobile) {
+            return res.status(400).json({ error: 'Only the mobile app renews its session' });
+        }
+        const jti = req.tokenClaims.jti || null;
+        const token = generateToken(req.user.id, req.user.role, jti, MOBILE_TOKEN_DAYS);
+        const expiresAt = tokenExpiry(MOBILE_TOKEN_DAYS);
+        if (req.session) await sessions.extendSession(req.db, req.session.id, expiresAt);
+        res.json({ token, expires_at: expiresAt.toISOString() });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(500).json({ error: 'Could not renew the session' });
+    }
 });
 
 // Verify token endpoint

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -13,11 +14,16 @@ class AuthState {
   final UserModel? user;
   final String? errorMessage;
 
+  /// Signed in from the session saved on the phone (app opened), rather than
+  /// by typing the password just now. Only then does the fingerprint lock apply.
+  final bool restored;
+
   const AuthState({
     this.isLoading = false,
     this.isAuthenticated = false,
     this.user,
     this.errorMessage,
+    this.restored = false,
   });
 
   AuthState copyWith({
@@ -31,6 +37,7 @@ class AuthState {
       isAuthenticated: isAuthenticated ?? this.isAuthenticated,
       user: user ?? this.user,
       errorMessage: errorMessage,
+      restored: restored,
     );
   }
 }
@@ -45,48 +52,125 @@ class AuthNotifier extends StateNotifier<AuthState> {
   })  : _apiClient = apiClient,
         _tokenStorage = tokenStorage,
         super(const AuthState(isLoading: true)) {
+    _apiClient.onSessionEnded = _onSessionEnded;
     checkAuth();
   }
 
+  /// Renew the six-month mobile session once it is a week old, so a teacher
+  /// who uses the app at least every six months never has to sign in again.
+  static const _renewAfter = Duration(days: 7);
+  bool _renewedThisLaunch = false;
+
   Future<void> checkAuth() async {
-    try {
-      final token = await _tokenStorage.getToken();
-      if (token == null || token.isEmpty) {
-        state = const AuthState(isLoading: false, isAuthenticated: false);
-        return;
-      }
+    final token = await _tokenStorage.getToken();
+    if (token == null || token.isEmpty || _isExpired(token)) {
+      if (token != null) await _tokenStorage.clearSession();
+      state = const AuthState(isLoading: false, isAuthenticated: false);
+      return;
+    }
 
-      // Check stored user cache first for instant resume
-      final cachedUserJson = await _tokenStorage.getUserJson();
-      UserModel? cachedUser;
-      if (cachedUserJson != null) {
-        try {
-          cachedUser = UserModel.fromJson(jsonDecode(cachedUserJson));
-        } catch (_) {}
-      }
+    UserModel? cachedUser;
+    final cachedUserJson = await _tokenStorage.getUserJson();
+    if (cachedUserJson != null) {
+      try {
+        cachedUser = UserModel.fromJson(jsonDecode(cachedUserJson));
+      } catch (_) {}
+    }
 
-      state = state.copyWith(isLoading: true, user: cachedUser);
+    // Open straight away with the saved account: no spinner, and it also
+    // works with no connection. The server check below refreshes it.
+    if (cachedUser != null) {
+      state = AuthState(
+        isLoading: false,
+        isAuthenticated: true,
+        user: cachedUser,
+        restored: true,
+      );
+    }
 
-      // Verify token with backend
-      final response = await _apiClient.get(ApiEndpoints.me);
-      if (response.statusCode == 200 && response.data != null) {
-        final userData = response.data['user'] ?? response.data;
-        final user = UserModel.fromJson(userData);
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        final response = await _apiClient.get(ApiEndpoints.me);
+        final userData = response.data?['user'] ?? response.data;
+        if (userData is! Map) break;
+        final user = UserModel.fromJson(Map<String, dynamic>.from(userData));
         await _tokenStorage.saveUserJson(jsonEncode(user.toJson()));
         state = AuthState(
           isLoading: false,
           isAuthenticated: true,
           user: user,
+          restored: true,
         );
-      } else {
-        await _tokenStorage.clearAll();
-        state = const AuthState(isLoading: false, isAuthenticated: false);
+        unawaited(_renewIfDue());
+        return;
+      } on ApiException catch (e) {
+        // 401/403: the session really is over.
+        if (e.statusCode == 401 || e.statusCode == 403) {
+          await _tokenStorage.clearSession();
+          if (mounted && !state.isAuthenticated) {
+            state = const AuthState(isLoading: false, isAuthenticated: false);
+          }
+          return;
+        }
+      } catch (_) {
+        // Offline or server trouble: keep the session, try again shortly.
       }
-    } catch (e) {
-      // Token expired, invalid or unauthorized — clear session and show login
-      await _tokenStorage.clearAll();
+      if (!mounted || !state.isAuthenticated && cachedUser != null) return;
+      await Future<void>.delayed(Duration(seconds: 2 * (attempt + 1)));
+    }
+
+    if (!mounted) return;
+    if (cachedUser == null) {
+      // Nothing to show without the server. Keep the token: the next launch
+      // with a connection gets straight back in.
       state = const AuthState(isLoading: false, isAuthenticated: false);
     }
+  }
+
+  bool _isExpired(String token) {
+    final exp = TokenStorage.claimsOf(token)?['exp'];
+    if (exp is! num) return false;
+    final expiry = DateTime.fromMillisecondsSinceEpoch(exp.toInt() * 1000);
+    return expiry.isBefore(DateTime.now());
+  }
+
+  /// Extends the mobile session to six months from now, at most once a launch.
+  Future<void> _renewIfDue() async {
+    if (_renewedThisLaunch) return;
+    final token = await _tokenStorage.getToken();
+    final claims = TokenStorage.claimsOf(token);
+    if (claims == null) return;
+    final issued = claims['iat'];
+    final isMobileToken = claims['app'] == 'mobile';
+    final age = issued is num
+        ? DateTime.now().difference(
+            DateTime.fromMillisecondsSinceEpoch(issued.toInt() * 1000),
+          )
+        : _renewAfter;
+    // A week-long token from before six-month sessions is upgraded at once.
+    if (isMobileToken && age < _renewAfter) return;
+    _renewedThisLaunch = true;
+    try {
+      final res = await _apiClient.post(ApiEndpoints.refreshToken);
+      final fresh = res.data?['token'];
+      if (fresh is String && fresh.isNotEmpty && state.isAuthenticated) {
+        await _tokenStorage.saveTokens(token: fresh);
+      }
+    } catch (e) {
+      debugPrint('Session renewal skipped: $e');
+    }
+  }
+
+  /// The server refused this device's token: signed out elsewhere, password
+  /// changed, account disabled or the six months are over.
+  void _onSessionEnded() {
+    if (!state.isAuthenticated) return;
+    unawaited(_tokenStorage.clearSession());
+    state = const AuthState(
+      isLoading: false,
+      isAuthenticated: false,
+      errorMessage: 'Votre session a pris fin. Veuillez vous reconnecter.',
+    );
   }
 
   Future<bool> login(String email, String password) async {
@@ -118,6 +202,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
       await _tokenStorage.saveTokens(token: token, refreshToken: refreshToken);
       await _tokenStorage.saveUserJson(jsonEncode(user.toJson()));
+      _renewedThisLaunch = true;
 
       state = AuthState(
         isLoading: false,
@@ -150,7 +235,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
     try {
       await _apiClient.post(ApiEndpoints.logout);
     } catch (_) {}
-    await _tokenStorage.clearAll();
+    await _tokenStorage.clearSession();
     state = const AuthState(isLoading: false, isAuthenticated: false);
   }
 

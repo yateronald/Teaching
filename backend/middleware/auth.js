@@ -5,6 +5,15 @@ const { hasColumn } = require('../services/schemaFeatures');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 const TOKEN_DAYS = 7;
+/** The mobile app stays signed in for six months (renewed while it is used). */
+const MOBILE_TOKEN_DAYS = 180;
+/** Roles the mobile app serves; only these get the long mobile session. */
+const MOBILE_ROLES = ['teacher', 'admin'];
+
+/** True when the request comes from the Learn French with Natives mobile app. */
+const isMobileApp = (req) => /^lfwn-mobile\//i.test(String(req.headers['x-client-app'] || ''));
+/** How long a token issued to this user on this client lives, in days. */
+const tokenDaysFor = (req, role) => (isMobileApp(req) && MOBILE_ROLES.includes(role) ? MOBILE_TOKEN_DAYS : TOKEN_DAYS);
 
 const ROLES = ['admin', 'teacher', 'student', 'candidate'];
 
@@ -30,13 +39,15 @@ const candidateMayUse = (req) => {
 // Generate JWT token. A `jti` ties the token to a row in user_sessions, which
 // is what makes it revocable — sign-outs, takeovers and password changes end
 // the session, and every later request with that token is refused.
-function generateToken(userId, role, jti) {
+function generateToken(userId, role, jti, days = TOKEN_DAYS) {
     const claims = jti ? { id: userId, role, jti } : { id: userId, role };
-    return jwt.sign(claims, JWT_SECRET, { expiresIn: `${TOKEN_DAYS}d` });
+    // Marks mobile tokens so they, and only they, can be renewed.
+    if (days === MOBILE_TOKEN_DAYS) claims.app = 'mobile';
+    return jwt.sign(claims, JWT_SECRET, { expiresIn: `${days}d` });
 }
 
 /** When a token signed now stops being accepted. */
-const tokenExpiry = () => new Date(Date.now() + TOKEN_DAYS * 24 * 60 * 60 * 1000);
+const tokenExpiry = (days = TOKEN_DAYS) => new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 // Hash password
 async function hashPassword(password) {
@@ -127,10 +138,16 @@ async function authenticateToken(req, res, next) {
         }
 
         req.user = user;
+        req.tokenClaims = decoded;
         next();
     } catch (error) {
+        // Only a bad or expired token means "signed out". A database hiccup must
+        // not sign the mobile app out of its six-month session.
+        if (error instanceof jwt.JsonWebTokenError) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
         console.error('Token authentication error:', error);
-        return res.status(401).json({ error: 'Invalid token' });
+        return res.status(503).json({ error: 'Service temporarily unavailable', message: 'Please try again in a moment.' });
     }
 }
 
@@ -215,6 +232,9 @@ module.exports = {
     candidateMayUse,
     generateToken,
     tokenExpiry,
+    tokenDaysFor,
+    isMobileApp,
+    MOBILE_TOKEN_DAYS,
     hashPassword,
     verifyPassword,
     authenticateToken,

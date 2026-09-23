@@ -9,7 +9,6 @@ import '../../../core/responsive/responsive_layout.dart';
 import '../../../core/widgets/brand_logo.dart';
 import '../../../core/widgets/language_switcher_button.dart';
 import '../../../core/widgets/tricolore_bar.dart';
-import '../../auth/screens/welcome_screen.dart';
 import '../assign_demo/screens/assign_demo_screen.dart';
 import '../batches/screens/my_batches_screen.dart';
 import '../dashboard/screens/teacher_dashboard_screen.dart';
@@ -661,15 +660,7 @@ class _TeacherShellState extends ConsumerState<TeacherShell> {
               onTap: () async {
                 Navigator.pop(context);
                 await ref.read(authNotifierProvider.notifier).logout();
-                if (mounted) {
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const WelcomeScreen(),
-                    ),
-                    (route) => false,
-                  );
-                }
+                // The app returns to the sign-in screen on its own (main.dart).
               },
             ),
           ],

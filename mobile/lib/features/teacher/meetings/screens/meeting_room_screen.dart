@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../../../core/api/api_client.dart';
+import '../../../../core/auth/app_lock.dart';
 import '../../../../core/auth/auth_notifier.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_typography.dart';
 import '../../../../core/localization/translations.dart';
 import '../services/livekit_meeting_controller.dart';
+import '../services/meeting_pip.dart';
 import '../widgets/meeting_attendance_sheet.dart';
 import '../widgets/meeting_chat_sheet.dart';
 import '../widgets/meeting_controls.dart';
@@ -42,19 +44,30 @@ class MeetingRoomScreen extends ConsumerStatefulWidget {
   ConsumerState<MeetingRoomScreen> createState() => _MeetingRoomScreenState();
 }
 
-class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
+class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
+    with WidgetsBindingObserver {
   late LiveKitMeetingController _controller;
-  int _elapsedSeconds = 0;
+  late final MeetingPip _pip;
+  final DateTime _joinedAt = DateTime.now();
+  final ValueNotifier<int> _elapsed = ValueNotifier<int>(0);
   Timer? _timer;
   Timer? _lobbyPollTimer;
   Timer? _meetingStatusTimer;
   Timer? _controlsAutoHideTimer;
   bool _isDisposed = false;
   bool _meetingEndHandled = false;
+  bool _isRecoveringFromBackground = false;
+  bool _exitHandled = false;
+  DateTime? _backgroundedAt;
+  Map<String, String> _pipLabels = const {};
+  Locale? _labelsLocale;
 
   // Socket.IO for real-time
   io.Socket? _socket;
   bool _isSocketConnected = false;
+  final ValueNotifier<bool> _socketConnection = ValueNotifier<bool>(false);
+  bool _meetingChannelReady = false;
+  Future<bool>? _activeMeetingSubscription;
   int? _resolvedMeetingId;
 
   // Active side panel: 'people' | 'chat' | 'polls' | null
@@ -65,7 +78,10 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   bool _showControlsInFullscreen = true;
 
   // Chat
-  final List<MeetingChatMessage> _messages = [];
+  final ValueNotifier<List<MeetingChatMessage>> _messages =
+      ValueNotifier<List<MeetingChatMessage>>([]);
+  Completer<bool>? _pendingChatEcho;
+  String? _pendingChatText;
   int _unreadChat = 0;
 
   // Reactions
@@ -93,13 +109,257 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Coming back to a running class never asks for the fingerprint.
+    AppLockController.liveClassActive.value = true;
     _detectHostStatus();
-    _controller = LiveKitMeetingController();
+    _controller = LiveKitMeetingController()
+      ..tokenProvider = _fetchFreshToken
+      ..onLeaveRequested = () => unawaited(_leaveClass());
+    _controller.addListener(_onControllerChanged);
+    _pip = MeetingPip()..onAction = _onPipAction;
+    _pip.addListener(_onPipChanged);
     _connect();
     _startTimer();
     _startLobbyPolling();
     _startMeetingStatusPolling();
     _resolveAndInitSocket();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final locale = Localizations.maybeLocaleOf(context);
+    if (locale == _labelsLocale && _pipLabels.isNotEmpty) return;
+    _labelsLocale = locale;
+    final isFr = context.isFrench;
+    _controller.setServiceLabels({
+      'title': widget.title.trim().isNotEmpty
+          ? widget.title.trim()
+          : (isFr ? 'Classe en direct' : 'Live class'),
+      'text': isFr
+          ? 'Classe en direct · touchez pour revenir'
+          : 'Live class · tap to return',
+      'presentingTitle': isFr ? 'Vous présentez' : 'You are presenting',
+      'presentingText': isFr
+          ? 'Votre écran est partagé avec la classe'
+          : 'Your screen is shared with the class',
+      'leave': isFr ? 'Quitter' : 'Leave',
+    });
+    _pipLabels = {
+      'micOff': isFr ? 'Couper le micro' : 'Mute',
+      'micOn': isFr ? 'Activer le micro' : 'Unmute',
+      'camOff': isFr ? 'Couper la caméra' : 'Turn camera off',
+      'camOn': isFr ? 'Activer la caméra' : 'Turn camera on',
+      'leave': isFr ? 'Quitter la classe' : 'Leave class',
+    };
+    _syncPip();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed || _meetingEndHandled) return;
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        // Not visible at all. A picture-in-picture window keeps the app
+        // "inactive" instead, so the class keeps its camera there.
+        _backgroundedAt ??= DateTime.now();
+        unawaited(_controller.onAppHidden());
+      case AppLifecycleState.resumed:
+        final backgroundedAt = _backgroundedAt;
+        _backgroundedAt = null;
+        final elapsed = backgroundedAt == null
+            ? Duration.zero
+            : DateTime.now().difference(backgroundedAt);
+        // The activity may be new (the old one was closed with its
+        // picture-in-picture window): send it the current settings.
+        _pip.invalidate();
+        _syncPip();
+        unawaited(_recoverAfterBackground(backgroundDuration: elapsed));
+      case AppLifecycleState.inactive:
+        break;
+    }
+  }
+
+  Future<void> _recoverAfterBackground({
+    required Duration backgroundDuration,
+  }) async {
+    if (_isRecoveringFromBackground || _isDisposed || !mounted) return;
+    _isRecoveringFromBackground = true;
+    try {
+      await _pollMeetingStatus();
+      if (_meetingEndHandled || _isDisposed || !mounted) return;
+
+      // LiveKit keeps (or resumes) its own connection; the controller only
+      // repairs what Android interrupted and rejoins if the session is gone.
+      await _controller.onAppVisible(away: backgroundDuration);
+      if (_isDisposed || !mounted) return;
+
+      final socket = _socket;
+      if (socket == null) {
+        await _resolveAndInitSocket();
+      } else if (!socket.connected) {
+        _meetingChannelReady = false;
+        socket.connect();
+        await _waitForSocketConnection();
+      }
+      if (_socket?.connected == true) {
+        await _subscribeToMeeting(force: true);
+      }
+      await _pollMeetingStatus();
+    } catch (e) {
+      debugPrint('[MeetingRoom] Background recovery failed: $e');
+    } finally {
+      _isRecoveringFromBackground = false;
+    }
+  }
+
+  /// A new LiveKit token for automatic rejoins, or null to reuse the last one.
+  Future<String?> _fetchFreshToken() async {
+    if (_isDisposed || _meetingEndHandled || _meetingIdInt <= 0) return null;
+    final client = ref.read(apiClientProvider);
+    final result = await client.post('/meetings/$_meetingIdInt/join');
+    final data = result.data;
+    if (data is! Map) return null;
+    switch (data['action']) {
+      case 'join':
+        return data['token']?.toString();
+      case 'ended':
+        unawaited(_handleMeetingEnded());
+      case 'kicked':
+        unawaited(_handleServerExit(MeetingExitReason.removed));
+    }
+    return null;
+  }
+
+  void _onControllerChanged() {
+    if (_isDisposed) return;
+    _syncPip();
+    final exit = _controller.exitReason;
+    if (exit != null) unawaited(_handleServerExit(exit));
+  }
+
+  /// The server closed the class for this user: explain why, then leave.
+  Future<void> _handleServerExit(MeetingExitReason reason) async {
+    if (_exitHandled || _isDisposed) return;
+    _exitHandled = true;
+    if (reason == MeetingExitReason.ended) {
+      await _handleMeetingEnded();
+      return;
+    }
+    if (_meetingEndHandled) return;
+    _meetingEndHandled = true;
+    _stopTimers();
+    await _controller.leaveRoom();
+    if (!mounted) return;
+    final isFr = context.isFrench;
+    _closeMeetingRoute(
+      result: false,
+      message: reason == MeetingExitReason.removed
+          ? (isFr
+                ? 'L\'enseignant vous a retiré de la classe.'
+                : 'The teacher removed you from the class.')
+          : (isFr
+                ? 'Vous avez rejoint cette classe depuis un autre appareil.'
+                : 'You joined this class from another device.'),
+    );
+  }
+
+  /// Leaves without a confirmation dialog: the notification's and the
+  /// floating window's "Leave" buttons, and the dialog's own Leave action.
+  Future<void> _leaveClass() async {
+    if (_meetingEndHandled || _isDisposed) return;
+    _meetingEndHandled = true;
+    _stopTimers();
+    try {
+      final client = ref.read(apiClientProvider);
+      await client.post('/meetings/$_meetingRef/leave');
+    } catch (_) {}
+    await _controller.leaveRoom();
+    if (mounted) _closeMeetingRoute(result: false);
+  }
+
+  String get _meetingRef => _meetingIdInt > 0
+      ? '$_meetingIdInt'
+      : (widget.roomCode ?? widget.meetingId?.toString() ?? '');
+
+  void _stopTimers() {
+    _timer?.cancel();
+    _lobbyPollTimer?.cancel();
+    _meetingStatusTimer?.cancel();
+  }
+
+  /// Pops this class and anything opened above it (sheets, dialogs).
+  void _closeMeetingRoute({required bool result, String? message}) {
+    final meetingRoute = ModalRoute.of(context);
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (_pip.isActive) unawaited(_pip.dismiss());
+    // A phone chat/people sheet is its own route. Popping only once would
+    // dismiss that sheet and leave a dead meeting screen behind.
+    if (meetingRoute != null) {
+      navigator.popUntil((route) => route == meetingRoute);
+    }
+    if (mounted) navigator.pop(result);
+    if (message != null) {
+      messenger?.showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  }
+
+  // ── Picture-in-picture ──
+
+  void _syncPip() {
+    if (_isDisposed) return;
+    final c = _controller;
+    unawaited(
+      _pip.configure(
+        // Not while presenting: the floating window would appear inside the
+        // shared screen, and Android uses the moment to show its app picker.
+        enabled:
+            !_meetingEndHandled &&
+            c.room != null &&
+            (c.isConnected || c.isReconnecting) &&
+            !c.isScreenSharing &&
+            !c.isScreenShareBusy,
+        landscape: c.hasRemoteScreenShare,
+        micOn: c.isMicOn,
+        camOn: c.isCamOn,
+        labels: _pipLabels,
+      ),
+    );
+  }
+
+  void _onPipChanged() {
+    if (_isDisposed || !mounted) return;
+    if (_pip.isActive) {
+      // Only the class itself fits in the floating window.
+      final meetingRoute = ModalRoute.of(context);
+      if (meetingRoute != null && !meetingRoute.isCurrent) {
+        Navigator.of(context).popUntil((route) => route == meetingRoute);
+      }
+      ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+    }
+    setState(() {});
+    _syncPip();
+  }
+
+  void _onPipAction(String action) {
+    switch (action) {
+      case 'toggleMic':
+        unawaited(_controller.toggleMicrophone());
+      case 'toggleCam':
+        unawaited(_controller.toggleCamera());
+      case 'leave':
+        unawaited(_leaveClass());
+    }
   }
 
   void _detectHostStatus() {
@@ -155,28 +415,103 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
     await _initSocket();
   }
 
-  void _subscribeToMeeting() {
-    if (_socket == null) return;
+  Future<bool> _subscribeToMeeting({bool force = false}) {
+    if (!force && _meetingChannelReady) return Future.value(true);
+    final existing = _activeMeetingSubscription;
+    if (existing != null) return existing;
+    final subscription = _performMeetingSubscription();
+    _activeMeetingSubscription = subscription;
+    subscription.whenComplete(() {
+      if (identical(_activeMeetingSubscription, subscription)) {
+        _activeMeetingSubscription = null;
+      }
+    });
+    return subscription;
+  }
+
+  Future<bool> _performMeetingSubscription() async {
+    final socket = _socket;
+    if (socket == null || !socket.connected) return false;
     final id = _meetingIdInt;
     if (id <= 0) {
       debugPrint('[MeetingRoom] Cannot subscribe yet: invalid meetingId $id');
-      return;
+      return false;
     }
     debugPrint('[MeetingRoom] Emitting meeting:subscribe for meetingId: $id');
     try {
-      _socket!.emitWithAck(
+      final completer = Completer<bool>();
+      socket.emitWithAck(
         'meeting:subscribe',
         {'meetingId': id},
         ack: (res) {
+          if (_isDisposed || !identical(socket, _socket) || !socket.connected) {
+            if (!completer.isCompleted) completer.complete(false);
+            return;
+          }
           debugPrint('[MeetingRoom] meeting:subscribe ack response: $res');
           if (res is Map && res['ended'] == true) {
-            _handleMeetingEnded();
+            unawaited(_handleMeetingEnded());
           }
+          // The server reports concrete roles such as host, member or guest.
+          // Only a lobby subscription is unable to send class messages.
+          final canChat =
+              res is Map && res['ok'] == true && res['role'] != 'lobby';
+          _meetingChannelReady = canChat;
+          if (!completer.isCompleted) completer.complete(canChat);
         },
       );
-      _socket!.emit('meeting:join-room', id);
+      return await completer.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
+      );
     } catch (e) {
       debugPrint('[MeetingRoom] Error emitting meeting:subscribe: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _waitForSocketConnection() async {
+    for (var attempt = 0; attempt < 24; attempt++) {
+      if (_isDisposed) return false;
+      if (_socket?.connected == true) return true;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+    return false;
+  }
+
+  Future<bool> _sendChatMessage(String text) async {
+    if (_isDisposed || _meetingIdInt <= 0 || text.trim().isEmpty) return false;
+    var socket = _socket;
+    if (socket == null) {
+      await _resolveAndInitSocket();
+      socket = _socket;
+    }
+    if (socket == null) return false;
+    if (!socket.connected) {
+      _meetingChannelReady = false;
+      socket.connect();
+      if (!await _waitForSocketConnection()) return false;
+    }
+    if (!await _subscribeToMeeting()) return false;
+    final echo = Completer<bool>();
+    _pendingChatEcho = echo;
+    _pendingChatText = text.trim();
+    socket.emit('meeting:chat-message', {
+      'meetingId': _meetingIdInt,
+      'text': text.trim(),
+    });
+    try {
+      // The server broadcasts accepted chat back to the sender. Waiting for
+      // that echo catches silent permission, socket and rate-limit failures.
+      return await echo.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => false,
+      );
+    } finally {
+      if (identical(_pendingChatEcho, echo)) {
+        _pendingChatEcho = null;
+        _pendingChatText = null;
+      }
     }
   }
 
@@ -189,6 +524,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
       if (_isDisposed) return;
 
       // Clean up previous socket if any
+      _meetingChannelReady = false;
+      _activeMeetingSubscription = null;
+      _socketConnection.value = false;
       try {
         _socket?.clearListeners();
         _socket?.disconnect();
@@ -199,10 +537,11 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
       _socket = io.io(
         socketUrl,
         io.OptionBuilder()
-            .setTransports(['websocket', 'polling'])
+            .setTransports(['websocket'])
             .setAuth({'token': token})
             .setExtraHeaders({'Authorization': 'Bearer $token'})
-            .enableAutoConnect()
+            .enableForceNew()
+            .disableAutoConnect()
             .enableReconnection()
             .setReconnectionDelay(1000)
             .setReconnectionDelayMax(8000)
@@ -216,30 +555,42 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
       }
 
       _socket!.onConnect((_) {
+        if (_isDisposed) return;
         debugPrint('[MeetingRoom] Socket connected to $socketUrl');
+        _socketConnection.value = true;
         if (!_isDisposed && mounted) {
           setState(() => _isSocketConnected = true);
         }
-        _subscribeToMeeting();
+        unawaited(_subscribeToMeeting(force: true));
       });
 
       _socket!.onReconnect((_) {
+        if (_isDisposed) return;
         debugPrint('[MeetingRoom] Socket reconnected to $socketUrl');
+        _socketConnection.value = true;
         if (!_isDisposed && mounted) {
           setState(() => _isSocketConnected = true);
         }
-        _subscribeToMeeting();
+        unawaited(_subscribeToMeeting(force: true));
       });
 
       _socket!.onDisconnect((reason) {
+        if (_isDisposed) return;
         debugPrint('[MeetingRoom] Socket disconnected: $reason');
+        _meetingChannelReady = false;
+        _activeMeetingSubscription = null;
+        _socketConnection.value = false;
         if (!_isDisposed && mounted) {
           setState(() => _isSocketConnected = false);
         }
       });
 
       _socket!.onConnectError((err) {
+        if (_isDisposed) return;
         debugPrint('[MeetingRoom] Socket connect error: $err');
+        _meetingChannelReady = false;
+        _activeMeetingSubscription = null;
+        _socketConnection.value = false;
         if (!_isDisposed && mounted) {
           setState(() => _isSocketConnected = false);
         }
@@ -252,22 +603,34 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
         final d = data is Map ? data : {};
         final senderId = d['senderId']?.toString() ?? '';
         final isMine = _myIdentity.isNotEmpty && senderId == _myIdentity;
-        if (isMine) return; // We already added our own messages locally
-
         final text = d['text']?.toString() ?? '';
         if (text.isEmpty) return;
+        if (isMine && text == _pendingChatText) {
+          final pending = _pendingChatEcho;
+          if (pending != null && !pending.isCompleted) {
+            pending.complete(true);
+            return;
+          }
+        }
+
+        final messageId = d['id']?.toString();
+        if (messageId != null &&
+            _messages.value.any((message) => message.id == messageId)) {
+          return;
+        }
 
         setState(() {
-          _messages.add(
+          _messages.value = [
+            ..._messages.value,
             MeetingChatMessage(
-              id: d['id']?.toString(),
+              id: messageId,
               sender: d['sender']?.toString() ?? 'Participant',
               text: text,
               time: _formatMsgTime(d['time']?.toString()),
-              isMe: false,
+              isMe: isMine,
             ),
-          );
-          if (_activePanel != 'chat') {
+          ];
+          if (_activePanel != 'chat' && !isMine) {
             _unreadChat++;
           }
         });
@@ -354,11 +717,13 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
 
       // If socket is already connected when listeners are attached
       if (_socket!.connected) {
+        _socketConnection.value = true;
         if (!_isDisposed && mounted) {
           setState(() => _isSocketConnected = true);
         }
-        _subscribeToMeeting();
+        unawaited(_subscribeToMeeting(force: true));
       }
+      _socket!.connect();
     } catch (e) {
       debugPrint('[MeetingRoom] Socket init error: $e');
     }
@@ -378,8 +743,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   }
 
   void _startTimer() {
+    // Only the clock rebuilds each second, not the video stage.
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) setState(() => _elapsedSeconds++);
+      _elapsed.value = DateTime.now().difference(_joinedAt).inSeconds;
     });
   }
 
@@ -420,11 +786,10 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   Future<void> _handleMeetingEnded() async {
     if (_meetingEndHandled || _isDisposed) return;
     _meetingEndHandled = true;
-    _timer?.cancel();
-    _lobbyPollTimer?.cancel();
-    _meetingStatusTimer?.cancel();
+    _stopTimers();
     await _controller.leaveRoom();
-    if (mounted) Navigator.pop(context, true);
+    if (!mounted) return;
+    _closeMeetingRoute(result: true);
   }
 
   Future<void> _pollLobby() async {
@@ -540,6 +905,18 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   @override
   void dispose() {
     _isDisposed = true;
+    AppLockController.liveClassActive.value = false;
+    WidgetsBinding.instance.removeObserver(this);
+    _controller.removeListener(_onControllerChanged);
+    _pip.removeListener(_onPipChanged);
+    _pip.dispose();
+    _elapsed.dispose();
+    final pendingChat = _pendingChatEcho;
+    if (pendingChat != null && !pendingChat.isCompleted) {
+      pendingChat.complete(false);
+    }
+    _messages.dispose();
+    _socketConnection.dispose();
     _controlsAutoHideTimer?.cancel();
     if (_isFullscreen) {
       try {
@@ -686,21 +1063,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
-            onPressed: () async {
+            onPressed: () {
               Navigator.pop(ctx);
-              try {
-                final client = ref.read(apiClientProvider);
-                final refCode = _meetingIdInt > 0
-                    ? '$_meetingIdInt'
-                    : (_resolvedMeetingId != null && _resolvedMeetingId! > 0
-                          ? '$_resolvedMeetingId'
-                          : (widget.roomCode ??
-                                widget.meetingId?.toString() ??
-                                ''));
-                await client.post('/meetings/$refCode/leave');
-              } catch (_) {}
-              await _controller.leaveRoom();
-              if (mounted) Navigator.pop(context, false);
+              unawaited(_leaveClass());
             },
             child: Text(isFr ? 'Quitter' : 'Leave'),
           ),
@@ -977,12 +1342,13 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
         backgroundColor: Colors.transparent,
         builder: (context) => MeetingChatSheet(
           meetingId: _meetingIdInt,
-          messages: _messages,
+          messagesListenable: _messages,
+          connectionListenable: _socketConnection,
           onNewMessage: (msg) {
-            setState(() => _messages.add(msg));
+            _messages.value = [..._messages.value, msg];
           },
+          onSendMessage: _sendChatMessage,
           socket: _socket,
-          isSocketConnected: _isSocketConnected,
           myName: _myName,
           myIdentity: _myIdentity,
         ),
@@ -1068,8 +1434,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
     final isTablet = MediaQuery.of(context).size.width >= 800;
 
     return AnimatedBuilder(
-      animation: _controller,
+      animation: Listenable.merge([_controller, _pip]),
       builder: (context, _) {
+        if (_pip.isActive) return _buildPipView(isFr);
         final participants = _controller.allParticipants;
 
         return PopScope(
@@ -1114,9 +1481,29 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                               Expanded(
                                 child: _controller.isConnecting
                                     ? _buildConnectingState(isFr)
-                                    : _controller.errorMessage != null
+                                    : _controller.connectionError != null
                                     ? _buildErrorState(isFr)
-                                    : _buildMainStage(participants, isFr),
+                                    : Stack(
+                                        children: [
+                                          Positioned.fill(
+                                            child: _buildMainStage(
+                                              participants,
+                                              isFr,
+                                            ),
+                                          ),
+                                          if (_controller.isReconnecting)
+                                            Positioned(
+                                              top: 10,
+                                              left: 0,
+                                              right: 0,
+                                              child: Center(
+                                                child: _buildReconnectingChip(
+                                                  isFr,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                               ),
 
                               // Docked Side Panel (tablet only when panel is open)
@@ -1310,17 +1697,24 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
           ),
         ],
       ),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width - 170,
+      ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.screen_share, color: Color(0xFF10B981), size: 16),
           const SizedBox(width: 8),
-          Text(
-            '$name ${isFr ? 'présente son écran' : 'is presenting'}',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              '$name ${isFr ? 'présente son écran' : 'is presenting'}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -1434,16 +1828,22 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                     isSheet: false,
                     showHeader: false,
                   )
-                : MeetingChatView(
-                    meetingId: _meetingIdInt,
-                    messages: _messages,
-                    onNewMessage: (msg) => setState(() => _messages.add(msg)),
-                    socket: _socket,
-                    isSocketConnected: _isSocketConnected,
-                    myName: _myName,
-                    myIdentity: _myIdentity,
-                    isDark: true,
-                    showHeader: false,
+                : ValueListenableBuilder<List<MeetingChatMessage>>(
+                    valueListenable: _messages,
+                    builder: (context, messages, _) => MeetingChatView(
+                      meetingId: _meetingIdInt,
+                      messages: messages,
+                      onNewMessage: (msg) {
+                        _messages.value = [..._messages.value, msg];
+                      },
+                      onSendMessage: _sendChatMessage,
+                      socket: _socket,
+                      isSocketConnected: _isSocketConnected,
+                      myName: _myName,
+                      myIdentity: _myIdentity,
+                      isDark: true,
+                      showHeader: false,
+                    ),
                   ),
           ),
         ],
@@ -1655,6 +2055,33 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
       ),
     );
 
+    final minimise = _pip.isSupported
+        ? Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Tooltip(
+              message: isFr ? 'Réduire en mini-fenêtre' : 'Minimise to a window',
+              child: InkWell(
+                onTap: () => unawaited(_pip.enter()),
+                borderRadius: BorderRadius.circular(11),
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF181D25),
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: const Color(0xFF2A323E)),
+                  ),
+                  child: const Icon(
+                    Icons.picture_in_picture_alt_rounded,
+                    color: Color(0xFFE2E8F0),
+                    size: 19,
+                  ),
+                ),
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
+
     final statusLine = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1670,13 +2097,16 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
             children: [
               _buildConnectionBars(),
               const SizedBox(width: 7),
-              Text(
-                _formatElapsed(_elapsedSeconds),
-                style: const TextStyle(
-                  color: Color(0xFFD5DBE4),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: [FontFeature.tabularFigures()],
+              ValueListenableBuilder<int>(
+                valueListenable: _elapsed,
+                builder: (context, seconds, _) => Text(
+                  _formatElapsed(seconds),
+                  style: const TextStyle(
+                    color: Color(0xFFD5DBE4),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
             ],
@@ -1784,6 +2214,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                   children: [
                     Expanded(child: title),
                     const SizedBox(width: 10),
+                    minimise,
                     fullscreen,
                   ],
                 ),
@@ -1797,6 +2228,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                 const SizedBox(width: 16),
                 statusLine,
                 const SizedBox(width: 8),
+                minimise,
                 fullscreen,
               ],
             ),
@@ -1889,7 +2321,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              _controller.errorMessage!,
+              _connectionErrorText(_controller.connectionError!, isFr),
               style: AppTypography.bodyMedium.copyWith(
                 color: AppColors.pureWhite,
               ),
@@ -1897,9 +2329,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton.icon(
-              onPressed: () {
-                _controller.leaveRoom().then((_) => _connect());
-              },
+              onPressed: () => unawaited(_controller.retry()),
               icon: const Icon(Icons.refresh, size: 18),
               label: Text(isFr ? 'Réessayer' : 'Retry'),
               style: ElevatedButton.styleFrom(
@@ -1916,6 +2346,71 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
     );
   }
 
+  String _connectionErrorText(MeetingConnectionError error, bool isFr) {
+    return switch (error) {
+      MeetingConnectionError.timeout =>
+        isFr
+            ? 'La connexion a expiré. Vérifiez votre connexion internet et réessayez.'
+            : 'The connection timed out. Check your internet connection and try again.',
+      MeetingConnectionError.network =>
+        isFr
+            ? 'Impossible de se connecter à la classe. Vérifiez votre connexion internet.'
+            : 'Could not reach the class. Check your internet connection.',
+      MeetingConnectionError.permission =>
+        isFr
+            ? 'Accès à la caméra ou au microphone refusé. Autorisez-le dans les paramètres.'
+            : 'Camera or microphone access was denied. Allow it in the settings.',
+      MeetingConnectionError.lost =>
+        isFr
+            ? 'La connexion à la classe a été perdue.'
+            : 'The connection to the class was lost.',
+      MeetingConnectionError.generic =>
+        isFr
+            ? 'Impossible de rejoindre la classe. Veuillez réessayer.'
+            : 'Could not join the class. Please try again.',
+    };
+  }
+
+  Widget _buildReconnectingChip(bool isFr) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xF2171B22),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.frenchGold.withValues(alpha: 0.6)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppColors.frenchGold,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            isFr ? 'Reconnexion à la classe…' : 'Reconnecting to the class…',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Main Stage ──
   Widget _buildMainStage(List<Participant> participants, bool isFr) {
     if (participants.isEmpty) {
@@ -1927,18 +2422,301 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
       );
     }
 
-    // Screen share takes priority
+    final Widget stage;
     if (_controller.hasRemoteScreenShare) {
-      return _buildScreenShareLayout(participants, isFr);
+      // Screen share takes priority
+      stage = _buildScreenShareLayout(participants, isFr);
+    } else if (participants.length == 1) {
+      stage = _buildSoloState(participants.first, isFr);
+    } else {
+      stage = _buildVideoGrid(participants);
     }
 
-    // Solo state
-    if (participants.length == 1) {
-      return _buildSoloState(participants.first, isFr);
+    if (!_controller.isScreenSharing || _isFullscreen) return stage;
+    return Column(
+      children: [
+        _buildLocalPresentingBanner(isFr),
+        Expanded(child: stage),
+      ],
+    );
+  }
+
+  /// Shown to the presenter instead of a mirror of their own screen.
+  Widget _buildLocalPresentingBanner(bool isFr) {
+    final isCompact = MediaQuery.sizeOf(context).width < 600;
+    return Container(
+      margin: EdgeInsets.fromLTRB(isCompact ? 12 : 18, 10, isCompact ? 12 : 18, 2),
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F2A22),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.good.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: AppColors.good.withValues(alpha: 0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.present_to_all_rounded,
+              size: 18,
+              color: AppColors.good,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isFr
+                      ? 'Vous présentez à toute la classe'
+                      : 'You are presenting to everyone',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isFr
+                      ? 'Ouvrez l\'application à montrer ; la classe continue en arrière-plan.'
+                      : 'Open the app you want to show; the class keeps running.',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFF9EABB9),
+                    fontSize: 11,
+                    height: 1.25,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: _controller.isScreenShareBusy ? null : _toggleScreenShare,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.bad,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              visualDensity: VisualDensity.compact,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            icon: const Icon(Icons.stop_screen_share_rounded, size: 16),
+            label: Text(
+              isFr ? 'Arrêter' : 'Stop',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Picture-in-picture window ──
+
+  /// The whole class in a few hundred pixels: the presentation if there is
+  /// one, otherwise the person speaking. No controls; Android shows its own
+  /// mute / camera / leave buttons on the window.
+  Widget _buildPipView(bool isFr) {
+    final Widget content;
+    final String label;
+    var micOff = false;
+    final presentation = _controller.hasRemoteScreenShare;
+
+    if (presentation) {
+      final track = _controller.screenShareTrack;
+      final sharer = _controller.screenShareParticipant;
+      content = track == null
+          ? _buildPipLoading()
+          : VideoTrackRenderer(
+              track,
+              key: ValueKey('pip-${track.sid}'),
+              fit: VideoViewFit.contain,
+              placeholderBuilder: (_) => _buildPipLoading(),
+            );
+      final name = sharer?.name.isNotEmpty == true
+          ? sharer!.name
+          : (isFr ? 'Participant' : 'Participant');
+      label = isFr ? '$name présente' : '$name is presenting';
+    } else {
+      final focus = _pipFocusParticipant();
+      if (focus == null) {
+        content = _controller.connectionError != null
+            ? const Center(
+                child: Icon(
+                  Icons.wifi_off_rounded,
+                  color: Colors.white54,
+                  size: 28,
+                ),
+              )
+            : _buildPipLoading();
+        label = _controller.connectionError != null
+            ? (isFr ? 'Connexion perdue' : 'Connection lost')
+            : widget.title;
+      } else {
+        content = _buildPipParticipant(focus);
+        label = focus is LocalParticipant
+            ? (isFr ? 'Vous' : 'You')
+            : (focus.name.isNotEmpty ? focus.name : focus.identity);
+        micOff = focus.isMuted;
+      }
     }
 
-    // Grid layout
-    return _buildVideoGrid(participants);
+    return ColoredBox(
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          content,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 12, 8, 6),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.75),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+              child: Row(
+                children: [
+                  if (presentation)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 4),
+                      child: Icon(
+                        Icons.present_to_all_rounded,
+                        size: 12,
+                        color: AppColors.good,
+                      ),
+                    ),
+                  if (micOff)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 4),
+                      child: Icon(Icons.mic_off, size: 12, color: AppColors.bad),
+                    ),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  if (!_controller.isMicOn)
+                    const Icon(Icons.mic_off, size: 12, color: AppColors.bad),
+                ],
+              ),
+            ),
+          ),
+          if (_controller.isReconnecting)
+            Positioned(
+              top: 6,
+              left: 6,
+              right: 6,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    isFr ? 'Reconnexion…' : 'Reconnecting…',
+                    style: const TextStyle(
+                      color: AppColors.frenchGold,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPipLoading() {
+    return const Center(
+      child: SizedBox(
+        width: 18,
+        height: 18,
+        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+      ),
+    );
+  }
+
+  /// Who the floating window shows when nobody presents: whoever spoke last,
+  /// else the teacher, else someone with a camera, else yourself.
+  Participant? _pipFocusParticipant() {
+    final room = _controller.room;
+    if (room == null) return null;
+    final remotes = room.remoteParticipants.values.toList();
+    if (remotes.isEmpty) return room.localParticipant;
+    final lastSpeaker = _controller.lastRemoteSpeakerIdentity;
+    return remotes.where((p) => p.isSpeaking).firstOrNull ??
+        remotes.where((p) => p.identity == lastSpeaker).firstOrNull ??
+        remotes.where((p) => p.identity == _teacherIdentity).firstOrNull ??
+        remotes.where((p) => _cameraTrackOf(p) != null).firstOrNull ??
+        remotes.first;
+  }
+
+  VideoTrack? _cameraTrackOf(Participant p) {
+    final pub = p.videoTrackPublications
+        .where((pub) => pub.source != TrackSource.screenShareVideo)
+        .firstOrNull;
+    if (pub == null || pub.muted) return null;
+    final track = pub.track;
+    return track is VideoTrack ? track : null;
+  }
+
+  Widget _buildPipParticipant(Participant p) {
+    final track = _cameraTrackOf(p);
+    if (track != null) {
+      return VideoTrackRenderer(
+        track,
+        key: ValueKey('pip-${track.sid}'),
+        fit: VideoViewFit.cover,
+      );
+    }
+    final name = p.name.isNotEmpty ? p.name : p.identity;
+    return Center(
+      child: CircleAvatar(
+        radius: 26,
+        backgroundColor: _avatarColor(name),
+        child: Text(
+          _initials(name),
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: AppColors.pureWhite,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildSoloState(Participant p, bool isFr) {
@@ -2049,13 +2827,29 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
   }
 
   Widget _buildScreenShareLayout(List<Participant> participants, bool isFr) {
+    return LayoutBuilder(
+      builder: (context, constraints) => _buildScreenShareColumn(
+        participants,
+        isFr,
+        // A phone held sideways has ~250 px left for the stage: give all of
+        // it to the presentation.
+        roomy: constraints.maxHeight >= 420,
+      ),
+    );
+  }
+
+  Widget _buildScreenShareColumn(
+    List<Participant> participants,
+    bool isFr, {
+    required bool roomy,
+  }) {
     final screenTrack = _controller.screenShareTrack;
     final screenSharer = _controller.screenShareParticipant;
 
     return Column(
       children: [
         // Screen share banner (hidden in fullscreen mode)
-        if (!_isFullscreen)
+        if (!_isFullscreen && roomy)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             color: AppColors.good.withValues(alpha: 0.15),
@@ -2063,14 +2857,18 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
               children: [
                 const Icon(Icons.screen_share, size: 16, color: AppColors.good),
                 const SizedBox(width: 8),
-                Text(
-                  '${screenSharer?.name.isNotEmpty == true ? screenSharer!.name : 'Participant'} ${isFr ? 'présente son écran' : 'is presenting'}',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.good,
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Text(
+                    '${screenSharer?.name.isNotEmpty == true ? screenSharer!.name : 'Participant'} ${isFr ? 'présente son écran' : 'is presenting'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.good,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 InkWell(
                   onTap: _toggleFullscreen,
                   borderRadius: BorderRadius.circular(6),
@@ -2134,17 +2932,19 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
                   fit: StackFit.expand,
                   children: [
                     screenTrack != null
-                        ? VideoTrackRenderer(screenTrack)
-                        : Center(
-                            child: Text(
-                              isFr
-                                  ? 'Chargement du partage d\'écran...'
-                                  : 'Loading screen share...',
-                              style: AppTypography.caption.copyWith(
-                                color: AppColors.pureWhite,
-                              ),
+                        // Pinch to read small slide text on a phone.
+                        ? InteractiveViewer(
+                            key: ValueKey('presentation-${screenTrack.sid}'),
+                            minScale: 1,
+                            maxScale: 4,
+                            child: VideoTrackRenderer(
+                              screenTrack,
+                              fit: VideoViewFit.contain,
+                              placeholderBuilder: (_) =>
+                                  _buildPresentationLoading(isFr),
                             ),
-                          ),
+                          )
+                        : _buildPresentationLoading(isFr),
                     // Quick fullscreen overlay button on the video when not in fullscreen
                     if (!_isFullscreen)
                       Positioned(
@@ -2178,7 +2978,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
         ),
 
         // Participant thumbnails (only when not in fullscreen)
-        if (!_isFullscreen) ...[
+        if (!_isFullscreen && roomy) ...[
           SizedBox(
             height: 100,
             child: ListView.separated(
@@ -2197,6 +2997,31 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
           const SizedBox(height: 8),
         ],
       ],
+    );
+  }
+
+  Widget _buildPresentationLoading(bool isFr) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 26,
+            height: 26,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: AppColors.good,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            isFr
+                ? 'Chargement de la présentation…'
+                : 'Loading the presentation…',
+            style: AppTypography.caption.copyWith(color: AppColors.pureWhite),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2271,7 +3096,10 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen> {
             // Video or Avatar
             if (hasVideo && videoPub.track is VideoTrack)
               SizedBox.expand(
-                child: VideoTrackRenderer(videoPub.track as VideoTrack),
+                child: VideoTrackRenderer(
+                  videoPub.track as VideoTrack,
+                  key: ValueKey('tile-${videoPub.sid}'),
+                ),
               )
             else
               CircleAvatar(

@@ -304,106 +304,127 @@ class MeetingControls extends StatelessWidget {
 
   // ── Mobile Responsive Floating Pill Layout ──
   Widget _buildMobileBar(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F172A).withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(28),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
+    // Eight buttons at 42 px need ~420 px; most Android phones are 360-412
+    // wide. Scale the buttons to the space instead of clipping "Leave".
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available = constraints.maxWidth.isFinite
+            ? constraints.maxWidth - 24
+            : 420.0;
+        final size = ((available - 20 - 38) / 8).clamp(32.0, 42.0);
+        final gap = size < 38 ? 4.0 : 5.0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.4),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Mic
-          _buildCircleButton(
-            icon: isMicOn ? Icons.mic : Icons.mic_off,
-            color: AppColors.pureWhite,
-            bg: isMicOn
-                ? AppColors.pureWhite.withValues(alpha: 0.12)
-                : AppColors.bad,
-            onPressed: onToggleMic,
-          ),
-          const SizedBox(width: 5),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Mic
+              _buildCircleButton(
+                icon: isMicOn ? Icons.mic : Icons.mic_off,
+                color: AppColors.pureWhite,
+                bg: isMicOn
+                    ? AppColors.pureWhite.withValues(alpha: 0.12)
+                    : AppColors.bad,
+                onPressed: onToggleMic,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // Cam
-          _buildCircleButton(
-            icon: isCamOn ? Icons.videocam : Icons.videocam_off,
-            color: AppColors.pureWhite,
-            bg: isCamOn
-                ? AppColors.pureWhite.withValues(alpha: 0.12)
-                : AppColors.bad,
-            onPressed: onToggleCam,
-          ),
-          const SizedBox(width: 5),
+              // Cam
+              _buildCircleButton(
+                icon: isCamOn ? Icons.videocam : Icons.videocam_off,
+                color: AppColors.pureWhite,
+                bg: isCamOn
+                    ? AppColors.pureWhite.withValues(alpha: 0.12)
+                    : AppColors.bad,
+                onPressed: onToggleCam,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // Screen Share
-          _buildCircleButton(
-            icon: isScreenSharing
-                ? Icons.stop_screen_share
-                : Icons.screen_share_outlined,
-            color: AppColors.pureWhite,
-            bg: isScreenSharing
-                ? const Color(0xFF10B981)
-                : AppColors.pureWhite.withValues(alpha: 0.12),
-            onPressed: onToggleScreenShare ?? () {},
-            isLoading: isScreenShareBusy,
-          ),
-          const SizedBox(width: 5),
+              // Screen Share
+              _buildCircleButton(
+                icon: isScreenSharing
+                    ? Icons.stop_screen_share
+                    : Icons.screen_share_outlined,
+                color: AppColors.pureWhite,
+                bg: isScreenSharing
+                    ? const Color(0xFF10B981)
+                    : AppColors.pureWhite.withValues(alpha: 0.12),
+                onPressed: onToggleScreenShare ?? () {},
+                isLoading: isScreenShareBusy,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // Hand Raise
-          _buildCircleButton(
-            icon: Icons.front_hand_outlined,
-            color: isHandRaised ? AppColors.frenchGold : AppColors.pureWhite,
-            bg: isHandRaised
-                ? AppColors.frenchGold.withValues(alpha: 0.25)
-                : AppColors.pureWhite.withValues(alpha: 0.12),
-            onPressed: onToggleHand,
-          ),
-          const SizedBox(width: 5),
+              // Hand Raise
+              _buildCircleButton(
+                icon: Icons.front_hand_outlined,
+                color: isHandRaised
+                    ? AppColors.frenchGold
+                    : AppColors.pureWhite,
+                bg: isHandRaised
+                    ? AppColors.frenchGold.withValues(alpha: 0.25)
+                    : AppColors.pureWhite.withValues(alpha: 0.12),
+                onPressed: onToggleHand,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // Chat (with badge)
-          _buildBadgedButton(
-            icon: Icons.chat_bubble_outline,
-            color: AppColors.pureWhite,
-            bg: AppColors.pureWhite.withValues(alpha: 0.12),
-            badgeCount: unreadChatCount,
-            onPressed: onOpenChat,
-          ),
-          const SizedBox(width: 5),
+              // Chat (with badge)
+              _buildBadgedButton(
+                icon: Icons.chat_bubble_outline,
+                color: AppColors.pureWhite,
+                bg: AppColors.pureWhite.withValues(alpha: 0.12),
+                badgeCount: unreadChatCount,
+                onPressed: onOpenChat,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // Participants
-          _buildCircleButton(
-            icon: Icons.people_outline,
-            color: AppColors.pureWhite,
-            bg: AppColors.pureWhite.withValues(alpha: 0.12),
-            onPressed: onOpenParticipants,
-          ),
-          const SizedBox(width: 5),
+              // Participants
+              _buildCircleButton(
+                icon: Icons.people_outline,
+                color: AppColors.pureWhite,
+                bg: AppColors.pureWhite.withValues(alpha: 0.12),
+                onPressed: onOpenParticipants,
+                size: size,
+              ),
+              SizedBox(width: gap),
 
-          // More menu
-          _buildCircleButton(
-            icon: Icons.more_horiz,
-            color: AppColors.pureWhite,
-            bg: AppColors.pureWhite.withValues(alpha: 0.12),
-            onPressed: onOpenMore,
-          ),
-          const SizedBox(width: 8),
+              // More menu
+              _buildCircleButton(
+                icon: Icons.more_horiz,
+                color: AppColors.pureWhite,
+                bg: AppColors.pureWhite.withValues(alpha: 0.12),
+                onPressed: onOpenMore,
+                size: size,
+              ),
+              const SizedBox(width: 8),
 
-          // Leave / End
-          _buildCircleButton(
-            icon: Icons.call_end,
-            color: AppColors.pureWhite,
-            bg: AppColors.bad,
-            onPressed: onLeave,
+              // Leave / End
+              _buildCircleButton(
+                icon: Icons.call_end,
+                color: AppColors.pureWhite,
+                bg: AppColors.bad,
+                onPressed: onLeave,
+                size: size,
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -570,21 +591,22 @@ class MeetingControls extends StatelessWidget {
     required Color bg,
     required int badgeCount,
     required VoidCallback onPressed,
+    double size = 42,
   }) {
     return InkWell(
       onTap: onPressed,
-      borderRadius: BorderRadius.circular(21),
+      borderRadius: BorderRadius.circular(size / 2),
       child: SizedBox(
-        width: 42,
-        height: 42,
+        width: size,
+        height: size,
         child: Stack(
           alignment: Alignment.center,
           children: [
             Container(
-              width: 42,
-              height: 42,
+              width: size,
+              height: size,
               decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
-              child: Icon(icon, color: color, size: 19),
+              child: Icon(icon, color: color, size: size * 0.45),
             ),
             if (badgeCount > 0)
               Positioned(

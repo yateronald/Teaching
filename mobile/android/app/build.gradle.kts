@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // AppCompat themes: the fingerprint prompt (local_auth) needs them.
+    implementation("androidx.appcompat:appcompat:1.7.0")
+}

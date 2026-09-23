@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
@@ -68,7 +69,14 @@ class _PreJoinScreenState extends ConsumerState<PreJoinScreen> with SingleTicker
 
   Future<void> _initDevices() async {
     try {
-      await [Permission.camera, Permission.microphone].request();
+      await [
+        Permission.camera,
+        Permission.microphone,
+        // Android 13+: the "class in progress" notification, which brings
+        // the user back to the class and lets them leave it from outside.
+        if (defaultTargetPlatform == TargetPlatform.android)
+          Permission.notification,
+      ].request();
     } catch (_) {}
 
     if (_isCamOn) {

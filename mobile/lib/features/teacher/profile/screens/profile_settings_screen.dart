@@ -15,9 +15,9 @@ import '../../../../core/widgets/brand_logo.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/language_switcher_button.dart';
 import '../../../auth/models/user_model.dart';
-import '../../../auth/screens/welcome_screen.dart';
 import '../widgets/change_email_dialog.dart';
 import '../widgets/change_password_dialog.dart';
+import '../widgets/fingerprint_lock_tile.dart';
 import '../widgets/signed_in_devices_section.dart';
 import '../widgets/timezone_select_dialog.dart';
 
@@ -349,13 +349,7 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
 
     if (confirm == true) {
       await ref.read(authNotifierProvider.notifier).logout();
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const WelcomeScreen()),
-          (route) => false,
-        );
-      }
+      // The app returns to the sign-in screen on its own (main.dart).
     }
   }
 
@@ -365,6 +359,61 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
     final user = ref.watch(authNotifierProvider).user;
     final isTablet = MediaQuery.of(context).size.width >= 768;
     final insets = ResponsiveLayout.pageInsets(context);
+
+    if (isTablet) {
+      return Stack(
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              insets.left,
+              insets.top,
+              insets.right,
+              _isDirty ? 100 : insets.bottom,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1120),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildPageHeader(isFr),
+                    const SizedBox(height: 20),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Left Identity Column: Fixed in place (scrolls internally only if height is very short)
+                          SizedBox(
+                            width: 320,
+                            child: SingleChildScrollView(
+                              physics: const ClampingScrollPhysics(),
+                              child: _buildIdentityCard(user, isFr),
+                            ),
+                          ),
+                          const SizedBox(width: 20),
+
+                          // Right Main Column: Scrolls independently
+                          Expanded(
+                            child: SingleChildScrollView(
+                              padding: const EdgeInsets.only(bottom: 40),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: _buildRightSections(user, isFr),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_isDirty) _buildFloatingSaveBar(isFr),
+        ],
+      );
+    }
 
     return Stack(
       children: [
@@ -381,156 +430,137 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Page Header
-                  Text(
-                    isFr ? 'Compte' : 'Account',
-                    style: AppTypography.caption.copyWith(
-                      color: const Color(0xFF4F46E5),
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    isFr ? 'Profil & Paramètres' : 'Profile & Settings',
-                    style: AppTypography.headlineMedium.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.frenchNavy,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    isFr
-                        ? 'Vos coordonnées, le fuseau horaire de vos cours et vos paramètres de sécurité.'
-                        : 'Your details, the time zone every schedule is shown in, and how you sign in.',
-                    style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
-                  ),
+                  _buildPageHeader(isFr),
                   const SizedBox(height: 24),
-
-                  // Responsive Content
-                  if (isTablet)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left Identity Column
-                        SizedBox(
-                          width: 320,
-                          child: _buildIdentityCard(user, isFr),
-                        ),
-                        const SizedBox(width: 20),
-
-                        // Right Main Column
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: _buildRightSections(user, isFr),
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildIdentityCard(user, isFr),
-                        const SizedBox(height: 20),
-                        ..._buildRightSections(user, isFr),
-                      ],
-                    ),
+                  _buildIdentityCard(user, isFr),
+                  const SizedBox(height: 20),
+                  ..._buildRightSections(user, isFr),
                 ],
               ),
             ),
           ),
         ),
+        if (_isDirty) _buildFloatingSaveBar(isFr),
+      ],
+    );
+  }
 
-        // Floating Save Bar (when unsaved changes exist)
-        if (_isDirty)
-          Positioned(
-            left: 20,
-            right: 20,
-            bottom: 20,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFBBF24),
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          isFr
-                              ? 'Vous avez des modifications non enregistrées'
-                              : 'You have unsaved changes',
-                          style: const TextStyle(
-                            color: Color(0xFFE2E8F0),
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFFE2E8F0),
-                          side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          minimumSize: const Size(0, 36),
-                        ),
-                        onPressed: _isSavingProfile ? null : _discardChanges,
-                        child: Text(isFr ? 'Ignorer' : 'Discard'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F46E5),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                          minimumSize: const Size(0, 36),
-                        ),
-                        onPressed: _isSavingProfile ? null : _saveProfile,
-                        child: _isSavingProfile
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(Colors.white),
-                                ),
-                              )
-                            : Text(
-                                isFr ? 'Enregistrer' : 'Save changes',
-                                style: const TextStyle(fontWeight: FontWeight.w600),
-                              ),
-                      ),
-                    ],
+  Widget _buildPageHeader(bool isFr) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          isFr ? 'Compte' : 'Account',
+          style: AppTypography.caption.copyWith(
+            color: const Color(0xFF4F46E5),
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          isFr ? 'Profil & Paramètres' : 'Profile & Settings',
+          style: AppTypography.headlineMedium.copyWith(
+            fontWeight: FontWeight.w700,
+            color: AppColors.frenchNavy,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          isFr
+              ? 'Vos coordonnées, le fuseau horaire de vos cours et vos paramètres de sécurité.'
+              : 'Your details, the time zone every schedule is shown in, and how you sign in.',
+          style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFloatingSaveBar(bool isFr) {
+    return Positioned(
+      left: 20,
+      right: 20,
+      bottom: 20,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0F172A),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFBBF24),
+                    shape: BoxShape.circle,
                   ),
                 ),
-              ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    isFr
+                        ? 'Vous avez des modifications non enregistrées'
+                        : 'You have unsaved changes',
+                    style: const TextStyle(
+                      color: Color(0xFFE2E8F0),
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFE2E8F0),
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.25)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  onPressed: _isSavingProfile ? null : _discardChanges,
+                  child: Text(isFr ? 'Ignorer' : 'Discard'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF4F46E5),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  onPressed: _isSavingProfile ? null : _saveProfile,
+                  child: _isSavingProfile
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation(Colors.white),
+                          ),
+                        )
+                      : Text(
+                          isFr ? 'Enregistrer' : 'Save changes',
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                ),
+              ],
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 
@@ -1540,6 +1570,10 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
               ),
             ],
           ),
+          const Divider(height: 24, color: AppColors.borderSoft),
+
+          // Fingerprint unlock (this phone)
+          FingerprintLockTile(isFr: isFr),
         ],
       ),
     );

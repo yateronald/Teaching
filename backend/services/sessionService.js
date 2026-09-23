@@ -16,6 +16,13 @@ const { hasTable } = require('./schemaFeatures');
 const DEVICE_LIMIT = { candidate: 2 };
 /** A session untouched for this long frees its slot (only matters where there is a cap). */
 const IDLE_MINUTES = 6 * 60;
+/**
+ * Long-lived sessions (the mobile app's six months) are not ended by idleness:
+ * a teacher who opens the app once a week must not be asked to sign in again.
+ * They are recognised by their lifetime, so no extra column is needed.
+ */
+const NOT_IDLE = `(last_seen_at > LOCALTIMESTAMP - make_interval(mins => $2)
+                OR expires_at > created_at + INTERVAL '30 days')`;
 /** How often a session may take over the others, per day. Beyond that, an administrator must step in. */
 const TAKEOVERS_PER_DAY = 2;
 /** Refresh last_seen_at at most this often, to keep one write per request from becoming the bottleneck. */
@@ -61,7 +68,7 @@ async function activeSessions(db, userId) {
            FROM user_sessions
           WHERE user_id = $1 AND ended_at IS NULL
             AND expires_at > LOCALTIMESTAMP
-            AND last_seen_at > LOCALTIMESTAMP - make_interval(mins => $2)
+            AND ${NOT_IDLE}
           ORDER BY last_seen_at DESC`,
         [userId, IDLE_MINUTES]);
 }
@@ -88,13 +95,31 @@ async function endAllForUser(db, userId, reason, keepSessionId = null) {
     return done.length;
 }
 
+/** The mobile app says which phone it runs on; a browser is described from its user agent. */
+function deviceOf(req) {
+    const app = String(req?.headers?.['x-client-app'] || '');
+    if (/^lfwn-mobile\//i.test(app)) {
+        const os = /android/i.test(app) ? 'Android' : /ios/i.test(app) ? 'iPhone or iPad' : 'phone';
+        return `Mobile app on ${os}`;
+    }
+    return describeDevice(req?.headers?.['user-agent']);
+}
+
 /** Records a new signed-in device, and how many others it pushed out. */
 async function openSession(db, { userId, jti, expiresAt, req, tookOver = 0 }) {
     if (!(await ready(db))) return null;
     return db.get(
         `INSERT INTO user_sessions (user_id, jti, expires_at, device, ip, took_over)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-        [userId, jti, expiresAt, describeDevice(req?.headers?.['user-agent']).slice(0, 120), clientIp(req), Math.min(999, Number(tookOver) || 0)]);
+        [userId, jti, expiresAt, deviceOf(req).slice(0, 120), clientIp(req), Math.min(999, Number(tookOver) || 0)]);
+}
+
+/** Pushes back the end of a still-open session (mobile renewal). */
+async function extendSession(db, sessionId, expiresAt) {
+    if (!(await ready(db))) return;
+    await db.run(
+        'UPDATE user_sessions SET expires_at = $2, last_seen_at = CURRENT_TIMESTAMP WHERE id = $1 AND ended_at IS NULL',
+        [sessionId, expiresAt]);
 }
 
 /** The session behind a token, if it is still open. */
@@ -104,7 +129,7 @@ async function liveSession(db, jti) {
         `SELECT id, user_id, last_seen_at FROM user_sessions
           WHERE jti = $1 AND ended_at IS NULL
             AND expires_at > LOCALTIMESTAMP
-            AND last_seen_at > LOCALTIMESTAMP - make_interval(mins => $2)`,
+            AND ${NOT_IDLE}`,
         [jti, IDLE_MINUTES]);
 }
 
@@ -166,5 +191,5 @@ const publicView = (row, currentId = null) => ({
 module.exports = {
     DEVICE_LIMIT, IDLE_MINUTES, TAKEOVERS_PER_DAY,
     limitFor, newId, ready, describeDevice, activeSessions, endSessions, endAllForUser,
-    openSession, liveSession, touch, takeoversToday, publicView, sweep, startSessionSweeper,
+    openSession, extendSession, deviceOf, liveSession, touch, takeoversToday, publicView, sweep, startSessionSweeper,
 };

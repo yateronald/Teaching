@@ -228,7 +228,7 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
     double computeStickyHeight(double width) {
       if (width >= 800) return 108.0;
       if (width >= 700) return 152.0;
-      return 208.0;
+      return 218.0;
     }
 
     final insets = ResponsiveLayout.pageInsets(context);
@@ -899,7 +899,7 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
         physics: const NeverScrollableScrollPhysics(),
         itemCount: list.length,
         separatorBuilder: (context, index) => const SizedBox(height: 14),
-        itemBuilder: (context, idx) => _buildQuizCard(list[idx] as Map<String, dynamic>, isFr),
+        itemBuilder: (context, idx) => _buildQuizCard(list[idx] as Map<String, dynamic>, isFr, isGrid: false),
       );
     }
 
@@ -913,12 +913,12 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
         mainAxisSpacing: 16,
         mainAxisExtent: 290,
       ),
-      itemBuilder: (context, idx) => _buildQuizCard(list[idx] as Map<String, dynamic>, isFr),
+      itemBuilder: (context, idx) => _buildQuizCard(list[idx] as Map<String, dynamic>, isFr, isGrid: true),
     );
   }
 
   // ── Quiz Card (matches reference media_1790001341761.jpg) ──
-  Widget _buildQuizCard(Map<String, dynamic> quiz, bool isFr) {
+  Widget _buildQuizCard(Map<String, dynamic> quiz, bool isFr, {bool isGrid = false}) {
     final status = _getQuizStatus(quiz);
     final subsCount =
         quiz['submitted_students'] ?? quiz['submissions_count'] ?? 0;
@@ -1007,7 +1007,7 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
           ),
-          const Spacer(),
+          if (isGrid) const Spacer() else const SizedBox(height: 12),
 
           // Meta Row: Questions · Duration · Points
           Row(

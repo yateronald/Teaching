@@ -11,9 +11,11 @@ class ApiEndpoints {
 
   // ── Auth ──
   static const String login = '/auth/login';
-  static const String me = '/auth/me';
+  // The server has no /auth/me: checking it failed on every launch and
+  // signed the user out each time the app was opened.
+  static const String me = '/auth/profile';
   static const String logout = '/auth/logout';
-  static const String refreshToken = '/auth/refresh-token';
+  static const String refreshToken = '/auth/refresh';
   static const String changePassword = '/auth/change-password';
 
   // ── Batches ──
