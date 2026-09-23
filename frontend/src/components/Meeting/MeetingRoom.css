@@ -1186,3 +1186,82 @@ body:has(.mr) .ant-notification { z-index: 100020 !important; }
   .mr-rec i, .mr-live-dot, .mr-chip-hand, .mr-eq.is-on i { animation: none; }
   .mr-emoji { animation-duration: 0.01s; }
 }
+
+/* ══════════════════════════════════════════
+   CONNECTION GUARD
+   Shown only while the class is coming back after sleep, a screen lock or a
+   network change. It dims the room rather than replacing it, so the person
+   sees they are still in the same class.
+══════════════════════════════════════════ */
+
+.mr-guard {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(8, 15, 28, 0.62);
+  backdrop-filter: blur(6px);
+  animation: mr-guard-in .2s ease both;
+}
+.mr-guard-card {
+  width: min(420px, 100%);
+  padding: 26px 24px 20px;
+  border-radius: 18px;
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow: 0 30px 70px -25px rgba(0, 0, 0, 0.75);
+  color: #e2e8f0;
+  text-align: center;
+}
+.mr-guard-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #34d399;
+  font-size: 24px;
+}
+.mr-guard-icon.is-offline { background: rgba(245, 158, 11, 0.14); color: #fbbf24; }
+.mr-guard-card h2 { margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #f8fafc; letter-spacing: -0.01em; }
+.mr-guard-card p { margin: 0 auto; max-width: 34ch; font-size: 13.5px; line-height: 1.6; color: #94a3b8; }
+.mr-guard-meta { margin-top: 12px !important; font-size: 12px !important; color: #64748b !important; font-variant-numeric: tabular-nums; }
+.mr-guard-actions { display: flex; justify-content: center; gap: 8px; margin-top: 18px; }
+.mr-guard-actions .ant-btn:not(.ant-btn-dangerous) { background: rgba(255, 255, 255, 0.06); border-color: rgba(148, 163, 184, 0.3); color: #e2e8f0; }
+.mr-guard-actions .ant-btn:not(.ant-btn-dangerous):not(:disabled):hover { background: rgba(255, 255, 255, 0.12) !important; border-color: rgba(148, 163, 184, 0.55) !important; color: #fff !important; }
+
+/* Sound paused by the browser after sleep: one tap brings it back. */
+.mr-guard-sound {
+  position: fixed;
+  left: 50%;
+  bottom: 96px;
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: #f59e0b;
+  box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55);
+  color: #111827;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: mr-guard-in .2s ease both;
+}
+.mr-guard-sound:hover { background: #fbbf24; }
+
+@keyframes mr-guard-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mr-guard, .mr-guard-sound { animation: none; } }
+@media (max-width: 480px) {
+  .mr-guard-card { padding: 22px 18px 16px; }
+  .mr-guard-sound { bottom: 88px; width: calc(100% - 32px); justify-content: center; }
+}

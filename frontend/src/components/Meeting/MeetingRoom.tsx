@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { App, Badge, Button, ConfigProvider, Input, Tooltip } from 'antd';
 import {
-  ArrowLeftOutlined, CheckCircleOutlined, DisconnectOutlined, ExclamationCircleOutlined, LoadingOutlined, LockOutlined, PlusOutlined, QuestionCircleOutlined, ReloadOutlined, StopOutlined,
+  ArrowLeftOutlined, CheckCircleOutlined, DesktopOutlined, DisconnectOutlined, ExclamationCircleOutlined, LoadingOutlined, LockOutlined, PlusOutlined, QuestionCircleOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons';
 import {
   LiveKitRoom,
@@ -15,14 +15,14 @@ import {
   useParticipants,
   useRoomContext,
 } from '@livekit/components-react';
-import { RoomEvent, Track, VideoPresets, VideoQuality } from 'livekit-client';
-import type {
-  AudioCaptureOptions, LocalTrackPublication, Participant, RemoteTrackPublication, RoomOptions, VideoCaptureOptions,
-} from 'livekit-client';
+import { DisconnectReason, RoomEvent, Track, VideoPresets, VideoQuality } from 'livekit-client';
+import type { LocalTrackPublication, Participant, RemoteTrackPublication, RoomOptions } from 'livekit-client';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
 import { acquireSocket, releaseSocket } from '../../utils/realtime';
 import type { Socket } from '../../utils/realtime';
+import ConnectionGuard from './ConnectionGuard';
+import type { MediaState, RejoinAnswer } from './ConnectionGuard';
 import DeviceSettings from './DeviceSettings';
 import MeetingShare from './MeetingShare';
 import MeetingStage, { QualityBars } from './MeetingStage';
@@ -39,7 +39,7 @@ const EMOJIS = ['👏', '❤️', '😂', '🎉', '🤔', '👍', '🔥', '😮'
 const POLL_COLORS = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#8b5cf6', '#f97316'];
 const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
 
-type Phase = 'loading' | 'prejoin' | 'room' | 'ended' | 'locked' | 'kicked' | 'declined' | 'disconnected' | 'notfound' | 'error';
+type Phase = 'loading' | 'prejoin' | 'room' | 'ended' | 'locked' | 'kicked' | 'declined' | 'disconnected' | 'elsewhere' | 'notfound' | 'error';
 type MyRole = 'host' | 'admin' | 'teacher' | 'member' | 'guest' | 'outsider' | 'kicked';
 type Panel = 'people' | 'chat' | 'polls';
 type Menu = 'mic' | 'cam' | 'more' | 'reactions' | 'leave';
@@ -185,6 +185,10 @@ const MeetingPage: React.FC = () => {
   const [preStatus, setPreStatus] = useState<PreJoinStatus>('idle');
   const [conn, setConn] = useState<{ token: string; url: string } | null>(null);
   const [roomChoices, setRoomChoices] = useState<MediaChoices | null>(null);
+  // Microphone and camera as the person has them right now (not as they were at
+  // pre-join): a reconnect must never unmute someone who muted during class.
+  const [live, setLive] = useState<MediaState>({ mic: false, cam: false });
+  const recoverRef = useRef<((why: string) => void) | null>(null);
   const [reload, setReload] = useState(0);
   const [socket, setSocket] = useState<Socket | null>(null);
 
@@ -245,6 +249,7 @@ const MeetingPage: React.FC = () => {
 
   const enterRoom = useCallback((token: string, url: string) => {
     setRoomChoices({ ...choicesRef.current });
+    setLive({ mic: !!choicesRef.current.audioEnabled, cam: !!choicesRef.current.videoEnabled });
     setConn({ token, url });
     setLobbySince(null);
     setPhase('room');
@@ -371,26 +376,97 @@ const MeetingPage: React.FC = () => {
     navigate('/app/meetings');
   }, [key, apiCall, navigate]);
 
-  // LiveKit gave up reconnecting (or the room closed under us) — never drop the user on a blank page.
-  const onDisconnected = useCallback(() => {
+  // Disconnects that must not be retried. Everything else — sleep, lock, a
+  // network change — is the ConnectionGuard's job, and it brings the person
+  // back on its own.
+  const onDisconnected = useCallback((reason?: DisconnectReason) => {
     if (leavingRef.current || phaseRef.current !== 'room') return;
-    if (key) apiCall(`/meetings/${key}/leave`, { method: 'POST' }).catch(() => { });
-    setPhase('disconnected');
+    if (reason === DisconnectReason.PARTICIPANT_REMOVED) setPhase('kicked');
+    else if (reason === DisconnectReason.DUPLICATE_IDENTITY) setPhase('elsewhere');
+  }, []);
+
+  // Asked by the guard on every attempt: is this person still allowed in, and
+  // with which fresh key? Anything but "yes" hands the screen back to the page.
+  const rejoin = useCallback(async (): Promise<RejoinAnswer> => {
+    if (!key) return { kind: 'stop' };
+    let resp: Response;
+    try {
+      const body = passRef.current ? { passcode: passRef.current } : {};
+      resp = await apiCall(`/meetings/${key}/join`, { method: 'POST', body: JSON.stringify(body) });
+    } catch (e: unknown) {
+      // Signed out meanwhile: the app is already on its way to the sign-in page.
+      if (e instanceof Error && /invalid or expired/i.test(e.message)) return { kind: 'stop' };
+      return { kind: 'retry' };
+    }
+    if (resp.status >= 500 || resp.status === 429 || resp.status === 408) return { kind: 'retry' };
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) { setPhase('disconnected'); return { kind: 'stop' }; }
+
+    switch (data.action) {
+      case 'join':
+        return { kind: 'token', token: data.token, url: data.livekitUrl };
+      case 'start': {
+        // The host, and the server no longer has the class running: start it again.
+        const started = await apiCall(`/meetings/${key}/start`, { method: 'POST' }).catch(() => null);
+        if (!started?.ok) return { kind: 'retry' };
+        const d = await started.json().catch(() => ({}));
+        return d.token ? { kind: 'token', token: d.token, url: d.livekitUrl } : { kind: 'retry' };
+      }
+      case 'ended': setPhase('ended'); return { kind: 'stop' };
+      case 'kicked': setPhase('kicked'); return { kind: 'stop' };
+      case 'locked': setPhase('locked'); return { kind: 'stop' };
+      case 'declined':
+        setDeclined({ retryAfter: data.retryAfter, final: data.final });
+        setPhase('declined');
+        return { kind: 'stop' };
+      case 'lobby':
+        // A guest whose admission was forgotten (e.g. the server restarted): knock again.
+        setConn(null); setPreStatus('lobby'); setLobbySince(Date.now()); setPhase('prejoin');
+        subscribeRef.current();
+        return { kind: 'stop' };
+      case 'passcode':
+        setConn(null); setNeedsPass(true); setPreStatus('idle'); setPhase('prejoin');
+        return { kind: 'stop' };
+      case 'waiting':
+      case 'not_ready':
+        setConn(null); setPreStatus(data.action); setPhase('prejoin');
+        return { kind: 'stop' };
+      default:
+        return { kind: 'retry' };
+    }
   }, [key, apiCall]);
 
-  const audioOpt = useMemo<AudioCaptureOptions | boolean>(() => {
-    if (!roomChoices?.audioEnabled) return false;
-    return roomChoices.audioDeviceId ? { deviceId: roomChoices.audioDeviceId } : true;
-  }, [roomChoices]);
-  const videoOpt = useMemo<VideoCaptureOptions | boolean>(() => {
-    if (!roomChoices?.videoEnabled) return false;
-    return { resolution: VideoPresets.h720.resolution, ...(roomChoices.videoDeviceId ? { deviceId: roomChoices.videoDeviceId } : {}) };
-  }, [roomChoices]);
+  // A long outage is a real absence: close the attendance session, and the
+  // rejoin opens a new one — the gap shows, as it would with a manual rejoin.
+  const recordAbsence = useCallback(async () => {
+    if (key) await apiCall(`/meetings/${key}/leave`, { method: 'POST' }).catch(() => { });
+  }, [key, apiCall]);
+
+  // Back into the class straight away, with the microphone and camera as they
+  // were — no pre-join screen, no device questions.
+  const rejoinDirectly = useCallback(() => {
+    choicesRef.current = { ...choicesRef.current, audioEnabled: live.mic, videoEnabled: live.cam };
+    setConn(null);
+    void handleJoin();
+  }, [live, handleJoin]);
+
+  // The chosen devices live in the room's capture defaults, which LiveKit keeps
+  // up to date when the person switches device mid-class. The audio/video
+  // props only say on or off — so every (re)connection publishes the devices
+  // in use right now, in the state the person left them.
+  const audioOpt = live.mic;
+  const videoOpt = live.cam;
   const roomOptions = useMemo<RoomOptions>(() => ({
     adaptiveStream: { pixelDensity: 'screen' },
     dynacast: true,
-    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    videoCaptureDefaults: { resolution: VideoPresets.h720.resolution },
+    audioCaptureDefaults: {
+      echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+      ...(roomChoices?.audioDeviceId ? { deviceId: roomChoices.audioDeviceId } : {}),
+    },
+    videoCaptureDefaults: {
+      resolution: VideoPresets.h720.resolution,
+      ...(roomChoices?.videoDeviceId ? { deviceId: roomChoices.videoDeviceId } : {}),
+    },
     publishDefaults: {
       simulcast: true,
       videoSimulcastLayers: [VideoPresets.h180, VideoPresets.h360],
@@ -514,12 +590,28 @@ const MeetingPage: React.FC = () => {
         tone="warning"
         badge="Connection Dropped"
         icon={<DisconnectOutlined />}
-        title="You were disconnected"
-        text="Your connection to the class was lost. Check your internet connection, then rejoin."
+        title="We couldn't bring you back automatically"
+        text="We kept trying to reconnect you for several minutes. Check your internet connection, then rejoin — you'll go straight back into the class."
         meetingTitle={title}
       >
         <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
-        <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setConn(null); setPreStatus('idle'); setPhase('prejoin'); }}>Rejoin</Button>
+        <Button type="primary" icon={<ReloadOutlined />} loading={preStatus === 'joining'} onClick={rejoinDirectly}>Rejoin now</Button>
+      </StatusScreen>,
+    );
+  }
+  if (phase === 'elsewhere') {
+    return shell(
+      <StatusScreen
+        tone="neutral"
+        badge="Open in another window"
+        icon={<DesktopOutlined />}
+        title="This class is open somewhere else"
+        text="You joined this class from another window or device, so this one was closed to avoid echo and double video."
+        hint="Use this window instead, and the other one will be closed."
+        meetingTitle={title}
+      >
+        <Button icon={<ArrowLeftOutlined />} onClick={back}>Back to meetings</Button>
+        <Button type="primary" loading={preStatus === 'joining'} onClick={rejoinDirectly}>Use this window</Button>
       </StatusScreen>,
     );
   }
@@ -527,8 +619,19 @@ const MeetingPage: React.FC = () => {
   if (phase === 'room' && conn && roomChoices) {
     return createPortal(
       <LiveKitRoom serverUrl={conn.url} token={conn.token} connect audio={audioOpt} video={videoOpt}
-        options={roomOptions} onDisconnected={onDisconnected} style={{ height: '100dvh', width: '100vw' }}>
+        options={roomOptions} onDisconnected={onDisconnected}
+        onError={() => recoverRef.current?.('connect-error')}
+        style={{ height: '100dvh', width: '100vw' }}>
         <RoomAudioRenderer />
+        <ConnectionGuard
+          rejoin={rejoin}
+          onMediaState={setLive}
+          onLongAbsence={recordAbsence}
+          onGiveUp={() => { if (!leavingRef.current) setPhase('disconnected'); }}
+          onLeave={handleLeave}
+          leavingRef={leavingRef}
+          recoverRef={recoverRef}
+        />
         <MeetingRoomUI meeting={meeting} isHost={isHost} apiCall={apiCall} socket={socket} onLeave={handleLeave} onEnd={handleEnd}
           onPasscodeChange={p => setMeeting(m => (m ? { ...m, passcode: p } : m))} />
       </LiveKitRoom>,
