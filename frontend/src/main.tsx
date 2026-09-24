@@ -10,6 +10,9 @@ import { LOGO_MAIN } from './utils/assets'
 
 const Boot = () => {
   useEffect(() => {
+    // React has replaced the pre-rendered page: the class that hid it on app
+    // routes (index.html) must not hide a public page reached later by a link.
+    document.documentElement.classList.remove('app-route')
     brandingUtils.applyCSSVariables()
 
     // Set favicon to main logo
@@ -29,7 +32,7 @@ const Boot = () => {
 // Head tags written by the build-time pre-render (scripts/prerender.mjs) are
 // replaced by the ones React renders, so none of them ends up duplicated.
 document.querySelectorAll('head [data-prerender]').forEach(node => node.remove())
-if (!document.querySelector('title') && !/^\/(fr\/?)?$/.test(location.pathname)) document.title = 'Learn French with Natives'
+if (!document.querySelector('title') && document.documentElement.classList.contains('app-route')) document.title = 'Learn French with Natives'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

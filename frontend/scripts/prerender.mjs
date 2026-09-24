@@ -1,7 +1,9 @@
-// Pre-renders the public landing page after `vite build`:
-//   dist/index.html     → English  (https://www.learnfrenchwithnatives.com/)
-//   dist/fr/index.html  → French   (https://www.learnfrenchwithnatives.com/fr/)
-//   dist/sitemap.xml    → both pages with hreflang, dated with this build
+// Pre-renders the public pages after `vite build`:
+//   dist/index.html              → English home   (https://www.learnfrenchwithnatives.com/)
+//   dist/fr/index.html           → French home    (https://www.learnfrenchwithnatives.com/fr/)
+//   dist/<topic>/index.html      → one page per exam or course, in both languages
+//                                  (the list is PUBLIC_PAGES in src/components/Landing/sitePages.ts)
+//   dist/sitemap.xml             → every page with its hreflang alternates, dated with this build
 //
 // Search engines, social networks and AI crawlers then receive the full page,
 // its title, meta tags, hreflang and JSON-LD without running JavaScript.
@@ -16,10 +18,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const cache = path.join(root, 'node_modules', '.cache', 'prerender');
 const SITE = 'https://www.learnfrenchwithnatives.com';
-const PAGES = [
-  { lang: 'en', file: 'index.html', url: `${SITE}/` },
-  { lang: 'fr', file: path.join('fr', 'index.html'), url: `${SITE}/fr/` },
-];
+
+/** '/' → index.html, '/fr/preparation-tcf-canada/' → fr/preparation-tcf-canada/index.html */
+const fileFor = urlPath => path.join(...urlPath.split('/').filter(Boolean), 'index.html');
 
 /** React 19 emits hoisted head tags (title, meta, link) first; split them from the page body. */
 function splitHead(html) {
@@ -34,16 +35,20 @@ function splitHead(html) {
   return { head: tags.join('\n    '), body: rest };
 }
 
-function sitemap(date) {
-  const alternates = PAGES.map(p => `    <xhtml:link rel="alternate" hreflang="${p.lang}" href="${p.url}" />`)
-    .concat(`    <xhtml:link rel="alternate" hreflang="x-default" href="${PAGES[0].url}" />`).join('\n');
-  const urls = PAGES.map(p => `  <url>
-    <loc>${p.url}</loc>
+function sitemap(pages, date) {
+  const urls = pages.map(p => {
+    const alternates = Object.entries(p.alternates)
+      .map(([lang, href]) => `    <xhtml:link rel="alternate" hreflang="${lang}" href="${SITE}${href}" />`)
+      .concat(`    <xhtml:link rel="alternate" hreflang="x-default" href="${SITE}${p.alternates.en}" />`)
+      .join('\n');
+    return `  <url>
+    <loc>${SITE}${p.path}</loc>
     <lastmod>${date}</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
+    <priority>${p.topic ? '0.8' : '1.0'}</priority>
 ${alternates}
-  </url>`).join('\n');
+  </url>`;
+  }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
 ${urls}
@@ -63,27 +68,29 @@ async function main() {
     build: { ssr: 'src/entry-prerender.tsx', outDir: cache, emptyOutDir: true, copyPublicDir: false },
     ssr: { noExternal: true },
   });
-  const { render } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
+  const { render, PUBLIC_PAGES } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
 
   // Render everything first: either all pages are written, or none.
-  const outputs = PAGES.map(page => {
-    const { head, body } = splitHead(render(page.lang));
-    if (!/<h1\b/.test(body)) throw new Error(`the ${page.lang} page rendered without its <h1>`);
+  const outputs = PUBLIC_PAGES.map(page => {
+    const { head, body } = splitHead(render(page));
+    if (!/<h1\b/.test(body)) throw new Error(`${page.path} rendered without its <h1>`);
     const html = template
-      .replace(/<html lang="[^"]*">/, `<html lang="${page.lang}">`)
+      // data-page tells index.html which address this file was made for: served
+      // for any other address (the signed-in app), its content is hidden.
+      .replace(/<html lang="[^"]*">/, `<html lang="${page.lang}" data-page="${page.path}">`)
       .replace(/<title>[^<]*<\/title>\s*/, '')
       .replace('<!--app-head-->', head)
       .replace('<!--app-html-->', body);
-    return { ...page, html };
+    return { ...page, file: fileFor(page.path), html };
   });
   for (const out of outputs) {
     const target = path.join(dist, out.file);
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, out.html);
   }
-  await fs.writeFile(path.join(dist, 'sitemap.xml'), sitemap(new Date().toISOString().slice(0, 10)));
+  await fs.writeFile(path.join(dist, 'sitemap.xml'), sitemap(PUBLIC_PAGES, new Date().toISOString().slice(0, 10)));
   await fs.rm(cache, { recursive: true, force: true });
-  console.log(`✓ Pre-rendered ${outputs.map(o => '/' + o.file.replace(/\\/g, '/').replace('index.html', '')).join(', ')} and sitemap.xml in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  console.log(`✓ Pre-rendered ${outputs.length} pages (${outputs.map(o => o.path).join(', ')}) and sitemap.xml in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 }
 
 main().catch(err => {

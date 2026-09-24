@@ -20,14 +20,18 @@
     />
 
     <!--
-      The public pages (/ and /fr/) are pre-rendered at build time by
-      scripts/prerender.mjs: their title, meta tags, hreflang, Open Graph and
-      JSON-LD are injected here, and their full HTML inside #root.
-      Every other route is the signed-in app, rendered in the browser; it hides
-      the pre-rendered landing until React takes over.
+      The public pages (home and exam/course pages, in English and French) are
+      pre-rendered at build time by scripts/prerender.mjs: their title, meta
+      tags, hreflang, Open Graph and JSON-LD are injected here, their full HTML
+      inside #root, and the address each file was made for in data-page.
+      The home page file is also served for the signed-in app; there, the
+      pre-rendered page stays hidden until React takes over.
     -->
     <script>
-      if (!/^\/(fr\/?)?$/.test(location.pathname)) document.documentElement.classList.add('app-route');
+      (function () {
+        var page = document.documentElement.getAttribute('data-page');
+        if (page && location.pathname.replace(/\/?$/, '/') !== page) document.documentElement.classList.add('app-route');
+      })();
     </script>
     <style>
       .app-route #root > .lp { display: none; }

@@ -4,6 +4,10 @@ import { ConfigProvider, App as AntApp } from 'antd';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CLASS_ROLES, homeFor } from './utils/roles';
 import LandingPage from './components/Landing/LandingPage';
+// Loaded with the landing page (not on demand): these pages arrive pre-rendered,
+// and a loading screen would replace their text while the code downloads.
+import TopicPage from './components/Landing/TopicPage';
+import { PUBLIC_PAGES } from './components/Landing/sitePages';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
 import { BRAND_CONFIG } from './utils/branding';
@@ -77,6 +81,9 @@ function App() {
               {/* Public Routes */}
               <Route path="/" element={<LandingPage lang="en" />} />
               <Route path="/fr" element={<LandingPage lang="fr" />} />
+              {PUBLIC_PAGES.filter(p => p.topic).map(p => (
+                <Route key={p.path} path={p.path} element={<TopicPage key={p.path} topic={p.topic!} lang={p.lang} />} />
+              ))}
               <Route path="/login" element={<Login />} />
               <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
 

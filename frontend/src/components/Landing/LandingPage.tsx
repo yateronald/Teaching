@@ -1,21 +1,19 @@
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import i18next from 'i18next';
 import {
   ArrowRightOutlined, AudioOutlined, CalendarOutlined, CheckOutlined, CloseOutlined, CompassOutlined,
   CustomerServiceOutlined, DashboardOutlined, EditOutlined, ExperimentOutlined, FileTextOutlined, FolderOpenOutlined,
-  ClockCircleOutlined, GlobalOutlined, LeftOutlined, MailOutlined, MenuOutlined, MessageOutlined, PlayCircleFilled, RightOutlined,
+  ClockCircleOutlined, GlobalOutlined, LeftOutlined, MailOutlined, MessageOutlined, PlayCircleFilled, RightOutlined,
   RiseOutlined, SafetyCertificateOutlined, StarFilled, TeamOutlined, TrophyOutlined, VideoCameraOutlined,
 } from '@ant-design/icons';
-import { ASSET_PATHS } from '../../utils/assets';
-import { trackPageView } from '../../utils/siteAnalytics';
-// The booking form is only needed after a click: it stays out of the first
-// download and is fetched in the background once the page is idle.
-const loadDemoModal = () => import('./DemoRequestModal');
-const DemoRequestModal = lazy(loadDemoModal);
 import SEO from '../SEO/SEO';
 import { CONTACT_EMAIL, EXAM_NAMES, LANDING, PATHS, type Lang } from './landingContent';
 import { landingJsonLd } from './landingSchema';
+import { TOPIC_PATHS, type TopicId } from './sitePages';
+import { TOPICS } from './topicContent';
+import SiteHeader, { SECTIONS } from './SiteHeader';
+import SiteFooter from './SiteFooter';
+import { useDemoModal, usePublicPage } from './publicPage';
 import './LandingPage.css';
 
 // ============================================================
@@ -23,7 +21,13 @@ import './LandingPage.css';
 // real HTML before JavaScript runs; animations only enhance what is already there.
 // ============================================================
 
-const SECTIONS = ['programs', 'method', 'simulator', 'platform', 'reviews', 'faq'] as const;
+// The pages that tell the whole story of each program.
+const PROGRAM_TOPICS: Record<string, TopicId[]> = {
+  canada: ['tcf-canada', 'tef-canada'],
+  quebec: ['quebec'],
+  diplomas: ['delf-dalf'],
+  everyday: ['online', 'business', 'kids'],
+};
 const IMG = '/assets/landing';
 const HERO_SRCSET = `${IMG}/platform-marksheet-960.webp 960w, ${IMG}/platform-marksheet-1600.webp 1600w`;
 const HERO_SIZES = '(max-width: 900px) 92vw, 640px';
@@ -75,20 +79,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const c = LANDING[lang];
   const other: Lang = lang === 'en' ? 'fr' : 'en';
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
-  const headerRef = useRef<HTMLElement | null>(null);
-  const [menuTop, setMenuTop] = useState(72);
-  const [demoOpen, setDemoOpen] = useState(false);
-  // Mounted on first open and kept, so its success message can outlive the form.
-  const [demoMounted, setDemoMounted] = useState(false);
-  useEffect(() => { if (demoOpen) setDemoMounted(true); }, [demoOpen]);
-  useEffect(() => {
-    const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
-    const id = idle ? idle(() => { loadDemoModal(); }) : window.setTimeout(() => { loadDemoModal(); }, 2500);
-    return () => { if (!idle) window.clearTimeout(id); };
-  }, []);
+  const { openDemo, modal } = useDemoModal();
+  usePublicPage(lang);
   const [program, setProgram] = useState(0);
   const [quote, setQuote] = useState(0);
   const [video, setVideo] = useState(0);
@@ -97,18 +90,6 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const [suggest, setSuggest] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const quotePaused = useRef(false);
-
-  const openDemo = useCallback(() => { setMenuOpen(false); setDemoOpen(true); }, []);
-
-  // Count this visit for the monitoring space. No cookie, no identifier that
-  // outlives the page — see utils/siteAnalytics.
-  useEffect(() => { trackPageView(); }, []);
-
-  // The rest of the app (demo form, sign-in) follows the language of the page.
-  useEffect(() => {
-    if (i18next.isInitialized && i18next.language !== lang) i18next.changeLanguage(lang);
-    try { localStorage.setItem('i18n_lang', lang); } catch { /* storage unavailable */ }
-  }, [lang]);
 
   // Offer the other language when the browser prefers it (never redirect: crawlers must see both pages).
   useEffect(() => {
@@ -120,16 +101,13 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
     } catch { /* storage unavailable */ }
   }, [other]);
 
-  // Header state + active section in the navigation.
+  // Active section in the navigation.
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 12);
-    onScroll();
-    window.addEventListener('scroll', onScroll, { passive: true });
     const io = new IntersectionObserver(entries => {
       entries.forEach(e => { if (e.isIntersecting) setActive(e.target.id); });
     }, { rootMargin: '-45% 0px -50% 0px' });
     SECTIONS.forEach(id => { const el = document.getElementById(id); if (el) io.observe(el); });
-    return () => { window.removeEventListener('scroll', onScroll); io.disconnect(); };
+    return () => io.disconnect();
   }, []);
 
   // Reveal-on-scroll.
@@ -190,25 +168,6 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
     return () => window.clearInterval(id);
   }, [c.reviews.quotes.length]);
 
-  // The mobile menu opens right under the header, wherever the header is.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const place = () => setMenuTop(Math.round(headerRef.current?.getBoundingClientRect().bottom ?? 72));
-    place();
-    window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
-  }, [menuOpen, announce, scrolled]);
-
-  // Mobile menu: Escape closes it, the page behind does not scroll.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('keydown', onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
-  }, [menuOpen]);
-
   const playVideo = (i: number) => {
     setVideo(i);
     setPlaying(true);
@@ -217,18 +176,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const closeSuggest = () => { setSuggest(false); try { sessionStorage.setItem('lp_lang_hint', '1'); } catch { /* ignore */ } };
   const closeAnnounce = () => { setAnnounce(false); try { localStorage.setItem('lp_announce', 'closed'); } catch { /* ignore */ } };
 
-  const navItems = SECTIONS.map(id => ({ id, label: c.nav[id] }));
   const q = c.reviews.quotes[quote];
-  const langSwitch = (
-    <div className="lp-lang" role="group" aria-label={c.nav.language}>
-      <GlobalOutlined aria-hidden />
-      {(['en', 'fr'] as Lang[]).map(l => (
-        <Link key={l} to={PATHS[l]} hrefLang={l} lang={l} className={l === lang ? 'is-current' : ''} aria-current={l === lang ? 'page' : undefined}>
-          {l.toUpperCase()}
-        </Link>
-      ))}
-    </div>
-  );
 
   return (
     <div className="lp" ref={rootRef} lang={lang}>
@@ -263,37 +211,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         </div>
       )}
 
-      {/* ── Header ── */}
-      <header ref={headerRef} className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
-        <div className="lp-wrap lp-header-row">
-          <Link to={PATHS[lang]} className="lp-brand" aria-label="Learn French with Natives">
-            <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" />
-            <span><strong>Learn French</strong><em>with Natives</em></span>
-          </Link>
-          <nav className="lp-nav" aria-label="Main">
-            {navItems.map(n => <a key={n.id} href={`#${n.id}`} className={active === n.id ? 'is-active' : ''}>{n.label}</a>)}
-          </nav>
-          <div className="lp-header-end">
-            {langSwitch}
-            <a href="/login" className="lp-signin">{c.nav.signIn}</a>
-            <button type="button" className="lp-btn lp-btn-primary lp-btn-sm" onClick={openDemo}>{c.nav.demo}</button>
-            <button type="button" className="lp-burger" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lp-mobile-menu" aria-label={menuOpen ? c.nav.close : c.nav.menu}>
-              {menuOpen ? <CloseOutlined /> : <MenuOutlined />}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen} style={{ '--lp-menu-top': `${menuTop}px` } as React.CSSProperties}>
-        <nav aria-label="Mobile">
-          {navItems.map(n => <a key={n.id} href={`#${n.id}`} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
-        </nav>
-        <div className="lp-mobile-foot">
-          {langSwitch}
-          <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
-          <button type="button" className="lp-btn lp-btn-primary" onClick={openDemo}>{c.nav.demo}</button>
-        </div>
-      </div>
+      <SiteHeader lang={lang} alternates={PATHS} active={active} onDemo={openDemo} />
 
       <main id="main">
         {/* ── Hero ── */}
@@ -411,6 +329,14 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                   <p className="lp-program-desc">{item.desc}</p>
                   <h4>{c.programs.includes}</h4>
                   <ul className="lp-checks">{item.includes.map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
+                  {PROGRAM_TOPICS[item.id] && (
+                    <p className="lp-program-links">
+                      <span>{c.programs.learnMore}</span>
+                      {PROGRAM_TOPICS[item.id].map(id => (
+                        <Link key={id} to={TOPIC_PATHS[id][lang]}>{TOPICS[lang][id].name}<ArrowRightOutlined aria-hidden /></Link>
+                      ))}
+                    </p>
+                  )}
                 </div>
                 <aside className="lp-program-card">
                   <dl>
@@ -689,53 +615,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         </section>
       </main>
 
-      {/* ── Footer ── */}
-      <footer className="lp-footer">
-        <div className="lp-wrap">
-          <div className="lp-footer-grid">
-            <div className="lp-footer-brand">
-              <Link to={PATHS[lang]} className="lp-brand is-light" aria-label="Learn French with Natives">
-                <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" loading="lazy" />
-                <span><strong>Learn French</strong><em>with Natives</em></span>
-              </Link>
-              <p>{c.footer.tagline}</p>
-              <a href={`mailto:${CONTACT_EMAIL}`} className="lp-footer-mail"><MailOutlined /><span><small>{c.footer.contactLabel}</small>{CONTACT_EMAIL}</span></a>
-            </div>
-            <nav aria-label={c.footer.exams}>
-              <h2>{c.footer.exams}</h2>
-              <ul>{c.footer.examLinks.map(x => <li key={x}><a href="#programs">{x}</a></li>)}</ul>
-            </nav>
-            <nav aria-label={c.footer.platform}>
-              <h2>{c.footer.platform}</h2>
-              <ul>{c.footer.platformLinks.map(x => <li key={x.label}><a href={x.href}>{x.label}</a></li>)}</ul>
-            </nav>
-            <nav aria-label={c.footer.company}>
-              <h2>{c.footer.company}</h2>
-              <ul>
-                {c.footer.companyLinks.map(x => (
-                  <li key={x.label}>{x.demo ? <button type="button" onClick={openDemo}>{x.label}</button> : <a href={x.href}>{x.label}</a>}</li>
-                ))}
-              </ul>
-              <h2 className="is-spaced">{c.footer.languages}</h2>
-              <ul className="lp-footer-langs">
-                <li><Link to={PATHS.en} hrefLang="en" lang="en">English</Link></li>
-                <li><Link to={PATHS.fr} hrefLang="fr" lang="fr">Français</Link></li>
-              </ul>
-            </nav>
-          </div>
-          <div className="lp-footer-bottom">
-            <p>© {new Date().getFullYear()} Learn French with Natives · {c.footer.rights}</p>
-            <p>{c.footer.made}</p>
-          </div>
-        </div>
-        <div className="lp-tricolore" aria-hidden><i /><i /><i /></div>
-      </footer>
+      <SiteFooter lang={lang} onDemo={openDemo} />
 
-      {(demoOpen || demoMounted) && (
-        <Suspense fallback={null}>
-          <DemoRequestModal isOpen={demoOpen} onClose={() => setDemoOpen(false)} />
-        </Suspense>
-      )}
+      {modal}
     </div>
   );
 };

@@ -1,6 +1,7 @@
-# Learn French with Natives — https://www.learnfrenchwithnatives.com
-# Public pages: / (English) and /fr/ (French). Everything else is the signed-in
-# student and teacher space, which has nothing to index.
+# Learn French with Natives: https://www.learnfrenchwithnatives.com
+# Public pages: the home page and the exam and course pages, in English and in
+# French (all listed in the sitemap). Everything else is the signed-in student
+# and teacher space, which has nothing to index.
 
 User-agent: *
 Allow: /

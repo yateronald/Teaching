@@ -4,6 +4,8 @@
 // pre-rendered HTML and its structured data (FAQ, courses) always say exactly
 // the same thing in the same language — a requirement for rich results.
 
+import type { TopicId } from './sitePages';
+
 export type Lang = 'en' | 'fr';
 
 export const SITE_URL = 'https://www.learnfrenchwithnatives.com';
@@ -40,7 +42,7 @@ export interface LandingCopy {
   };
   marquee: { label: string };
   stats: { value: number; suffix: string; label: string }[];
-  programs: { eyebrow: string; title: string; sub: string; includes: string; goal: string; format: string; levels: string; cta: string; items: Program[] };
+  programs: { eyebrow: string; title: string; sub: string; includes: string; goal: string; format: string; levels: string; cta: string; learnMore: string; items: Program[] };
   simulator: {
     eyebrow: string; title: string; sub: string;
     features: { title: string; desc: string }[];
@@ -66,16 +68,16 @@ export interface LandingCopy {
   finale: { title: string; sub: string; cta: string; login: string; trust: string };
   footer: {
     tagline: string; contactLabel: string;
-    exams: string; platform: string; company: string; languages: string;
-    examLinks: string[];
-    platformLinks: { label: string; href: string }[];
+    exams: string; courses: string; company: string; languages: string;
+    examLinks: { topic: TopicId; label: string }[];
+    courseLinks: { label: string; href: string }[];
     companyLinks: { label: string; href: string; demo?: boolean }[];
     rights: string; made: string;
   };
 }
 
 // Student testimonials are quotes: they stay in the words the students used.
-const QUOTES = [
+export const QUOTES = [
   { name: 'Aarav Sharma', role: 'TEF Canada candidate', exam: 'TEF Canada', text: 'Scored CLB 9 in speaking! Classes were structured, patient, and truly native. Practice felt like real-life conversations, exactly what I needed.' },
   { name: 'Priya Patel', role: 'DELF B2 graduate', exam: 'DELF B2', text: "Cleared DELF B2 on my first attempt. Mock exams and feedback were spot on. The teacher's corrections improved my fluency fast." },
   { name: 'Rohan Mehta', role: 'Business professional', text: 'Needed French for clients in Quebec. Flexible scheduling and industry vocabulary focus helped me present confidently in French within months.' },
@@ -122,13 +124,14 @@ const en: LandingCopy = {
   ],
   programs: {
     eyebrow: 'Programs',
-    title: 'One goal. The right program.',
+    title: 'French courses and exam preparation for every goal',
     sub: 'Tell us why you need French. We build your preparation around your exam, your level and your deadline.',
     includes: "What's included",
     goal: 'Goal',
     format: 'Format',
     levels: 'Levels',
     cta: 'Get my personal plan',
+    learnMore: 'Learn more',
     items: [
       {
         id: 'canada', tab: 'Immigrate to Canada', exams: 'TEF Canada · TCF Canada', title: 'TEF Canada & TCF Canada',
@@ -138,9 +141,9 @@ const en: LandingCopy = {
       },
       {
         id: 'quebec', tab: 'Settle in Québec', exams: 'TCF Québec · TEFAQ', title: 'TCF Québec & TEFAQ',
-        desc: 'Speaking and listening are the skills Québec immigration programs assess, so that is where we train you, with everyday Québec situations and timed practice.',
+        desc: 'Québec immigration programs give spoken French the most weight, so that is where we start, with everyday Québec situations and timed practice, then the written tests if your program requires them.',
         includes: ['Intensive speaking & listening practice', 'Mock exams with timed audio', 'Everyday Québec situations', 'Personal feedback after every session'],
-        goal: 'Oral skills for Québec programs', format: '1-on-1 or small group', levels: 'A2 → C1',
+        goal: 'The level your Québec program requires', format: '1-on-1 or small group', levels: 'A2 → C1',
       },
       {
         id: 'diplomas', tab: 'Earn a diploma', exams: 'DELF A1–B2 · DALF C1–C2', title: 'DELF & DALF',
@@ -175,7 +178,7 @@ const en: LandingCopy = {
   },
   skills: {
     eyebrow: 'Complete preparation',
-    title: 'The four exam papers, all with us.',
+    title: 'The four papers of the TCF and the TEF, all with us.',
     sub: 'Reading, listening, writing and speaking: you prepare every paper of the TCF and TEF here, in the official format, and you see your level after each attempt. No other school or app to sign up for.',
     items: [
       { code: 'CE', name: 'Compréhension écrite', label: 'Reading', desc: 'Authentic documents from A1 to C2, in exam conditions, with the full correction afterwards.', format: '39 questions · 60 minutes', score: 'Scored on 699 points' },
@@ -191,7 +194,7 @@ const en: LandingCopy = {
   },
   method: {
     eyebrow: 'Our method',
-    title: 'The method that gets results',
+    title: 'Native teachers and a method that gets results',
     sub: 'Everything you need to pass your French exam, in one place.',
     items: [
       { title: '100% native teachers', desc: 'Every teacher is a certified native French speaker with years of teaching experience and specialised training for TEF, TCF, DELF and DALF.' },
@@ -267,15 +270,16 @@ const en: LandingCopy = {
   footer: {
     tagline: 'Your partner for French exam success. Native teachers, proven methods, real results.',
     contactLabel: 'Questions & support',
-    exams: 'Exams', platform: 'Platform', company: 'Company', languages: 'Languages',
-    examLinks: ['TEF Canada', 'TCF Canada', 'TCF Québec & TEFAQ', 'DELF & DALF', 'Business French'],
-    platformLinks: [
-      { label: 'Our method', href: '#method' }, { label: 'Exam simulator', href: '#simulator' },
-      { label: 'The platform', href: '#platform' }, { label: 'How it works', href: '#how' }, { label: 'Student space', href: '/login' },
+    exams: 'Exam preparation', courses: 'French courses', company: 'Company', languages: 'Languages',
+    examLinks: [
+      { topic: 'tef-canada', label: 'TEF Canada' }, { topic: 'tcf-canada', label: 'TCF Canada' },
+      { topic: 'quebec', label: 'TCF Québec & TEFAQ' }, { topic: 'delf-dalf', label: 'DELF & DALF' },
     ],
+    courseLinks: [{ label: 'Exam simulator', href: '#simulator' }, { label: 'Our method', href: '#method' }],
     companyLinks: [
       { label: 'Book a free demo', href: '#', demo: true }, { label: 'Student reviews', href: '#reviews' },
-      { label: 'FAQ', href: '#faq' }, { label: 'Contact us', href: `mailto:${CONTACT_EMAIL}` },
+      { label: 'How it works', href: '#how' }, { label: 'FAQ', href: '#faq' },
+      { label: 'Contact us', href: `mailto:${CONTACT_EMAIL}` }, { label: 'Student space', href: '/login' },
     ],
     rights: 'All rights reserved.',
     made: 'Made with care for our French learners.',
@@ -319,13 +323,14 @@ const fr: LandingCopy = {
   ],
   programs: {
     eyebrow: 'Programmes',
-    title: 'Un objectif. Le bon programme.',
+    title: 'Cours de français et préparation aux examens, pour chaque objectif',
     sub: 'Dites-nous pourquoi vous apprenez le français : nous construisons votre préparation autour de votre examen, de votre niveau et de votre échéance.',
     includes: 'Ce qui est inclus',
     goal: 'Objectif',
     format: 'Format',
     levels: 'Niveaux',
     cta: 'Obtenir mon plan personnalisé',
+    learnMore: 'En savoir plus',
     items: [
       {
         id: 'canada', tab: 'Immigrer au Canada', exams: 'TEF Canada · TCF Canada', title: 'TEF Canada et TCF Canada',
@@ -335,9 +340,9 @@ const fr: LandingCopy = {
       },
       {
         id: 'quebec', tab: 'S’installer au Québec', exams: 'TCF Québec · TEFAQ', title: 'TCF Québec et TEFAQ',
-        desc: 'L’oral est au cœur des programmes d’immigration du Québec : c’est là que nous vous entraînons, avec des situations du quotidien québécois et une pratique chronométrée.',
+        desc: 'L’oral pèse le plus dans les programmes d’immigration du Québec : c’est par là que nous commençons, avec des situations du quotidien québécois et une pratique chronométrée, puis l’écrit si votre programme l’exige.',
         includes: ['Pratique intensive de l’oral', 'Examens blancs avec audio chronométré', 'Situations du quotidien au Québec', 'Retour personnalisé après chaque séance'],
-        goal: 'L’oral pour les programmes du Québec', format: 'Individuel ou petit groupe', levels: 'A2 → C1',
+        goal: 'Le niveau exigé par votre programme québécois', format: 'Individuel ou petit groupe', levels: 'A2 → C1',
       },
       {
         id: 'diplomas', tab: 'Obtenir un diplôme', exams: 'DELF A1–B2 · DALF C1–C2', title: 'DELF et DALF',
@@ -372,7 +377,7 @@ const fr: LandingCopy = {
   },
   skills: {
     eyebrow: 'Préparation complète',
-    title: 'Les quatre épreuves, uniquement avec nous.',
+    title: 'Les quatre épreuves du TCF et du TEF, uniquement avec nous.',
     sub: 'Compréhension écrite et orale, expression écrite et orale : vous préparez toutes les épreuves du TCF et du TEF ici, au format officiel, et vous voyez votre niveau après chaque tentative. Aucune autre école ni application.',
     items: [
       { code: 'CE', name: 'Compréhension écrite', label: 'Lecture', desc: 'Des documents authentiques, du A1 au C2, en conditions réelles, avec la correction complète.', format: '39 questions · 60 minutes', score: 'Noté sur 699 points' },
@@ -388,7 +393,7 @@ const fr: LandingCopy = {
   },
   method: {
     eyebrow: 'Notre méthode',
-    title: 'La méthode qui donne des résultats',
+    title: 'Des professeurs natifs et une méthode qui donne des résultats',
     sub: 'Tout ce qu’il faut pour réussir votre examen de français, au même endroit.',
     items: [
       { title: 'Professeurs 100 % natifs', desc: 'Chaque professeur est un francophone natif certifié, avec plusieurs années d’expérience et une formation spécialisée pour le TEF, le TCF, le DELF et le DALF.' },
@@ -464,15 +469,16 @@ const fr: LandingCopy = {
   footer: {
     tagline: 'Votre partenaire pour réussir vos examens de français. Professeurs natifs, méthodes éprouvées, résultats réels.',
     contactLabel: 'Questions et assistance',
-    exams: 'Examens', platform: 'Plateforme', company: 'Entreprise', languages: 'Langues',
-    examLinks: ['TEF Canada', 'TCF Canada', 'TCF Québec et TEFAQ', 'DELF et DALF', 'Français des affaires'],
-    platformLinks: [
-      { label: 'Notre méthode', href: '#method' }, { label: 'Simulateur d’examen', href: '#simulator' },
-      { label: 'La plateforme', href: '#platform' }, { label: 'Comment ça marche', href: '#how' }, { label: 'Espace étudiant', href: '/login' },
+    exams: 'Préparation aux examens', courses: 'Cours de français', company: 'Entreprise', languages: 'Langues',
+    examLinks: [
+      { topic: 'tef-canada', label: 'TEF Canada' }, { topic: 'tcf-canada', label: 'TCF Canada' },
+      { topic: 'quebec', label: 'TCF Québec et TEFAQ' }, { topic: 'delf-dalf', label: 'DELF et DALF' },
     ],
+    courseLinks: [{ label: 'Simulateur d’examen', href: '#simulator' }, { label: 'Notre méthode', href: '#method' }],
     companyLinks: [
       { label: 'Réserver une démo gratuite', href: '#', demo: true }, { label: 'Avis des étudiants', href: '#reviews' },
-      { label: 'FAQ', href: '#faq' }, { label: 'Nous contacter', href: `mailto:${CONTACT_EMAIL}` },
+      { label: 'Comment ça marche', href: '#how' }, { label: 'FAQ', href: '#faq' },
+      { label: 'Nous contacter', href: `mailto:${CONTACT_EMAIL}` }, { label: 'Espace étudiant', href: '/login' },
     ],
     rights: 'Tous droits réservés.',
     made: 'Conçu avec soin pour nos apprenants de français.',

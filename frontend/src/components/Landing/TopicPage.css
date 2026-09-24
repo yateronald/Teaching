@@ -1,0 +1,142 @@
+/* ══════════════════════════════════════════════════════════════
+   TOPIC PAGES — one page per exam or kind of course.
+   Built on the landing page tokens (LandingPage.css); only what is
+   specific to these pages lives here, prefixed .tp-.
+══════════════════════════════════════════════════════════════ */
+
+.tp .lp-section.tp-section { padding: clamp(56px, 7vw, 96px) 0; }
+
+/* ── Hero ── */
+.tp-hero { position: relative; padding: clamp(28px, 4vw, 48px) 0 clamp(48px, 6vw, 80px); }
+.tp-hero-grid { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr); align-items: start; gap: clamp(28px, 5vw, 64px); }
+.tp-crumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 22px; padding: 0; list-style: none; font-size: 13.5px; color: var(--muted); }
+.tp-crumbs li { display: inline-flex; align-items: center; gap: 6px; }
+.tp-crumbs a { color: var(--blue); font-weight: 600; }
+.tp-crumbs a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tp-crumbs .anticon { font-size: 10px; color: var(--subtle); }
+.tp-crumbs li[aria-current] { color: var(--ink); font-weight: 600; }
+.tp-hero h1 {
+  margin-top: 16px;
+  font-family: var(--display); font-size: clamp(34px, 4.4vw, 56px); font-weight: 800; line-height: 1.08; letter-spacing: -0.034em;
+}
+.tp-hero h1 em {
+  font-style: normal; color: var(--blue);
+  background: linear-gradient(transparent 68%, rgba(31, 68, 214, 0.13) 68% 92%, transparent 92%);
+}
+.tp-intro { max-width: 640px; margin-top: 20px !important; font-size: clamp(16px, 1.35vw, 18px); line-height: 1.7; color: var(--muted); }
+.tp-highlights { display: grid; gap: 10px; margin: 28px 0 0; padding: 0; list-style: none; }
+.tp-highlights li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; color: var(--ink); }
+.tp-highlights .anticon { flex-shrink: 0; margin-top: 4px; padding: 3px; border-radius: 50%; background: #e6f6ee; font-size: 10px; color: var(--green); }
+
+/* "At a glance" */
+.tp-glance { padding: clamp(22px, 2.6vw, 30px); border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: var(--shadow-md); }
+.tp-glance-title { font-size: 12.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--red); }
+.tp-glance dl { margin: 12px 0 22px; }
+.tp-glance dl > div { padding: 13px 0; border-bottom: 1px solid var(--line-soft); }
+.tp-glance dt { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--subtle); }
+.tp-glance dd { margin: 3px 0 0; font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--ink); }
+.tp-glance .lp-btn { width: 100%; }
+
+/* ── Tables ── */
+.tp-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); }
+.tp-table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.tp-table thead th { padding: 16px 20px; border-bottom: 1px solid var(--line); background: var(--paper); font-size: 12.5px; font-weight: 700; letter-spacing: 0.06em; text-align: left; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+.tp-table tbody th, .tp-table tbody td { padding: 16px 20px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; line-height: 1.55; }
+.tp-table tbody tr:last-child > * { border-bottom: 0; }
+.tp-table tbody th { font-family: var(--display); font-weight: 700; color: var(--ink); }
+.tp-table tbody td { color: var(--text); }
+.tp-table tbody tr:hover > * { background: #fbfaf7; }
+/* Score charts: every column is a number, centred for easy reading. */
+.tp-table.is-5 tbody td, .tp-table.is-5 thead th:not(:first-child) { text-align: center; font-variant-numeric: tabular-nums; }
+.tp-table.is-5 tbody td { font-weight: 600; color: var(--ink); }
+.tp-note { max-width: 820px; margin: 16px auto 0 !important; font-size: 13.5px; line-height: 1.6; text-align: center; color: var(--muted); }
+
+/* ── Guide ── */
+.tp-guide { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; gap: clamp(32px, 5vw, 72px); }
+.tp-article { max-width: 760px; }
+.tp-article article + article { margin-top: 44px; padding-top: 40px; border-top: 1px solid var(--line); }
+.tp-article h2 { font-size: clamp(24px, 2.4vw, 30px); font-weight: 800; line-height: 1.2; letter-spacing: -0.025em; }
+.tp-article p { margin-top: 14px !important; font-size: 16.5px; line-height: 1.8; color: var(--text); }
+.tp-readmore { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.tp-readmore > span { font-size: 14px; font-weight: 700; color: var(--muted); }
+.tp-readmore a { display: inline-flex; padding: 5px 12px; border: 1px solid var(--blue-line); border-radius: 999px; background: var(--blue-soft); font-size: 14px; font-weight: 650; color: var(--blue); transition: background 0.2s, border-color 0.2s; }
+.tp-readmore a:hover { border-color: var(--blue); background: #fff; }
+
+.tp-aside { position: sticky; top: 100px; }
+.tp-aside-card { padding: 26px; border-radius: 20px; background: var(--navy); color: #c3cdea; box-shadow: var(--shadow-lg); }
+.tp-aside-title { font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+.tp-aside-card ul { display: grid; gap: 12px; margin: 18px 0 24px; padding: 0; list-style: none; }
+.tp-aside-card li { display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; line-height: 1.5; }
+.tp-aside-card li .anticon { flex-shrink: 0; margin-top: 4px; font-size: 12px; color: #7ee2b3; }
+.tp-aside-card .lp-btn { width: 100%; }
+.tp-aside-mail { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 14px; font-size: 13.5px; color: #9fb0e0 !important; }
+.tp-aside-mail:hover { color: #fff !important; }
+
+/* ── Method ── */
+.tp-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; margin: 0; padding: 0; list-style: none; }
+.tp-card { padding: 26px 24px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); }
+.tp-card-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 12px; background: var(--blue-soft); font-size: 20px; color: var(--blue); }
+.tp-card h3 { margin-top: 18px; font-size: 18px; font-weight: 750; line-height: 1.3; letter-spacing: -0.015em; }
+.tp-card p { margin-top: 8px !important; font-size: 15px; line-height: 1.65; color: var(--muted); }
+
+.tp-quote { max-width: 820px; margin: clamp(36px, 5vw, 56px) auto 0; padding: clamp(24px, 3vw, 34px); border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: var(--shadow-sm); }
+.tp-quote blockquote { margin: 0; font-family: var(--display); font-size: clamp(18px, 1.7vw, 21px); font-weight: 500; line-height: 1.55; color: var(--ink); }
+.tp-quote figcaption { display: flex; align-items: center; gap: 12px; margin-top: 20px; }
+.tp-quote figcaption > span:nth-child(2) { display: flex; flex-direction: column; line-height: 1.35; }
+.tp-quote figcaption strong { font-size: 15px; color: var(--ink); }
+.tp-quote figcaption em { font-size: 13px; font-style: normal; color: var(--muted); }
+.tp-quote figcaption b { margin-left: auto; padding: 4px 10px; border-radius: 999px; background: #fdecee; font-size: 12px; color: var(--red); white-space: nowrap; }
+
+/* ── Related pages ── */
+.tp-related { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 0; padding: 0; list-style: none; }
+.tp-related-card { display: flex; flex-direction: column; height: 100%; padding: 26px 24px; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+.tp-related-card:hover { border-color: var(--blue-line); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.tp-related-card h3 { font-size: 19px; font-weight: 800; letter-spacing: -0.02em; }
+.tp-related-card p { flex: 1; margin-top: 8px !important; font-size: 15px; line-height: 1.6; color: var(--muted); }
+.tp-related-card > span { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; font-size: 14.5px; font-weight: 650; color: var(--blue); }
+.tp-related-card .anticon { font-size: 12px; transition: transform 0.2s; }
+.tp-related-card:hover .anticon { transform: translateX(3px); }
+
+.tp-finale { padding-top: clamp(56px, 7vw, 96px); }
+
+/* ── Responsive ── */
+@media (max-width: 1080px) {
+  .tp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 960px) {
+  .tp-hero-grid, .tp-guide { grid-template-columns: minmax(0, 1fr); }
+  .tp-aside { position: static; }
+  .tp-aside-card { max-width: 560px; }
+  .tp-related { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .tp-hero h1 { font-size: 32px; }
+  .tp-hero .lp-hero-ctas .lp-btn { width: 100%; }
+  .tp-cards { grid-template-columns: minmax(0, 1fr); }
+  .tp-article p { font-size: 16px; }
+  .tp-quote figcaption { flex-wrap: wrap; }
+  .tp-quote figcaption b { margin-left: 54px; }
+
+  /* Tables become one card per row: the row name on top, each value with its column name. */
+  .tp-table-wrap { overflow: visible; border: 0; background: none; box-shadow: none; }
+  .tp-table, .tp-table tbody, .tp-table tr, .tp-table th, .tp-table td { display: block; }
+  .tp-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .tp-table tbody { display: grid; gap: 12px; }
+  .tp-table tbody tr { overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: var(--shadow-sm); }
+  .tp-table tbody tr:hover > * { background: none; }
+  .tp-table tbody th { padding: 14px 16px; border-bottom: 1px solid var(--line-soft); background: var(--paper); font-size: 16px; }
+  .tp-table tbody td { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); gap: 12px; padding: 11px 16px; font-size: 14.5px; }
+  .tp-table tbody td::before { content: attr(data-label); font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--subtle); }
+  /* Inside a card, every line but the last is separated from the next. */
+  .tp-table tbody tr:last-child > * { border-bottom: 1px solid var(--line-soft); }
+  .tp-table tbody tr > :last-child { border-bottom: 0; }
+  /* Score charts: four short numbers per level, shown as a 2 × 2 grid. */
+  .tp-table.is-5 tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tp-table.is-5 tbody th { grid-column: 1 / -1; }
+  .tp-table.is-5 tbody td { display: flex; flex-direction: column; gap: 2px; text-align: left; font-size: 16px; }
+  .tp-table.is-5 tbody td:nth-child(odd) { border-left: 1px solid var(--line-soft); }
+  .tp-table.is-5 tbody tr > td:nth-last-child(-n + 2) { border-bottom: 0; }
+  /* Two-column tables: the value needs the whole width. */
+  .tp-table.is-2 tbody td { display: block; }
+  .tp-table.is-2 tbody td::before { display: none; }
+}
