@@ -1,30 +1,16 @@
-import './i18n';
-import '@ant-design/v5-patch-for-react-19';
 import { StrictMode, useEffect } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
 import App from './App.tsx'
 import { brandingUtils } from './utils/branding'
-import { LOGO_MAIN } from './utils/assets'
 
 const Boot = () => {
   useEffect(() => {
-    // React has replaced the pre-rendered page: the class that hid it on app
+    // React now owns the page: the class that hid the pre-rendered page on app
     // routes (index.html) must not hide a public page reached later by a link.
     document.documentElement.classList.remove('app-route')
     brandingUtils.applyCSSVariables()
-
-    // Set favicon to main logo
-    const existing = document.querySelector('link[rel="icon"]') as HTMLLinkElement | null
-    if (existing) {
-      existing.href = LOGO_MAIN
-    } else {
-      const link = document.createElement('link')
-      link.rel = 'icon'
-      link.href = LOGO_MAIN
-      document.head.appendChild(link)
-    }
   }, [])
   return <App />
 }
@@ -34,10 +20,22 @@ const Boot = () => {
 document.querySelectorAll('head [data-prerender]').forEach(node => node.remove())
 if (!document.querySelector('title') && document.documentElement.classList.contains('app-route')) document.title = 'Learn French with Natives'
 
-createRoot(document.getElementById('root')!).render(
+const container = document.getElementById('root')!
+const tree = (
   <StrictMode>
     <HelmetProvider>
       <Boot />
     </HelmetProvider>
-  </StrictMode>,
+  </StrictMode>
 )
+
+// A page pre-rendered for this very address (data-page, see index.html) is
+// already on screen: React takes it over as it is (hydration) instead of
+// drawing it a second time, so it appears as soon as the HTML arrives.
+// Everything else (the signed-in app, the 404 page) is drawn by React.
+const page = document.documentElement.dataset.page
+if (page && page !== '*' && location.pathname.replace(/\/?$/, '/') === page && container.firstElementChild) {
+  hydrateRoot(container, tree)
+} else {
+  createRoot(container).render(tree)
+}

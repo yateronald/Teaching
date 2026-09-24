@@ -9,9 +9,13 @@
 //
 // Search engines, social networks and AI crawlers then receive the full page,
 // its title, meta tags, hreflang and JSON-LD without running JavaScript.
+// Each page is rendered through the app's own routes (SiteRoutes), so the
+// browser hydrates it instead of drawing it again, and it carries its critical
+// CSS inline (beasties) so no stylesheet request holds back the first paint.
 // A failure here never breaks a deployment: the SPA still works, only the
 // pre-rendered HTML is skipped (and a warning is printed).
 import { build } from 'vite';
+import Beasties from 'beasties';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -93,6 +97,20 @@ async function main() {
   }));
   // Not in the sitemap: nginx sends it, with a 404 status, for unknown addresses.
   outputs.push({ path: '404', file: '404.html', html: toHtml(renderNotFound(), 'en', '*', '404.html') });
+
+  // Each page carries, inline, the CSS rules its own HTML uses; the full
+  // stylesheet then loads without holding back the first paint. It stays in
+  // dist/assets unchanged: the signed-in app and the other pages still use it.
+  const beasties = new Beasties({
+    path: dist,
+    publicPath: '/',
+    preload: 'media',        // <link media="print" onload="this.media='all'"> + <noscript> fallback
+    pruneSource: false,
+    reduceInlineStyles: false, // keep the @font-face block of index.html as written
+    fonts: false,              // fonts are preloaded by index.html already
+    logLevel: 'warn',
+  });
+  for (const out of outputs) out.html = await beasties.process(out.html);
   for (const out of outputs) {
     const target = path.join(dist, out.file);
     await fs.mkdir(path.dirname(target), { recursive: true });

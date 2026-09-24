@@ -3,18 +3,19 @@
 import { renderToString } from 'react-dom/server';
 import { HelmetProvider } from 'react-helmet-async';
 import { MemoryRouter } from 'react-router-dom';
-import LandingPage from './components/Landing/LandingPage';
-import TopicPage from './components/Landing/TopicPage';
 import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES, type PublicPage } from './components/Landing/sitePages';
+import { SiteRoutes } from './App';
 
 export { PUBLIC_PAGES };
 
+// Rendered through the same routes as in the browser, so the browser can take
+// the HTML over as it is (main.tsx hydrates it) instead of drawing it again.
 export function render(page: PublicPage): string {
   return renderToString(
     <HelmetProvider>
       <MemoryRouter initialEntries={[page.path]}>
-        {page.topic ? <TopicPage topic={page.topic} lang={page.lang} /> : <LandingPage lang={page.lang} />}
+        <SiteRoutes />
       </MemoryRouter>
     </HelmetProvider>,
   );

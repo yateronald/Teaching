@@ -1,17 +1,21 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp, Button, Result } from 'antd';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { CLASS_ROLES, homeFor } from './utils/roles';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { CLASS_ROLES } from './utils/roles';
 import LandingPage from './components/Landing/LandingPage';
 // Loaded with the landing page (not on demand): these pages arrive pre-rendered,
 // and a loading screen would replace their text while the code downloads.
 import TopicPage from './components/Landing/TopicPage';
 import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES } from './components/Landing/sitePages';
-import ProtectedRoute from './components/Auth/ProtectedRoute';
-import './App.css';
-import { BRAND_CONFIG } from './utils/branding';
+
+// Everything behind /login and /app (antd, authentication, the app's
+// translations) lives in AppShell and is downloaded only when needed: the
+// public pages above never load it.
+const loadShell = () => import('./AppShell');
+const AppShell = lazy(loadShell);
+const ProtectedRoute = lazy(() => loadShell().then(m => ({ default: m.ProtectedRoute })));
+const RoleHome = lazy(() => loadShell().then(m => ({ default: m.RoleHome })));
+const AppNotFound = lazy(() => loadShell().then(m => ({ default: m.AppNotFound })));
 
 // The signed-in app is loaded on demand, so the public pages stay light.
 // Sign-in too: its form components are not needed to show the landing page.
@@ -51,59 +55,32 @@ const MonitoringPage = lazy(() => import('./components/Admin/Monitoring/Monitori
 const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDashboard'));
 const CandidateResults = lazy(() => import('./components/Candidate/CandidateResults'));
 
-/** /app → the signed-in user's own home page. */
-function RoleHome() {
-  const { user } = useAuth();
-  return <Navigate to={homeFor(user?.role)} replace />;
-}
-
 /** Redirect that keeps the query string (e.g. ?demo=12 in a notification link). */
 function KeepQuery({ to }: { to: string }) {
   const { search } = useLocation();
   return <Navigate to={`${to}${search}`} replace />;
 }
 
-/** An /app address that matches no screen: said plainly, with a way back. */
-function AppNotFound() {
-  const navigate = useNavigate();
-  return (
-    <Result
-      status="404"
-      title="Page not found"
-      subTitle="This page does not exist in your space. It may have moved, or the link may be incomplete."
-      extra={<Button type="primary" onClick={() => navigate('/app', { replace: true })}>Back to my dashboard</Button>}
-    />
-  );
-}
+const loading = <div className="app-route-loading" role="status" aria-label="Loading" />;
 
-function App() {
+/**
+ * Every route of the site. Shared by the browser (App, below) and by the
+ * build-time pre-render (entry-prerender.tsx): rendering the public pages
+ * through the same tree lets the browser take over their pre-rendered HTML
+ * instead of drawing the page a second time.
+ */
+export function SiteRoutes() {
   return (
-    <ConfigProvider
-      theme={{
-        token: {
-          colorPrimary: BRAND_CONFIG.colors.primary,
-          borderRadius: 6,
-          // Bump the popup base z-index so Select/DatePicker/Dropdown popups
-          // ALWAYS render on top of antd Modals (modal default z-index is 1000).
-          zIndexPopupBase: 2000,
-        },
-      }}
-      // Mount all popups (Select dropdown, DatePicker, TimePicker, Cascader, etc.)
-      // at document.body so they're never trapped inside a parent stacking context
-      // (e.g. a Modal body whose 'transform' or 'overflow' creates a new context).
-      getPopupContainer={() => document.body}
-    >
-      <AntApp>
-        <AuthProvider>
-            <Router>
-            <Suspense fallback={<div className="app-route-loading" role="status" aria-label="Loading" />}>
             <Routes>
-              {/* Public Routes */}
+              {/* Public pages: no antd, no authentication, pre-rendered. */}
               <Route path="/" element={<LandingPage lang="en" />} />
               <Route path="/fr" element={<LandingPage lang="fr" />} />
               {PUBLIC_PAGES.filter(p => p.topic).map(p => (
                 <Route key={p.path} path={p.path} element={<TopicPage key={p.path} topic={p.topic!} lang={p.lang} />} />
               ))}
+
+              {/* The signed-in app. */}
+              <Route element={<Suspense fallback={loading}><AppShell /></Suspense>}>
               <Route path="/login" element={<Login />} />
               <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
 
@@ -325,15 +302,19 @@ function App() {
                 <Route path="teacher-demos" element={<KeepQuery to="/app/assign-demo" />} />
                 <Route path="*" element={<AppNotFound />} />
               </Route>
+              </Route>
 
               {/* Anything else is not a page of the site. */}
               <Route path="*" element={<NotFound />} />
             </Routes>
-            </Suspense>
-            </Router>
-        </AuthProvider>
-      </AntApp>
-    </ConfigProvider>
+  );
+}
+
+function App() {
+  return (
+    <Router>
+      <SiteRoutes />
+    </Router>
   );
 }
 

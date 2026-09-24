@@ -3,7 +3,6 @@
 // the scroll position after a link from another page.
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import i18next from 'i18next';
 import { trackPageView } from '../../utils/siteAnalytics';
 import type { Lang } from './landingContent';
 
@@ -38,9 +37,10 @@ export function usePublicPage(lang: Lang) {
   // outlives the page (see utils/siteAnalytics).
   useEffect(() => { trackPageView(); }, []);
 
-  // The rest of the app (demo form, sign-in) follows the language of the page.
+  // The signed-in app (sign-in first) opens in the language of the page: its
+  // translations (i18n.ts) read this key when they load. Not imported here, so
+  // the public pages do not download the translation library.
   useEffect(() => {
-    if (i18next.isInitialized && i18next.language !== lang) i18next.changeLanguage(lang);
     try { localStorage.setItem('i18n_lang', lang); } catch { /* storage unavailable */ }
   }, [lang]);
 

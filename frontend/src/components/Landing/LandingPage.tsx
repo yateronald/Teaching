@@ -15,6 +15,15 @@ import SiteHeader, { SECTIONS } from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import { useDemoModal, usePublicPage } from './publicPage';
 import './LandingPage.css';
+// Imported (not in public/) so their file names carry a content hash: browsers
+// can then keep them for a year, and a new version always has a new name.
+import marksheet720 from '../../assets/landing/platform-marksheet-720.webp';
+import marksheet960 from '../../assets/landing/platform-marksheet-960.webp';
+import marksheet1600 from '../../assets/landing/platform-marksheet-1600.webp';
+import dashboard800 from '../../assets/landing/platform-dashboard-800.webp';
+import dashboard1400 from '../../assets/landing/platform-dashboard-1400.webp';
+import video1Poster from '../../assets/landing/video1-poster.webp';
+import video2Poster from '../../assets/landing/video2-poster.webp';
 
 // ============================================================
 // Public landing page (/, /fr/). Pre-rendered at build time: every section is
@@ -28,13 +37,13 @@ const PROGRAM_TOPICS: Record<string, TopicId[]> = {
   diplomas: ['delf-dalf'],
   everyday: ['online', 'business', 'kids'],
 };
-const IMG = '/assets/landing';
-const HERO_SRCSET = `${IMG}/platform-marksheet-960.webp 960w, ${IMG}/platform-marksheet-1600.webp 1600w`;
+// 720w is what a typical phone needs (about 380 px wide at 1.75x density).
+const HERO_SRCSET = `${marksheet720} 720w, ${marksheet960} 960w, ${marksheet1600} 1600w`;
 const HERO_SIZES = '(max-width: 900px) 92vw, 640px';
 // Portrait phone recordings: shown in a 9:16 player so the speaker is never cropped.
 const VIDEOS = [
-  { src: '/assets/Video1.mp4', poster: `${IMG}/video1-poster.webp`, duration: '1:04' },
-  { src: '/assets/Video2.mp4', poster: `${IMG}/video2-poster.webp`, duration: '0:47' },
+  { src: '/assets/Video1.mp4', poster: video1Poster, duration: '1:04' },
+  { src: '/assets/Video2.mp4', poster: video2Poster, duration: '0:47' },
 ];
 const SKILL_ICONS = [<FileTextOutlined />, <CustomerServiceOutlined />, <EditOutlined />, <AudioOutlined />];
 const METHOD_ICONS = [<GlobalOutlined />, <TrophyOutlined />, <CalendarOutlined />, <MessageOutlined />, <RiseOutlined />, <SafetyCertificateOutlined />];
@@ -188,7 +197,6 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         imageAlt={c.meta.ogAlt}
         alternates={{ en: PATHS.en, fr: PATHS.fr }}
         jsonLd={landingJsonLd(lang)}
-        preloadImage={{ href: `${IMG}/platform-marksheet-1600.webp`, srcSet: HERO_SRCSET, sizes: HERO_SIZES, type: 'image/webp' }}
       />
       <a href="#main" className="lp-skip">{c.skip}</a>
 
@@ -237,7 +245,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               <figure className="lp-frame">
                 <div className="lp-frame-bar" aria-hidden><i /><i /><i /><span>app.learnfrenchwithnatives.com</span></div>
                 <img
-                  src={`${IMG}/platform-marksheet-1600.webp`}
+                  src={marksheet1600}
                   srcSet={HERO_SRCSET}
                   sizes={HERO_SIZES}
                   width="1600"
@@ -479,10 +487,10 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             </div>
             <div className="lp-shots" data-reveal>
               <figure className="lp-shot is-back">
-                <img src={`${IMG}/platform-dashboard-800.webp`} srcSet={`${IMG}/platform-dashboard-800.webp 800w, ${IMG}/platform-dashboard-1400.webp 1084w`} sizes="(max-width: 900px) 80vw, 520px" width="1084" height="795" alt={c.platform.altDashboard} loading="lazy" decoding="async" />
+                <img src={dashboard800} srcSet={`${dashboard800} 800w, ${dashboard1400} 1084w`} sizes="(max-width: 900px) 80vw, 520px" width="1084" height="795" alt={c.platform.altDashboard} loading="lazy" decoding="async" />
               </figure>
               <figure className="lp-shot is-front">
-                <img src={`${IMG}/platform-marksheet-960.webp`} srcSet={HERO_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
+                <img src={marksheet960} srcSet={HERO_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
               </figure>
             </div>
           </div>

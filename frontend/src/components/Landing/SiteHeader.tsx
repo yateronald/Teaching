@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CloseOutlined, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant-design/icons';
-import { ASSET_PATHS } from '../../utils/assets';
-import { LANDING, PATHS, type Lang } from './landingContent';
+import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
 
 // Sections of the home page, in the order of the navigation.
 export const SECTIONS = ['programs', 'method', 'simulator', 'platform', 'reviews', 'faq'] as const;
@@ -70,7 +69,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
       <header ref={headerRef} className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
         <div className="lp-wrap lp-header-row">
           <Link to={PATHS[lang]} className="lp-brand" aria-label="Learn French with Natives">
-            <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" />
+            <img src={BRAND_LOGO} alt="" width="40" height="40" />
             <span><strong>Learn French</strong><em>with Natives</em></span>
           </Link>
           <nav className="lp-nav" aria-label="Main">

@@ -11,6 +11,9 @@ export type Lang = 'en' | 'fr';
 export const SITE_URL = 'https://www.learnfrenchwithnatives.com';
 export const PATHS: Record<Lang, string> = { en: '/', fr: '/fr/' };
 export const CONTACT_EMAIL = 'support@learnfrenchwithnatives.com';
+// The logo at the size the pages show it (40 px, sharp up to 3x screens): 4 KB
+// instead of the 200 KB original.
+export { default as BRAND_LOGO } from '../../assets/brand/logo-128.webp';
 
 export interface Program {
   id: string;

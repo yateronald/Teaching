@@ -1,8 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MailOutlined } from '@ant-design/icons';
-import { ASSET_PATHS } from '../../utils/assets';
-import { CONTACT_EMAIL, LANDING, PATHS, type Lang } from './landingContent';
+import { BRAND_LOGO, CONTACT_EMAIL, LANDING, PATHS, type Lang } from './landingContent';
 import { TOPIC_PATHS, type TopicId } from './sitePages';
 import { TOPICS } from './topicContent';
 
@@ -28,7 +27,7 @@ const SiteFooter: React.FC<Props> = ({ lang, sectionBase = '', onDemo }) => {
         <div className="lp-footer-grid">
           <div className="lp-footer-brand">
             <Link to={PATHS[lang]} className="lp-brand is-light" aria-label="Learn French with Natives">
-              <img src={ASSET_PATHS.LOGOS.MAIN} alt="" width="40" height="40" loading="lazy" />
+              <img src={BRAND_LOGO} alt="" width="40" height="40" loading="lazy" />
               <span><strong>Learn French</strong><em>with Natives</em></span>
             </Link>
             <p>{f.tagline}</p>
