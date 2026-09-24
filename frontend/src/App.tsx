@@ -3,13 +3,14 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ConfigProvider, App as AntApp } from 'antd';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CLASS_ROLES, homeFor } from './utils/roles';
-import Login from './components/Auth/Login';
 import LandingPage from './components/Landing/LandingPage';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
 import { BRAND_CONFIG } from './utils/branding';
 
 // The signed-in app is loaded on demand, so the public pages stay light.
+// Sign-in too: its form components are not needed to show the landing page.
+const Login = lazy(() => import('./components/Auth/Login'));
 const Layout = lazy(() => import('./components/Layout/Layout'));
 const AdminDashboard = lazy(() => import('./components/Admin/AdminDashboard'));
 const TeacherDashboard = lazy(() => import('./components/Teacher/TeacherDashboard'));

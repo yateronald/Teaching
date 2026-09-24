@@ -159,6 +159,10 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
   const isExam = interest === 'exam';
   // Exam preparation asks three things; classes ask four.
   const totalSteps = isExam ? 3 : 4;
+  /** Short step names for the phone progress caption. */
+  const stepNames = isExam
+    ? ['Your details', 'Your exam', 'Your practice plan']
+    : ['Your details', 'Your French', 'Your goals', 'Your availability'];
   // Use the same base URL logic as AuthContext for consistency.
   const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://api.learnfrenchwithnatives.com/api';
 
@@ -1054,7 +1058,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           <div className="modal-header">
             <div className="modal-heading">
               <h2 id="demo-modal-title">Book a free demo</h2>
-              <p className="modal-subtitle">Tell us what you are looking for — it takes two minutes.</p>
+              <p className="modal-subtitle">Tell us what you are looking for. It takes two minutes.</p>
             </div>
             <button className="close-button" onClick={handleCloseModal} aria-label="Close">
               <CloseOutlined />
@@ -1062,10 +1066,17 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           </div>
 
           <div className="modal-body">
+            <ul className="intent-trust" aria-label="What to expect">
+              <li><CheckCircleOutlined /> Free</li>
+              <li><CheckCircleOutlined /> No card needed</li>
+              <li><CheckCircleOutlined /> Reply within 24 h</li>
+            </ul>
             <div className="intent-grid">
               <button type="button" className="intent-card is-classes" onClick={() => chooseInterest('classes')}>
+                <span className="intent-badge">Most chosen</span>
                 <span className="intent-icon"><TeamOutlined /></span>
                 <span className="intent-title">Live classes with a teacher</span>
+                <span className="intent-arrow" aria-hidden="true"><RightOutlined /></span>
                 <span className="intent-desc">A free trial class with a native teacher, then a plan built around your level and your timetable.</span>
                 <span className="intent-points">
                   <span className="intent-point"><CheckCircleOutlined /> One-to-one or small group</span>
@@ -1078,7 +1089,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
               <button type="button" className="intent-card is-exam" onClick={() => chooseInterest('exam')}>
                 <span className="intent-icon"><TrophyOutlined /></span>
                 <span className="intent-title">Exam preparation only</span>
-                <span className="intent-desc">No classes — full mock exams of the four papers, scored like the real thing, with corrections.</span>
+                <span className="intent-arrow" aria-hidden="true"><RightOutlined /></span>
+                <span className="intent-desc">No classes. Full mock exams of the four papers, scored like the real thing, with corrections.</span>
                 <span className="intent-points">
                   <span className="intent-point"><CheckCircleOutlined /> TCF, TEF, TEFAQ, DELF, DALF</span>
                   <span className="intent-point"><CheckCircleOutlined /> Listening, reading, writing and speaking</span>
@@ -1088,7 +1100,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
               </button>
             </div>
 
-            <p className="intent-note">Not sure? Choose live classes — exam practice comes with them.</p>
+            <p className="intent-note">Not sure? Choose live classes: exam practice comes with them.</p>
           </div>
         </div>
       </div>
@@ -1129,9 +1141,14 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           <div className="progress-line">
             <div
               className="progress-fill"
-              style={{ width: `${((currentStep - 1) / (totalSteps - 1)) * 100}%` }}
+              style={{ width: `${((currentStep - 1) / (totalSteps - 1)) * 100}%`, '--progress': currentStep / totalSteps } as React.CSSProperties}
             />
           </div>
+          {/* Phones show a slim bar with words instead of numbered circles. */}
+          <p className="progress-caption" aria-hidden="true">
+            <span>Step {currentStep} of {totalSteps}</span>
+            <strong>{stepNames[currentStep - 1]}</strong>
+          </p>
         </div>
 
         <div className="modal-body">

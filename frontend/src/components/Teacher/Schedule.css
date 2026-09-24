@@ -404,6 +404,21 @@
   .sh-calendar .fc .fc-toolbar-title { font-size: 14px; }
 }
 
+/* ── Built-in class room ── */
+.sh-where-opt { display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+.sh-room-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 1px 8px; border-radius: 999px; background: var(--tc-accent-soft); color: var(--tc-accent); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* "Where": the three-way choice gets the full width, its detail goes below. */
+.sh-form-where .ant-segmented { width: 100%; }
+.sh-room-note { display: flex; align-items: flex-start; gap: 10px; margin: -8px 0 24px; padding: 9px 12px; border: 1px solid var(--tc-accent-line); border-radius: 10px; background: var(--tc-accent-soft); color: var(--tc-accent); }
+.sh-room-note > .anticon { flex-shrink: 0; margin-top: 3px; }
+.sh-room-note > span { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.sh-room-note strong { font-size: 12.5px; }
+.sh-room-note em { font-style: normal; font-size: 11.5px; line-height: 1.4; color: #475569; }
+.sh-room { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--tc-accent-line); border-radius: 10px; background: var(--tc-accent-soft); }
+.sh-room p { display: flex; gap: 8px; margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: #334155; }
+.sh-room p > .anticon { flex-shrink: 0; margin-top: 2px; color: var(--tc-accent); }
+.sh-room-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 @media (max-width: 640px) {
   .sh-form-row,
   .sh-form-row.is-three { grid-template-columns: minmax(0, 1fr); }

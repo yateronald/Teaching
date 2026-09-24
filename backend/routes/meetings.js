@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const access = require('../services/meetingAccess');
+const { createClassMeeting } = require('../services/classMeetings');
 const { endMeeting } = require('../services/meetingLifecycle');
 
 // ════════════════════════════════════════════════════════════════════════
@@ -187,80 +188,18 @@ router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
     const batch = await req.db.get('SELECT id, name FROM batches WHERE id = $1', [batch_id]);
     if (!batch) return res.status(400).json({ error: 'Batch not found' });
 
-    const code = await access.uniqueMeetingCode(req.db);
-    const passcode = access.generatePasscode();
     const cleanDescription = typeof description === 'string' && description.trim() ? description.trim().slice(0, 2000) : null;
-    const limit = Math.min(Math.max(parseInt(max_participants, 10) || 50, 2), 300);
 
-    const result = await req.db.run(
-      `INSERT INTO meetings (room_name, title, description, teacher_id, batch_id, status, scheduled_start, scheduled_end, password, trusted_user_ids, max_participants)
-       VALUES ($1, $2, $3, $4, $5, 'scheduled', $6, $7, $8, '{}', $9) RETURNING id`,
-      [code, cleanTitle, cleanDescription, req.user.id, batch.id, scheduled_start, scheduled_end, access.sealPasscode(passcode), limit]
-    );
-    const meetingId = result.id || result.rows?.[0]?.id;
-
-    // Keep the timetable in sync
-    try {
-      await req.db.run(
-        `INSERT INTO schedules (
-           title, description, batch_id, teacher_id, start_time, end_time,
-           type, location_mode, link, status, meeting_id
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'meeting', 'online', $7, 'scheduled', $8)`,
-        [cleanTitle, cleanDescription, batch.id, req.user.id, scheduled_start, scheduled_end, `/app/meeting/${meetingId}`, meetingId]
-      );
-    } catch (schedErr) {
-      console.error('Failed to sync scheduled meeting to schedules table:', schedErr.message);
-    }
-
-    if (req.io) req.io.emit('meeting:created', { meetingId });
-
-    // Email the batch students (non-blocking)
-    try {
-      const students = await req.db.all(
-        `SELECT u.email, u.first_name, u.last_name, u.timezone FROM users u
-         JOIN batch_students bs ON u.id = bs.student_id
-         WHERE bs.batch_id = $1 AND u.is_active = true`,
-        [batch.id]
-      );
-      const { sendMeetingScheduledNotification } = require('../emails/emailService');
-      const frontendBase = (process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '');
-      const teacherFullName = personName(req.user) || 'Your teacher';
-      for (const student of students) {
-        sendMeetingScheduledNotification({
-          to: student.email,
-          studentName: personName(student) || 'Student',
-          meetingTitle: cleanTitle,
-          teacherName: teacherFullName,
-          batchName: batch.name || null,
-          scheduledStart: scheduled_start || null,
-          scheduledEnd: scheduled_end || null,
-          description: cleanDescription,
-          joinUrl: `${frontendBase}/app/meetings?focus=${meetingId}`,
-          recipientTimezone: student.timezone || 'UTC',
-        }).catch(err => console.error('Meeting email error:', err));
-      }
-    } catch (emailErr) {
-      console.error('Meeting email notification error:', emailErr);
-    }
-
-    // In-app notifications for the batch (non-blocking)
-    try {
-      const { createBulkNotifications, getStudentsInBatches } = require('../services/notificationService');
-      const studentIds = await getStudentsInBatches(req.db, [batch.id]);
-      if (studentIds.length > 0) {
-        await createBulkNotifications(req.db, studentIds, {
-          type: 'meeting_scheduled',
-          title: `Class scheduled: ${cleanTitle}`,
-          message: `Starts ${new Date(scheduled_start).toLocaleString()}`,
-          link: `/app/meetings?focus=${meetingId}`,
-          entity_type: 'meeting',
-          entity_id: meetingId,
-          sender_id: req.user.id,
-        });
-      }
-    } catch (notifyErr) {
-      console.error('Notification failed (meeting_scheduled):', notifyErr.message);
-    }
+    // Same code path as a built-in class booked from the Schedule.
+    const { meetingId, passcode } = await createClassMeeting(req, {
+      title: cleanTitle,
+      description: cleanDescription,
+      batch,
+      start: scheduled_start,
+      end: scheduled_end,
+      maxParticipants: max_participants,
+      scheduleType: 'meeting',
+    });
 
     const created = await access.findMeeting(req.db, meetingId);
     res.status(201).json(access.meetingView(created, { role: 'host', direct: true }, { passcode }));

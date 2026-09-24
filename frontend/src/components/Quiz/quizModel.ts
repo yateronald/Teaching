@@ -103,6 +103,8 @@ export interface QuizRow {
     total_students: number;
     in_progress_students: number;
     avg_score: number | null;
+    /** Over (deadline passed once published, or already answered): no more editing. */
+    locked: boolean;
 }
 
 export const normalizeQuizRow = (q: any): QuizRow => ({
@@ -125,7 +127,11 @@ export const normalizeQuizRow = (q: any): QuizRow => ({
     total_students: num(q.total_students) ?? 0,
     in_progress_students: num(q.in_progress_students) ?? 0,
     avg_score: num(q.avg_score),
+    locked: q.is_locked === true || q.is_locked === 't',
 });
+
+/** An ended quiz cannot be edited: its questions are what the students were graded on. */
+export const isEditLocked = (q: QuizRow, state: LiveState): boolean => q.locked || state === 'ended';
 
 /** State right now, from the server's clock offsets plus the seconds elapsed since they were fetched. */
 export const liveStateOf = (q: QuizRow, elapsedSec: number): { state: LiveState; startsIn: number | null; endsIn: number | null } => {

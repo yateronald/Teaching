@@ -3,8 +3,15 @@ const { body, validationResult } = require('express-validator');
 const { authenticateToken, teacherOrAdmin, authenticated } = require('../middleware/auth');
 const { sendClassScheduleNotification, sendMeetingUpdate, sendMeetingCancellation } = require('../emails/emailService');
 const reminderService = require('../services/reminderService');
+const access = require('../services/meetingAccess');
+const { createClassMeeting, removeClassMeeting, syncMeetingFromSchedule } = require('../services/classMeetings');
 
 const router = express.Router();
+
+/** Built-in classes link to /app/meeting/:id; an email needs the full address. */
+const absoluteLink = (link) => (typeof link === 'string' && link.startsWith('/')
+    ? `${(process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '')}${link}`
+    : link);
 
 // Get all schedules (filtered by role)
 router.get('/', authenticateToken, async (req, res) => {
@@ -20,6 +27,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 s.batch_id, s.location_mode, s.location,
                 CASE WHEN s.meeting_id IS NOT NULL THEN CONCAT('/app/meeting/', s.meeting_id) ELSE s.link END AS link,
                 s.status, s.meeting_id,
+                m.status AS meeting_status, m.room_name AS meeting_code,
                 b.name as batch_name, b.french_level,
                 COALESCE(u.first_name, tu.first_name) as teacher_first_name,
                 COALESCE(u.last_name, tu.last_name) as teacher_last_name,
@@ -36,6 +44,7 @@ router.get('/', authenticateToken, async (req, res) => {
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN users tu ON s.teacher_id = tu.id
+            LEFT JOIN meetings m ON m.id = s.meeting_id
         `;
         let params = [];
         let conditions = [];
@@ -96,6 +105,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
                 s.batch_id, s.location_mode, s.location,
                 CASE WHEN s.meeting_id IS NOT NULL THEN CONCAT('/app/meeting/', s.meeting_id) ELSE s.link END AS link,
                 s.status, s.meeting_id,
+                m.status AS meeting_status, m.room_name AS meeting_code,
                 b.name as batch_name, b.french_level,
                 COALESCE(u.first_name, tu.first_name) as teacher_first_name,
                 COALESCE(u.last_name, tu.last_name) as teacher_last_name
@@ -103,6 +113,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             LEFT JOIN batches b ON s.batch_id = b.id
             LEFT JOIN users u ON b.teacher_id = u.id
             LEFT JOIN users tu ON s.teacher_id = tu.id
+            LEFT JOIN meetings m ON m.id = s.meeting_id
             WHERE s.id = ?
         `;
         let params = [id];
@@ -143,7 +154,8 @@ router.post('/', [
     body('end_time').isISO8601(),
     body('type').isIn(['class', 'assignment', 'quiz', 'exam', 'meeting', 'other']),
     body('batch_id').isInt({ min: 1 }),
-    body('location_mode').isIn(['online', 'physical']),
+    // 'inbuilt' = a class in the platform's own meeting room (stored as online + meeting_id)
+    body('location_mode').isIn(['online', 'physical', 'inbuilt']),
     body('location').optional({ nullable: true }).isLength({ max: 255 }).trim(),
     body('link').optional({ nullable: true }).isURL().isLength({ max: 1000 }),
     body('status').optional().isIn(['scheduled', 'completed', 'cancelled'])
@@ -151,13 +163,14 @@ router.post('/', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
         const { title, description, start_time, end_time, type, batch_id, location_mode, location, link, status } = req.body;
+        const inbuilt = location_mode === 'inbuilt';
 
         // Validate time range
         if (new Date(start_time) >= new Date(end_time)) {
@@ -167,7 +180,11 @@ router.post('/', [
         // When online, link is required and location should be '--'
         let finalLocation = location;
         let finalLink = link;
-        if (location_mode === 'online') {
+        if (inbuilt) {
+            // The platform creates the room; no external link or address.
+            finalLocation = '--';
+            finalLink = null;
+        } else if (location_mode === 'online') {
             if (!link) {
                 return res.status(400).json({ error: 'Meeting link is required for online sessions' });
             }
@@ -184,16 +201,16 @@ router.post('/', [
         let batch;
         if (req.user.role === 'teacher') {
             batch = await req.db.get(
-                'SELECT id, name FROM batches WHERE id = ? AND teacher_id = ?',
+                'SELECT id, name, teacher_id FROM batches WHERE id = ? AND teacher_id = ?',
                 [batch_id, req.user.id]
             );
         } else {
             batch = await req.db.get(
-                'SELECT id, name FROM batches WHERE id = ?',
+                'SELECT id, name, teacher_id FROM batches WHERE id = ?',
                 [batch_id]
             );
         }
-        
+
         if (!batch) {
             return res.status(400).json({ error: 'Invalid batch ID or access denied' });
         }
@@ -212,6 +229,40 @@ router.post('/', [
         if (conflict) {
             return res.status(400).json({ 
                 error: 'Schedule conflict detected. There is already a schedule for this batch during the specified time.' 
+            });
+        }
+
+        if (inbuilt) {
+            // Exactly what the Meetings tab does: a meeting room plus its
+            // timetable entry. It then appears in both places, with lobby,
+            // passcode, attendance and recording.
+            const { meetingId, passcode, scheduleId } = await createClassMeeting(req, {
+                title,
+                description: description || null,
+                batch,
+                start: start_time,
+                end: end_time,
+                // The batch's teacher hosts it, even when an admin books it.
+                hostId: batch.teacher_id || req.user.id,
+                scheduleType: type,
+            });
+            if (status && status !== 'scheduled' && scheduleId) {
+                await req.db.run('UPDATE schedules SET status = ? WHERE id = ?', [status, scheduleId]);
+            }
+            const created = await req.db.get(`
+                SELECT s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
+                       s.batch_id, s.location_mode, s.location, s.link, s.status, s.meeting_id,
+                       m.status AS meeting_status, m.room_name AS meeting_code,
+                       b.name as batch_name, b.french_level
+                FROM schedules s
+                LEFT JOIN batches b ON s.batch_id = b.id
+                LEFT JOIN meetings m ON m.id = s.meeting_id
+                WHERE s.meeting_id = ?
+            `, [meetingId]);
+            return res.status(201).json({
+                message: 'Class scheduled in the built-in meeting room',
+                schedule: created,
+                meeting: { id: meetingId, code: created?.meeting_code, passcode },
             });
         }
 
@@ -311,7 +362,7 @@ router.put('/:id', [
     body('end_time').optional().isISO8601(),
     body('type').optional().isIn(['class', 'assignment', 'quiz', 'exam', 'meeting', 'other']),
     body('batch_id').optional().isInt({ min: 1 }),
-    body('location_mode').optional().isIn(['online', 'physical']),
+    body('location_mode').optional().isIn(['online', 'physical', 'inbuilt']),
     body('location').optional({ nullable: true }).isLength({ max: 255 }).trim(),
     body('link').optional({ nullable: true }).isURL().isLength({ max: 1000 }),
     body('status').optional().isIn(['scheduled', 'completed', 'cancelled'])
@@ -319,14 +370,15 @@ router.put('/:id', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
-            return res.status(400).json({ 
-                error: 'Validation failed', 
-                details: errors.array() 
+            return res.status(400).json({
+                error: 'Validation failed',
+                details: errors.array()
             });
         }
 
         const { id } = req.params;
-        const { title, description, start_time, end_time, type, batch_id, location_mode, location, link, status } = req.body;
+        const { title, description, start_time, end_time, type, batch_id, status } = req.body;
+        let { location_mode, location, link } = req.body;
 
         // Check if schedule exists and user has access
         let schedule;
@@ -343,6 +395,32 @@ router.put('/:id', [
 
         if (!schedule) {
             return res.status(404).json({ error: 'Schedule not found or access denied' });
+        }
+
+        // Built-in meeting room: keep the meeting and the timetable in step.
+        // plan: 'keep' (stays built-in), 'detach' (switch to a link/room, or
+        // cancelled), 'attach' (an ordinary session moves into the platform).
+        const meeting = schedule.meeting_id ? await access.findMeeting(req.db, schedule.meeting_id) : null;
+        const cancelling = status === 'cancelled' && schedule.status !== 'cancelled';
+        let plan = null;
+        if (meeting) {
+            plan = (cancelling || (location_mode !== undefined && location_mode !== 'inbuilt')) ? 'detach' : 'keep';
+            if (plan === 'detach' && meeting.status === 'active') {
+                return res.status(409).json({ error: 'This class is live right now. End it in the meeting room first.' });
+            }
+            if (plan === 'keep') {
+                // Its place and link belong to the meeting room.
+                location_mode = undefined; location = undefined; link = undefined;
+            }
+        } else if (location_mode === 'inbuilt') {
+            plan = 'attach';
+            location_mode = undefined; location = undefined; link = undefined;
+        }
+        if (plan === 'detach' && location_mode === 'online' && !link) {
+            return res.status(400).json({ error: 'Meeting link is required for online sessions' });
+        }
+        if (plan === 'detach' && location_mode === 'physical' && !location) {
+            return res.status(400).json({ error: 'Location is required for physical sessions' });
         }
 
         // Validate time range if both times are provided
@@ -403,22 +481,51 @@ router.put('/:id', [
         if (link !== undefined) { updates.push('link = ?'); params.push(link); }
         if (status !== undefined) { updates.push('status = ?'); params.push(status); }
         
-        if (updates.length === 0) {
+        if (updates.length === 0 && !plan) {
             return res.status(400).json({ error: 'No fields to update' });
         }
-        
+
         params.push(id);
 
-        await req.db.run(
-            `UPDATE schedules SET ${updates.join(', ')} WHERE id = ?`,
-            params
-        );
+        if (plan === 'detach') {
+            // Unlink first: removing the meeting would otherwise remove this row too.
+            await removeClassMeeting(req, meeting, { keepSchedule: true });
+            if (location_mode === undefined && !cancelling) {
+                updates.push('location_mode = ?');
+                params.splice(params.length - 1, 0, 'online');
+            }
+        }
+
+        if (updates.length) {
+            await req.db.run(
+                `UPDATE schedules SET ${updates.join(', ')} WHERE id = ?`,
+                params
+            );
+        }
+
+        if (plan === 'keep') {
+            await syncMeetingFromSchedule(req.db, meeting.id, {
+                title, description, start: start_time, end: end_time, batchId: batch_id,
+            });
+        } else if (plan === 'attach') {
+            const fresh = await req.db.get('SELECT * FROM schedules WHERE id = ?', [id]);
+            const batch = await req.db.get('SELECT id, name, teacher_id FROM batches WHERE id = ?', [fresh.batch_id]);
+            await createClassMeeting(req, {
+                title: fresh.title,
+                description: fresh.description,
+                batch,
+                start: fresh.start_time,
+                end: fresh.end_time,
+                hostId: batch?.teacher_id || req.user.id,
+                scheduleId: Number(id),
+            });
+        }
 
         // Get updated schedule
         const updatedSchedule = await req.db.get(`
-            SELECT 
+            SELECT
                 s.id, s.title, s.description, s.start_time, s.end_time, s.type, s.created_at,
-                s.location_mode, s.location, s.link, s.status,
+                s.location_mode, s.location, s.link, s.status, s.meeting_id,
                 b.name as batch_name, b.french_level,
                 u.first_name as teacher_first_name, u.last_name as teacher_last_name
             FROM schedules s
@@ -429,8 +536,9 @@ router.put('/:id', [
 
         // New: Schedule update/cancellation notifications for all types
         try {
-            // Send notifications for all schedule types
-            if (updatedSchedule && updatedSchedule.type) {
+            // Send notifications for all schedule types ('attach' already sent
+            // the built-in class invitation)
+            if (updatedSchedule && updatedSchedule.type && plan !== 'attach') {
                 console.log(`🔔 Processing notifications for ${updatedSchedule.type}: "${updatedSchedule.title}"`);
                 
                 // Helpers that emit ISO strings (UTC) — the email templates'
@@ -510,7 +618,7 @@ router.put('/:id', [
                             originalEndTime,
                             locationMode: schedule.location_mode,
                             location: schedule.location,
-                            link: schedule.link,
+                            link: absoluteLink(schedule.link),
                             reason: description, // if provided, use as reason
                             recipientTimezone: student.timezone || 'UTC',
                         }).catch(err => {
@@ -576,7 +684,7 @@ router.put('/:id', [
                                 endTime: endTimeStr,
                                 locationMode: updatedSchedule.location_mode,
                                 location: updatedSchedule.location,
-                                link: updatedSchedule.link,
+                                link: absoluteLink(updatedSchedule.link),
                                 description: updatedSchedule.description,
                                 changes: buildChangeLines(recipientTz),
                                 recipientTimezone: recipientTz,
@@ -632,6 +740,13 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
             return res.status(404).json({ error: 'Schedule not found or access denied' });
         }
 
+        if (schedule.meeting_id) {
+            const live = await req.db.get('SELECT status FROM meetings WHERE id = ?', [schedule.meeting_id]);
+            if (live?.status === 'active') {
+                return res.status(409).json({ error: 'This class is live right now. End it in the meeting room before deleting it.' });
+            }
+        }
+
         // Send cancellation emails for all schedule types before deletion
         try {
             if (schedule.type) {
@@ -675,7 +790,7 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
                         originalEndTime: toIso(detail.end_time),
                         locationMode: detail.location_mode,
                         location: detail.location,
-                        link: detail.link,
+                        link: absoluteLink(detail.link),
                         reason: `The ${schedule.type} has been cancelled.`,
                         recipientTimezone: student.timezone || 'UTC',
                     }).catch(err => {
@@ -693,8 +808,14 @@ router.delete('/:id', authenticateToken, teacherOrAdmin, async (req, res) => {
             console.error('❌ Error sending deletion notifications:', notifyErr);
         }
         
+        if (schedule.meeting_id) {
+            // A built-in class goes with its meeting room (the timetable row
+            // follows it), so the Meetings tab does not keep an orphan.
+            const meeting = await access.findMeeting(req.db, schedule.meeting_id);
+            if (meeting) await removeClassMeeting(req, meeting);
+        }
         await req.db.run('DELETE FROM schedules WHERE id = ?', [id]);
-        
+
         res.json({ message: 'Schedule deleted successfully' });
     } catch (error) {
         console.error('Delete schedule error:', error);

@@ -157,7 +157,10 @@ class ReminderService {
                 date: startIso,
                 location: classInfo.location,
                 locationMode: classInfo.location_mode || 'physical',
-                link: classInfo.link,
+                // Built-in classes store a relative /app/meeting/:id link.
+                link: classInfo.link && classInfo.link.startsWith('/')
+                    ? `${(process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '')}${classInfo.link}`
+                    : classInfo.link,
                 recipientTimezone: student.timezone || 'UTC',
             });
 

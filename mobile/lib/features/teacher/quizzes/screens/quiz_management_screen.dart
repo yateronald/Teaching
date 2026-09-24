@@ -153,6 +153,46 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
     }
   }
 
+  Widget _cardMeta(IconData icon, String text) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: AppColors.textSubtle),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted)),
+        ],
+      );
+
+  /// An ended quiz cannot be edited any more: its questions are what the
+  /// students were graded on. The server enforces the same rule.
+  bool _isEditLocked(Map<String, dynamic> q) =>
+      q['is_locked'] == true || _getQuizStatus(q) == 'ended';
+
+  Future<void> _openEditor(Map<String, dynamic> quiz) async {
+    if (_isEditLocked(quiz)) {
+      _showLockedNotice();
+      return;
+    }
+    final res = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => QuizBuilderScreen(existingQuiz: quiz)),
+    );
+    if (res == true) _fetchQuizzes();
+  }
+
+  void _showLockedNotice() {
+    final isFr = context.isFrench;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        content: Text(
+          isFr
+              ? 'Ce quiz est terminé : il ne peut plus être modifié.'
+              : 'This quiz has ended, so it can no longer be edited.',
+        ),
+      ),
+    );
+  }
+
   String _getQuizStatus(Map<String, dynamic> q) {
     if (q['status'] == 'draft') return 'draft';
     final scheduleState = q['schedule_state'];
@@ -1009,38 +1049,26 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
           ),
           if (isGrid) const Spacer() else const SizedBox(height: 12),
 
-          // Meta Row: Questions · Duration · Points
-          Row(
+          // Meta: Questions · Duration · Points (wraps on narrow cards)
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
             children: [
-              const Icon(Icons.format_list_bulleted, size: 14, color: AppColors.textSubtle),
-              const SizedBox(width: 4),
-              Text(
-                '$qCount questions',
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
-              ),
-              const SizedBox(width: 12),
-              const Icon(Icons.access_time, size: 14, color: AppColors.textSubtle),
-              const SizedBox(width: 4),
-              Text(
-                '$duration min',
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
-              ),
-              const SizedBox(width: 12),
-              const Icon(Icons.star_outline_rounded, size: 14, color: AppColors.textSubtle),
-              const SizedBox(width: 4),
-              Text(
-                '$totalMarks pts',
-                style: const TextStyle(fontSize: 11.5, color: AppColors.textMuted),
-              ),
+              _cardMeta(Icons.format_list_bulleted, '$qCount questions'),
+              _cardMeta(Icons.access_time, '$duration min'),
+              _cardMeta(Icons.star_outline_rounded, '$totalMarks pts'),
             ],
           ),
           const SizedBox(height: 10),
 
-          // Submissions & Average Score Row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Submissions & Average Score (wraps on narrow cards)
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 8,
+            runSpacing: 4,
             children: [
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.people_alt_outlined, size: 14, color: AppColors.textSubtle),
                   const SizedBox(width: 5),
@@ -1104,20 +1132,15 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final res = await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => QuizBuilderScreen(existingQuiz: quiz),
-                      ),
-                    );
-                    if (res == true) _fetchQuizzes();
-                  },
-                  icon: const Icon(Icons.edit, size: 14),
+                  // Ended: shown locked rather than hidden, so it is clear why.
+                  onPressed: _isEditLocked(quiz) ? null : () => _openEditor(quiz),
+                  icon: Icon(_isEditLocked(quiz) ? Icons.lock_outline : Icons.edit, size: 14),
                   label: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
-                      isFr ? 'Modifier' : 'Edit',
+                      _isEditLocked(quiz)
+                          ? (isFr ? 'Terminé' : 'Ended')
+                          : (isFr ? 'Modifier' : 'Edit'),
                       style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
                     ),
                   ),
@@ -1222,17 +1245,15 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
                           },
                         ),
                         IconButton(
-                          tooltip: isFr ? 'Modifier' : 'Edit',
-                          icon: const Icon(Icons.edit, size: 17, color: AppColors.frenchNavy),
-                          onPressed: () async {
-                            final res = await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => QuizBuilderScreen(existingQuiz: quiz),
-                              ),
-                            );
-                            if (res == true) _fetchQuizzes();
-                          },
+                          tooltip: _isEditLocked(quiz)
+                              ? (isFr ? 'Terminé : modification impossible' : 'Ended: editing is locked')
+                              : (isFr ? 'Modifier' : 'Edit'),
+                          icon: Icon(
+                            _isEditLocked(quiz) ? Icons.lock_outline : Icons.edit,
+                            size: 17,
+                            color: _isEditLocked(quiz) ? AppColors.textMuted : AppColors.frenchNavy,
+                          ),
+                          onPressed: _isEditLocked(quiz) ? _showLockedNotice : () => _openEditor(quiz),
                         ),
                         _buildQuizPopupMenu(quiz, isFr),
                       ],
@@ -1308,13 +1329,7 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
             ),
           );
         } else if (action == 'edit') {
-          final res = await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => QuizBuilderScreen(existingQuiz: quiz),
-            ),
-          );
-          if (res == true) _fetchQuizzes();
+          await _openEditor(quiz);
         } else if (action == 'toggle') {
           _toggleQuizStatus(quiz);
         } else if (action == 'delete') {
@@ -1332,6 +1347,7 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
             ],
           ),
         ),
+        if (!_isEditLocked(quiz))
         PopupMenuItem(
           value: 'edit',
           child: Row(
@@ -1342,6 +1358,8 @@ class _QuizManagementScreenState extends ConsumerState<QuizManagementScreen> {
             ],
           ),
         ),
+        // Back in drafts an ended quiz would become editable again.
+        if (!_isEditLocked(quiz))
         PopupMenuItem(
           value: 'toggle',
           child: Row(

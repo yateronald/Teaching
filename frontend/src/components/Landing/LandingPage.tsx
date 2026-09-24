@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import i18next from 'i18next';
 import {
@@ -9,7 +9,10 @@ import {
 } from '@ant-design/icons';
 import { ASSET_PATHS } from '../../utils/assets';
 import { trackPageView } from '../../utils/siteAnalytics';
-import DemoRequestModal from './DemoRequestModal';
+// The booking form is only needed after a click: it stays out of the first
+// download and is fetched in the background once the page is idle.
+const loadDemoModal = () => import('./DemoRequestModal');
+const DemoRequestModal = lazy(loadDemoModal);
 import SEO from '../SEO/SEO';
 import { CONTACT_EMAIL, EXAM_NAMES, LANDING, PATHS, type Lang } from './landingContent';
 import { landingJsonLd } from './landingSchema';
@@ -78,6 +81,14 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const headerRef = useRef<HTMLElement | null>(null);
   const [menuTop, setMenuTop] = useState(72);
   const [demoOpen, setDemoOpen] = useState(false);
+  // Mounted on first open and kept, so its success message can outlive the form.
+  const [demoMounted, setDemoMounted] = useState(false);
+  useEffect(() => { if (demoOpen) setDemoMounted(true); }, [demoOpen]);
+  useEffect(() => {
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const id = idle ? idle(() => { loadDemoModal(); }) : window.setTimeout(() => { loadDemoModal(); }, 2500);
+    return () => { if (!idle) window.clearTimeout(id); };
+  }, []);
   const [program, setProgram] = useState(0);
   const [quote, setQuote] = useState(0);
   const [video, setVideo] = useState(0);
@@ -588,7 +599,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                       <source src={VIDEOS[video].src} type="video/mp4" />
                     </video>
                   ) : (
-                    <button type="button" className="lp-video-poster" onClick={() => playVideo(video)} aria-label={`${c.reviews.play} — ${c.reviews.videos[video].title}`}>
+                    <button type="button" className="lp-video-poster" onClick={() => playVideo(video)} aria-label={`${c.reviews.play}: ${c.reviews.videos[video].title}`}>
                       <img src={VIDEOS[video].poster} alt="" width={480} height={848} loading="lazy" decoding="async" />
                       <span className="lp-video-play"><PlayCircleFilled /></span>
                       <span className="lp-video-time">{VIDEOS[video].duration}</span>
@@ -637,7 +648,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                 </div>
                 {/* All testimonials stay in the HTML for search engines and screen readers. */}
                 <ul className="lp-visually-hidden">
-                  {c.reviews.quotes.map(x => <li key={x.name}>{x.name} — {x.role}: {x.text}</li>)}
+                  {c.reviews.quotes.map(x => <li key={x.name}>{x.name}, {x.role}: {x.text}</li>)}
                 </ul>
               </div>
             </div>
@@ -720,7 +731,11 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         <div className="lp-tricolore" aria-hidden><i /><i /><i /></div>
       </footer>
 
-      <DemoRequestModal isOpen={demoOpen} onClose={() => setDemoOpen(false)} />
+      {(demoOpen || demoMounted) && (
+        <Suspense fallback={null}>
+          <DemoRequestModal isOpen={demoOpen} onClose={() => setDemoOpen(false)} />
+        </Suspense>
+      )}
     </div>
   );
 };

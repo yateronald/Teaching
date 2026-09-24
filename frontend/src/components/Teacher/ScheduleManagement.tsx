@@ -13,8 +13,10 @@ import interactionPlugin from '@fullcalendar/interaction';
 import {
     CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined, EditOutlined,
     EnvironmentOutlined, FieldTimeOutlined, InfoCircleOutlined, LinkOutlined, MoreOutlined, PlayCircleOutlined,
-    PlusOutlined, ReloadOutlined, SearchOutlined, StopOutlined, TeamOutlined, VideoCameraOutlined, WarningOutlined,
+    PlusOutlined, ReloadOutlined, SearchOutlined, ShareAltOutlined, StopOutlined, TeamOutlined, VideoCameraOutlined, WarningOutlined,
 } from '@ant-design/icons';
+import MeetingShare from '../Meeting/MeetingShare';
+import type { ShareableMeeting } from '../Meeting/MeetingShare';
 import { useAuth } from '../../contexts/AuthContext';
 import useResponsive from '../../hooks/useResponsive';
 import { headerHeight } from '../Layout/layoutMetrics';
@@ -33,6 +35,8 @@ type Status = 'scheduled' | 'completed' | 'cancelled';
 type LiveState = 'cancelled' | 'completed' | 'ended' | 'live' | 'soon' | 'scheduled';
 type Scope = 'upcoming' | 'active' | 'past' | 'all';
 type ViewMode = 'agenda' | 'calendar';
+/** Where a session happens. 'inbuilt' = the platform's own class room (Meetings). */
+type Where = 'inbuilt' | 'online' | 'physical';
 
 interface Item {
     id: number;
@@ -49,6 +53,8 @@ interface Item {
     link: string | null;
     startsIn: number | null;
     endsIn: number | null;
+    /** Set for a class held in the built-in meeting room. */
+    meeting: { id: number; code: string; status: string } | null;
 }
 interface Batch { id: number; name: string; student_count?: number }
 interface Session { id: number; access_code: string; code_expires_at: string | null; status: string }
@@ -86,6 +92,9 @@ const fmtSpan = (seconds: number) => {
     if (h >= 1) return m ? `${h}h ${m}m` : `${h}h`;
     return m >= 1 ? `${m} min` : 'less than a minute';
 };
+const whereOf = (item: Item): Where => (item.meeting ? 'inbuilt' : item.location_mode);
+const WHERE_LABEL: Record<Where, string> = { inbuilt: 'Built-in class room', online: 'Online link', physical: 'In person' };
+
 const toWallString = (d: Date) => {
     const pad = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -120,6 +129,8 @@ const ScheduleManagement: React.FC = () => {
     const [details, setDetails] = useState<number | null>(null);
     const [startFor, setStartFor] = useState<Item | null>(null);
     const [starting, setStarting] = useState(false);
+    const [share, setShare] = useState<{ meeting: ShareableMeeting; created: boolean } | null>(null);
+    const [opening, setOpening] = useState<number | null>(null);
 
     /* ── Data ── */
     const load = useCallback(async (opts: { quiet?: boolean } = {}) => {
@@ -145,6 +156,7 @@ const ScheduleManagement: React.FC = () => {
                 link: s.link || null,
                 startsIn: num(s.seconds_until_start),
                 endsIn: num(s.seconds_until_end),
+                meeting: s.meeting_id ? { id: Number(s.meeting_id), code: s.meeting_code || String(s.meeting_id), status: s.meeting_status || 'scheduled' } : null,
             })));
             if (bRes.ok) {
                 const bData = await bRes.json();
@@ -263,7 +275,7 @@ const ScheduleManagement: React.FC = () => {
         form.setFieldsValue({
             title: '', description: '', batch_id: batches.length === 1 ? batches[0].id : undefined, type: 'class',
             date: dayjs(startWall), start_time: dayjs(startWall), duration: Math.max(15, dayjs(endWall).diff(dayjs(startWall), 'minute')),
-            location_mode: 'online', link: '', location: '', status: 'scheduled', repeat: false, repeat_weeks: 4,
+            location_mode: 'inbuilt', link: '', location: '', status: 'scheduled', repeat: false, repeat_weeks: 4,
         });
         setEditing({ item: null, open: true });
     };
@@ -274,7 +286,7 @@ const ScheduleManagement: React.FC = () => {
             title: item.title, description: item.description, batch_id: item.batch_id, type: item.type,
             date: dayjs(startWall), start_time: dayjs(startWall),
             duration: Math.max(5, Math.round((Date.parse(item.end) - Date.parse(item.start)) / 60_000)),
-            location_mode: item.location_mode, link: item.link || '', location: item.location, status: item.status, repeat: false, repeat_weeks: 4,
+            location_mode: whereOf(item), link: item.meeting ? '' : item.link || '', location: item.location, status: item.status, repeat: false, repeat_weeks: 4,
         });
         setEditing({ item, open: true });
     };
@@ -285,7 +297,7 @@ const ScheduleManagement: React.FC = () => {
             title: item.title, description: item.description, batch_id: item.batch_id, type: item.type,
             date: startWall, start_time: startWall,
             duration: Math.max(5, Math.round((Date.parse(item.end) - Date.parse(item.start)) / 60_000)),
-            location_mode: item.location_mode, link: item.link || '', location: item.location, status: 'scheduled', repeat: false, repeat_weeks: 4,
+            location_mode: whereOf(item), link: item.meeting ? '' : item.link || '', location: item.location, status: 'scheduled', repeat: false, repeat_weeks: 4,
         });
         setEditing({ item: null, open: true });
     };
@@ -300,7 +312,7 @@ const ScheduleManagement: React.FC = () => {
         const endIso = new Date(Date.parse(startIso) + Number(v.duration) * 60_000).toISOString();
         if (!item && Date.parse(endIso) < Date.now()) { msg.error('That session would already be over. Pick a future time.'); return; }
 
-        const payload = {
+        const payload: Record<string, unknown> = {
             title: v.title.trim(),
             description: (v.description || '').trim(),
             batch_id: v.batch_id,
@@ -316,20 +328,37 @@ const ScheduleManagement: React.FC = () => {
         setSaving(true);
         try {
             if (item) {
+                // An unchanged place is not re-sent: a built-in class stays in its room.
+                if (v.location_mode === whereOf(item) && v.location_mode === 'inbuilt') delete payload.location_mode;
                 const res = await apiCall(`/schedules/${item.id}`, { method: 'PUT', body: JSON.stringify(payload) });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data?.error || 'The session could not be saved.');
-                msg.success('Session updated');
+                msg.success(!item.meeting && v.location_mode === 'inbuilt'
+                    ? 'Session moved to the built-in class room — students were invited'
+                    : item.meeting && v.location_mode !== 'inbuilt' ? 'Session updated — its class room was removed' : 'Session updated');
             } else {
                 const repeats = v.repeat ? Math.min(16, Math.max(2, Number(v.repeat_weeks) || 2)) : 1;
                 let created = 0;
+                let firstRoom: ShareableMeeting | null = null;
                 const clashes: string[] = [];
                 for (let w = 0; w < repeats; w++) {
                     const weekStart = w === 0 ? startIso : wallToIso(dayjs(startWall).add(w, 'week').format(WALL), tz) as string;
                     const weekEnd = new Date(Date.parse(weekStart) + Number(v.duration) * 60_000).toISOString();
                     const res = await apiCall('/schedules', { method: 'POST', body: JSON.stringify({ ...payload, start_time: weekStart, end_time: weekEnd }) });
                     const data = await res.json().catch(() => ({}));
-                    if (res.ok) created++;
+                    if (res.ok) {
+                        created++;
+                        if (!firstRoom && data?.meeting?.id) {
+                            firstRoom = {
+                                id: Number(data.meeting.id),
+                                code: data.meeting.code,
+                                title: payload.title as string,
+                                passcode: data.meeting.passcode ?? null,
+                                batch_name: batches.find(b => b.id === v.batch_id)?.name,
+                                when: `${fmt.dayLong(weekStart)} · ${fmt.range(weekStart, weekEnd)} (${timezoneLabel(user?.timezone)})`,
+                            };
+                        }
+                    }
                     else if (/conflict/i.test(data?.error || '')) clashes.push(fmt.dayShort(weekStart));
                     else throw new Error(data?.error || 'The session could not be created.');
                 }
@@ -337,6 +366,8 @@ const ScheduleManagement: React.FC = () => {
                 msg.success(clashes.length
                     ? `${created} of ${repeats} sessions created — ${clashes.join(', ')} clashed with existing sessions`
                     : repeats > 1 ? `${created} weekly sessions created` : 'Session created');
+                // Same invitation card as a class created in Meetings.
+                if (firstRoom) setShare({ meeting: firstRoom, created: true });
             }
             setEditing({ item: null, open: false });
             await load({ quiet: true });
@@ -350,12 +381,18 @@ const ScheduleManagement: React.FC = () => {
     const remove = (item: Item) => modal.confirm({
         title: `Delete “${item.title}”?`,
         icon: <DeleteOutlined />,
-        content: 'Students lose it from their schedule. Attendance already recorded for it is kept.',
+        content: item.meeting
+            ? 'Its class room is removed too, from Schedule and Meetings. Students are told it is cancelled.'
+            : 'Students lose it from their schedule. Attendance already recorded for it is kept.',
         okText: 'Delete session',
         okButtonProps: { danger: true },
         onOk: async () => {
             const res = await apiCall(`/schedules/${item.id}`, { method: 'DELETE' });
-            if (!res.ok) { msg.error('The session could not be deleted.'); throw new Error('delete failed'); }
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                msg.error(data?.error || 'The session could not be deleted.');
+                throw new Error('delete failed');
+            }
             setItems(xs => xs.filter(x => x.id !== item.id));
             setDetails(null);
             msg.success('Session deleted');
@@ -461,7 +498,45 @@ const ScheduleManagement: React.FC = () => {
         }
     };
 
+    /** Opens the built-in class room exactly like the Meetings tab does. */
+    const openRoom = async (item: Item) => {
+        if (!item.meeting) return;
+        setOpening(item.id);
+        try {
+            if (item.meeting.status !== 'active') {
+                const res = await apiCall(`/meetings/${item.meeting.id}/prepare`, { method: 'POST' });
+                if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || 'The class room could not be opened.');
+            }
+            navigate(`/app/meeting/${item.meeting.code}`);
+        } catch (e) {
+            msg.error(e instanceof Error ? e.message : 'The class room could not be opened.');
+        } finally {
+            setOpening(null);
+        }
+    };
+    const shareRoom = (item: Item) => item.meeting && setShare({
+        created: false,
+        meeting: {
+            id: item.meeting.id,
+            code: item.meeting.code,
+            title: item.title,
+            batch_name: item.batch_name,
+            when: `${fmt.dayLong(item.start)} · ${fmt.range(item.start, item.end)} (${timezoneLabel(user?.timezone)})`,
+        },
+    });
+
     const primaryAction = (item: Item, state: LiveState) => {
+        if (item.meeting) {
+            if (item.meeting.status === 'ended' || isPast(state) || state === 'cancelled') return null;
+            const live = item.meeting.status === 'active';
+            const ready = live || state === 'live' || state === 'soon' || dayKeyIn(item.start, tz) === todayKey;
+            if (!ready) return null;
+            return (
+                <Button size="small" type="primary" icon={<VideoCameraOutlined />} loading={opening === item.id} onClick={() => openRoom(item)}>
+                    {live ? 'Join class' : 'Start class'}
+                </Button>
+            );
+        }
         const session = sessions[item.id];
         if (item.type === 'class' && !isPast(state) && state !== 'cancelled') {
             if (session) {
@@ -493,7 +568,8 @@ const ScheduleManagement: React.FC = () => {
             { key: 'details', icon: <InfoCircleOutlined />, label: 'Details' },
             { key: 'edit', icon: <EditOutlined />, label: 'Edit' },
             { key: 'duplicate', icon: <CopyOutlined />, label: 'Duplicate next week' },
-            ...(item.link ? [{ key: 'copy', icon: <LinkOutlined />, label: 'Copy meeting link' }] : []),
+            ...(item.meeting ? [{ key: 'share', icon: <ShareAltOutlined />, label: 'Share invitation' }, { key: 'meetings', icon: <VideoCameraOutlined />, label: 'Open in Meetings' }]
+                : item.link ? [{ key: 'copy', icon: <LinkOutlined />, label: 'Copy meeting link' }] : []),
             { type: 'divider' as const },
             ...(state === 'cancelled' ? [] : [{ key: 'cancel', icon: <StopOutlined />, label: 'Cancel session' }]),
             ...(isPast(state) && item.status !== 'completed' ? [{ key: 'complete', icon: <CheckCircleOutlined />, label: 'Mark completed' }] : []),
@@ -505,9 +581,13 @@ const ScheduleManagement: React.FC = () => {
             else if (key === 'edit') openEdit(item);
             else if (key === 'duplicate') duplicate(item);
             else if (key === 'copy') copyText(item.link as string, 'Meeting link');
+            else if (key === 'share') shareRoom(item);
+            else if (key === 'meetings' && item.meeting) navigate(`/app/meetings?focus=${item.meeting.id}`);
             else if (key === 'cancel') modal.confirm({
                 title: `Cancel “${item.title}”?`, icon: <StopOutlined />,
-                content: 'It stays in the schedule marked as cancelled so students can see it was called off.',
+                content: item.meeting
+                    ? 'It stays in the schedule marked as cancelled; its class room is closed and removed from Meetings.'
+                    : 'It stays in the schedule marked as cancelled so students can see it was called off.',
                 okText: 'Cancel session', okButtonProps: { danger: true }, cancelText: 'Keep it',
                 onOk: () => setStatus(item, 'cancelled'),
             });
@@ -515,6 +595,10 @@ const ScheduleManagement: React.FC = () => {
             else if (key === 'delete') remove(item);
         },
     });
+
+    const whereChip = (item: Item) => item.meeting
+        ? <span className="sh-room-chip"><VideoCameraOutlined /> Class room · {item.meeting.code}</span>
+        : item.location_mode === 'online' ? <><VideoCameraOutlined /> Online</> : <><EnvironmentOutlined /> {item.location || 'In person'}</>;
 
     const detailItem = items.find(i => i.id === details) ?? null;
     const detailState = detailItem ? stateOf(detailItem, elapsed) : null;
@@ -598,7 +682,7 @@ const ScheduleManagement: React.FC = () => {
                             <h2>{next.item.title}</h2>
                             <span className="sh-next-meta">
                                 <span><TeamOutlined /> {next.item.batch_name || 'No batch'}</span>
-                                <span>{next.item.location_mode === 'online' ? <><VideoCameraOutlined /> Online</> : <><EnvironmentOutlined /> {next.item.location || 'In person'}</>}</span>
+                                <span>{whereChip(next.item)}</span>
                                 {sessions[next.item.id] && <span className="sh-code-chip"><InfoCircleOutlined /> Code {sessions[next.item.id].access_code}</span>}
                             </span>
                         </div>
@@ -699,11 +783,13 @@ const ScheduleManagement: React.FC = () => {
                                                         <span className="sh-title-row">
                                                             <strong>{item.title}</strong>
                                                             <span className={`sh-type ${TYPES[item.type].tone}`}>{TYPES[item.type].label}</span>
-                                                            {state !== 'scheduled' && <span className={`sh-state is-${state}`}>{STATE_LABEL[state]}</span>}
+                                                            {item.meeting?.status === 'active' && state !== 'cancelled'
+                                                                ? <span className="sh-state is-live">Class in progress</span>
+                                                                : state !== 'scheduled' && <span className={`sh-state is-${state}`}>{STATE_LABEL[state]}</span>}
                                                         </span>
                                                         <span className="sh-meta">
                                                             <span><TeamOutlined /> {item.batch_name || '—'}</span>
-                                                            <span>{item.location_mode === 'online' ? <><VideoCameraOutlined /> Online</> : <><EnvironmentOutlined /> {item.location || 'In person'}</>}</span>
+                                                            <span>{whereChip(item)}</span>
                                                             {sessions[item.id] && <span className="sh-code-chip"><InfoCircleOutlined /> Code {sessions[item.id].access_code}</span>}
                                                         </span>
                                                     </span>
@@ -788,12 +874,26 @@ const ScheduleManagement: React.FC = () => {
                                 return <p className="sh-when-preview"><ClockCircleOutlined /> {fmt.dayLong(startIso)} · {fmt.range(startIso, endIso)} <em>({timezoneLabel(user?.timezone)})</em></p>;
                             }}
                         </Form.Item>
-                        <div className="sh-form-row">
+                        <div className="sh-form-where">
                             <Form.Item name="location_mode" label="Where" rules={[{ required: true }]}>
-                                <Segmented block options={[{ value: 'online', label: 'Online' }, { value: 'physical', label: 'In person' }]} />
+                                <Segmented block options={[
+                                    { value: 'inbuilt', label: <span className="sh-where-opt"><VideoCameraOutlined /> Class room</span> },
+                                    { value: 'online', label: <span className="sh-where-opt"><LinkOutlined /> Link</span> },
+                                    { value: 'physical', label: <span className="sh-where-opt"><EnvironmentOutlined /> In person</span> },
+                                ]} />
                             </Form.Item>
                             <Form.Item noStyle shouldUpdate={(a, b) => a.location_mode !== b.location_mode}>
-                                {() => form.getFieldValue('location_mode') === 'physical' ? (
+                                {() => form.getFieldValue('location_mode') === 'inbuilt' ? (
+                                    <div className="sh-room-note" role="note">
+                                        <VideoCameraOutlined />
+                                        <span>
+                                            <strong>Built-in class room</strong>
+                                            <em>{editing.item?.meeting
+                                                ? `Meeting ID ${editing.item.meeting.code}. Changes here update it in Meetings too.`
+                                                : 'A meeting room is created for you, with lobby, passcode, attendance and recording. It also appears in Meetings.'}</em>
+                                        </span>
+                                    </div>
+                                ) : form.getFieldValue('location_mode') === 'physical' ? (
                                     <Form.Item name="location" label="Place" rules={[{ required: true, whitespace: true, message: 'Where does it take place?' }]}>
                                         <Input placeholder="Room or address" maxLength={255} />
                                     </Form.Item>
@@ -822,7 +922,7 @@ const ScheduleManagement: React.FC = () => {
                                 </Form.Item>
                             </div>
                         )}
-                        <p className="sh-hint"><InfoCircleOutlined /> {editing.item ? 'Students see the change in their schedule straight away.' : 'Students in the batch get an email with the date, time and link.'}</p>
+                        <p className="sh-hint"><InfoCircleOutlined /> {editing.item ? 'Students see the change in their schedule straight away.' : 'Students in the batch get an email with the date, time and how to join.'}</p>
                     </Form>
                     <footer className="tc-modal-foot sh-form-foot">
                         <Button onClick={() => setEditing({ item: null, open: false })} disabled={saving}>Cancel</Button>
@@ -882,6 +982,15 @@ const ScheduleManagement: React.FC = () => {
                 })()}
             </Modal>
 
+            <MeetingShare
+                open={!!share}
+                meeting={share?.meeting || null}
+                created={share?.created}
+                isHost
+                apiCall={apiCall}
+                onClose={() => setShare(null)}
+            />
+
             {/* ── Details ── */}
             <Drawer open={!!detailItem} onClose={() => setDetails(null)} placement="right" width={r.isMobile ? '100%' : 460} destroyOnHidden
                 rootClassName="tc-drawer sh-drawer" closeIcon={<CloseOutlined />}
@@ -899,10 +1008,19 @@ const ScheduleManagement: React.FC = () => {
                             <dl className="sh-dl">
                                 <div><dt>Type</dt><dd><span className={`sh-type ${TYPES[detailItem.type].tone}`}>{TYPES[detailItem.type].label}</span></dd></div>
                                 <div><dt>Batch</dt><dd>{detailItem.batch_name || '—'}</dd></div>
-                                <div><dt>Where</dt><dd>{detailItem.location_mode === 'online' ? 'Online' : detailItem.location || 'In person'}</dd></div>
+                                <div><dt>Where</dt><dd>{whereOf(detailItem) === 'physical' ? detailItem.location || WHERE_LABEL.physical : WHERE_LABEL[whereOf(detailItem)]}</dd></div>
+                                {detailItem.meeting && <div><dt>Meeting ID</dt><dd><b>{detailItem.meeting.code}</b></dd></div>}
                                 {sessions[detailItem.id] && <div><dt>Attendance code</dt><dd><b>{sessions[detailItem.id].access_code}</b></dd></div>}
                             </dl>
-                            {detailItem.link && (
+                            {detailItem.meeting ? (
+                                <div className="sh-room">
+                                    <p><VideoCameraOutlined /> Held in the platform: lobby, passcode, attendance and recording, exactly like a class created in Meetings.</p>
+                                    <div className="sh-room-actions">
+                                        <Button icon={<ShareAltOutlined />} onClick={() => shareRoom(detailItem)}>Share invitation</Button>
+                                        <Button onClick={() => navigate(`/app/meetings?focus=${detailItem.meeting!.id}`)}>Open in Meetings</Button>
+                                    </div>
+                                </div>
+                            ) : detailItem.link && (
                                 <div className="sh-link">
                                     <VideoCameraOutlined />
                                     <span title={detailItem.link}>{detailItem.link}</span>

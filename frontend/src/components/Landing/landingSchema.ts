@@ -52,7 +52,7 @@ export function landingJsonLd(lang: Lang) {
       ...copy.programs.items.map(p => ({
         '@type': 'Course',
         '@id': `${url}#course-${p.id}`,
-        name: `${p.title} — ${copy.programs.eyebrow}`,
+        name: `${p.title} | ${copy.programs.eyebrow}`,
         description: p.desc,
         provider: { '@id': ORG_ID },
         inLanguage: 'fr',

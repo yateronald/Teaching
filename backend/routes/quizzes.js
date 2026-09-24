@@ -22,6 +22,20 @@ const audioUpload = multer({
 
 const router = express.Router();
 
+/**
+ * A quiz is locked once it is over: its deadline passed while it was
+ * published, or students already submitted to it. Its questions and marks
+ * are what those students were graded on, so it can no longer be edited (or
+ * moved back to drafts to get around that). Duplicating it is the way to reuse it.
+ */
+const QUIZ_LOCKED_SQL = `(q.end_date IS NOT NULL AND q.end_date <= NOW() AND (
+        q.status = 'published'
+        OR EXISTS (SELECT 1 FROM quiz_submissions qs WHERE qs.quiz_id = q.id
+                   AND qs.status IN ('submitted', 'auto_submitted', 'graded'))))`;
+const QUIZ_LOCKED_MESSAGE = 'This quiz has ended, so it can no longer be edited. Duplicate it to reuse its questions.';
+const isQuizLocked = async (db, quizId) => !!(await db.get(
+    `SELECT 1 AS locked FROM quizzes q WHERE q.id = $1 AND ${QUIZ_LOCKED_SQL}`, [quizId]));
+
 // Fisher-Yates shuffle — produces an unbiased random permutation
 function shuffleArray(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -734,7 +748,8 @@ router.get('/', authenticateToken, async (req, res) => {
                 COALESCE(o.total_students, 0) AS total_students,
                 COALESCE(o.in_progress_students, 0) AS in_progress_students,
                 COALESCE(t.total_questions, 0) AS total_questions,
-                a.batch_names, a.french_levels, o.avg_score
+                a.batch_names, a.french_levels, o.avg_score,
+                ${QUIZ_LOCKED_SQL} AS is_locked
             FROM quizzes q
             JOIN scope s ON s.id = q.id
             LEFT JOIN users u ON u.id = q.teacher_id
@@ -1364,6 +1379,9 @@ router.put('/:id', [
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
         }
+        if (await isQuizLocked(req.db, id)) {
+            return res.status(409).json({ error: QUIZ_LOCKED_MESSAGE, code: 'QUIZ_ENDED' });
+        }
 
         // Validate date logic
         if (start_date && end_date) {
@@ -1899,6 +1917,12 @@ router.patch('/:id/status', [
         );
         if (!quiz) {
             return res.status(404).json({ error: 'Quiz not found or access denied' });
+        }
+        if (status === 'draft' && quiz.status === 'published' && await isQuizLocked(req.db, id)) {
+            return res.status(409).json({
+                error: 'This quiz has ended. It stays closed so its results remain as the students took it.',
+                code: 'QUIZ_ENDED',
+            });
         }
 
         const changed = quiz.status !== status;

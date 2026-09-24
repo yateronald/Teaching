@@ -76,7 +76,7 @@ export interface LandingCopy {
 
 // Student testimonials are quotes: they stay in the words the students used.
 const QUOTES = [
-  { name: 'Aarav Sharma', role: 'TEF Canada candidate', exam: 'TEF Canada', text: 'Scored CLB 9 in speaking! Classes were structured, patient, and truly native. Practice felt like real-life conversations — exactly what I needed.' },
+  { name: 'Aarav Sharma', role: 'TEF Canada candidate', exam: 'TEF Canada', text: 'Scored CLB 9 in speaking! Classes were structured, patient, and truly native. Practice felt like real-life conversations, exactly what I needed.' },
   { name: 'Priya Patel', role: 'DELF B2 graduate', exam: 'DELF B2', text: "Cleared DELF B2 on my first attempt. Mock exams and feedback were spot on. The teacher's corrections improved my fluency fast." },
   { name: 'Rohan Mehta', role: 'Business professional', text: 'Needed French for clients in Quebec. Flexible scheduling and industry vocabulary focus helped me present confidently in French within months.' },
   { name: 'Arjun Iyer', role: 'TCF candidate', exam: 'TCF', text: 'Clear strategies for TCF listening and speaking. My scores improved quickly thanks to targeted feedback and daily practice.' },
@@ -89,7 +89,7 @@ const en: LandingCopy = {
   meta: {
     title: 'Learn French Online with Native Teachers | TEF & TCF Canada Prep',
     description: 'Live French classes with certified native teachers and exam simulations scored like TEF Canada and TCF Canada. Reach your CLB target. Book a free demo.',
-    ogAlt: 'Learn French with Natives — French exam preparation with native teachers',
+    ogAlt: 'Learn French with Natives: French exam preparation with native teachers',
   },
   skip: 'Skip to main content',
   announce: { tag: 'New', text: 'TCF Canada speaking & writing simulator with an AI examiner.', link: 'See how it works' },
@@ -123,7 +123,7 @@ const en: LandingCopy = {
   programs: {
     eyebrow: 'Programs',
     title: 'One goal. The right program.',
-    sub: 'Tell us why you need French — we build your preparation around your exam, your level and your deadline.',
+    sub: 'Tell us why you need French. We build your preparation around your exam, your level and your deadline.',
     includes: "What's included",
     goal: 'Goal',
     format: 'Format',
@@ -138,7 +138,7 @@ const en: LandingCopy = {
       },
       {
         id: 'quebec', tab: 'Settle in Québec', exams: 'TCF Québec · TEFAQ', title: 'TCF Québec & TEFAQ',
-        desc: 'Speaking and listening are the skills Québec immigration programs assess — so that is where we train you, with everyday Québec situations and timed practice.',
+        desc: 'Speaking and listening are the skills Québec immigration programs assess, so that is where we train you, with everyday Québec situations and timed practice.',
         includes: ['Intensive speaking & listening practice', 'Mock exams with timed audio', 'Everyday Québec situations', 'Personal feedback after every session'],
         goal: 'Oral skills for Québec programs', format: '1-on-1 or small group', levels: 'A2 → C1',
       },
@@ -159,16 +159,16 @@ const en: LandingCopy = {
   simulator: {
     eyebrow: 'Exam simulator',
     title: 'Rehearse the real exam. As often as you need.',
-    sub: 'Our TCF Canada simulator recreates the speaking and writing tests minute by minute — then scores you the way examiners do.',
+    sub: 'Our TCF Canada simulator recreates the speaking and writing tests minute by minute, then scores you the way examiners do.',
     features: [
-      { title: 'Speaking with an AI examiner', desc: 'Three tasks, official timings. The examiner interviews you, plays the role-play and challenges your opinion — out loud, in real time.' },
+      { title: 'Speaking with an AI examiner', desc: 'Three tasks, official timings. The examiner interviews you, plays the role-play and challenges your opinion, out loud and in real time.' },
       { title: 'Writing in exam conditions', desc: 'One 60-minute clock for three texts, a live word counter and a French keyboard. Your work is saved as you type.' },
       { title: 'Scored like the real thing', desc: 'Each task is corrected twice on the official grid, then converted to a CEFR level and a CLB score, with your three priorities to work on.' },
     ],
     report: {
       title: 'Speaking · Mock exam #3', scoreLabel: 'Estimated score', level: 'CEFR B2', nclc: 'CLB 8',
       criteria: [['Task completion', 14], ['Coherence', 13], ['Vocabulary', 12.5], ['Grammar', 11.5], ['Pronunciation', 13]],
-      next: 'Next milestone: CLB 9 — 1 point to go', track: 'CLB',
+      next: 'Next milestone: CLB 9, 1 point to go', track: 'CLB',
     },
     disclaimer: 'Practice estimate. Official scores are awarded by certified examiners.',
     cta: 'Try it during your free demo',
@@ -185,7 +185,7 @@ const en: LandingCopy = {
     ],
     foot: {
       title: 'One platform, from your first class to exam day.',
-      desc: 'Live classes with native teachers, practice for the four papers, corrections and your progress in one place — with your CEFR level and its NCLC equivalence at every step.',
+      desc: 'Live classes with native teachers, practice for the four papers, corrections and your progress in one place, with your CEFR level and its NCLC equivalence at every step.',
     },
     cta: 'Book a free demo',
   },
@@ -220,7 +220,7 @@ const en: LandingCopy = {
   how: {
     eyebrow: 'How it works',
     title: 'From first call to exam day',
-    sub: 'We guide you at every step — from your first demo to the day you pass.',
+    sub: 'We guide you at every step, from your first demo to the day you pass.',
     step: 'Step',
     steps: [
       { title: 'Book your free demo', desc: 'A no-commitment discovery session: free level assessment, your goals and timeline, and your future teacher.' },
@@ -247,7 +247,7 @@ const en: LandingCopy = {
     sub: 'Everything you need to know before starting your French journey.',
     more: 'Still have a question? Write to us',
     items: [
-      { q: 'How can I prepare for TEF Canada or TCF Canada online?', a: 'You take live 1-on-1 or small-group classes with certified native French teachers, full mock exams, and our speaking and writing simulator — with examiner-style feedback on all four skills.' },
+      { q: 'How can I prepare for TEF Canada or TCF Canada online?', a: 'You take live 1-on-1 or small-group classes with certified native French teachers, full mock exams, and our speaking and writing simulator, with examiner-style feedback on all four skills.' },
       { q: 'What is the difference between TEF Canada and TCF Canada?', a: 'Both are official French tests accepted by Immigration, Refugees and Citizenship Canada (IRCC) for Express Entry and citizenship. Their formats differ; the right choice depends on your immigration program and on test availability near you. We help you decide during your free demo.' },
       { q: 'What CLB level do I need for Express Entry?', a: 'It depends on your program. The Federal Skilled Worker Program asks for at least CLB 7 in all four skills, and Express Entry gives additional points to candidates who reach CLB 7 or higher in all four French skills. We confirm your exact target during your free demo.' },
       { q: 'How long does it take to prepare?', a: 'It depends on your starting level. Most students reach CLB 7 within 3 to 6 months of consistent training (3 to 4 sessions a week). Higher targets such as CLB 9 may take 6 to 12 months. You receive a personal roadmap after your free demo.' },
@@ -284,9 +284,9 @@ const en: LandingCopy = {
 
 const fr: LandingCopy = {
   meta: {
-    title: 'Cours de français en ligne avec des profs natifs | Préparation TEF & TCF',
+    title: 'Cours de français en ligne, profs natifs | TEF & TCF Canada',
     description: 'Cours de français en direct avec des professeurs natifs certifiés et simulations notées comme le TEF et le TCF Canada. Visez votre NCLC. Démo gratuite.',
-    ogAlt: 'Learn French with Natives — préparation aux examens de français avec des professeurs natifs',
+    ogAlt: 'Learn French with Natives : préparation aux examens de français avec des professeurs natifs',
   },
   skip: 'Aller au contenu principal',
   announce: { tag: 'Nouveau', text: 'Simulateur d’expression orale et écrite du TCF Canada avec examinateur IA.', link: 'Découvrir' },
@@ -356,16 +356,16 @@ const fr: LandingCopy = {
   simulator: {
     eyebrow: 'Simulateur d’examen',
     title: 'Répétez le vrai examen. Autant de fois qu’il le faut.',
-    sub: 'Notre simulateur du TCF Canada reproduit les épreuves d’expression orale et écrite minute par minute — puis vous note comme un examinateur.',
+    sub: 'Notre simulateur du TCF Canada reproduit les épreuves d’expression orale et écrite minute par minute, puis vous note comme un examinateur.',
     features: [
-      { title: 'L’oral avec un examinateur IA', desc: 'Trois tâches, minutage officiel. L’examinateur vous interroge, joue le jeu de rôle et challenge votre point de vue — à voix haute, en temps réel.' },
+      { title: 'L’oral avec un examinateur IA', desc: 'Trois tâches, minutage officiel. L’examinateur vous interroge, joue le jeu de rôle et challenge votre point de vue, à voix haute et en temps réel.' },
       { title: 'L’écrit en conditions réelles', desc: 'Un chronomètre de 60 minutes pour trois textes, un compteur de mots et un clavier français. Votre copie est sauvegardée en continu.' },
       { title: 'Noté comme le vrai examen', desc: 'Chaque tâche est corrigée deux fois selon la grille officielle, puis convertie en niveau CECR et en NCLC, avec vos trois priorités de travail.' },
     ],
     report: {
       title: 'Expression orale · Examen blanc n° 3', scoreLabel: 'Score estimé', level: 'CECR B2', nclc: 'NCLC 8',
       criteria: [['Réalisation de la tâche', 14], ['Cohérence', 13], ['Lexique', 12.5], ['Grammaire', 11.5], ['Prononciation', 13]],
-      next: 'Prochain palier : NCLC 9 — encore 1 point', track: 'NCLC',
+      next: 'Prochain palier : NCLC 9, encore 1 point', track: 'NCLC',
     },
     disclaimer: 'Estimation d’entraînement. Le score officiel est attribué par des correcteurs habilités.',
     cta: 'L’essayer pendant ma démo gratuite',
@@ -382,7 +382,7 @@ const fr: LandingCopy = {
     ],
     foot: {
       title: 'Une seule plateforme, du premier cours au jour de l’examen.',
-      desc: 'Cours en direct avec des professeurs natifs, entraînement aux quatre épreuves, corrections et suivi de votre progression au même endroit — avec votre niveau CECR et son équivalence NCLC à chaque étape.',
+      desc: 'Cours en direct avec des professeurs natifs, entraînement aux quatre épreuves, corrections et suivi de votre progression au même endroit, avec votre niveau CECR et son équivalence NCLC à chaque étape.',
     },
     cta: 'Réserver une démo gratuite',
   },
@@ -417,7 +417,7 @@ const fr: LandingCopy = {
   how: {
     eyebrow: 'Comment ça marche',
     title: 'Du premier appel au jour de l’examen',
-    sub: 'Nous vous accompagnons à chaque étape — de votre première démo au jour de la réussite.',
+    sub: 'Nous vous accompagnons à chaque étape, de votre première démo au jour de la réussite.',
     step: 'Étape',
     steps: [
       { title: 'Réservez votre démo gratuite', desc: 'Une séance découverte sans engagement : évaluation gratuite de votre niveau, vos objectifs et votre échéancier, et votre futur professeur.' },
@@ -444,7 +444,7 @@ const fr: LandingCopy = {
     sub: 'Tout ce qu’il faut savoir avant de commencer votre parcours en français.',
     more: 'Une autre question ? Écrivez-nous',
     items: [
-      { q: 'Comment se préparer au TEF Canada ou au TCF Canada en ligne ?', a: 'Vous suivez des cours en direct, en individuel ou en petit groupe, avec des professeurs natifs certifiés, des examens blancs complets et notre simulateur d’expression orale et écrite — avec un retour de type examinateur sur les quatre compétences.' },
+      { q: 'Comment se préparer au TEF Canada ou au TCF Canada en ligne ?', a: 'Vous suivez des cours en direct, en individuel ou en petit groupe, avec des professeurs natifs certifiés, des examens blancs complets et notre simulateur d’expression orale et écrite, avec un retour de type examinateur sur les quatre compétences.' },
       { q: 'Quelle est la différence entre le TEF Canada et le TCF Canada ?', a: 'Ce sont deux tests officiels de français acceptés par Immigration, Réfugiés et Citoyenneté Canada (IRCC) pour Entrée express et la citoyenneté. Leurs formats diffèrent ; le bon choix dépend de votre programme d’immigration et des sessions disponibles près de chez vous. Nous vous aidons à choisir pendant votre démo gratuite.' },
       { q: 'Quel NCLC faut-il pour Entrée express ?', a: 'Cela dépend du programme. Le Programme des travailleurs qualifiés (fédéral) exige au moins NCLC 7 dans les quatre compétences, et Entrée express accorde des points supplémentaires aux candidats qui atteignent NCLC 7 ou plus dans les quatre compétences en français. Nous confirmons votre cible exacte pendant votre démo gratuite.' },
       { q: 'Combien de temps faut-il pour se préparer ?', a: 'Cela dépend de votre niveau de départ. La plupart des étudiants atteignent NCLC 7 en 3 à 6 mois d’entraînement régulier (3 à 4 séances par semaine). Des objectifs plus élevés, comme NCLC 9, peuvent demander 6 à 12 mois. Vous recevez une feuille de route personnalisée après votre démo gratuite.' },

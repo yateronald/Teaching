@@ -17,7 +17,7 @@ import QuizDetails from '../Quiz/QuizDetails';
 import QuizResults from '../Quiz/QuizResults';
 import type { ResultsTab } from '../Quiz/QuizResults';
 import {
-    PASS_MARK, STATE_META, fmtPct, fmtSpan, liveStateOf, makeWhen, normalizeQuizRow, plural, toneOfScore,
+    PASS_MARK, STATE_META, fmtPct, fmtSpan, isEditLocked, liveStateOf, makeWhen, normalizeQuizRow, plural, toneOfScore,
 } from '../Quiz/quizModel';
 import type { LiveState, QuizRow } from '../Quiz/quizModel';
 import './Teacher.css';
@@ -208,6 +208,15 @@ const QuizManagement: React.FC = () => {
     };
 
     const confirmPublish = (row: QuizRow) => {
+        if (row.locked) {
+            modal.info({
+                title: 'This quiz has ended',
+                content: 'Students already took it, so it stays as it was. Duplicate it to run it again with a new schedule.',
+                okText: 'Duplicate it',
+                onOk: () => openBuilder({ duplicateOf: row.id }),
+            });
+            return;
+        }
         if (row.end_date && Date.parse(row.end_date) <= Date.now()) {
             modal.warning({
                 title: 'This quiz has already closed',
@@ -270,11 +279,12 @@ const QuizManagement: React.FC = () => {
                 { key: 'analysis', icon: <BarChartOutlined />, label: 'Question analysis' },
             ] : []),
             { type: 'divider' as const },
-            { key: 'edit', icon: <EditOutlined />, label: state === 'ended' ? 'Edit (closed quizzes are locked)' : 'Edit', disabled: state === 'ended' },
+            { key: 'edit', icon: <EditOutlined />, label: isEditLocked(row, state) ? 'Edit (ended quizzes are locked)' : 'Edit', disabled: isEditLocked(row, state) },
             { key: 'duplicate', icon: <CopyOutlined />, label: 'Duplicate' },
-            state === 'draft'
-                ? { key: 'publish', icon: <SendOutlined />, label: 'Publish…' }
-                : { key: 'unpublish', icon: <StopOutlined />, label: 'Move to drafts…' },
+            // An ended quiz stays closed: back in drafts it would become editable again.
+            ...(state === 'draft'
+                ? [{ key: 'publish', icon: <SendOutlined />, label: 'Publish…' }]
+                : isEditLocked(row, state) ? [] : [{ key: 'unpublish', icon: <StopOutlined />, label: 'Move to drafts…' }]),
             { type: 'divider' as const },
             { key: 'delete', icon: <DeleteOutlined />, label: 'Delete…', danger: true },
         ],
@@ -283,7 +293,7 @@ const QuizManagement: React.FC = () => {
             if (key === 'preview') setPreview(row);
             else if (key === 'results') setResults({ row, tab: 'students' });
             else if (key === 'analysis') setResults({ row, tab: 'questions' });
-            else if (key === 'edit') openBuilder({ quizId: row.id, context: row });
+            else if (key === 'edit' && !isEditLocked(row, state)) openBuilder({ quizId: row.id, context: row });
             else if (key === 'duplicate') openBuilder({ duplicateOf: row.id });
             else if (key === 'publish') confirmPublish(row);
             else if (key === 'unpublish') confirmUnpublish(row, state);
@@ -493,7 +503,7 @@ const QuizManagement: React.FC = () => {
                                     </div>
                                     <div className="qz-c-status" role="cell"><span className={`qz-state is-${state}`}><i aria-hidden />{STATE_META[state].label}</span></div>
                                     <div className="qz-c-actions" role="cell">
-                                        {state === 'draft' ? (
+                                        {state === 'draft' && !row.locked ? (
                                             <Button size="small" icon={<EditOutlined />} onClick={() => openBuilder({ quizId: row.id, context: row })}>Edit</Button>
                                         ) : (
                                             <Button size="small" icon={<TeamOutlined />} onClick={() => setResults({ row, tab: 'overview' })}>Results</Button>
@@ -535,7 +545,7 @@ const QuizManagement: React.FC = () => {
                     onClose={() => setPreview(null)}
                     onEdit={(row) => { setPreview(null); openBuilder({ quizId: row.id, context: row }); }}
                     onResults={(row) => { setPreview(null); setResults({ row, tab: 'overview' }); }}
-                    canEdit={(row) => liveStateOf(row, elapsed).state !== 'ended'}
+                    canEdit={(row) => !isEditLocked(row, liveStateOf(row, elapsed).state)}
                 />
             </ErrorBoundary>
 

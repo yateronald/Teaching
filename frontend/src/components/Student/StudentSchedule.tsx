@@ -57,6 +57,8 @@ interface Schedule {
     location: string;
     location_mode: 'online' | 'physical';
     link: string | null;
+    /** Set when the class takes place in the built-in meeting room. */
+    meeting_id: number | null;
     type: SType;
     status: 'scheduled' | 'completed' | 'cancelled';
     /** Server-authoritative state (computed with PG NOW()) at fetch time. */
@@ -172,6 +174,7 @@ const normalize = (fetchedAt: number) => (s: any): Schedule => {
         location: s.location || '',
         location_mode: s.location_mode === 'online' ? 'online' : 'physical',
         link: s.link || null,
+        meeting_id: s.meeting_id ? Number(s.meeting_id) : null,
         type: (TYPES as string[]).includes(s.type) ? s.type : 'other',
         status: s.status === 'completed' || s.status === 'cancelled' ? s.status : 'scheduled',
         schedule_state: s.schedule_state,
@@ -435,7 +438,9 @@ const StudentSchedule: React.FC = () => {
     };
 
     const handleJoin = async (s: Item) => {
-        if (s.type === 'meeting' && s.link) {
+        // Built-in class room: straight in, whatever its type (attendance is
+        // recorded by the room itself, no access code).
+        if ((s.type === 'meeting' || s.meeting_id) && s.link) {
             markJoined(s.id);
             openMeetingLink(s.link);
             return;
@@ -504,7 +509,7 @@ const StudentSchedule: React.FC = () => {
     };
 
     /* ═══════════ PIECES ═══════════ */
-    const modeText = (s: Schedule) => (s.location_mode === 'online' ? 'Online' : s.location || 'On site');
+    const modeText = (s: Schedule) => (s.meeting_id ? 'Class room' : s.location_mode === 'online' ? 'Online' : s.location || 'On site');
     const ModeIcon = ({ s }: { s: Schedule }) => (s.location_mode === 'online' ? <VideoCameraOutlined /> : <EnvironmentOutlined />);
     const joinLabel = (s: Schedule) => (s.type === 'class' ? 'Join class' : 'Join session');
 
