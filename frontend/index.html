@@ -30,7 +30,7 @@
     <script>
       (function () {
         var page = document.documentElement.getAttribute('data-page');
-        if (page && location.pathname.replace(/\/?$/, '/') !== page) document.documentElement.classList.add('app-route');
+        if (page && page !== '*' && location.pathname.replace(/\/?$/, '/') !== page) document.documentElement.classList.add('app-route');
       })();
     </script>
     <style>

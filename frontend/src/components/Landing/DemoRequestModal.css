@@ -1774,3 +1774,13 @@
     display: none;
   }
 }
+
+/* Side-by-side fields share their rows (label, field, hint): when one label
+   wraps onto two lines, both fields move down together and stay aligned. */
+@media (min-width: 641px) {
+  @supports (grid-template-rows: subgrid) {
+    .form-row { row-gap: 0; }
+    .form-row > .form-group { display: grid; grid-row: span 3; grid-template-rows: subgrid; }
+    .form-row > .form-group > label { align-self: end; }
+  }
+}

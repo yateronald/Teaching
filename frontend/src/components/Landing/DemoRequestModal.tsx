@@ -899,7 +899,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
               </div>
               
               <div className="form-group">
-                <label>What are your expectations from our French lessons?</label>
+                <label>What do you expect from the lessons?</label>
                 <textarea
                   value={formData.expectations}
                   onChange={(e) => handleInputChange('expectations', e.target.value)}

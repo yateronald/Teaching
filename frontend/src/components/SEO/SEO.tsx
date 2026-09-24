@@ -47,7 +47,8 @@ const SEO: React.FC<SEOProps> = ({
       <title>{title}</title>
       <meta name="description" content={description} />
       <meta name="robots" content={robots} />
-      <link rel="canonical" href={canonical} />
+      {/* A page kept out of the index has no preferred address to declare. */}
+      {!noindex && <link rel="canonical" href={canonical} />}
       {alt.flatMap(([l, p]) => HREFLANGS[l].map(code => <link key={code} rel="alternate" hrefLang={code} href={`${SITE_URL}${p}`} />))}
       {alt.length > 0 && <link rel="alternate" hrefLang="x-default" href={`${SITE_URL}${alt[0][1]}`} />}
 

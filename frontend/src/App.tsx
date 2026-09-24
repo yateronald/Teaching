@@ -1,12 +1,13 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ConfigProvider, App as AntApp } from 'antd';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { ConfigProvider, App as AntApp, Button, Result } from 'antd';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { CLASS_ROLES, homeFor } from './utils/roles';
 import LandingPage from './components/Landing/LandingPage';
 // Loaded with the landing page (not on demand): these pages arrive pre-rendered,
 // and a loading screen would replace their text while the code downloads.
 import TopicPage from './components/Landing/TopicPage';
+import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES } from './components/Landing/sitePages';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 import './App.css';
@@ -54,6 +55,25 @@ const CandidateResults = lazy(() => import('./components/Candidate/CandidateResu
 function RoleHome() {
   const { user } = useAuth();
   return <Navigate to={homeFor(user?.role)} replace />;
+}
+
+/** Redirect that keeps the query string (e.g. ?demo=12 in a notification link). */
+function KeepQuery({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+}
+
+/** An /app address that matches no screen: said plainly, with a way back. */
+function AppNotFound() {
+  const navigate = useNavigate();
+  return (
+    <Result
+      status="404"
+      title="Page not found"
+      subTitle="This page does not exist in your space. It may have moved, or the link may be incomplete."
+      extra={<Button type="primary" onClick={() => navigate('/app', { replace: true })}>Back to my dashboard</Button>}
+    />
+  );
 }
 
 function App() {
@@ -299,7 +319,15 @@ function App() {
                 <Route path="meeting/:id" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingPage /></ProtectedRoute>} />
                 <Route path="meeting-join/:roomName" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingJoinLink /></ProtectedRoute>} />
                 <Route path="meeting-attendance" element={<ProtectedRoute requiredRole={CLASS_ROLES}><MeetingAttendance /></ProtectedRoute>} />
+
+                {/* Addresses already sent in emails and notifications. */}
+                <Route path="quizzes" element={<KeepQuery to="/app/my-quizzes" />} />
+                <Route path="teacher-demos" element={<KeepQuery to="/app/assign-demo" />} />
+                <Route path="*" element={<AppNotFound />} />
               </Route>
+
+              {/* Anything else is not a page of the site. */}
+              <Route path="*" element={<NotFound />} />
             </Routes>
             </Suspense>
             </Router>

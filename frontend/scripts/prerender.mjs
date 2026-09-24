@@ -3,6 +3,8 @@
 //   dist/fr/index.html           → French home    (https://www.learnfrenchwithnatives.com/fr/)
 //   dist/<topic>/index.html      → one page per exam or course, in both languages
 //                                  (the list is PUBLIC_PAGES in src/components/Landing/sitePages.ts)
+//   dist/404.html                → "page not found", sent by nginx with a 404 status
+//                                  for unknown addresses (deploy/serve-real-404.sh)
 //   dist/sitemap.xml             → every page with its hreflang alternates, dated with this build
 //
 // Search engines, social networks and AI crawlers then receive the full page,
@@ -68,21 +70,29 @@ async function main() {
     build: { ssr: 'src/entry-prerender.tsx', outDir: cache, emptyOutDir: true, copyPublicDir: false },
     ssr: { noExternal: true },
   });
-  const { render, PUBLIC_PAGES } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
+  const { render, renderNotFound, PUBLIC_PAGES } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
 
-  // Render everything first: either all pages are written, or none.
-  const outputs = PUBLIC_PAGES.map(page => {
-    const { head, body } = splitHead(render(page));
-    if (!/<h1\b/.test(body)) throw new Error(`${page.path} rendered without its <h1>`);
-    const html = template
-      // data-page tells index.html which address this file was made for: served
-      // for any other address (the signed-in app), its content is hidden.
-      .replace(/<html lang="[^"]*">/, `<html lang="${page.lang}" data-page="${page.path}">`)
+  // data-page tells index.html which address a file was made for: served for
+  // any other address (the signed-in app), its content is hidden. The 404 page
+  // is made for every address that is not a page, hence '*'.
+  const toHtml = (rendered, lang, dataPage, name) => {
+    const { head, body } = splitHead(rendered);
+    if (!/<h1\b/.test(body)) throw new Error(`${name} rendered without its <h1>`);
+    return template
+      .replace(/<html lang="[^"]*">/, `<html lang="${lang}" data-page="${dataPage}">`)
       .replace(/<title>[^<]*<\/title>\s*/, '')
       .replace('<!--app-head-->', head)
       .replace('<!--app-html-->', body);
-    return { ...page, file: fileFor(page.path), html };
-  });
+  };
+
+  // Render everything first: either all pages are written, or none.
+  const outputs = PUBLIC_PAGES.map(page => ({
+    ...page,
+    file: fileFor(page.path),
+    html: toHtml(render(page), page.lang, page.path, page.path),
+  }));
+  // Not in the sitemap: nginx sends it, with a 404 status, for unknown addresses.
+  outputs.push({ path: '404', file: '404.html', html: toHtml(renderNotFound(), 'en', '*', '404.html') });
   for (const out of outputs) {
     const target = path.join(dist, out.file);
     await fs.mkdir(path.dirname(target), { recursive: true });
