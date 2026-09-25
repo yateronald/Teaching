@@ -10,7 +10,7 @@ import '../../../core/widgets/custom_button.dart';
 import '../../../core/widgets/custom_text_field.dart';
 import '../../../core/widgets/language_switcher_button.dart';
 import '../../../core/widgets/tricolore_bar.dart';
-import '../../teacher/shell/teacher_shell.dart';
+import '../../../core/navigation/app_navigation.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -53,11 +53,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       // First password sign-in on this phone: offer fingerprint unlock.
       await offerAppLock(context, ref);
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const TeacherShell()),
-        (route) => false,
-      );
+      // The gate opens the space of the account's role (teacher or admin).
+      showAuthGate();
     } else {
       final authState = ref.read(authNotifierProvider);
       setState(() {

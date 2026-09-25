@@ -6,7 +6,7 @@ const os = require('os');
 const { authenticateToken } = require('../middleware/auth');
 const { getKDriveService } = require('../services/kdriveService');
 const { checkExamAccess, hasAnyActiveAssignmentForCategory } = require('../services/examAccessService');
-const { hasTable } = require('../services/schemaFeatures');
+const { hasColumn, hasTable } = require('../services/schemaFeatures');
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ const coUpload = multer({
   limits: { fileSize: 200 * 1024 * 1024 }, // 200MB per file
   fileFilter: (_req, file, cb) => {
     const audioExts = /mp3|wav|ogg|m4a|webm/;
-    const imageExts = /jpg|jpeg|png|gif|webp/;
+    const imageExts = /jpg|jpeg|png|gif|webp|avif/;
     const ext = path.extname(file.originalname).toLowerCase().replace('.', '');
     if (file.fieldname === 'audio' && audioExts.test(ext)) return cb(null, true);
     if (file.fieldname === 'intro_audio' && audioExts.test(ext)) return cb(null, true);
@@ -292,8 +292,9 @@ router.get('/series/:id', adminOnly, async (req, res) => {
     }
 
     // Get questions ordered by question_order
+    const textCols = (await ceTextReady(req.db)) ? 'passage_text, explanation,' : '';
     const questions = await req.db.all(`
-      SELECT id, question_order, image_url, question_text,
+      SELECT id, question_order, image_url, question_text, ${textCols}
         option_a, option_b, option_c, option_d,
         correct_answer, cefr_level, points, created_at, updated_at
       FROM tcf_ce_questions
@@ -407,6 +408,18 @@ router.delete('/series/:id', adminOnly, async (req, res) => {
 
 const VALID_ANSWERS = ['A', 'B', 'C', 'D'];
 
+/** Reading documents as text and answer explanations arrive with migration 024. */
+async function ceTextReady(db) {
+  return (await hasColumn(db, 'tcf_ce_questions', 'passage_text')) && hasColumn(db, 'tcf_ce_questions', 'explanation');
+}
+
+/** A trimmed text, or null when there is nothing in it. Keeps line breaks: they are the document's layout. */
+const textOrNull = (v) => {
+  if (v === undefined || v === null) return null;
+  const t = String(v).replace(/\r\n?/g, '\n').trim();
+  return t ? t : null;
+};
+
 // Helper: recalculate series totals after question changes
 async function recalculateSeriesCounters(db, seriesId) {
   const stats = await db.get(`
@@ -478,9 +491,11 @@ function validateQuestion(body) {
   if (!cefr_level || !CEFR_LEVELS.includes(cefr_level)) {
     errors.push('cefr_level must be one of A1, A2, B1, B2, C1, C2');
   }
-  if (points === undefined || points === null) {
+  // Forms sent as multipart (with an image) carry numbers as text.
+  const pts = typeof points === 'string' && points.trim() !== '' ? Number(points) : points;
+  if (pts === undefined || pts === null || pts === '') {
     errors.push('points is required');
-  } else if (typeof points !== 'number' || points < 0) {
+  } else if (typeof pts !== 'number' || !Number.isFinite(pts) || pts < 0) {
     errors.push('points must be a number >= 0');
   }
 
@@ -503,7 +518,9 @@ router.post('/series/:id/questions', adminOnly, coUpload.fields([{ name: 'image'
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    const { question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points } = req.body;
+    const { question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level } = req.body;
+    const points = Number(req.body.points);
+    const withText = await ceTextReady(req.db);
 
     // Handle image upload to kDrive
     let imageUrl = null;
@@ -535,11 +552,16 @@ router.post('/series/:id/questions', adminOnly, coUpload.fields([{ name: 'image'
     );
     const nextOrder = maxOrder.max_order + 1;
 
-    const result = await req.db.run(
-      `INSERT INTO tcf_ce_questions (series_id, question_order, image_url, question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [id, nextOrder, imageUrl, question_text.trim(), option_a.trim(), option_b.trim(), option_c.trim(), option_d.trim(), correct_answer, cefr_level, points]
-    );
+    const result = withText
+      ? await req.db.run(
+        `INSERT INTO tcf_ce_questions (series_id, question_order, image_url, question_text, passage_text, explanation, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        [id, nextOrder, imageUrl, question_text.trim(), textOrNull(req.body.passage_text), textOrNull(req.body.explanation),
+          option_a.trim(), option_b.trim(), option_c.trim(), option_d.trim(), correct_answer, cefr_level, points])
+      : await req.db.run(
+        `INSERT INTO tcf_ce_questions (series_id, question_order, image_url, question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+        [id, nextOrder, imageUrl, question_text.trim(), option_a.trim(), option_b.trim(), option_c.trim(), option_d.trim(), correct_answer, cefr_level, points]);
 
     // Update series counters
     await recalculateSeriesCounters(req.db, id);
@@ -570,7 +592,8 @@ router.put('/questions/:id', adminOnly, coUpload.fields([{ name: 'image', maxCou
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    const { question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points } = req.body;
+    const { question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level } = req.body;
+    const points = Number(req.body.points);
 
     // Handle image upload to kDrive (or keep existing)
     let imageUrl = existing.image_url; // keep existing by default
@@ -606,6 +629,17 @@ router.put('/questions/:id', adminOnly, coUpload.fields([{ name: 'image', maxCou
       WHERE id = ?`,
       [question_text.trim(), imageUrl, option_a.trim(), option_b.trim(), option_c.trim(), option_d.trim(), correct_answer, cefr_level, points, id]
     );
+    // The document text and the explanation change only when the form sends them
+    // (an editor that does not know these fields leaves them as they are).
+    if (await ceTextReady(req.db)) {
+      const sent = (k) => Object.prototype.hasOwnProperty.call(req.body, k);
+      if (sent('passage_text') || sent('explanation')) {
+        await req.db.run(
+          `UPDATE tcf_ce_questions SET passage_text = ?, explanation = ? WHERE id = ?`,
+          [sent('passage_text') ? textOrNull(req.body.passage_text) : existing.passage_text ?? null,
+            sent('explanation') ? textOrNull(req.body.explanation) : existing.explanation ?? null, id]);
+      }
+    }
 
     // Recalculate series totals (points may have changed)
     await recalculateSeriesCounters(req.db, existing.series_id);
@@ -692,131 +726,270 @@ router.put('/series/:id/questions/reorder', adminOnly, async (req, res) => {
 });
 
 // ============================================================
-// CE BULK IMPORT ENDPOINT
+// CE IMPORT (whole folders of series, documents as text)
 // ============================================================
+//
+// The admin picks a folder of series in the browser, checks a preview, then
+// the series are sent one at a time, so the page can show real progress and
+// retry only what failed. A series that already exists (same name in the
+// category) is updated in place: its id, assignments and learners' results
+// stay, and each question is matched by its four answer options.
 
-// POST /series/bulk-import — import a full CE series from JSON data
-router.post('/series/bulk-import', adminOnly, coUpload.any(), async (req, res) => {
-  let uploadedFiles = [];
+/** Official TCF scale on 699 points: the one reading scores are graded on, set on every imported series. */
+const CE_SCALE_THRESHOLDS = { A1: 0, A2: 200, B1: 300, B2: 400, C1: 500, C2: 600 };
+const CE_IMPORT_MAX_QUESTIONS = 200;
+
+/** Same text for matching: case, spacing and typographic quotes do not count. */
+const normImport = (v) => String(v ?? '')
+  .normalize('NFC').toLowerCase()
+  .replace(/[’‘`´]/g, "'").replace(/[«»“”]/g, '"')
+  .replace(/\s+/g, ' ').trim();
+const optionSignature = (q) => ['a', 'b', 'c', 'd'].map(k => normImport(q[`option_${k}`])).join('|');
+
+/** Pairs incoming questions with existing ones that have the same answer options. */
+function matchQuestions(existing, incoming) {
+  const pool = new Map();
+  for (const q of existing) {
+    const sig = optionSignature(q);
+    if (!pool.has(sig)) pool.set(sig, []);
+    pool.get(sig).push(q.id);
+  }
+  const matchedIds = new Set();
+  const pairs = incoming.map(q => {
+    const ids = pool.get(optionSignature(q));
+    const id = ids && ids.length ? ids.shift() : null;
+    if (id) matchedIds.add(id);
+    return id;
+  });
+  const removed = existing.filter(q => !matchedIds.has(q.id)).map(q => q.id);
+  return { pairs, removed };
+}
+
+/** Checks one question of an import. Returns its problems, empty when it can be stored. */
+function importQuestionErrors(q) {
+  const errors = [];
+  if (!Number.isInteger(q.question_order) || q.question_order < 1) errors.push('question_order must be a positive integer');
+  for (const k of ['a', 'b', 'c', 'd']) if (!textOrNull(q[`option_${k}`])) errors.push(`option ${k.toUpperCase()} is empty`);
+  if (!VALID_ANSWERS.includes(q.correct_answer)) errors.push('correct_answer must be A, B, C or D');
+  if (!CEFR_LEVELS.includes(q.cefr_level)) errors.push('cefr_level must be A1…C2');
+  if (typeof q.points !== 'number' || !(q.points >= 0)) errors.push('points must be a number ≥ 0');
+  if (!textOrNull(q.question_text) && !textOrNull(q.passage_text)) errors.push('a document or a question is required');
+  return errors;
+}
+
+/** The CE category an import targets, or null. */
+const ceImportCategory = (db, id) => db.get('SELECT id, name FROM tcf_categories WHERE id = $1', [id]);
+
+// POST /series/import/plan — what an import would do, without changing anything
+// body: { category_id, series: [{ key, name, questions: [{ option_a..option_d }] }] }
+router.post('/series/import/plan', adminOnly, async (req, res) => {
   try {
-    let series_data, questions_data;
-    try {
-      series_data = JSON.parse(req.body.series_data);
-      questions_data = JSON.parse(req.body.questions_data);
-    } catch (e) {
-      return res.status(400).json({ error: 'Validation failed', details: ['Invalid JSON format in form data'] });
+    const { category_id: categoryId, series } = req.body || {};
+    if (!Number.isInteger(categoryId) || !Array.isArray(series)) {
+      return res.status(400).json({ error: 'category_id and series are required' });
     }
+    if (!(await ceImportCategory(req.db, categoryId))) return res.status(404).json({ error: 'Category not found' });
+    const ready = await ceTextReady(req.db);
 
-    if (!series_data || !questions_data) {
-      return res.status(400).json({ error: 'Validation failed', details: ['series_data and questions_data are required'] });
-    }
+    const existingSeries = await req.db.all(
+      'SELECT id, name, total_questions FROM tcf_ce_series WHERE category_id = $1', [categoryId]);
+    const byName = new Map(existingSeries.map(s => [normImport(s.name), s]));
+    const wanted = series.map(s => byName.get(normImport(s.name))).filter(Boolean);
+    const ids = [...new Set(wanted.map(s => s.id))];
 
-    // Validate series data
-    const errors = [];
-    if (!series_data.name || !series_data.name.trim()) errors.push('series name is required');
-    if (!series_data.category_id) errors.push('category_id is required');
-    const durationMinutes = parseInt(series_data.duration_minutes, 10);
-    if (isNaN(durationMinutes) || durationMinutes < 1) errors.push('duration_minutes must be an integer >= 1');
-    const thresholdError = validateCefrThresholds(series_data.cefr_thresholds);
-    if (thresholdError) errors.push(thresholdError);
-    if (!Array.isArray(questions_data) || questions_data.length === 0) errors.push('questions_data must be a non-empty array');
-    if (errors.length > 0) return res.status(400).json({ error: 'Validation failed', details: errors });
+    const questions = ids.length ? await req.db.all(
+      `SELECT id, series_id, option_a, option_b, option_c, option_d, image_url ${ready ? ', passage_text' : ''}
+         FROM tcf_ce_questions WHERE series_id = ANY($1::int[]) ORDER BY question_order`, [ids]) : [];
+    const attempts = ids.length && (await hasTable(req.db, 'tcf_ce_quiz_attempts')) ? await req.db.all(
+      `SELECT series_id, COUNT(*)::int AS n FROM tcf_ce_quiz_attempts
+        WHERE series_id = ANY($1::int[]) AND completed_at IS NOT NULL GROUP BY series_id`, [ids]) : [];
+    const attemptsOf = new Map(attempts.map(a => [a.series_id, a.n]));
 
-    // Group files by fieldname
-    const filesByField = {};
-    if (req.files) {
-      for (const f of req.files) {
-        filesByField[f.fieldname] = f;
-        uploadedFiles.push(f.path);
-      }
-    }
-
-    // Verify category exists
-    const category = await req.db.get('SELECT id FROM tcf_categories WHERE id = ?', [series_data.category_id]);
-    if (!category) return res.status(404).json({ error: 'Category not found' });
-
-    // Get KDrive service
-    const kdriveService = getKDriveService();
-    let folderId = kdriveService.rootFolderId;
-    if (kdriveService.isConfigured) {
-      try {
-        const ceFolder = await kdriveService.getOrCreateFolder(kdriveService.rootFolderId, 'TCF_CE_Resources');
-        if (ceFolder) folderId = ceFolder.id;
-      } catch (err) {
-        console.error('Failed to create CE bulk folder:', err);
-      }
-    }
-
-    // Create the series
-    const seriesResult = await req.db.run(
-      `INSERT INTO tcf_ce_series (category_id, name, description, duration_minutes, cefr_thresholds, total_points, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [series_data.category_id, series_data.name.trim(), series_data.description || null,
-       durationMinutes, JSON.stringify(series_data.cefr_thresholds),
-       parseInt(series_data.total_points, 10) || 0,
-       req.user.id]
-    );
-    const seriesId = seriesResult.rows[0].id;
-
-    // Insert each question
-    const insertedQuestions = [];
-    for (let i = 0; i < questions_data.length; i++) {
-      const q = questions_data[i];
-      const qNum = q.number || (i + 1);
-      const questionOrder = i + 1;
-
-      let imageUrl = q.image_url || null;
-
-      if (filesByField[`image_${qNum}`] && folderId) {
-        const file = filesByField[`image_${qNum}`];
-        try {
-          const uploaded = await kdriveService.uploadFile(file.path, folderId, file.originalname);
-          if (uploaded && uploaded.id) {
-            const protocol = req.protocol;
-            const host = req.get('host');
-            const ext = path.extname(file.originalname) || '';
-            imageUrl = `${protocol}://${host}/api/tcf/kdrive/${uploaded.id}/stream?ext=${ext}`;
-          }
-        } catch (e) {
-          console.error('Upload image failed for question', qNum, e);
-        }
-      }
-
-      const result = await req.db.run(
-        `INSERT INTO tcf_ce_questions (series_id, question_order, image_url, question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-        [seriesId, questionOrder, imageUrl,
-         (q.prompt || q.question_text || '').trim(),
-         (q.options?.A || q.option_a || 'A').trim(),
-         (q.options?.B || q.option_b || 'B').trim(),
-         (q.options?.C || q.option_c || 'C').trim(),
-         (q.options?.D || q.option_d || 'D').trim(),
-         q.correct_letter || q.correct_answer || 'A',
-         q.level || q.cefr_level || 'A1',
-         parseFloat(q.points) || 0]
-      );
-      insertedQuestions.push({ id: result.rows[0].id, number: qNum });
-    }
-
-
-    // Recalculate series counters
-    await recalculateSeriesCounters(req.db, seriesId);
-
-    // Fetch the created series with questions
-    const newSeries = await req.db.get('SELECT * FROM tcf_ce_series WHERE id = ?', [seriesId]);
-    const questions = await req.db.all('SELECT * FROM tcf_ce_questions WHERE series_id = ? ORDER BY question_order ASC', [seriesId]);
-    const dist = await req.db.all('SELECT cefr_level, COUNT(*) AS count FROM tcf_ce_questions WHERE series_id = ? GROUP BY cefr_level', [seriesId]);
-    const distribution = { A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0 };
-    for (const row of dist) distribution[row.cefr_level] = parseInt(row.count, 10);
-    newSeries.cefr_distribution = distribution;
-    newSeries.questions = questions;
-
-    res.status(201).json({ series: newSeries, imported_questions: insertedQuestions.length });
+    res.json({
+      ready,
+      series: series.map(s => {
+        const found = byName.get(normImport(s.name));
+        if (!found) return { key: s.key, existing: null };
+        const own = questions.filter(q => q.series_id === found.id);
+        const incoming = Array.isArray(s.questions) ? s.questions : [];
+        const { pairs, removed } = matchQuestions(own, incoming);
+        return {
+          key: s.key,
+          existing: {
+            id: found.id,
+            name: found.name,
+            question_count: own.length,
+            image_count: own.filter(q => q.image_url).length,
+            text_count: own.filter(q => q.passage_text).length,
+            attempt_count: attemptsOf.get(found.id) || 0,
+          },
+          matched: pairs.filter(Boolean).length,
+          added: pairs.filter(id => !id).length,
+          removed: removed.length,
+        };
+      }),
+    });
   } catch (error) {
-    console.error('POST /series/bulk-import error:', error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    console.error('POST /series/import/plan error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** Stores one uploaded CE document image on kDrive and returns the URL questions keep. */
+async function storeCeImage(req, file) {
+  const kdrive = getKDriveService();
+  if (!kdrive.isConfigured) throw Object.assign(new Error('Images cannot be stored: kDrive is not configured.'), { status: 503 });
+  const folder = await kdrive.getOrCreateFolder(kdrive.rootFolderId, 'TCF_CE_Resources');
+  const uploaded = await kdrive.uploadFile(file.path, folder ? folder.id : kdrive.rootFolderId, file.originalname);
+  if (!uploaded || !uploaded.id) throw new Error(`The image ${file.originalname} could not be stored.`);
+  const ext = path.extname(file.originalname) || '';
+  return `${req.protocol}://${req.get('host')}/api/tcf/kdrive/${uploaded.id}/stream?ext=${ext}`;
+}
+
+// POST /series/import — creates one series, or updates the existing one given by series_id
+// body (JSON, or multipart with the same object in "payload" plus one file per image):
+//       { category_id, series_id?, series: { name, description, duration_minutes },
+//         questions: [{ question_order, question_text, passage_text, explanation,
+//                       option_a..option_d, correct_answer, cefr_level, points,
+//                       image_field? }] }            image_field names the file of the document's image
+router.post('/series/import', adminOnly, coUpload.any(), async (req, res) => {
+  const tempFiles = (req.files || []).map(f => f.path);
+  try {
+    let body = req.body || {};
+    if (typeof body.payload === 'string') {
+      try { body = JSON.parse(body.payload); } catch { return res.status(400).json({ error: 'payload is not valid JSON' }); }
+    }
+    const filesByField = new Map((req.files || []).map(f => [f.fieldname, f]));
+    const { category_id: categoryId, series_id: seriesId, series, questions } = body;
+    if (!(await ceTextReady(req.db))) {
+      return res.status(409).json({
+        error: 'The database is not ready for text documents yet: run backend/database/run-ce-passage-migration.js.',
+        code: 'MIGRATION_REQUIRED',
+      });
+    }
+    const errors = [];
+    if (!Number.isInteger(categoryId)) errors.push('category_id is required');
+    if (!series || !textOrNull(series.name)) errors.push('series name is required');
+    const duration = Number(series?.duration_minutes);
+    if (!Number.isInteger(duration) || duration < 1) errors.push('duration_minutes must be an integer ≥ 1');
+    if (!Array.isArray(questions) || !questions.length) errors.push('questions must be a non-empty array');
+    else if (questions.length > CE_IMPORT_MAX_QUESTIONS) errors.push(`at most ${CE_IMPORT_MAX_QUESTIONS} questions per series`);
+    if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+
+    const orders = new Set();
+    questions.forEach((q, i) => {
+      const problems = importQuestionErrors(q);
+      if (orders.has(q.question_order)) problems.push('question_order is used twice');
+      orders.add(q.question_order);
+      if (q.image_field && !filesByField.has(q.image_field)) problems.push(`its image (${q.image_field}) was not sent`);
+      problems.forEach(p => errors.push(`Question ${q.question_order ?? i + 1}: ${p}`));
+    });
+    if (errors.length) return res.status(400).json({ error: 'Validation failed', details: errors });
+    if (!(await ceImportCategory(req.db, categoryId))) return res.status(404).json({ error: 'Category not found' });
+
+    // Images are stored only once everything else is known to be valid.
+    const imageUrls = new Map();
+    for (const q of questions) {
+      if (q.image_field) imageUrls.set(q.question_order, await storeCeImage(req, filesByField.get(q.image_field)));
+    }
+
+    const rows = questions.map(q => ({
+      question_order: q.question_order,
+      question_text: textOrNull(q.question_text) || '',
+      passage_text: textOrNull(q.passage_text),
+      explanation: textOrNull(q.explanation),
+      option_a: textOrNull(q.option_a), option_b: textOrNull(q.option_b),
+      option_c: textOrNull(q.option_c), option_d: textOrNull(q.option_d),
+      correct_answer: q.correct_answer, cefr_level: q.cefr_level, points: q.points,
+      image_url: imageUrls.get(q.question_order) || null,
+    }));
+    const recordset = `jsonb_to_recordset($JSON::jsonb) AS v(
+      id int, question_order int, question_text text, passage_text text, explanation text,
+      option_a text, option_b text, option_c text, option_d text,
+      correct_answer varchar, cefr_level varchar, points numeric, image_url text)`;
+    const name = textOrNull(series.name);
+    const description = textOrNull(series.description);
+
+    let id;
+    let counts;
+    if (seriesId === undefined || seriesId === null) {
+      // One statement: the series and all its questions exist together, or not at all.
+      const created = await req.db.get(`
+        WITH s AS (
+          INSERT INTO tcf_ce_series (category_id, name, description, duration_minutes, cefr_thresholds, created_by)
+          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+        ), q AS (
+          INSERT INTO tcf_ce_questions (series_id, question_order, question_text, passage_text, explanation,
+            option_a, option_b, option_c, option_d, correct_answer, cefr_level, points, image_url)
+          SELECT s.id, v.question_order, v.question_text, v.passage_text, v.explanation,
+            v.option_a, v.option_b, v.option_c, v.option_d, v.correct_answer, v.cefr_level, v.points, v.image_url
+          FROM s, ${recordset.replace('$JSON', '$7')}
+          RETURNING id
+        )
+        SELECT (SELECT id FROM s) AS id, (SELECT COUNT(*) FROM q)::int AS added`,
+        [categoryId, name, description, duration, JSON.stringify(CE_SCALE_THRESHOLDS), req.user.id, JSON.stringify(rows)]);
+      id = created.id;
+      counts = { updated: 0, added: created.added, removed: 0 };
+    } else {
+      if (!Number.isInteger(seriesId)) return res.status(400).json({ error: 'series_id must be an integer' });
+      const target = await req.db.get('SELECT id FROM tcf_ce_series WHERE id = $1 AND category_id = $2', [seriesId, categoryId]);
+      if (!target) return res.status(404).json({ error: 'Series not found in this category' });
+
+      const existing = await req.db.all(
+        'SELECT id, option_a, option_b, option_c, option_d FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order', [seriesId]);
+      const { pairs, removed } = matchQuestions(existing, rows);
+      const withIds = rows.map((r, i) => ({ ...r, id: pairs[i] }));
+
+      // One statement again: matched questions are rewritten (an old image document gives way to
+      // the text, or to the image sent with it), new ones are added, those no longer in the source removed.
+      const done = await req.db.get(`
+        WITH v AS (SELECT * FROM ${recordset.replace('$JSON', '$2')}),
+        upd AS (
+          UPDATE tcf_ce_questions q SET
+            question_order = v.question_order, question_text = v.question_text,
+            passage_text = v.passage_text, explanation = v.explanation,
+            option_a = v.option_a, option_b = v.option_b, option_c = v.option_c, option_d = v.option_d,
+            correct_answer = v.correct_answer, cefr_level = v.cefr_level, points = v.points,
+            image_url = CASE WHEN v.image_url IS NOT NULL THEN v.image_url
+                             WHEN v.passage_text IS NOT NULL THEN NULL ELSE q.image_url END,
+            updated_at = CURRENT_TIMESTAMP
+          FROM v WHERE v.id IS NOT NULL AND q.id = v.id AND q.series_id = $1
+          RETURNING q.id
+        ), ins AS (
+          INSERT INTO tcf_ce_questions (series_id, question_order, question_text, passage_text, explanation,
+            option_a, option_b, option_c, option_d, correct_answer, cefr_level, points, image_url)
+          SELECT $1, v.question_order, v.question_text, v.passage_text, v.explanation,
+            v.option_a, v.option_b, v.option_c, v.option_d, v.correct_answer, v.cefr_level, v.points, v.image_url
+          FROM v WHERE v.id IS NULL
+          RETURNING id
+        ), del AS (
+          DELETE FROM tcf_ce_questions WHERE series_id = $1 AND id = ANY($3::int[]) RETURNING id
+        ), ser AS (
+          UPDATE tcf_ce_series SET description = $4, duration_minutes = $5, cefr_thresholds = $6, updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1 RETURNING id
+        )
+        SELECT (SELECT COUNT(*) FROM upd)::int AS updated, (SELECT COUNT(*) FROM ins)::int AS added,
+               (SELECT COUNT(*) FROM del)::int AS removed`,
+        [seriesId, JSON.stringify(withIds), removed, description, duration, JSON.stringify(CE_SCALE_THRESHOLDS)]);
+      id = seriesId;
+      counts = done;
+    }
+
+    await recalculateSeriesCounters(req.db, id);
+    const saved = await req.db.get('SELECT id, name, total_questions, total_points FROM tcf_ce_series WHERE id = $1', [id]);
+    res.status(seriesId ? 200 : 201).json({
+      series_id: saved.id,
+      name: saved.name,
+      mode: seriesId ? 'update' : 'create',
+      ...counts,
+      total_questions: Number(saved.total_questions),
+      total_points: Number(saved.total_points),
+    });
+  } catch (error) {
+    console.error('POST /series/import error:', error);
+    res.status(error.status || 500).json({ error: error.status ? error.message : 'The series could not be saved.', message: error.message });
   } finally {
-    uploadedFiles.forEach(cleanTemp);
+    tempFiles.forEach(cleanTemp);
   }
 });
 
@@ -829,7 +1002,7 @@ router.get('/kdrive/:fileId/stream', adminOnly, async (req, res) => {
     
     // Attempt to guess mime type from a query param if provided, otherwise generic
     const ext = req.query.ext || '';
-    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' };
     res.setHeader('Content-Type', mimeMap[ext.toLowerCase()] || 'image/png'); // Default to png since it's mostly images
     
     await kdrive.streamFile(fileId, res, req.headers, 'inline', `image${ext}`);
@@ -4159,6 +4332,17 @@ const ceImageRef = (imageUrl) => {
   return id ? { fileId: id[1], ext: ext ? ext[1].toLowerCase() : '' } : null;
 };
 
+/**
+ * A reading question as learners get it: the document's text (with its tables),
+ * and its image when the document needs one. Older series have only the image.
+ */
+const ceLearnerQuestion = ({ image_url, passage_text, ...q }) => ({
+  ...q,
+  passage_text: passage_text || null,
+  has_audio: false,
+  has_image: !!ceImageRef(image_url),
+});
+
 /** Answers as saved during the exam → [{ question_id, selected_answer, flagged }], well-formed entries only. */
 function readDraft(raw) {
   let list = raw;
@@ -4211,8 +4395,10 @@ const ceOutcome = (earned) => ({
 
 /** Grades an open attempt and closes it. Returns the result, or null if it was already closed. */
 async function gradeCeAttempt(db, attempt, answers, { auto, late }) {
+  const withText = await ceTextReady(db);
   const questions = await db.all(
-    'SELECT id, correct_answer, points, cefr_level FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC',
+    `SELECT id, correct_answer, points, cefr_level ${withText ? ', explanation' : ''}
+       FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC`,
     [attempt.series_id]);
   const { correctCount, earnedPoints, gradedAnswers } = gradeMcq(questions, answers);
   const totalPoints = questions.reduce((sum, q) => sum + parseFloat(q.points), 0);
@@ -4242,6 +4428,8 @@ async function gradeCeAttempt(db, attempt, answers, { auto, late }) {
     is_auto_submitted: auto,
     late: !!late,
     answers: gradedAnswers,
+    // Shown in the correction right after handing in (not stored with the attempt: they may be improved later).
+    explanations: Object.fromEntries(questions.filter(q => q.explanation).map(q => [q.id, q.explanation])),
   };
 }
 
@@ -4271,11 +4459,13 @@ router.get('/student/ce/series/:id', async (req, res) => {
       'SELECT id, name, description, duration_minutes, total_questions, total_points FROM tcf_ce_series WHERE id = $1', [id]);
     if (!series) return res.status(404).json({ error: 'Series not found' });
 
+    const withText = await ceTextReady(req.db);
     const rows = await req.db.all(`
       SELECT id, question_order, question_text, option_a, option_b, option_c, option_d, cefr_level, points, image_url
+        ${withText ? ', passage_text' : ''}
       FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC
     `, [id]);
-    const questions = rows.map(({ image_url, ...q }) => ({ ...q, has_audio: false, has_image: !!ceImageRef(image_url) }));
+    const questions = rows.map(ceLearnerQuestion);
 
     const running = await settleCeAttempt(req.db, id, req.user.id);
     const best = await req.db.get(
@@ -4432,11 +4622,13 @@ router.get('/student/ce/attempts/:attemptId/correction', async (req, res) => {
       [attemptId, req.user.id]);
     if (!attempt) return res.status(404).json({ error: 'Attempt not found' });
 
+    const withText = await ceTextReady(req.db);
     const rows = await req.db.all(`
       SELECT id, question_order, question_text, option_a, option_b, option_c, option_d, correct_answer, cefr_level, points, image_url
+        ${withText ? ', passage_text, explanation' : ''}
       FROM tcf_ce_questions WHERE series_id = $1 ORDER BY question_order ASC
     `, [attempt.series_id]);
-    const questions = rows.map(({ image_url, ...q }) => ({ ...q, has_audio: false, has_image: !!ceImageRef(image_url) }));
+    const questions = rows.map(ceLearnerQuestion);
     const answers = typeof attempt.answers === 'string' ? JSON.parse(attempt.answers) : attempt.answers;
     res.json({ ...attempt, ...ceOutcome(Number(attempt.earned_points)), levels: ceLevels(answers || []), questions, answers });
   } catch (error) {
@@ -4454,7 +4646,7 @@ router.get('/student/ce/questions/:id/image', async (req, res) => {
     const ref = question && ceImageRef(question.image_url);
     if (!ref) return res.status(404).json({ error: 'Image not found' });
     if (!(await canUseSeries(req.db, req.user.id, 'ce_series', question.series_id))) return res.status(403).json(ACCESS_DENIED);
-    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+    const mimeMap = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif' };
     const buf = await getExamMedia(ref.fileId);
     sendExamMedia(res, buf, mimeMap[ref.ext] || 'image/png');
   } catch (error) {

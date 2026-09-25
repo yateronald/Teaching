@@ -9,6 +9,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import useExamGuard from '../../hooks/useExamGuard';
 import ExamFrame from './ExamFrame';
 import { clock } from './examModel';
+import CeDocument from '../Common/CeDocument';
+import { ceDocumentHasImageSlot } from '../Common/ceDocumentModel';
 import './CEExam.css';
 
 /* ══════════════════════════════════════════
@@ -20,7 +22,12 @@ import './CEExam.css';
 ══════════════════════════════════════════ */
 
 type Option = 'A' | 'B' | 'C' | 'D';
-interface Question { id: number; question_order: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; cefr_level: string; points: number | string; has_image: boolean }
+interface Question {
+  id: number; question_order: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string;
+  cefr_level: string; points: number | string; has_image: boolean;
+  /** The document as text (series imported since documents come as text); otherwise it is an image. */
+  passage_text?: string | null;
+}
 interface Series {
   id: number; name: string; description: string | null; duration_minutes: number; total_questions: number; total_points: number | string;
   questions: Question[];
@@ -35,6 +42,8 @@ interface Result {
   cefr_level: string; nclc: number | null; time_spent_seconds: number; is_auto_submitted: boolean; late: boolean;
   next: { cefr: { level: string; points: number; missing: number } | null; nclc: { nclc: number; points: number; missing: number } | null };
   levels: Level[]; answers: Graded[];
+  /** Why each answer is right, by question id (when the series has explanations). */
+  explanations?: Record<number, string>;
 }
 type Phase = 'loading' | 'brief' | 'exam' | 'review' | 'submitting' | 'results' | 'error';
 type SaveState = 'saved' | 'dirty' | 'saving' | 'offline';
@@ -136,6 +145,57 @@ const DocViewer: React.FC<{ q: Question; url?: string; failed?: boolean; onRetry
   );
 };
 
+/* ── Text document: the text itself, with a reading size the learner chooses (kept on this device) ── */
+const DOC_SIZES = [15, 16.5, 18, 20];
+const DOC_SIZE_KEY = 'ce-doc-size';
+function useDocSize() {
+  const [size, setSize] = useState<number>(() => {
+    try { const v = Number(localStorage.getItem(DOC_SIZE_KEY)); return DOC_SIZES.includes(v) ? v : DOC_SIZES[1]; } catch { return DOC_SIZES[1]; }
+  });
+  const change = (dir: 1 | -1) => setSize(cur => {
+    const next = DOC_SIZES[Math.min(DOC_SIZES.length - 1, Math.max(0, DOC_SIZES.indexOf(cur) + dir))] ?? cur;
+    try { localStorage.setItem(DOC_SIZE_KEY, String(next)); } catch { /* size stays for this visit */ }
+    return next;
+  });
+  return { size, change };
+}
+
+const TextDocument: React.FC<{
+  q: Question; size: number; onSize?: (dir: 1 | -1) => void; compact?: boolean;
+  imageUrl?: string; imageFailed?: boolean; onRetry?: () => void;
+}> = ({ q, size, onSize, compact, imageUrl, imageFailed, onRetry }) => {
+  // The document's image (when it needs one) sits where the text says, or after it.
+  const image = () => (imageUrl
+    ? <img src={imageUrl} alt={`Image du document ${q.question_order}`} draggable={false} />
+    : imageFailed
+      ? <span className="ce-doc-state is-error" role="alert"><WarningOutlined /> L’image n’a pas pu être chargée. <Button size="small" icon={<ReloadOutlined />} onClick={onRetry}>Réessayer</Button></span>
+      : <span className="ce-doc-state"><LoadingOutlined /> Chargement de l’image…</span>);
+  return (
+    <section className={`ce-doc is-text${compact ? ' is-compact' : ''}`} aria-label={`Document de la question ${q.question_order}`}>
+      <header className="ce-doc-bar">
+        <span className="ce-doc-title"><FileSearchOutlined /> Document {q.question_order}</span>
+        {onSize && (
+          <span className="ce-doc-tools" role="group" aria-label="Taille du texte">
+            <Button size="small" type="text" onClick={() => onSize(-1)} disabled={size <= DOC_SIZES[0]} aria-label="Texte plus petit">A−</Button>
+            <Button size="small" type="text" onClick={() => onSize(1)} disabled={size >= DOC_SIZES[DOC_SIZES.length - 1]} aria-label="Texte plus grand"><b>A+</b></Button>
+          </span>
+        )}
+      </header>
+      <div className="ce-doc-text" style={{ fontSize: size }} onContextMenu={e => e.preventDefault()}>
+        <CeDocument text={q.passage_text || ''} renderImage={q.has_image ? image : undefined} />
+        {q.has_image && !ceDocumentHasImageSlot(q.passage_text || '') && <div className="cedoc-image">{image()}</div>}
+      </div>
+    </section>
+  );
+};
+
+/** The document of a question, whichever form it has. */
+const QuestionDocument: React.FC<{
+  q: Question; docs: ReturnType<typeof useDocuments>; size: number; onSize?: (dir: 1 | -1) => void; compact?: boolean;
+}> = ({ q, docs, size, onSize, compact }) => (q.passage_text
+  ? <TextDocument q={q} size={size} onSize={onSize} compact={compact} imageUrl={docs.urls[q.id]} imageFailed={docs.failed[q.id]} onRetry={() => void docs.load(q.id)} />
+  : <DocViewer q={q} url={docs.urls[q.id]} failed={docs.failed[q.id]} onRetry={() => void docs.load(q.id)} compact={compact} />);
+
 /* ── Question navigator, grouped by level like the exam's progression ── */
 const Navigator: React.FC<{
   questions: Question[]; answers: Record<number, Option>; flags: Set<number>; cur: number; onGo: (i: number) => void;
@@ -194,6 +254,7 @@ export default function CEExam({ seriesId, open, onClose }: Props) {
 
   const questions = useMemo(() => series?.questions || [], [series]);
   const docs = useDocuments(questions, open && !!series);
+  const docSize = useDocSize();
   const submitted = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const saveSeq = useRef(0);
@@ -429,7 +490,7 @@ export default function CEExam({ seriesId, open, onClose }: Props) {
           <div className="xs-brief-main">
             <span className="xs-eyebrow">Épreuve de compréhension écrite · format TCF Canada</span>
             <h1>{series.total_questions} documents, {series.duration_minutes} minutes.</h1>
-            <p className="xs-lead">
+            <p className="xs-lead" style={{ whiteSpace: 'pre-line' }}>
               {series.description?.trim() || 'Lisez chaque document et choisissez la bonne réponse parmi quatre propositions. Les documents deviennent plus longs et plus complexes au fil de l’épreuve.'}
             </p>
             <div className="ce-facts">
@@ -504,10 +565,10 @@ export default function CEExam({ seriesId, open, onClose }: Props) {
 
       {/* ═══════════ EXAM ═══════════ */}
       {phase === 'exam' && q && (
-        <div className={`ce-room${q.has_image ? '' : ' is-textonly'}`}>
+        <div className={`ce-room${q.has_image || q.passage_text ? '' : ' is-textonly'}`}>
           <div className="ce-progress" aria-hidden><b style={{ width: `${(answeredCount / questions.length) * 100}%` }} /></div>
 
-          <DocViewer q={q} url={docs.urls[q.id]} failed={docs.failed[q.id]} onRetry={() => void docs.load(q.id)} compact={narrow} />
+          <QuestionDocument q={q} docs={docs} size={docSize.size} onSize={docSize.change} compact={narrow} />
 
           <section className="ce-question" aria-labelledby={`ce-q-${q.id}`}>
             <header className="ce-q-head">
@@ -521,7 +582,9 @@ export default function CEExam({ seriesId, open, onClose }: Props) {
 
             {q.question_text?.trim()
               ? <p className="ce-q-text">{q.question_text}</p>
-              : <p className="ce-q-text is-hint"><FileSearchOutlined /> La question est écrite sous le document.</p>}
+              : q.passage_text
+                ? <p className="ce-q-text is-hint"><FileSearchOutlined /> Lisez le document, puis choisissez la bonne réponse.</p>
+                : <p className="ce-q-text is-hint"><FileSearchOutlined /> La question est écrite sous le document.</p>}
 
             <div className="ce-options" role="radiogroup" aria-label="Réponses">
               {OPTIONS.map(k => {
@@ -591,6 +654,7 @@ const Results: React.FC<{
   result: Result; series: Series; docs: ReturnType<typeof useDocuments>; onClose: () => void; onRetry: () => void;
 }> = ({ result, series, docs, onClose, onRetry }) => {
   const [filter, setFilter] = useState<'all' | 'wrong' | 'blank'>('wrong');
+  const docSize = useDocSize();
   const [openId, setOpenId] = useState<number | null>(null);
   const byId = useMemo(() => new Map(series.questions.map(q => [q.id, q])), [series]);
   const earned = Math.round(Number(result.earned_points));
@@ -669,7 +733,7 @@ const Results: React.FC<{
                   </button>
                   {isOpen && (
                     <div className="ce-corr-body">
-                      <DocViewer q={qq} url={docs.urls[qq.id]} failed={docs.failed[qq.id]} onRetry={() => void docs.load(qq.id)} compact />
+                      <QuestionDocument q={qq} docs={docs} size={docSize.size} compact />
                       {qq.question_text?.trim() && <p className="ce-q-text">{qq.question_text}</p>}
                       <ul className="ce-corr-options">
                         {OPTIONS.map(k => (
@@ -681,6 +745,9 @@ const Results: React.FC<{
                           </li>
                         ))}
                       </ul>
+                      {result.explanations?.[qq.id] && (
+                        <div className="ce-expl"><span>Explication</span><p>{result.explanations[qq.id]}</p></div>
+                      )}
                     </div>
                   )}
                 </li>

@@ -11,6 +11,9 @@ class UserModel {
   final String? createdAt;
   final String? bio;
 
+  /// Administrators only: may open the website monitoring space.
+  final bool canViewMonitoring;
+
   UserModel({
     required this.id,
     required this.username,
@@ -23,6 +26,7 @@ class UserModel {
     this.profilePhotoKdriveFileId,
     this.createdAt,
     this.bio,
+    this.canViewMonitoring = false,
   });
 
   String get fullName =>
@@ -38,6 +42,7 @@ class UserModel {
 
   bool get isTeacher => role == 'teacher';
   bool get isAdmin => role == 'admin';
+  bool get mayViewMonitoring => isAdmin && canViewMonitoring;
   bool get hasPhoto =>
       (profilePhotoKdriveFileId != null && profilePhotoKdriveFileId!.isNotEmpty) ||
       (profilePhotoUrl != null && profilePhotoUrl!.isNotEmpty);
@@ -74,6 +79,7 @@ class UserModel {
     String? profilePhotoKdriveFileId,
     String? createdAt,
     String? bio,
+    bool? canViewMonitoring,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -88,6 +94,7 @@ class UserModel {
           profilePhotoKdriveFileId ?? this.profilePhotoKdriveFileId,
       createdAt: createdAt ?? this.createdAt,
       bio: bio ?? this.bio,
+      canViewMonitoring: canViewMonitoring ?? this.canViewMonitoring,
     );
   }
 
@@ -104,6 +111,7 @@ class UserModel {
       profilePhotoKdriveFileId: json['profile_photo_kdrive_file_id']?.toString(),
       createdAt: json['created_at']?.toString(),
       bio: json['bio'],
+      canViewMonitoring: json['can_view_monitoring'] == true || json['can_view_monitoring'] == 1,
     );
   }
 
@@ -120,6 +128,7 @@ class UserModel {
       'profile_photo_kdrive_file_id': profilePhotoKdriveFileId,
       'created_at': createdAt,
       'bio': bio,
+      'can_view_monitoring': canViewMonitoring,
     };
   }
 }

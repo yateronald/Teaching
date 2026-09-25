@@ -23,6 +23,11 @@ class AppColors {
   static const Color teacherAccentSoft = Color(0xFFEEF2FF);
   static const Color teacherAccentLine = Color(0xFFC7D2FE);
 
+  // ── Admin Space Accent ──
+  static const Color adminAccent = Color(0xFF1E40AF);
+  static const Color adminAccentBg = Color(0xFFEFF6FF);
+  static const Color adminAccentLine = Color(0xFFBFDBFE);
+
   // ── Slate Ink & Neutrals ──
   static const Color ink = Color(0xFF0F172A);
   static const Color text = Color(0xFF334155);

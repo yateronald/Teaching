@@ -58,6 +58,19 @@
 .ce-doc-state { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px; min-height: 240px; width: 100%; color: var(--xs-muted); }
 .ce-doc-state.is-error { color: var(--xs-bad); }
 .ce-doc.is-compact .ce-doc-view { max-height: 56vh; min-height: 180px; padding: 12px; }
+/* A text document: set like a printed notice, easy to read at length. */
+.ce-doc-text {
+  max-height: calc(100vh - 64px - 150px); min-height: 200px; overflow-y: auto;
+  padding: 22px 26px; font-size: 16.5px; line-height: 1.75; white-space: pre-line; overflow-wrap: anywhere;
+  color: var(--xs-ink); user-select: none; -webkit-user-select: none;
+}
+.ce-doc.is-text { border-color: #bfdbfe; }
+.ce-doc.is-text .ce-doc-bar { background: #eff6ff; }
+.ce-doc.is-text .ce-doc-tools .ant-btn { min-width: 32px; font-weight: 650; }
+.ce-doc.is-compact .ce-doc-text { max-height: 50vh; min-height: 120px; padding: 14px 16px; }
+.ce-expl { padding: 12px 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; }
+.ce-expl span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #2563eb; }
+.ce-expl p { margin: 4px 0 0; font-size: 13.5px; line-height: 1.6; white-space: pre-line; color: #1e3a8a; }
 
 .ce-question {
   grid-area: question; position: sticky; top: 0;

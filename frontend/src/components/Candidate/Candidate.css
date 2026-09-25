@@ -416,6 +416,10 @@
 .cx-q-options li.is-correct .cx-q-mark { color: var(--cx-good); }
 .cx-q-options li.is-picked .cx-q-mark { color: var(--cx-bad); }
 .cx-q-blank { margin: 6px 0 0; font-size: 12px; color: var(--cx-muted); }
+.cx-doc-text { margin: 10px 0; padding: 14px 16px; border: 1px solid #bfdbfe; border-radius: 10px; background: #fff; font-size: 14.5px; line-height: 1.7; white-space: pre-line; color: #0f172a; }
+.cx-expl { margin-top: 10px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; }
+.cx-expl span { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #2563eb; }
+.cx-expl p { margin: 4px 0 0; font-size: 13px; line-height: 1.55; white-space: pre-line; color: #1e3a8a; }
 .cx-doc { display: block; max-width: 100%; max-height: 60vh; margin: 10px auto 4px; border: 1px solid var(--cx-line); border-radius: 10px; pointer-events: none; }
 .cx-doc-btn {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 12px; border: 1px dashed var(--cx-line);

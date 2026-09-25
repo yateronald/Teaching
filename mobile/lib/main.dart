@@ -11,6 +11,7 @@ import 'core/theme/app_theme.dart';
 import 'core/widgets/tricolore_bar.dart';
 import 'features/auth/screens/app_lock_screen.dart';
 import 'features/auth/screens/welcome_screen.dart';
+import 'features/admin/shell/admin_shell.dart';
 import 'features/teacher/shell/teacher_shell.dart';
 
 import 'core/localization/app_locale_notifier.dart';
@@ -174,7 +175,11 @@ class AuthGate extends ConsumerWidget {
     }
 
     if (authState.isAuthenticated && authState.user != null) {
-      return const TeacherShell();
+      // Each role opens its own space; the key rebuilds it for another account.
+      final user = authState.user!;
+      return user.isAdmin
+          ? AdminShell(key: ValueKey('admin-${user.id}'))
+          : TeacherShell(key: ValueKey('teacher-${user.id}'));
     }
 
     return const WelcomeScreen();

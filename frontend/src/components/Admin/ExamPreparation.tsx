@@ -25,6 +25,9 @@ import {
 } from './EoRenderHelpers';
 import ExamAssignmentModal from './ExamAssignmentModal';
 import GrantCreditsModal from './GrantCreditsModal';
+import CeImportModal from './ceImport/CeImportModal';
+import CeDocument from '../Common/CeDocument';
+import { ceDocumentHasImageSlot, ceDocumentPlain } from '../Common/ceDocumentModel';
 import AdminCOAnalytics from './AdminCOAnalytics';
 import ExamResultsDashboard from '../Common/ExamResultsDashboard';
 import { FAMILY_CODE, familyOfCategory } from './examAdminData';
@@ -86,6 +89,9 @@ interface Question {
   image_kdrive_file_id?: number | null;
   image_file_name?: string | null;
   question_text: string;
+  /** Reading document as text (CE), and the explanation of the answer. */
+  passage_text?: string | null;
+  explanation?: string | null;
   option_a: string;
   option_b: string;
   option_c: string;
@@ -480,6 +486,8 @@ const QuestionFormModal: React.FC<{
       if (editingQuestion) {
         form.setFieldsValue({
           question_text: editingQuestion.question_text,
+          passage_text: editingQuestion.passage_text || '',
+          explanation: editingQuestion.explanation || '',
           option_a: editingQuestion.option_a,
           option_b: editingQuestion.option_b,
           option_c: editingQuestion.option_c,
@@ -562,6 +570,8 @@ const QuestionFormModal: React.FC<{
           formData.append('remove_image', 'true');
         }
         formData.append('question_text', values.question_text);
+        formData.append('passage_text', values.passage_text || '');
+        formData.append('explanation', values.explanation || '');
         formData.append('option_a', values.option_a);
         formData.append('option_b', values.option_b);
         formData.append('option_c', values.option_c);
@@ -678,6 +688,15 @@ const QuestionFormModal: React.FC<{
             </div>
           )}
 
+          {categoryType === 'ce' && (
+            <Form.Item
+              name="passage_text"
+              label={<span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Document <span style={{ fontWeight: 400, color: '#94a3b8' }}>· line breaks are kept · **Title** · table rows | a | b | (| --- | after the header row) · [image] where the image goes</span></span>}
+            >
+              <TextArea autoSize={{ minRows: 4, maxRows: 14 }} placeholder="Paste the document: the notice, the article, the message…" style={{ borderRadius: 8 }} />
+            </Form.Item>
+          )}
+
           {/* Question text */}
           <Form.Item
             name="question_text"
@@ -692,8 +711,11 @@ const QuestionFormModal: React.FC<{
               background: '#f0fdfa', borderRadius: 12, padding: 16,
               border: '1px solid #ccfbf1', marginBottom: 20,
             }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#0f766e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
                 🖼️ Image (optional)
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                Only for a document that cannot be written as text. When the document field is filled, learners see the text.
               </div>
               {/* Show existing image preview when editing */}
               {editingQuestion?.image_url && imageFileList.length > 0 && !imageFileList[0].originFileObj && (
@@ -783,6 +805,16 @@ const QuestionFormModal: React.FC<{
               </Form.Item>
             </Col>
           </Row>
+
+          {categoryType === 'ce' && (
+            <Form.Item
+              name="explanation"
+              label={<span style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>Explanation <span style={{ fontWeight: 400, color: '#94a3b8' }}>· shown to learners in the correction</span></span>}
+              style={{ marginBottom: 0 }}
+            >
+              <TextArea autoSize={{ minRows: 3, maxRows: 10 }} placeholder="Why this answer is right, quoting the document" style={{ borderRadius: 8 }} />
+            </Form.Item>
+          )}
         </Form>
       </div>
     </Modal>
@@ -1358,470 +1390,6 @@ const BulkImportModal: React.FC<{
             {editingImportQuestion.imageFile && (
               <div style={{ background: '#f8f9ff', borderRadius: 10, padding: 12, border: '1px solid #eef2ff' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: '#4338ca', marginBottom: 6 }}>🖼️ Image Preview</div>
-                <img src={URL.createObjectURL(editingImportQuestion.imageFile)} alt="Question"
-                  style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
-              </div>
-            )}
-            <div>
-              <Text strong style={{ fontSize: 12 }}>Question Text</Text>
-              <TextArea rows={2} value={editingImportQuestion.prompt}
-                onChange={e => setEditingImportQuestion({ ...editingImportQuestion, prompt: e.target.value })}
-                style={{ borderRadius: 8, marginTop: 4 }} />
-            </div>
-            <Row gutter={12}>
-              <Col span={12}>
-                <Text strong style={{ fontSize: 12 }}>Option A</Text>
-                <Input value={editingImportQuestion.options.A} style={{ borderRadius: 8, marginTop: 4 }}
-                  onChange={e => setEditingImportQuestion({ ...editingImportQuestion, options: { ...editingImportQuestion.options, A: e.target.value } })} />
-              </Col>
-              <Col span={12}>
-                <Text strong style={{ fontSize: 12 }}>Option B</Text>
-                <Input value={editingImportQuestion.options.B} style={{ borderRadius: 8, marginTop: 4 }}
-                  onChange={e => setEditingImportQuestion({ ...editingImportQuestion, options: { ...editingImportQuestion.options, B: e.target.value } })} />
-              </Col>
-              <Col span={12}>
-                <Text strong style={{ fontSize: 12 }}>Option C</Text>
-                <Input value={editingImportQuestion.options.C} style={{ borderRadius: 8, marginTop: 4 }}
-                  onChange={e => setEditingImportQuestion({ ...editingImportQuestion, options: { ...editingImportQuestion.options, C: e.target.value } })} />
-              </Col>
-              <Col span={12}>
-                <Text strong style={{ fontSize: 12 }}>Option D</Text>
-                <Input value={editingImportQuestion.options.D} style={{ borderRadius: 8, marginTop: 4 }}
-                  onChange={e => setEditingImportQuestion({ ...editingImportQuestion, options: { ...editingImportQuestion.options, D: e.target.value } })} />
-              </Col>
-            </Row>
-            <Row gutter={12}>
-              <Col span={8}>
-                <Text strong style={{ fontSize: 12 }}>Correct Answer</Text>
-                <div style={{ marginTop: 4 }}>
-                  <Radio.Group buttonStyle="solid" value={editingImportQuestion.correct_letter}
-                    onChange={e => setEditingImportQuestion({ ...editingImportQuestion, correct_letter: e.target.value })}>
-                    {['A','B','C','D'].map(l => <Radio.Button key={l} value={l} style={{ fontWeight: 700 }}>{l}</Radio.Button>)}
-                  </Radio.Group>
-                </div>
-              </Col>
-              <Col span={8}>
-                <Text strong style={{ fontSize: 12 }}>CEFR Level</Text>
-                <Select value={editingImportQuestion.level} style={{ width: '100%', marginTop: 4 }}
-                  onChange={v => setEditingImportQuestion({ ...editingImportQuestion, level: v })}>
-                  {CEFR_LEVELS.map(l => <Select.Option key={l} value={l}><span style={{ color: CEFR_COLORS[l], fontWeight: 700 }}>{l}</span></Select.Option>)}
-                </Select>
-              </Col>
-              <Col span={8}>
-                <Text strong style={{ fontSize: 12 }}>Points</Text>
-                <InputNumber value={editingImportQuestion.points} min={0} style={{ width: '100%', marginTop: 4 }}
-                  onChange={v => setEditingImportQuestion({ ...editingImportQuestion, points: v ?? 0 })} />
-              </Col>
-            </Row>
-          </div>
-        )}
-      </Modal>
-    </Modal>
-  );
-};
-
-// ============================================================
-// CE Bulk Import Modal
-// ============================================================
-const CeBulkImportModal: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onSuccess: () => void;
-  categoryId: number;
-  token: string | null;
-}> = ({ open, onClose, onSuccess, categoryId, token: authToken }) => {
-  const [parsedData, setParsedData] = useState<any | null>(null);
-  const [importing, setImporting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Reset state
-  useEffect(() => {
-    if (!open) {
-      setParsedData(null);
-      setImporting(false);
-      setError(null);
-    }
-  }, [open]);
-
-  /** Calculate CEFR thresholds from questions data */
-  const calculateCefrThresholds = (questions: any[]): Record<string, number> => {
-    const pointsByLevel: Record<string, number> = { A1: 0, A2: 0, B1: 0, B2: 0, C1: 0, C2: 0 };
-    for (const q of questions) {
-      if (pointsByLevel.hasOwnProperty(q.level)) {
-        pointsByLevel[q.level] += q.points;
-      }
-    }
-    const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
-    const thresholds: Record<string, number> = {};
-    let cumulative = 0;
-    for (const level of levels) {
-      cumulative += pointsByLevel[level];
-      thresholds[level] = Math.round(cumulative * 0.6);
-    }
-    let prev = 0;
-    for (const level of levels) {
-      if (thresholds[level] <= prev) thresholds[level] = prev + 1;
-      prev = thresholds[level];
-    }
-    return thresholds;
-  };
-
-  const extractFilename = (filePath: string): string => {
-    if (!filePath) return '';
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    return parts[parts.length - 1];
-  };
-
-  const handleFolderSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setError(null);
-    setParsedData(null);
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const filesByName: Record<string, File> = {};
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const relativePath = file.webkitRelativePath || file.name;
-      // Skip backup folders to prevent them from overwriting the correct files
-      if (relativePath.includes('_original_images_backup') || relativePath.includes('_original_audio_backup')) {
-        continue;
-      }
-      const filename = relativePath.split('/').pop() || '';
-      filesByName[filename.toLowerCase()] = file;
-    }
-
-    let jsonFile: File | null = null;
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (file.name === 'tcf_questions.json') {
-        jsonFile = file;
-        break;
-      }
-    }
-
-    if (!jsonFile) {
-      setError('No tcf_questions.json file found in the selected folder');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const rawQuestions = JSON.parse(event.target?.result as string);
-        if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
-          setError('JSON file is empty or not an array');
-          return;
-        }
-
-        const firstQ = rawQuestions[0];
-        
-        let validQuestions: any[] = [];
-        for (const q of rawQuestions) {
-           if (q.question_on_image === 'yes' && q.question_has_image === 'no') {
-              continue; // skip
-           }
-           validQuestions.push(q);
-        }
-
-        const questions: any[] = validQuestions.map((q: any, idx) => {
-          const imageFilename = extractFilename((q.image_path as string) || '');
-          const imageFile = imageFilename ? filesByName[imageFilename.toLowerCase()] : undefined;
-
-          return {
-            number: idx + 1, // renumber
-            prompt: q.question_on_image === 'yes' ? '' : ((q.prompt as string) || ''),
-            level: (q.level as string) || 'A1',
-            points: parseFloat(q.points as string) || 0,
-            options: (q.options as { A: string; B: string; C: string; D: string }) || { A: 'A', B: 'B', C: 'C', D: 'D' },
-            correct_letter: (q.correct_letter as string) || 'A',
-            has_audio: false,
-            has_image: !!imageFile,
-            imageFile,
-          }; 
-        });
-
-        setParsedData({
-          seriesName: (firstQ.quiz_series as string) || 'Imported CE Series',
-          description: (firstQ.quiz_description as string) || '',
-          durationMinutes: parseInt(firstQ.quiz_minutes as string, 10) || 60,
-          totalPoints: parseInt(firstQ.quiz_total_points as string, 10) || 0,
-          questionCount: questions.length,
-          questions,
-        });
-      } catch (err) {
-        setError(`Failed to parse JSON: ${(err as Error).message}`);
-      }
-    };
-    reader.onerror = () => setError('Failed to read JSON file');
-    reader.readAsText(jsonFile);
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_importProgress, setImportProgress] = useState(0);
-
-  const handleImport = async () => {
-    if (!parsedData) return;
-    setImporting(true);
-    setImportProgress(0);
-    setError(null);
-
-    try {
-      const formData = new FormData();
-      const cefrThresholds = calculateCefrThresholds(parsedData.questions);
-      const seriesPayload = {
-        name: parsedData.seriesName,
-        description: parsedData.description,
-        duration_minutes: parsedData.durationMinutes,
-        cefr_thresholds: cefrThresholds,
-        total_points: parsedData.totalPoints,
-        category_id: categoryId,
-      };
-
-      formData.append('series_data', JSON.stringify(seriesPayload));
-
-      const questionsPayload = parsedData.questions.map((q: any) => ({
-        number: q.number,
-        prompt: q.prompt,
-        level: q.level,
-        points: q.points,
-        options: q.options,
-        correct_letter: q.correct_letter,
-      }));
-      formData.append('questions_data', JSON.stringify(questionsPayload));
-
-      // Append image files
-      for (const q of parsedData.questions) {
-        if (q.imageFile) formData.append(`image_${q.number}`, q.imageFile);
-      }
-
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE}/tcf/series/bulk-import`);
-        if (authToken) xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
-
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            setImportProgress(Math.round((e.loaded / e.total) * 60));
-          }
-        };
-
-        xhr.upload.onloadend = () => {
-          setImportProgress(65);
-          let serverPct = 65;
-          const interval = setInterval(() => {
-            serverPct += 2;
-            if (serverPct > 95) { clearInterval(interval); return; }
-            setImportProgress(serverPct);
-          }, 800);
-          (xhr as any)._interval = interval;
-        };
-
-        xhr.onload = () => {
-          if ((xhr as any)._interval) clearInterval((xhr as any)._interval);
-          setImportProgress(100);
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const result = JSON.parse(xhr.responseText);
-              message.success(`Imported "${parsedData.seriesName}" with ${result.imported_questions} questions`);
-            } catch {
-              message.success('Series imported successfully');
-            }
-            onSuccess();
-            setTimeout(() => onClose(), 500);
-            resolve();
-          } else {
-            try {
-              const errData = JSON.parse(xhr.responseText);
-              setError(`Import failed: ${errData.error || 'Unknown error'}`);
-            } catch {
-              setError(`Import failed (status ${xhr.status})`);
-            }
-            reject(new Error('Import failed'));
-          }
-        };
-
-        xhr.onerror = () => {
-          if ((xhr as any)._interval) clearInterval((xhr as any)._interval);
-          setError('Network error during import');
-          reject(new Error('Network error'));
-        };
-
-        xhr.send(formData);
-      });
-    } catch {
-      // handled
-    } finally {
-      setImporting(false);
-    }
-  };
-
-  const [editingImportQuestion, setEditingImportQuestion] = useState<any | null>(null);
-
-  const handleRemoveQuestion = (number: number) => {
-    if (!parsedData) return;
-    const updated = parsedData.questions.filter((q: any) => q.number !== number);
-    setParsedData({
-      ...parsedData,
-      questions: updated,
-      questionCount: updated.length,
-      totalPoints: updated.reduce((s: number, q: any) => s + q.points, 0),
-    });
-  };
-
-  const handleSaveEditQuestion = (edited: any) => {
-    if (!parsedData) return;
-    const updated = parsedData.questions.map((q: any) => q.number === edited.number ? edited : q);
-    setParsedData({ ...parsedData, questions: updated });
-    setEditingImportQuestion(null);
-  };
-
-  const previewColumns = [
-    { title: '#', dataIndex: 'number', width: 40 },
-    { title: 'Level', dataIndex: 'level', width: 60, render: (v: string) => <CefrTag level={v} /> },
-    { title: 'Prompt', dataIndex: 'prompt', ellipsis: true },
-    { title: 'Answer', dataIndex: 'correct_letter', width: 60, align: 'center' as const, render: (v: string) => <Tag color="green">{v}</Tag> },
-    { title: 'Img', dataIndex: 'has_image', width: 50, render: (v: boolean, record: any) => v && record.imageFile ? <img src={URL.createObjectURL(record.imageFile)} alt="q" style={{width:24, height:24}}/> : '-' },
-    { title: 'Pts', dataIndex: 'points', width: 50 },
-    {
-      title: 'Action', key: 'action', width: 80,
-      render: (_: unknown, record: any) => (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button type="text" size="small" icon={<EditOutlined />} style={{ color: '#6366f1' }} onClick={() => setEditingImportQuestion({ ...record })} />
-          <Button type="text" size="small" icon={<DeleteOutlined />} danger onClick={() => handleRemoveQuestion(record.number)} />
-        </div>
-      )
-    }
-  ];
-
-  return (
-    <Modal
-      open={open}
-      onCancel={onClose}
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: 'linear-gradient(135deg, #14b8a6, #0f766e)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#fff', fontSize: 18,
-          }}>
-            <FileTextOutlined />
-          </div>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>Import Series from JSON</div>
-            <div style={{ fontSize: 12, color: '#94a3b8', fontWeight: 400 }}>Compréhension Écrite — JSON Bulk Import</div>
-          </div>
-        </div>
-      }
-      width={900}
-      footer={null}
-      destroyOnClose
-    >
-      <div style={{ marginBottom: 20 }}>
-        <input
-          ref={fileInputRef}
-          type="file"
-          {...({ webkitdirectory: '', directory: '' } as any)}
-          style={{ display: 'none' }}
-          onChange={handleFolderSelect}
-        />
-        <Button
-          icon={<FolderOpenOutlined />}
-          onClick={() => fileInputRef.current?.click()}
-          style={{ width: '100%', height: 48, borderStyle: 'dashed', borderColor: '#cbd5e1' }}
-        >
-          Select Folder (tcf_questions.json & images)
-        </Button>
-      </div>
-
-      {error && (
-        <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#b91c1c', padding: 12, borderRadius: 8, marginBottom: 20 }}>
-          {error}
-        </div>
-      )}
-
-      {parsedData && (
-        <div>
-          {/* Series info summary */}
-          <div style={{
-            background: '#f0fdfa', borderRadius: 12, padding: 16, marginBottom: 16,
-            border: '1px solid #ccfbf1',
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>
-              {parsedData.seriesName}
-            </div>
-            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
-              <span style={{ fontSize: 13, color: '#64748b' }}>
-                <strong style={{ color: '#0f766e' }}>{parsedData.questionCount}</strong> questions
-              </span>
-              <span style={{ fontSize: 13, color: '#64748b' }}>
-                <strong style={{ color: '#22c55e' }}>{parsedData.totalPoints}</strong> points
-              </span>
-              <span style={{ fontSize: 13, color: '#64748b' }}>
-                <strong style={{ color: '#f59e0b' }}>{parsedData.durationMinutes}</strong> minutes
-              </span>
-            </div>
-            {parsedData.description && (
-              <div style={{ fontSize: 12, color: '#94a3b8', whiteSpace: 'pre-line', maxHeight: 60, overflow: 'auto' }}>
-                {parsedData.description}
-              </div>
-            )}
-          </div>
-
-          {/* File match summary */}
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-            <Tag color="purple" style={{ borderRadius: 8, padding: '2px 10px', fontWeight: 600 }}>
-              🖼️ Images: {parsedData.questions.filter((q: any) => q.has_image).length}/{parsedData.questions.length}
-            </Tag>
-          </div>
-
-          {/* Questions preview table */}
-
-          <Table
-            columns={previewColumns}
-            dataSource={parsedData.questions}
-            rowKey="number"
-            size="small"
-            pagination={parsedData.questions.length > 15 ? { pageSize: 15, size: 'small' } : false}
-            scroll={{ y: 300 }}
-            style={{ marginBottom: 20 }}
-          />
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-            <Button onClick={onClose} disabled={importing} style={{ borderRadius: 8 }}>
-              Cancel
-            </Button>
-            <Button
-              type="primary"
-              onClick={handleImport}
-              loading={importing}
-              disabled={importing}
-              style={{
-                borderRadius: 10, fontWeight: 600, height: 40,
-                background: 'linear-gradient(135deg, #0f766e, #14b8a6)',
-                border: 'none', boxShadow: '0 2px 8px rgba(20,184,166,0.3)',
-              }}
-            >
-              {importing ? 'Importing...' : `Import ${parsedData.questions.length} Questions`}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      <Modal
-        title="Edit Question"
-        open={!!editingImportQuestion}
-        onCancel={() => setEditingImportQuestion(null)}
-        onOk={() => { if (editingImportQuestion) handleSaveEditQuestion(editingImportQuestion); }}
-        width={640}
-        destroyOnClose
-      >
-        {editingImportQuestion && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-            {editingImportQuestion.has_image && editingImportQuestion.imageFile && (
-              <div style={{ background: '#f8f9ff', borderRadius: 10, padding: 12, border: '1px solid #eef2ff' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#14b8a6', marginBottom: 6 }}>🖼️ Image Preview</div>
                 <img src={URL.createObjectURL(editingImportQuestion.imageFile)} alt="Question"
                   style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
               </div>
@@ -4047,7 +3615,7 @@ const ExamPreparation: React.FC = () => {
           </div>
           <div className="ep-actions">
             {isCo && <Button icon={<FolderOpenOutlined />} onClick={() => setImportModalOpen(true)}>Import from folder</Button>}
-            {categoryType === 'ce' && <Button icon={<UploadOutlined />} onClick={() => setCeImportModalOpen(true)}>Import JSON</Button>}
+            {categoryType === 'ce' && <Button icon={<FolderOpenOutlined />} onClick={() => setCeImportModalOpen(true)}>Import from folder</Button>}
             <Button type="primary" icon={<PlusOutlined />} onClick={createSeries}>New series</Button>
           </div>
         </header>
@@ -4165,9 +3733,10 @@ const ExamPreparation: React.FC = () => {
     questions.forEach(x => { if (x.cefr_level in dist) dist[x.cefr_level] += 1; });
     const totalPoints = questions.reduce((t, x) => t + (Number(x.points) || 0), 0);
     const missingAudio = isCo ? questions.filter(x => !x.audio_kdrive_file_id).length : 0;
+    const noExplanation = isCo ? 0 : questions.filter(x => !x.explanation?.trim()).length;
     const needle = sdQuery.trim().toLowerCase();
     const shown = questions.filter(x => (sdLevel === 'all' || x.cefr_level === sdLevel)
-      && (!needle || `${x.question_text} ${x.option_a} ${x.option_b} ${x.option_c} ${x.option_d}`.toLowerCase().includes(needle)));
+      && (!needle || `${x.question_text} ${x.passage_text || ''} ${x.option_a} ${x.option_b} ${x.option_c} ${x.option_d}`.toLowerCase().includes(needle)));
     const reorderable = !needle && sdLevel === 'all';
     const pos = filteredSeries.findIndex(s => s.id === d.id);
     const prev = pos > 0 ? filteredSeries[pos - 1] : null;
@@ -4216,7 +3785,9 @@ const ExamPreparation: React.FC = () => {
           <div className="sd-stat">
             <span>Questions</span>
             <strong>{questions.length}</strong>
-            {missingAudio ? <em className="is-warn">{missingAudio} without audio</em> : <em>{isCo ? 'all with audio' : 'multiple choice'}</em>}
+            {missingAudio ? <em className="is-warn">{missingAudio} without audio</em>
+              : !isCo && noExplanation ? <em className="is-warn">{noExplanation} without explanation</em>
+                : <em>{isCo ? 'all with audio' : 'multiple choice'}</em>}
           </div>
           <div className="sd-stat">
             <span>Points</span>
@@ -4311,7 +3882,10 @@ const ExamPreparation: React.FC = () => {
                           </span>
                         )}
                         <span className="sd-text">
-                          <span><span title={x.question_text}>{x.question_text}</span>{hasImg && <PictureOutlined aria-label="Has an image" />}</span>
+                          <span>
+                            <span title={x.question_text}>{x.question_text || (x.passage_text ? ceDocumentPlain(x.passage_text).slice(0, 120) : '')}</span>
+                            {x.passage_text ? <FileTextOutlined aria-label="Document as text" /> : hasImg && <PictureOutlined aria-label="Has an image" />}
+                          </span>
                           <span className="sd-meta">{x.cefr_level} · {x.points} pts · answer {x.correct_answer}</span>
                         </span>
                         <span className="sd-col-level"><span className="sd-level" style={{ '--c': CEFR_COLORS[x.cefr_level] || '#64748b' } as React.CSSProperties}>{x.cefr_level}</span></span>
@@ -4326,7 +3900,14 @@ const ExamPreparation: React.FC = () => {
                       </div>
                       {open && (
                         <div className="sd-detail">
-                          {img && <img className="sd-img" src={img} alt={`Question ${x.question_order}`} loading="lazy" />}
+                          {x.passage_text ? (
+                            <div className="sd-passage">
+                              <CeDocument text={x.passage_text} renderImage={img ? () => <img src={img} alt={`Question ${x.question_order}`} loading="lazy" /> : undefined} />
+                              {img && !ceDocumentHasImageSlot(x.passage_text) && (
+                                <div className="cedoc-image"><img src={img} alt={`Question ${x.question_order}`} loading="lazy" /></div>
+                              )}
+                            </div>
+                          ) : img && <img className="sd-img" src={img} alt={`Question ${x.question_order}`} loading="lazy" />}
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div className="sd-options">
                               {(['A', 'B', 'C', 'D'] as const).map(k => (
@@ -4336,6 +3917,9 @@ const ExamPreparation: React.FC = () => {
                               ))}
                             </div>
                             {x.audio_file_name && <em className="sd-file">Audio file: {x.audio_file_name}</em>}
+                            {!isCo && (x.explanation
+                              ? <div className="sd-expl"><b>Explanation</b>{x.explanation}</div>
+                              : <em className="sd-file">No explanation yet.</em>)}
                           </div>
                         </div>
                       )}
@@ -4774,12 +4358,12 @@ const ExamPreparation: React.FC = () => {
       )}
 
       {selectedCategoryId && categoryType === 'ce' && (
-        <CeBulkImportModal
+        <CeImportModal
           open={ceImportModalOpen}
           onClose={() => setCeImportModalOpen(false)}
-          onSuccess={fetchSeriesList}
+          onImported={fetchSeriesList}
           categoryId={selectedCategoryId}
-          token={token}
+          apiCall={apiCall}
         />
       )}
 

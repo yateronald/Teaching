@@ -5,6 +5,8 @@ import {
     LoadingOutlined, MinusCircleFilled, ReadOutlined, ReloadOutlined, SoundOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import CeDocument from '../Common/CeDocument';
+import { ceDocumentHasImageSlot } from '../Common/ceDocumentModel';
 import useExamGuard from '../../hooks/useExamGuard';
 import ExamReport, { type EETaskExtra } from '../ExamSim/ExamReport';
 import { MILESTONES, NCLC_BANDS, nclcOf, type ExamReport as Report } from '../ExamSim/examModel';
@@ -18,7 +20,7 @@ const ICON: Record<SkillKey, React.ReactNode> = { ce: <ReadOutlined />, co: <Sou
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
 
-interface McqQuestion { id: number; question_order: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_answer: string; cefr_level: string; points: number; has_image?: boolean }
+interface McqQuestion { id: number; question_order: number; question_text: string; option_a: string; option_b: string; option_c: string; option_d: string; correct_answer: string; cefr_level: string; points: number; has_image?: boolean; passage_text?: string | null; explanation?: string | null }
 interface McqAnswer { question_id: number; selected_answer: string | null; correct_answer: string; is_correct: boolean; cefr_level: string }
 interface McqCorrection {
     series_name: string; completed_at: string; time_spent_seconds: number; correct_count: number; total_questions: number;
@@ -135,7 +137,13 @@ const McqReview: React.FC<{ skill: 'ce' | 'co'; data: McqCorrection }> = ({ skil
                                 <span className="cx-level-tag">{q.cefr_level}</span>
                                 <span className="cx-q-pts">{status === 'ok' ? `+${Number(q.points)}` : 0} pts</span>
                             </div>
-                            {skill === 'ce' && q.has_image && <DocumentImage questionId={q.id} />}
+                            {skill === 'ce' && q.passage_text && (
+                                <div className="cx-doc-text">
+                                    <CeDocument text={q.passage_text} renderImage={q.has_image ? () => <DocumentImage questionId={q.id} /> : undefined} />
+                                    {q.has_image && !ceDocumentHasImageSlot(q.passage_text) && <DocumentImage questionId={q.id} />}
+                                </div>
+                            )}
+                            {skill === 'ce' && !q.passage_text && q.has_image && <DocumentImage questionId={q.id} />}
                             {q.question_text && <p className="cx-q-text">{q.question_text}</p>}
                             <ul className="cx-q-options">
                                 {OPTION_KEYS.map((k, i) => {
@@ -152,6 +160,7 @@ const McqReview: React.FC<{ skill: 'ce' | 'co'; data: McqCorrection }> = ({ skil
                                 })}
                             </ul>
                             {!a?.selected_answer && <p className="cx-q-blank">Not answered</p>}
+                            {q.explanation && <div className="cx-expl"><span>Explanation</span><p>{q.explanation}</p></div>}
                         </li>
                     );
                 })}
