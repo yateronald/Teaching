@@ -204,6 +204,9 @@ const mergeExplanations = (raw: RawQuestion): string => {
 /** "C:\…\images\question_003.png" → "question_003.png". */
 const baseName = (path: string) => path.split(/[\\/]/).pop() || '';
 
+/** A drop cap is its own block on the page: "**D**" + "epuis un an…" → "Depuis un an…". */
+const joinDropCaps = (text: string) => text.replace(/^(?:\*\*)?([A-ZÀ-ÖØ-Þ])(?:\*\*)?\n(?=[a-zà-öø-ÿ])/gm, '$1');
+
 /** File names the source gives to icons and cut-outs placed next to a text. */
 const DECORATIVE_NAME = /(?:^|[-_/])(?:icon|icone|picto|flag|drapeau|logo|nobg|emoji|avatar|badge|sticker)(?:[-_.]|$)/i;
 
@@ -232,7 +235,7 @@ export function normalizeQuestion(raw: RawQuestion, folderKey: string, index: nu
   let source: ImportQuestion['source'] = 'none';
   if (v2 && tidy(raw.document_text)) {
     // Scraper v2: the document with its tables and image slots.
-    passage = tidy(raw.document_text);
+    passage = joinDropCaps(tidy(raw.document_text));
     source = 'page';
   } else if (pageText) {
     // The page text when there is one (it is what the page showed);

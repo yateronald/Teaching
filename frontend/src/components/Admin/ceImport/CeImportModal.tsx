@@ -54,6 +54,7 @@ const LevelTag: React.FC<{ level: string }> = ({ level }) => (
 
 const CeImportModal: React.FC<Props> = ({ open, onClose, onImported, categoryId, apiCall }) => {
   const [stage, setStage] = useState<Stage>('pick');
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [series, setSeries] = useState<ImportSeries[]>([]);
   const [readProgress, setReadProgress] = useState({ done: 0, total: 0 });
   const [pickError, setPickError] = useState<string | null>(null);
@@ -221,12 +222,7 @@ const CeImportModal: React.FC<Props> = ({ open, onClose, onImported, categoryId,
   const requestClose = () => {
     if (stage === 'importing') return;
     if (stage === 'review' && series.length) {
-      Modal.confirm({
-        title: 'Leave the import?',
-        content: 'Nothing has been imported yet. The preview and your corrections will be lost.',
-        okText: 'Leave', cancelText: 'Stay', okButtonProps: { danger: true },
-        onOk: onClose,
-      });
+      setConfirmLeave(true);
       return;
     }
     onClose();
@@ -461,6 +457,13 @@ const CeImportModal: React.FC<Props> = ({ open, onClose, onImported, categoryId,
         )}
       </div>
 
+      {/* Declared inside the import modal so antd stacks it above (a static
+          Modal.confirm ignores the app's z-index base and opens behind). */}
+      <Modal open={confirmLeave} title="Leave the import?" okText="Leave" cancelText="Stay" okButtonProps={{ danger: true }}
+        width={420} centered onCancel={() => setConfirmLeave(false)} onOk={() => { setConfirmLeave(false); onClose(); }}>
+        Nothing has been imported yet. The preview and your corrections will be lost.
+      </Modal>
+
       <QuestionDrawer
         series={editingSeries || null}
         question={editingQuestion}
@@ -642,7 +645,9 @@ const QuestionDrawer: React.FC<{
   };
 
   return (
-    <Drawer open onClose={onClose} width="min(620px, 100vw)" zIndex={1100} closable={false} rootClassName="ci-drawer" title={null}
+    // No zIndex here: inside the import modal antd stacks the drawer above it
+    // (a fixed 1100 tied with the modal's own 1100 and could end up behind it).
+    <Drawer open onClose={onClose} width="min(620px, 100vw)" closable={false} rootClassName="ci-drawer" title={null}
       footer={mode === 'edit' ? (
         <div className="ci-drawer-foot">
           <Button onClick={() => { setDraft(question); setMode('preview'); }}>Cancel</Button>
