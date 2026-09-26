@@ -10,6 +10,22 @@ import type { Family } from '../Admin/examAdminData';
 export type OrgState = 'active' | 'expired' | 'not_started' | 'suspended';
 export type Skill = 'ce' | 'co' | 'ee' | 'eo';
 export type CreditType = 'ee' | 'eo';
+export const CREDIT_KINDS: CreditType[] = ['ee', 'eo'];
+
+/** "3 EE + 2 EO" from { ee: 3, eo: 2 } (kinds at 0 are left out). */
+export function kindsText(a: Partial<Record<CreditType, number>> | null | undefined, joiner = ' + '): string {
+  return CREDIT_KINDS.filter(t => (a?.[t] || 0) > 0).map(t => `${a![t]} ${t.toUpperCase()}`).join(joiner);
+}
+
+/** Only the chosen kinds, with a number above zero ('all' kept as is). */
+export function chosenAmounts<T extends number | 'all'>(kinds: CreditType[], values: Partial<Record<CreditType, T | null>>): Partial<Record<CreditType, T>> {
+  const out: Partial<Record<CreditType, T>> = {};
+  for (const t of kinds) {
+    const v = values[t];
+    if (v === 'all' || (typeof v === 'number' && v > 0)) out[t] = v as T;
+  }
+  return out;
+}
 
 export interface CreditPot { reserve: number; with_learners: number; used: number; granted: number }
 export interface Company {
@@ -134,21 +150,35 @@ type Tr = (en: string, fr: string) => string;
 /** A refusal in the reader's language (the known codes are translated; others keep the server text). */
 export function errorText(err: unknown, tr: Tr): string {
   if (!(err instanceof ApiError)) return tr('Something went wrong. Check your connection and try again.', 'Une erreur est survenue. Vérifiez votre connexion et réessayez.');
-  const d = err.data as { needed?: number; available?: number };
+  const d = err.data as { needed?: number | Record<string, number>; available?: number | Record<string, number> };
   switch (err.code) {
     case 'ORG_EXPIRED': return tr('Your company’s access has expired. Contact the administrator to extend it.', 'L’accès de votre entreprise a expiré. Contactez l’administrateur pour le prolonger.');
     case 'ORG_NOT_STARTED': return tr('Your company’s access has not started yet.', 'L’accès de votre entreprise n’a pas encore commencé.');
     case 'ORG_SUSPENDED': return tr('Your company’s account is disabled. Contact the administrator.', 'Le compte de votre entreprise est désactivé. Contactez l’administrateur.');
-    case 'INSUFFICIENT_RESERVE':
+    case 'INSUFFICIENT_RESERVE': {
+      // Both kinds can move at once: say which one is short, and by how much.
+      const need = (typeof d.needed === 'object' ? d.needed : null) as Partial<Record<CreditType, number>> | null;
+      const have = (typeof d.available === 'object' ? d.available : null) as Partial<Record<CreditType, number>> | null;
+      if (need && have) {
+        const parts = CREDIT_KINDS.filter(t => (need[t] || 0) > (have[t] || 0)).map(t =>
+          tr(`${need[t]} ${t.toUpperCase()} needed, ${have[t]} in the reserve (${(need[t] || 0) - (have[t] || 0)} missing)`,
+            `${need[t]} ${t.toUpperCase()} nécessaires, ${have[t]} en réserve (il en manque ${(need[t] || 0) - (have[t] || 0)})`));
+        return tr(`Not enough credits: ${parts.join('; ')}.`, `Crédits insuffisants : ${parts.join(' ; ')}.`);
+      }
+      if (have) {
+        return tr(`The reserve holds ${have.ee ?? 0} EE and ${have.eo ?? 0} EO credits: take back at most that many.`,
+          `La réserve contient ${have.ee ?? 0} crédits EE et ${have.eo ?? 0} EO : retirez-en au plus autant.`);
+      }
       if (d.needed != null) {
-        const missing = d.needed - (d.available || 0);
+        const missing = Number(d.needed) - Number(d.available || 0);
         return tr(`This needs ${d.needed} credits and the reserve holds ${d.available}: ${missing} missing.`, `Il faut ${d.needed} crédits et la réserve en contient ${d.available} : il en manque ${missing}.`);
       }
       return tr(`The reserve holds only ${d.available} credits.`, `La réserve ne contient que ${d.available} crédits.`);
+    }
     case 'AFTER_COMPANY_END': return tr('The end date cannot be after your company’s access ends.', 'La date de fin ne peut pas dépasser la fin de l’accès de votre entreprise.');
     case 'DATE_PAST': return tr('The end date must be in the future.', 'La date de fin doit être dans le futur.');
     case 'SEAT_LIMIT_REACHED': return tr('Your package is full: every learner account it includes has been created. Contact the administrator to add more.', 'Votre forfait est complet : tous les comptes apprenants qu’il comprend ont été créés. Contactez l’administrateur pour en ajouter.');
-    case 'TOTAL_TOO_SMALL': return tr(`A total of ${String(err.data.total)} cannot be shared between ${String(err.data.learners)} learners: give at least ${String(err.data.learners)}.`, `Un total de ${String(err.data.total)} ne peut pas être partagé entre ${String(err.data.learners)} apprenants : donnez-en au moins ${String(err.data.learners)}.`);
+    case 'TOTAL_TOO_SMALL': return tr(`A total of ${String(err.data.total)}${err.data.type ? ` ${String(err.data.type).toUpperCase()}` : ''} cannot be shared between ${String(err.data.learners)} learners: give at least ${String(err.data.learners)}.`, `Un total de ${String(err.data.total)}${err.data.type ? ` ${String(err.data.type).toUpperCase()}` : ''} ne peut pas être partagé entre ${String(err.data.learners)} apprenants : donnez-en au moins ${String(err.data.learners)}.`);
     case 'BAD_SEATS': return tr('Set the package: the number of learner accounts (at least 1).', 'Indiquez le forfait : le nombre de comptes apprenants (au moins 1).');
     case 'EMAIL_TAKEN': return tr('An account already uses this email address.', 'Un compte utilise déjà cette adresse email.');
     case 'CONTENT_NOT_ALLOWED': return tr('Your company may not assign some of this content.', 'Votre entreprise ne peut pas attribuer une partie de ce contenu.');
@@ -221,7 +251,7 @@ export function moveText(m: CreditMove, tr: Tr): string {
 
 /** One audit line, in words. */
 export function auditText(a: AuditEntry, tr: Tr): string {
-  const d = (a.details || {}) as Record<string, string | number | undefined>;
+  const d = (a.details || {}) as Record<string, string | number | Record<string, number> | undefined>;
   switch (a.action) {
     case 'company_created': return tr('Company created', 'Entreprise créée');
     case 'company_updated': return tr('Company details changed', 'Informations de l’entreprise modifiées');
@@ -229,10 +259,14 @@ export function auditText(a: AuditEntry, tr: Tr): string {
     case 'company_suspended': return tr('Company disabled', 'Entreprise désactivée');
     case 'company_reactivated': return tr('Company reactivated', 'Entreprise réactivée');
     case 'content_changed': return tr('Allowed exams changed', 'Examens autorisés modifiés');
-    case 'credits_granted': return tr(`${d.amount} credits added`, `${d.amount} crédits ajoutés`);
-    case 'credits_revoked': return tr(`${d.amount} credits taken back`, `${d.amount} crédits retirés`);
-    case 'credits_distributed': return tr(`${d.each} credit(s) given to ${d.learners} learner(s)`, `${d.each} crédit(s) donné(s) à ${d.learners} apprenant(s)`);
-    case 'credits_reclaimed': return tr(`${d.returned} credit(s) taken back`, `${d.returned} crédit(s) récupéré(s)`);
+    case 'credits_granted': return d.amounts ? tr(`${kindsText(d.amounts as never)} credits added`, `${kindsText(d.amounts as never)} crédits ajoutés`) : tr(`${d.amount} credits added`, `${d.amount} crédits ajoutés`);
+    case 'credits_revoked': return d.amounts ? tr(`${kindsText(d.amounts as never)} credits taken back`, `${kindsText(d.amounts as never)} crédits retirés`) : tr(`${d.amount} credits taken back`, `${d.amount} crédits retirés`);
+    case 'credits_distributed': return d.amounts
+      ? tr(`${kindsText(d.amounts as never)} credit(s) each to ${d.learners} learner(s)`, `${kindsText(d.amounts as never)} crédit(s) chacun à ${d.learners} apprenant(s)`)
+      : tr(`${d.each} credit(s) given to ${d.learners} learner(s)`, `${d.each} crédit(s) donné(s) à ${d.learners} apprenant(s)`);
+    case 'credits_reclaimed': return typeof d.returned === 'object'
+      ? tr(`${kindsText(d.returned as never) || '0'} credit(s) taken back`, `${kindsText(d.returned as never) || '0'} crédit(s) récupéré(s)`)
+      : tr(`${d.returned} credit(s) taken back`, `${d.returned} crédit(s) récupéré(s)`);
     case 'manager_added': return tr(`Manager added: ${d.email}`, `Responsable ajouté : ${d.email}`);
     case 'learner_added': return tr(`Learner added: ${d.email}`, `Apprenant ajouté : ${d.email}`);
     case 'learner_updated': return tr('Learner updated', 'Apprenant modifié');

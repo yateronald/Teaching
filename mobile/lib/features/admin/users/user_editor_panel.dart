@@ -36,6 +36,8 @@ class _UserEditorPanelState extends ConsumerState<UserEditorPanel> {
   String? _error;
 
   bool get _editing => widget.user != null;
+  /// Company accounts keep their role: they are managed from the company's page.
+  bool get _companyAccount => widget.user?.isCompanyAccount ?? false;
   bool get _ownAccount => _editing && ref.read(authNotifierProvider).user?.id == widget.user!.id;
 
   @override
@@ -80,6 +82,7 @@ class _UserEditorPanelState extends ConsumerState<UserEditorPanel> {
       payload.remove('is_active');
       payload.remove('role');
     }
+    if (_companyAccount) payload.remove('role');
     if (_role == 'admin') payload['can_view_monitoring'] = _monitoring;
     if (_role == 'candidate') {
       payload['target_exam'] = _exam;
@@ -153,7 +156,17 @@ class _UserEditorPanelState extends ConsumerState<UserEditorPanel> {
         ],
         children: [
           PanelSection(fr ? 'Rôle' : 'Role'),
-          if (_ownAccount)
+          if (_companyAccount)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                fr
+                    ? 'Compte de l’entreprise ${widget.user!.organizationName ?? ''} : son rôle ne peut pas changer.'
+                    : 'Account of the company ${widget.user!.organizationName ?? ''}: its role cannot change.',
+                style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+              ),
+            )
+          else if (_ownAccount)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
@@ -166,11 +179,11 @@ class _UserEditorPanelState extends ConsumerState<UserEditorPanel> {
             maxColumns: 2,
             spacing: 8,
             children: [
-              for (final r in AdminUser.roles)
+              for (final r in _companyAccount ? [_role] : AdminUser.roles)
                 _RoleCard(
                   role: r,
                   selected: _role == r,
-                  onTap: _ownAccount ? null : () => setState(() => _role = r),
+                  onTap: _ownAccount || _companyAccount ? null : () => setState(() => _role = r),
                 ),
             ],
           ),

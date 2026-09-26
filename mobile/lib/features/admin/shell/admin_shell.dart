@@ -6,6 +6,7 @@ import '../../../core/localization/translations.dart';
 import '../../../core/navigation/space_shell.dart';
 import '../../teacher/profile/screens/profile_settings_screen.dart';
 import '../common/admin_nav.dart';
+import '../companies/companies_screen.dart';
 import '../common/admin_state.dart';
 import '../attendance/attendance_screen.dart';
 import '../batches/batches_screen.dart';
@@ -41,6 +42,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
   static final _items = [
     SpaceNavItem(section: 'management', icon: Icons.grid_view_outlined, label: _t('Tableau de bord', 'Dashboard')),
     SpaceNavItem(section: 'management', icon: Icons.people_alt_outlined, label: _t('Utilisateurs', 'Users')),
+    SpaceNavItem(section: 'management', icon: Icons.apartment_outlined, label: _t('Entreprises', 'Companies')),
     SpaceNavItem(section: 'management', icon: Icons.groups_outlined, label: _t('Promotions', 'Batches')),
     SpaceNavItem(
       section: 'management',
@@ -85,15 +87,16 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       pages: (navigate) => [
         AdminDashboardScreen(onNavigate: navigate), // 0
         const UsersScreen(), // 1
-        const BatchesScreen(), // 2
-        const DemoRequestsScreen(), // 3
-        const TimetableScreen(), // 4
-        const AttendanceScreen(), // 5
-        const AdminResourcesScreen(), // 6
-        const AdminExamPrepScreen(), // 7
-        const MonitoringScreen(), // 8, only reachable with the monitoring key
-        const AdminSettingsScreen(), // 9
-        const ProfileSettingsScreen(), // 10
+        const CompaniesScreen(), // 2
+        const BatchesScreen(), // 3
+        const DemoRequestsScreen(), // 4
+        const TimetableScreen(), // 5
+        const AttendanceScreen(), // 6
+        const AdminResourcesScreen(), // 7
+        const AdminExamPrepScreen(), // 8
+        const MonitoringScreen(), // 9, only reachable with the monitoring key
+        const AdminSettingsScreen(), // 10
+        const ProfileSettingsScreen(), // 11
       ],
     );
   }

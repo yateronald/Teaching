@@ -600,3 +600,111 @@
 .login-card-mark--company { width: 72px; height: 72px; border-radius: 18px; background: #fff; }
 .login-card-mark--company img { width: 58px; height: 58px; }
 .login-card-initial { font-size: 28px; font-weight: 700; color: #14264c; }
+.login-card-mark--company b { font-size: 28px; font-weight: 700; color: #14264c; }
+
+/* ═══════════════════════════════════════════════════════
+   EMAIL-FIRST SIGN-IN
+   ═══════════════════════════════════════════════════════ */
+
+/* Each step (and each space) fades in on its own. */
+.login-step { animation: login-step-in 0.32s cubic-bezier(0.2, 0.7, 0.2, 1); }
+@keyframes login-step-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* The account being signed in, with a way back to the email. */
+.login-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -4px 0 20px;
+  padding: 6px 6px 6px 7px;
+  border: 1px solid var(--lg-line);
+  border-radius: 999px;
+  background: var(--lg-paper);
+}
+.login-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--lg-navy);
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+.login-account-email {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--lg-ink);
+}
+.login-account-change {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--lg-blue);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.login-account-change:hover { background: rgba(30, 64, 175, 0.08); }
+
+.login-sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+}
+
+.login-submit-btn .anticon { margin-left: 4px; transition: transform 0.2s ease; }
+.login-submit-btn:hover:not(:disabled) .anticon { transform: translateX(3px); }
+
+/* ── A company's space: its own identity, sober, no French flag ── */
+.login-page--company .login-side-bg { display: none; }
+.login-page--company .login-side-tint {
+  background:
+    radial-gradient(120% 70% at 0% 0%, rgba(148, 163, 184, 0.16), transparent 60%),
+    radial-gradient(90% 60% at 100% 100%, rgba(148, 163, 184, 0.1), transparent 55%),
+    linear-gradient(160deg, #111827 0%, #0f172a 55%, #0b1220 100%);
+}
+.login-page--company .login-side-tint::after {
+  /* a faint dotted texture, so the panel is not flat */
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: linear-gradient(180deg, transparent, #000 30%, #000 70%, transparent);
+}
+.login-page--company .login-tricolore,
+.login-page--company .login-card-tricolore { display: none; }
+.login-page--company .login-card { border-top: 3px solid #0f172a; }
+.login-page--company .login-eyebrow--dark { color: #334155; }
+.login-page--company .login-eyebrow--dark .login-eyebrow-dash { background: #334155; }
+.login-page--company .login-side-logo-mark { border-radius: 14px; }
+.login-page--company .login-side-exams span { border-color: rgba(255, 255, 255, 0.22); background: rgba(255, 255, 255, 0.05); }
+
+.login-powered { display: inline-flex; align-items: center; gap: 8px; }
+.login-powered img { width: 22px; height: 22px; padding: 2px; border-radius: 50%; background: #fff; object-fit: contain; }
+
+@media (prefers-reduced-motion: reduce) {
+  .login-step { animation: none !important; }
+}
+.login-page--company .login-side-logo-text em { color: rgba(226, 232, 240, 0.7); }
+.login-page--company .login-side .login-eyebrow { color: #cbd5e1; }
+.login-page--company .login-side .login-eyebrow-dash { background: #cbd5e1; }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App as AntApp, Button, Checkbox, Dropdown, Input, InputNumber, Modal, Segmented, Select, Skeleton, Tooltip, Upload } from 'antd';
+import { App as AntApp, Button, Checkbox, Dropdown, Input, Modal, Segmented, Select, Skeleton, Tooltip, Upload } from 'antd';
 import {
   ApartmentOutlined, CheckCircleOutlined, DownloadOutlined, MailOutlined, MoreOutlined, ReloadOutlined, SearchOutlined, SendOutlined,
   StopOutlined, TeamOutlined, ThunderboltOutlined, UploadOutlined, UserAddOutlined, WarningOutlined,
@@ -7,10 +7,12 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTr } from '../../utils/useTr';
-import { ago, call, errorText, parseLearnersCsv, personName } from './orgModel';
+import { ago, call, chosenAmounts, creditName, errorText, kindsText, parseLearnersCsv, personName } from './orgModel';
 import type { CreditType, Group, Learner } from './orgModel';
 import { ChangeButton, Credits, Empty, Level, PageHeader } from './OrgUi';
 import { useCompanyOpen } from './useCompanyOpen';
+import { AmountBoxes, CreditReceipt, KindPicker } from './CreditControls';
+import type { Amounts, ReceiptLine } from './CreditControls';
 import './Org.css';
 
 /* ══════════════════════════════════════════
@@ -365,73 +367,68 @@ const ImportLearnersModal: React.FC<{ open: boolean; groups: Group[]; onClose: (
   );
 };
 
-/* ── Give credits to one or several learners ── */
+/* ── Give credits to one or several learners ──
+   Chosen learners each receive the amounts: nothing to share, so no "total"
+   mode here (sharing a total is offered for groups on the Credits page). */
 export const GiveCreditsModal: React.FC<{ learnerIds: number[] | null; learners: Learner[]; onClose: () => void; onDone: () => void }> = ({ learnerIds, learners, onClose, onDone }) => {
   const { apiCall } = useAuth();
-  const { tr } = useTr();
+  const { tr, lang } = useTr();
   const { message } = AntApp.useApp();
-  const [type, setType] = useState<CreditType>('eo');
-  const [amount, setAmount] = useState<number | null>(1);
-  const [share, setShare] = useState<'each' | 'split'>('each');
+  const [kinds, setKinds] = useState<CreditType[]>(['ee', 'eo']);
+  const [amounts, setAmounts] = useState<Amounts>({ ee: 1, eo: 1 });
   const [reserve, setReserve] = useState<{ ee: number; eo: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const open = !!learnerIds;
   useEffect(() => {
     if (!open) return;
-    setAmount(1); setShare('each'); setErr(null);
+    setKinds(['ee', 'eo']); setAmounts({ ee: 1, eo: 1 }); setErr(null);
     call<{ credits: { ee: { reserve: number }; eo: { reserve: number } } }>(apiCall, '/org/credits?limit=1')
       .then(r => setReserve({ ee: r.credits.ee.reserve, eo: r.credits.eo.reserve })).catch(() => setReserve(null));
   }, [open, apiCall]);
   const n = learnerIds?.length || 0;
-  const each = share === 'split' ? (n ? Math.floor((amount || 0) / n) : 0) : (amount || 0);
-  const total = each * n;
-  const kept = share === 'split' ? (amount || 0) - total : 0;
-  const available = reserve ? reserve[type] : null;
-  const enough = (available == null || total <= available) && each >= 1;
   const names = learners.filter(l => learnerIds?.includes(l.id)).map(personName);
+  const lines: ReceiptLine[] = kinds.map(t => {
+    const each = amounts[t] || 0;
+    const total = each * n;
+    const available = reserve ? reserve[t] : null;
+    const enough = available == null || total <= available;
+    return {
+      kind: t,
+      ok: each > 0 && enough,
+      what: n === 1 ? tr(`${each} to ${names[0]}`, `${each} à ${names[0]}`) : tr(`${n} learners × ${each}`, `${n} apprenants × ${each}`),
+      detail: available == null ? undefined : enough
+        ? tr(`Reserve ${available} → ${available - total}`, `Réserve ${available} → ${available - total}`)
+        : tr(`Reserve ${available} · ${total - available} missing`, `Réserve ${available} · il en manque ${total - available}`),
+      total: `−${total}`,
+    };
+  });
+  const ready = n > 0 && lines.every(l => l.ok);
 
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
-      await call(apiCall, '/org/credits/distribute', 'POST', { type, mode: share, amount, learner_ids: learnerIds });
-      message.success(tr(`${total} credit(s) handed out`, `${total} crédit(s) distribué(s)`));
+      const r = await call<{ given: number; each: Partial<Record<CreditType, number>> }>(apiCall, '/org/credits/distribute', 'POST',
+        { amounts: chosenAmounts(kinds, amounts), mode: 'each', learner_ids: learnerIds });
+      message.success(tr(`${kindsText(r.each)} given to ${r.given} learner(s)`, `${kindsText(r.each)} donné(s) à ${r.given} apprenant(s)`));
       onDone();
     } catch (e) { setErr(errorText(e, tr)); } finally { setBusy(false); }
   };
 
   return (
-    <Modal open={open} onCancel={onClose} footer={null} width={480} wrapClassName="og-modal is-company" destroyOnHidden>
+    <Modal open={open} onCancel={onClose} footer={null} width={520} wrapClassName="og-modal is-company" destroyOnHidden>
       <div className="og-modal-head"><span className="og-logo"><ThunderboltOutlined /></span><div>
         <h3>{tr('Give credits', 'Donner des crédits')}</h3>
-        <p>{n === 1 ? names[0] : tr(`${n} learners`, `${n} apprenants`)}</p></div></div>
+        <p>{n === 1 ? names[0] : tr(`${n} learners · each receives the amounts`, `${n} apprenants · chacun reçoit les montants`)}</p></div></div>
       <div className="og-form">
-        <div className="og-field"><label>{tr('Kind of credit', 'Type de crédit')}</label>
-          <Segmented block value={type} onChange={v => setType(v as CreditType)} options={[
-            { value: 'eo', label: tr('Speaking (EO)', 'Expression orale (EO)') },
-            { value: 'ee', label: tr('Writing (EE)', 'Expression écrite (EE)') },
-          ]} /></div>
-        {n > 1 && (
-          <div className="og-field"><label>{tr('How to count', 'Comment compter')}</label>
-            <Segmented block value={share} onChange={v => setShare(v as 'each' | 'split')} options={[
-              { value: 'each', label: tr('Per learner', 'Par apprenant') }, { value: 'split', label: tr('Total to share', 'Total à répartir') },
-            ]} /></div>
-        )}
-        <div className="og-field"><label>{share === 'each' ? tr('Credits per learner', 'Crédits par apprenant') : tr('Total credits to share', 'Total de crédits à répartir')}</label>
-          <InputNumber min={1} max={100000} value={amount} onChange={v => setAmount(v)} style={{ width: '100%' }} />
-          <small>{tr('One credit = one AI-corrected exam.', 'Un crédit = un examen corrigé par l’IA.')}</small></div>
-        <div className={`og-check ${enough ? 'tone-ok' : 'tone-bad'}`}>
-          {enough ? <CheckCircleOutlined /> : <WarningOutlined />}
-          <span>{each < 1
-            ? tr(`${amount || 0} credit(s) cannot be shared between ${n} learners: give at least ${n}.`, `${amount || 0} crédit(s) ne peuvent pas être partagés entre ${n} apprenants : donnez-en au moins ${n}.`)
-            : <>{tr(`${n} × ${each} = ${total} credit(s)`, `${n} × ${each} = ${total} crédit(s)`)}{available != null && <> · {tr(`reserve: ${available}`, `réserve : ${available}`)}</>}
-              {kept > 0 && <> · {tr(`${kept} kept in the reserve`, `${kept} gardé(s) dans la réserve`)}</>}
-              {available != null && total > available && <> · {tr(`${total - available} missing`, `il en manque ${total - available}`)}</>}</>}</span>
-        </div>
+        <div className="og-field"><label>{tr('Which credits', 'Quels crédits')} <em>{tr('one or both', 'l’un ou les deux')}</em></label>
+          <KindPicker value={kinds} onChange={setKinds} lang={lang} note={t => (reserve ? tr(`${reserve[t]} in reserve`, `${reserve[t]} en réserve`) : '')} /></div>
+        <AmountBoxes kinds={kinds} values={amounts} onChange={setAmounts} label={t => tr(`${creditName(t, lang)} per learner`, `${creditName(t, lang)} par apprenant`)} />
+        <CreditReceipt lines={lines} foot={tr('One credit = one AI-corrected exam.', 'Un crédit = un examen corrigé par l’IA.')} />
         {err && <div className="og-check tone-bad"><WarningOutlined /><span>{err}</span></div>}
         <div className="og-foot">
           <Button onClick={onClose}>{tr('Cancel', 'Annuler')}</Button>
-          <Button type="primary" onClick={submit} loading={busy} disabled={!amount || !enough}>{tr('Give', 'Donner')}</Button>
+          <Button type="primary" onClick={submit} loading={busy} disabled={!ready}>{tr('Give', 'Donner')}</Button>
         </div>
       </div>
     </Modal>

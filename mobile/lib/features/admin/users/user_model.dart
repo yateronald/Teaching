@@ -15,6 +15,10 @@ class AdminUser {
   final int failedLogins;
   final bool canViewMonitoring;
 
+  /// Company accounts (managers and learners): the company they belong to.
+  final int? organizationId;
+  final String? organizationName;
+
   /// Exam candidates only: goal, open content, last practice, devices.
   final Map<String, dynamic>? exam;
 
@@ -34,11 +38,17 @@ class AdminUser {
     required this.canViewMonitoring,
     this.exam,
     this.batches = const [],
+    this.organizationId,
+    this.organizationName,
   });
 
   /// Failed sign-ins before an account is flagged (as on the web).
   static const attentionThreshold = 3;
   static const roles = ['student', 'candidate', 'teacher', 'admin'];
+
+  /// Roles shown in the list filters: company managers are created from the
+  /// company's page, never from the user form.
+  static const listedRoles = [...roles, 'org_admin'];
 
   factory AdminUser.fromJson(Map<String, dynamic> j) => AdminUser(
         id: J.i(j['id']),
@@ -53,12 +63,16 @@ class AdminUser {
         canViewMonitoring: j['can_view_monitoring'] == true,
         exam: j['exam'] is Map ? Map<String, dynamic>.from(j['exam']) : null,
         batches: J.list(j['batches']),
+        organizationId: j['organization_id'] == null ? null : J.i(j['organization_id']),
+        organizationName: J.s(j['organization_name']).isEmpty ? null : J.s(j['organization_name']),
       );
 
   String get fullName {
     final n = '$firstName $lastName'.trim();
     return n.isNotEmpty ? n : (username.isNotEmpty ? username : email);
   }
+
+  bool get isCompanyAccount => organizationId != null;
 
   bool get needsAttention => failedLogins >= attentionThreshold;
   bool get isNew => createdAt != null && DateTime.now().difference(createdAt!).inDays <= 30;
@@ -72,6 +86,8 @@ class AdminUser {
         return const Color(0xFF2563EB);
       case 'candidate':
         return const Color(0xFFD97706);
+      case 'org_admin':
+        return const Color(0xFF0F766E);
       default:
         return AppColors.good;
     }
@@ -85,6 +101,8 @@ class AdminUser {
         return fr ? 'Professeur' : 'Teacher';
       case 'candidate':
         return fr ? 'Candidat' : 'Candidate';
+      case 'org_admin':
+        return fr ? 'Responsable entreprise' : 'Company manager';
       default:
         return fr ? 'Étudiant' : 'Student';
     }
@@ -98,6 +116,8 @@ class AdminUser {
         return fr ? 'Professeurs' : 'Teachers';
       case 'candidate':
         return fr ? 'Candidats' : 'Candidates';
+      case 'org_admin':
+        return fr ? 'Responsables entreprise' : 'Company managers';
       default:
         return fr ? 'Étudiants' : 'Students';
     }
@@ -111,6 +131,8 @@ class AdminUser {
         return fr ? 'Promotions, cours en direct, corrections.' : 'Batches, live classes and grading.';
       case 'candidate':
         return fr ? "Entraînement à l'examen seulement." : 'Exam practice only, no classes.';
+      case 'org_admin':
+        return fr ? 'Gère les apprenants de son entreprise.' : 'Manages the learners of their company.';
       default:
         return fr ? 'Cours, quiz et entraînement.' : 'Classes, quizzes and exam practice.';
     }
@@ -124,6 +146,8 @@ class AdminUser {
         return Icons.co_present_outlined;
       case 'candidate':
         return Icons.track_changes_outlined;
+      case 'org_admin':
+        return Icons.apartment_outlined;
       default:
         return Icons.menu_book_outlined;
     }

@@ -181,6 +181,7 @@ class _UserDetailPanelState extends ConsumerState<UserDetailPanel> {
           runSpacing: 6,
           children: [
             Pill(AdminUser.roleLabel(u.role, fr), color: u.roleColor, icon: AdminUser.roleIcon(u.role)),
+            if (u.organizationName != null) Pill(u.organizationName!, color: const Color(0xFF0F766E), icon: Icons.apartment_outlined),
             Pill(u.isActive ? (fr ? 'Actif' : 'Active') : (fr ? 'Désactivé' : 'Disabled'), color: u.isActive ? AppColors.good : AppColors.textMuted, icon: Icons.circle),
             if (u.role == 'admin' && u.canViewMonitoring) Pill(fr ? 'Suivi du site' : 'Monitoring', color: AppColors.adminAccent, icon: Icons.insights),
           ],

@@ -160,6 +160,13 @@ const limiter = (windowMinutes, limit, message, extra = {}) => rateLimit({
     ...extra,
 });
 app.use('/api/auth/login', limiter(15, 30, 'Too many failed sign-in attempts. Please wait 15 minutes and try again.', { skipSuccessfulRequests: true }));
+// Email-first sign-in: generous for a person (a few emails), tight for anyone
+// trying a list of addresses, and per email so one address cannot be probed
+// from many networks either.
+app.use('/api/auth/identify', limiter(15, 60, 'Too many attempts. Please wait a few minutes and try again.'));
+app.use('/api/auth/identify', limiter(15, 20, 'Too many attempts. Please wait a few minutes and try again.', {
+    keyGenerator: (req) => `identify:${String(req.body?.email || '').trim().toLowerCase().slice(0, 254)}`,
+}));
 app.use('/api/password-reset/request', limiter(15, 8, 'Too many reset requests. Please wait 15 minutes and try again.'));
 app.use('/api/password-reset', limiter(15, 40, 'Too many attempts. Please wait 15 minutes and try again.'));
 app.post('/api/demo-requests', limiter(60, 10, 'Too many requests. Please try again later.'));

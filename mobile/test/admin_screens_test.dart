@@ -8,6 +8,10 @@ import 'package:mobile/core/auth/token_storage.dart';
 import 'package:mobile/core/navigation/space_shell.dart';
 import 'package:mobile/features/admin/attendance/attendance_screen.dart';
 import 'package:mobile/features/admin/batches/batches_screen.dart';
+import 'package:mobile/features/admin/common/admin_kit.dart';
+import 'package:mobile/features/admin/companies/companies_screen.dart';
+import 'package:mobile/features/admin/companies/company_detail_panel.dart';
+import 'package:mobile/features/admin/companies/company_editor_panel.dart';
 import 'package:mobile/features/admin/dashboard/admin_dashboard_screen.dart';
 import 'package:mobile/features/admin/demo_requests/demo_requests_screen.dart';
 import 'package:mobile/features/admin/exam_prep/ai_credits_screen.dart';
@@ -44,7 +48,63 @@ class _FakeAdminApi extends ApiClient {
     'image_url': null,
   };
 
+  static Map<String, dynamic> company({int id = 4, String state = 'active', int seatLimit = 5, int seatsUsed = 3, String ends = '2030-06-30T23:59:59Z'}) => {
+        'id': id,
+        'name': 'Société Générale des Transports du Littoral',
+        'display_name': 'SGTL Formation',
+        'slug': 'sgtl-formation',
+        'default_language': 'fr',
+        'status': state == 'suspended' ? 'suspended' : 'active',
+        'state': state,
+        'access_starts_at': '2026-01-01T00:00:00Z',
+        'access_ends_at': ends,
+        'days_left': state == 'active' ? 1200 : 0,
+        'expiring_soon': false,
+        'seat_limit': seatLimit,
+        'seats_used': seatsUsed,
+        'seats_left': seatLimit - seatsUsed,
+        'active_learners': seatsUsed - 1,
+        'learners': seatsUsed,
+        'managers': 1,
+        'notes': null,
+        'brand': {'name': 'SGTL Formation', 'slug': 'sgtl-formation', 'logo_url': null},
+        'credits': {
+          'ee': {'reserve': 12, 'with_learners': 6, 'used': 4, 'granted': 22},
+          'eo': {'reserve': 3, 'with_learners': 2, 'used': 0, 'granted': 5},
+        },
+      };
+
   static final Map<String, dynamic> _routes = {
+    '/admin/organizations': [
+      company(),
+      company(id: 5, state: 'expired', seatLimit: 10, seatsUsed: 10, ends: '2025-12-31T23:59:59Z'),
+      company(id: 6, state: 'suspended'),
+    ],
+    '/admin/organizations/4': {
+      ...company(seatLimit: 3),
+      'content': [
+        {'content_type': 'category', 'content_id': 2, 'name': 'Compréhension Orale'},
+        {'content_type': 'ee_year', 'content_id': 7, 'name': 'Expression Écrite › 2026'},
+      ],
+      'managers': [
+        {'id': 40, 'first_name': 'Mariam', 'last_name': 'Kouassi-Bamba', 'email': 'mariam.kouassi@sgtl.example', 'is_active': true, 'invitation_pending': true},
+      ],
+    },
+    '/admin/organizations/4/learners': [
+      {'id': 41, 'first_name': 'Awa', 'last_name': 'Diallo', 'email': 'awa@sgtl.example', 'is_active': true, 'ee_credits': 3, 'eo_credits': 1, 'invitation_pending': false},
+      {'id': 42, 'first_name': 'Koffi', 'last_name': 'Yao', 'email': 'koffi@sgtl.example', 'is_active': false, 'ee_credits': 0, 'eo_credits': 0},
+    ],
+    '/admin/organizations/4/credits': {
+      'credits': {},
+      'items': [
+        {'id': 1, 'credit_type': 'ee', 'delta': 20, 'reason': 'admin_grant', 'notes': 'Initial credits', 'created_at': '2026-09-01T10:00:00Z'},
+        {'id': 2, 'credit_type': 'ee', 'delta': -3, 'reason': 'distribute', 'learner_first_name': 'Awa', 'learner_last_name': 'Diallo', 'created_at': '2026-09-02T10:00:00Z'},
+      ],
+    },
+    '/admin/organizations/4/audit': [
+      {'id': 1, 'action': 'company_created', 'details': {}, 'created_at': '2026-09-01T10:00:00Z', 'actor_first_name': 'Ada', 'actor_last_name': 'Admin'},
+      {'id': 2, 'action': 'credits_distributed', 'details': {'amounts': {'ee': 3, 'eo': 1}, 'learners': 1}, 'created_at': '2026-09-02T10:00:00Z', 'actor_first_name': 'Mariam', 'actor_last_name': 'Kouassi-Bamba'},
+    ],
     '/tcf/categories': [
       {'id': 1, 'name': 'Compréhension Écrite', 'description': 'Lire et comprendre des documents du quotidien', 'series_count': 40, 'question_count': 1560},
       {'id': 2, 'name': 'Compréhension Orale', 'description': 'Écouter', 'series_count': 38, 'question_count': 1482},
@@ -306,6 +366,9 @@ void main() {
   final screens = <String, Widget Function()>{
     'dashboard': () => AdminDashboardScreen(onNavigate: (_) {}),
     'users': () => const UsersScreen(),
+    'companies': () => const CompaniesScreen(),
+    'company detail': () => const CompanyDetailPanel(companyId: 4),
+    'new company': () => const CompanyEditorPanel(),
     'batches': () => const BatchesScreen(),
     'demo requests': () => const DemoRequestsScreen(),
     'timetable': () => const TimetableScreen(),
@@ -367,6 +430,138 @@ void main() {
       {'id': 51, 'question_order': 2},
       {'id': 52, 'question_order': 1},
     ]);
+  });
+
+  testWidgets('companies list shows state, package and reserves', (tester) async {
+    await _show(tester, const CompaniesScreen(), size: _tablet);
+    expect(find.text('Expired'), findsWidgets);
+    expect(find.text('Disabled'), findsWidgets);
+    expect(find.text('10 / 10'), findsOneWidget, reason: 'the full package of the expired company');
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Expired  1'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 / 5'), findsNothing, reason: 'the filter keeps the expired company only');
+    expect(find.text('10 / 10'), findsOneWidget);
+  });
+
+  testWidgets('a new company needs a package, exams and a manager', (tester) async {
+    final api = await _show(tester, const _Opener(CompanyEditorPanel()), size: const Size(1024, 1400));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Company name'), 'Transports du Littoral');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Number of learner accounts'), '0');
+    await tester.tap(find.byKey(const Key('company-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('A whole number, at least 1'), findsOneWidget);
+    expect(api.sent['/admin/organizations'], isNull, reason: 'nothing is sent without a valid package');
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Number of learner accounts'), '25');
+    await tester.enterText(find.widgetWithText(TextFormField, 'First name'), 'Mariam');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Last name'), 'Kouassi');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Email address'), 'mariam@sgtl.example');
+    await tester.enterText(find.widgetWithText(TextFormField, 'EE credits'), '30');
+    await tester.tap(find.byKey(const Key('company-save')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Choose at least one exam'), findsOneWidget);
+    expect(api.sent['/admin/organizations'], isNull);
+
+    await tester.tap(find.byKey(const Key('company-pick-content')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('company-content-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.text('Compréhension Orale'), findsOneWidget, reason: 'the chosen exams show as chips');
+    await tester.tap(find.byKey(const Key('company-save')));
+    await tester.pumpAndSettle();
+
+    final body = api.sent['/admin/organizations'] as Map;
+    expect(body['name'], 'Transports du Littoral');
+    expect(body['seat_limit'], 25);
+    expect(body['ee_credits'], 30);
+    expect(body['content'], [
+      {'content_type': 'category', 'content_id': 2},
+      {'content_type': 'category', 'content_id': 3},
+    ]);
+    expect(body['manager'], {'first_name': 'Mariam', 'last_name': 'Kouassi', 'email': 'mariam@sgtl.example'});
+    expect(DateTime.parse(body['access_ends_at'] as String).isAfter(DateTime.parse(body['access_starts_at'] as String)), isTrue);
+  });
+
+  testWidgets('a company page shows its package, people and history', (tester) async {
+    await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    expect(find.text('Package full'), findsOneWidget, reason: '3 of 3 accounts used');
+    expect(find.text('3 / 3'), findsOneWidget);
+    expect(find.text('Mariam Kouassi-Bamba'), findsOneWidget);
+    expect(find.text('Invited'), findsOneWidget);
+    expect(find.text('Off'), findsOneWidget, reason: 'Koffi is deactivated');
+    expect(find.text('Given to Awa Diallo'), findsOneWidget);
+    expect(find.text('3 EE + 1 EO credit(s) each to 1 learner(s)'), findsOneWidget);
+    expect(find.text('Delete the company'), findsNothing, reason: 'a company with accounts cannot be deleted');
+  });
+
+  testWidgets('extending access sends the new end date', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    await tester.tap(find.byKey(const Key('company-extend')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('+1 year'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    final body = api.sent['/admin/organizations/4'] as Map;
+    final until = DateTime.parse(body['access_ends_at'] as String).toLocal();
+    expect(until.year, 2031);
+    expect(until.month, 6);
+  });
+
+  testWidgets('the reserve gets writing and speaking credits at once', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    await tester.tap(find.byKey(const Key('company-credits')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('company-credit-eo')), '4');
+    await tester.pumpAndSettle();
+    expect(find.text('Reserve 12 → 22'), findsOneWidget);
+    expect(find.text('Reserve 3 → 7'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('company-credit-submit')));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/organizations/4/credits'], {
+      'action': 'grant',
+      'amounts': {'ee': 10, 'eo': 4},
+      'notes': '',
+    });
+  });
+
+  testWidgets('one kind only can be chosen, never none', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    await tester.tap(find.byKey(const Key('company-credits')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('company-kind-eo')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('company-credit-eo')), findsNothing);
+    await tester.tap(find.byKey(const Key('company-kind-ee')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('company-credit-ee')), findsOneWidget, reason: 'the last kind stays chosen');
+    await tester.tap(find.byKey(const Key('company-credit-submit')));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/organizations/4/credits'], {'action': 'grant', 'amounts': {'ee': 10}, 'notes': ''});
+  });
+
+  testWidgets('credits cannot be taken back beyond the reserve', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    await tester.tap(find.byKey(const Key('company-credits')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Take back').first);
+    await tester.pumpAndSettle();
+    FilledButton submit() => tester.widget<FilledButton>(find.byKey(const Key('company-credit-submit')));
+    expect(submit().onPressed, isNull, reason: '10 EO asked, only 3 in the reserve');
+    expect(find.text('The reserve holds only 3'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('company-credit-eo')), '3');
+    await tester.enterText(find.byKey(const Key('company-credit-ee')), '13');
+    await tester.pumpAndSettle();
+    expect(submit().onPressed, isNull, reason: 'only 12 EE in the reserve');
+    await tester.enterText(find.byKey(const Key('company-credit-ee')), '12');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('company-credit-submit')));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/organizations/4/credits'], {'action': 'revoke', 'amounts': {'ee': 12, 'eo': 3}, 'notes': ''});
   });
 
   testWidgets('the shell builds a screen only when it is first opened', (tester) async {
@@ -454,4 +649,14 @@ class _ProbeState extends State<_Probe> {
 
   @override
   Widget build(BuildContext context) => Center(child: TextButton(onPressed: widget.onTap, child: Text(widget.onTap == null ? widget.name : 'go')));
+}
+
+/// A button that opens [panel] the way the app does, so it can pop.
+class _Opener extends StatelessWidget {
+  final Widget panel;
+  const _Opener(this.panel);
+
+  @override
+  Widget build(BuildContext context) =>
+      Center(child: TextButton(onPressed: () => showAdminPanel(context, builder: (_) => panel), child: const Text('open')));
 }

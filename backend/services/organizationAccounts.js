@@ -10,7 +10,7 @@ const { hashPassword } = require('../middleware/auth');
 const sessions = require('./sessionService');
 const { generateTempPassword } = require('./tempPassword');
 const { sendCompanyInvite } = require('../emails/emailService');
-const { OrgError, fromDbError, reclaim, audit } = require('./organizationService');
+const { OrgError, fromDbError, reclaimMany, audit } = require('./organizationService');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_MAX = 50;
@@ -131,10 +131,7 @@ async function setActive(db, org, userId, active, actorId, { role = null } = {})
     if (!active) {
         await sessions.endAllForUser(db, user.id, 'admin').catch(() => 0);
         if (user.role === 'candidate') {
-            for (const type of ['ee', 'eo']) {
-                const r = await reclaim(db, org.id, [user.id], type, 'all', actorId, { requireOpen: false, reason: 'learner_left' });
-                returned[type] = r.returned;
-            }
+            returned = (await reclaimMany(db, org.id, [user.id], { ee: 'all', eo: 'all' }, actorId, { requireOpen: false, reason: 'learner_left' })).returned;
         }
     }
     await audit(db, org.id, actorId, active ? 'account_reactivated' : 'account_deactivated', { user_id: user.id, credits_returned: returned });

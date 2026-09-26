@@ -177,10 +177,11 @@
 /* ── Credits page ── */
 .og-pots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @container og (max-width: 760px) { .og-pots { grid-template-columns: 1fr; } }
-.og-pot { display: flex; flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--f-line); border-radius: 16px; background: linear-gradient(180deg, var(--f-bg), #fff 70%); }
+.og-pot { display: flex; flex-direction: column; gap: 12px; padding: 18px; border: 1px solid var(--x-line); border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
+.og-pot-head strong::before { content: ''; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--f); vertical-align: 1px; }
 .og-pot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .og-pot-head strong { font-size: 14px; color: var(--x-ink); }
-.og-pot-big { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: var(--f); font-variant-numeric: tabular-nums; }
+.og-pot-big { font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: var(--x-ink); font-variant-numeric: tabular-nums; }
 .og-pot-big small { margin-left: 6px; font-size: 13px; font-weight: 500; color: var(--x-muted); }
 .og-pot-split { display: flex; height: 8px; overflow: hidden; border-radius: 999px; background: var(--x-line-soft); }
 .og-pot-split span { height: 100%; }
@@ -189,6 +190,35 @@
 .og-pot-split .is-used { background: #cbd5e1; }
 .og-pot-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--x-muted); }
 .og-pot-legend i { display: inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; vertical-align: 0; }
+
+/* ── Credit controls (kind picker, amounts, receipt) ── */
+.og-kinds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 440px) { .og-kinds { grid-template-columns: 1fr; } }
+.og-kind { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 1px solid var(--x-line); border-radius: 12px; background: #fff; font: inherit; text-align: left; color: inherit; cursor: pointer; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s; }
+.og-kind:hover { border-color: var(--x-accent-line); }
+.og-kind:focus-visible { outline: 2px solid var(--x-accent); outline-offset: 2px; }
+.og-kind.is-on { border-color: var(--x-accent); background: var(--x-accent-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-accent) 10%, transparent); }
+.og-kind-ic { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px; border: 1px solid var(--x-line); border-radius: 10px; background: var(--x-soft); font-size: 15px; color: var(--x-muted); transition: inherit; }
+.og-kind.is-on .og-kind-ic { border-color: var(--x-accent-line); background: #fff; color: var(--x-accent); }
+.og-kind-text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.3; }
+.og-kind-text strong { font-size: 13.5px; font-weight: 600; color: var(--x-ink); }
+.og-kind-text strong b { margin-left: 4px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--x-subtle); }
+.og-kind-text em { font-size: 12px; font-style: normal; color: var(--x-muted); font-variant-numeric: tabular-nums; }
+.og-kind-tick { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; border: 1.5px solid var(--x-line); border-radius: 50%; font-size: 10px; color: transparent; transition: inherit; }
+.og-kind.is-on .og-kind-tick { border-color: var(--x-accent); background: var(--x-accent); color: #fff; }
+.og-amounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.og-code { display: inline-flex; align-items: center; justify-content: center; min-width: 30px; padding: 0 6px; border: 1px solid var(--x-line); border-radius: 6px; background: #fff; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; line-height: 18px; color: var(--x-muted); }
+.og-step-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--x-accent-soft); font-size: 11px; font-weight: 700; color: var(--x-accent); }
+.og-receipt { overflow: hidden; border: 1px solid var(--x-line); border-radius: 12px; background: var(--x-soft); }
+.og-receipt-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--x-line); font-size: 12.5px; }
+.og-receipt-row:last-of-type { border-bottom: 0; }
+.og-receipt-what { min-width: 0; line-height: 1.4; color: var(--x-text); }
+.og-receipt-what em { display: block; font-size: 11.5px; font-style: normal; color: var(--x-subtle); }
+.og-receipt-total { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--x-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.og-receipt-row.is-ok .og-receipt-total .anticon { color: #059669; }
+.og-receipt-row.is-bad .og-receipt-total, .og-receipt-row.is-bad .og-receipt-what em { color: #b91c1c; }
+.og-receipt-foot { padding: 9px 14px; border-top: 1px solid var(--x-line); background: #fff; font-size: 12px; line-height: 1.45; color: var(--x-muted); }
+.og-divider { height: 1px; margin: 2px 0; background: var(--x-line-soft); }
 
 /* ── Forms (modals, drawers) ── */
 .og-form { display: flex; flex-direction: column; gap: 14px; }

@@ -492,43 +492,67 @@ router.get('/credits', async (req, res) => {
 });
 
 /**
- * Hands credits to learners and/or every active member of groups — all or nothing.
- *   mode "each"  (default) amount = credits per learner: 5 learners × 3 = 15
- *   mode "split" amount = a total shared evenly: 15 ÷ 5 = 3 each. What cannot be
+ * The credit amounts of a request: `amounts: { ee, eo }` (one kind or both at
+ * once), or the older `type` + `amount` for a single kind.
+ */
+function requestAmounts(body, options) {
+    if (body?.amounts && typeof body.amounts === 'object') return orgs.readAmounts(body.amounts, options);
+    if (!orgs.CREDIT_TYPES.includes(body?.type)) throw new OrgError('BAD_CREDIT_TYPE', 'Choose writing (EE) and/or speaking (EO) credits.');
+    return orgs.readAmounts({ [body.type]: body.amount }, options);
+}
+
+/**
+ * Hands writing and/or speaking credits to learners and/or every active member
+ * of groups — all or nothing, both kinds in one statement.
+ *   mode "each"  (default) each amount = credits per learner: 5 learners × 3 = 15
+ *   mode "split" each amount = a total shared evenly: 15 ÷ 5 = 3 each. What cannot be
  *                shared evenly stays in the reserve, so no more than the total leaves it.
- * The per-learner amount is always computed here, never taken from the client.
+ * The per-learner amounts are always computed here, never taken from the client.
  */
 router.post('/credits/distribute', writable, async (req, res) => {
     try {
-        const { type } = req.body || {};
+        const wanted = requestAmounts(req.body);
         const mode = req.body?.mode === 'split' ? 'split' : 'each';
-        const amount = Number(req.body?.amount);
-        if (!Number.isInteger(amount) || amount <= 0 || amount > 100000) throw new OrgError('BAD_AMOUNT', 'The number of credits must be a whole number above zero.');
         const learnerIds = idList(req.body?.learner_ids);
         const groupIds = idList(req.body?.group_ids);
         const everyone = [...new Set([...learnerIds, ...(await membersOf(req, groupIds))])];
         if (!everyone.length) throw new OrgError('NO_LEARNERS', groupIds.length ? 'These groups have no active learner.' : 'Choose at least one learner.');
-        const each = mode === 'split' ? Math.floor(amount / everyone.length) : amount;
-        if (each < 1) {
-            throw new OrgError('TOTAL_TOO_SMALL', `A total of ${amount} cannot be shared between ${everyone.length} learners: give at least ${everyone.length}.`, 400,
-                { learners: everyone.length, total: amount });
+        const each = {};
+        for (const [type, amount] of Object.entries(wanted)) {
+            each[type] = mode === 'split' ? Math.floor(amount / everyone.length) : amount;
+            if (each[type] < 1) {
+                throw new OrgError('TOTAL_TOO_SMALL',
+                    `A total of ${amount} ${type.toUpperCase()} credits cannot be shared between ${everyone.length} learners: give at least ${everyone.length}.`, 400,
+                    { learners: everyone.length, total: amount, type });
+            }
         }
         const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 500) : null;
-        const result = await orgs.distribute(req.db, req.org.id, everyone, type, each, req.user.id, { notes });
-        const remainder = mode === 'split' ? amount - each * result.given : 0;
-        await orgs.audit(req.db, req.org.id, req.user.id, 'credits_distributed', { type, mode, each: result.each, learners: result.given, reserve: result.reserve, kept_in_reserve: remainder });
-        res.json({ ...result, mode, total: result.each * result.given, kept_in_reserve: remainder, credits: await orgs.creditSummary(req.db, req.org.id) });
+        const result = await orgs.distributeMany(req.db, req.org.id, everyone, each, req.user.id, { notes });
+        const kept = {};
+        const total = {};
+        for (const type of orgs.CREDIT_TYPES) {
+            total[type] = (result.each[type] || 0) * result.given;
+            kept[type] = mode === 'split' && wanted[type] ? wanted[type] - total[type] : 0;
+        }
+        await orgs.audit(req.db, req.org.id, req.user.id, 'credits_distributed',
+            { mode, amounts: result.each, learners: result.given, reserve: result.reserve, kept_in_reserve: kept });
+        res.json({ ...result, mode, total, kept_in_reserve: kept, credits: await orgs.creditSummary(req.db, req.org.id) });
     } catch (err) { sendError(res, err, 'POST /org/credits/distribute'); }
 });
 
-/** Takes unused credits back from learners into the reserve. */
+/**
+ * Takes unused credits back from learners (and/or every active member of
+ * groups) into the reserve: for each kind chosen, a number per learner or
+ * 'all' — never more than a learner holds.
+ */
 router.post('/credits/reclaim', writable, async (req, res) => {
     try {
-        const { type } = req.body || {};
-        const amount = req.body?.amount === 'all' ? 'all' : req.body?.amount;
+        const amounts = requestAmounts(req.body, { allowAll: true });
         const learnerIds = idList(req.body?.learner_ids);
-        const result = await orgs.reclaim(req.db, req.org.id, learnerIds, type, amount, req.user.id);
-        await orgs.audit(req.db, req.org.id, req.user.id, 'credits_reclaimed', { type, returned: result.returned, learners: learnerIds.length });
+        const groupIds = idList(req.body?.group_ids);
+        const everyone = [...new Set([...learnerIds, ...(await membersOf(req, groupIds))])];
+        const result = await orgs.reclaimMany(req.db, req.org.id, everyone, amounts, req.user.id);
+        await orgs.audit(req.db, req.org.id, req.user.id, 'credits_reclaimed', { returned: result.returned, learners: everyone.length });
         res.json({ ...result, credits: await orgs.creditSummary(req.db, req.org.id) });
     } catch (err) { sendError(res, err, 'POST /org/credits/reclaim'); }
 });

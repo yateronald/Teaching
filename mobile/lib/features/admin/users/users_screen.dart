@@ -108,7 +108,8 @@ class _UsersScreenState extends ConsumerState<UsersScreen> {
     int count(String role) => _users.where((u) => u.role == role).length;
     final roles = [
       FilterOption('all', fr ? 'Tous' : 'All', count: _users.length),
-      for (final r in AdminUser.roles) FilterOption(r, AdminUser.rolePlural(r, fr), count: count(r)),
+      for (final r in AdminUser.listedRoles)
+        if (AdminUser.roles.contains(r) || count(r) > 0) FilterOption(r, AdminUser.rolePlural(r, fr), count: count(r)),
     ];
     final statuses = [
       FilterOption('all', fr ? 'Tous les statuts' : 'Any status'),

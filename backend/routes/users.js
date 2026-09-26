@@ -370,10 +370,8 @@ router.put('/:id', [
         }
         // A company learner turned off gives its unused credits back to the company.
         if (is_active === false && existingUser.is_active && existingUser.organization_id && existingUser.role === 'candidate') {
-            for (const type of ['ee', 'eo']) {
-                await orgs.reclaim(req.db, existingUser.organization_id, [targetIdForUpdate], type, 'all', req.user.id, { requireOpen: false, reason: 'learner_left' })
-                    .catch(e => console.error('Could not return the credits of user', targetIdForUpdate, e.message));
-            }
+            await orgs.reclaimMany(req.db, existingUser.organization_id, [targetIdForUpdate], { ee: 'all', eo: 'all' }, req.user.id, { requireOpen: false, reason: 'learner_left' })
+                .catch(e => console.error('Could not return the credits of user', targetIdForUpdate, e.message));
         }
 
         // Get updated user

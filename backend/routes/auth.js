@@ -2,6 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { generateToken, tokenExpiry, tokenDaysFor, MOBILE_TOKEN_DAYS, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked, ORG_SUSPENDED } = require('../middleware/auth');
 const orgs = require('../services/organizationService');
+const hints = require('../services/signInHints');
 const sessions = require('../services/sessionService');
 const { createNotification } = require('../services/notificationService');
 
@@ -14,6 +15,25 @@ function withoutPassword(user) {
     rest.force_password_change = !!user.must_change_password || expired;
     return rest;
 }
+
+/**
+ * Email-first sign-in: which space an email signs in to, so the page can show
+ * the right welcome (and a company's logo) before the password. Never says
+ * whether the email exists: unknown emails and administrators get the same
+ * neutral answer. POST, so the email stays out of URLs and logs; rate limited
+ * per address and per email in server.js.
+ */
+router.post('/identify', [body('email').isString().trim().isLength({ max: 254 }).isEmail().normalizeEmail()], async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (!validationResult(req).isEmpty()) return res.status(400).json({ error: 'Enter a valid email address.', code: 'BAD_EMAIL' });
+    try {
+        res.json(await hints.presentationFor(req.db, req.body.email));
+    } catch (error) {
+        console.error('Identify error:', error.message);
+        // The page still works without it: it shows the neutral welcome.
+        res.json({ audience: 'platform' });
+    }
+});
 
 // Login endpoint
 router.post('/login', [
@@ -37,54 +57,57 @@ router.post('/login', [
             [email]
         );
 
-        if (!user) {
-            return res.status(401).json({ 
-                error: 'Invalid credentials',
-                message: 'Email or password is incorrect'
-            });
-        }
-
-        // Check if account is locked before attempting login
-        const lockStatus = await isAccountLocked(req.db, user.id);
-        if (lockStatus.locked) {
-            if (lockStatus.reason === 'Account disabled') {
-                return res.status(403).json({ 
-                    error: 'Account disabled', 
-                    message: 'Your account has been disabled. Please contact the administrator.',
-                    code: 'ACCOUNT_DISABLED'
-                });
-            } else if (lockStatus.reason === 'Temporarily locked') {
-                const lockUntil = new Date(lockStatus.until);
-                return res.status(423).json({ 
-                    error: 'Account temporarily locked', 
-                    message: `Your account is temporarily locked due to multiple failed login attempts. Please try again after ${lockUntil.toLocaleString()}.`,
+        // Nothing here may tell a stranger whether the email has an account:
+        // an unknown email takes as long, fails the same way and even "locks"
+        // after as many attempts as a real one (services/signInHints.js).
+        const lockedReply = (until, attempts) => res.status(423).json({
+            error: 'Account temporarily locked',
+            message: `Your account is temporarily locked due to multiple failed login attempts. Please try again after ${new Date(until).toLocaleString()}.`,
+            code: 'ACCOUNT_LOCKED',
+            locked_until: new Date(until).toISOString(),
+            failed_attempts: attempts,
+        });
+        const wrongReply = ({ attempts, lockUntil }) => {
+            if (lockUntil) {
+                return res.status(423).json({
+                    error: 'Invalid credentials',
                     code: 'ACCOUNT_LOCKED',
-                    locked_until: lockStatus.until,
-                    failed_attempts: lockStatus.attempts
+                    message: `Too many failed login attempts. Your account has been temporarily locked until ${lockUntil.toLocaleString()}.`,
+                    locked_until: lockUntil.toISOString(),
+                    failed_attempts: attempts,
                 });
             }
+            return res.status(401).json({ error: 'Invalid credentials', message: 'Email or password is incorrect', failed_attempts: attempts });
+        };
+
+        if (!user) {
+            const ghost = hints.ghostLock(email);
+            if (ghost) return lockedReply(ghost.until, ghost.attempts);
+            await verifyPassword(password, hints.DUMMY_HASH);
+            return wrongReply(hints.ghostFailure(email));
+        }
+
+        // A temporary lock is checked before the password, so it cannot be
+        // brute-forced; unknown emails lock the same way (above).
+        const lockStatus = await isAccountLocked(req.db, user.id);
+        if (lockStatus.locked && lockStatus.reason === 'Temporarily locked') {
+            return lockedReply(lockStatus.until, lockStatus.attempts);
         }
 
         // Verify password
         const isValidPassword = await verifyPassword(password, user.password_hash);
         if (!isValidPassword) {
-            // Record failed login attempt
-            const { attempts, lockUntil } = await recordFailedLogin(req.db, user.id);
-            
-            let errorResponse = { 
-                error: 'Invalid credentials',
-                message: 'Email or password is incorrect',
-                failed_attempts: attempts
-            };
+            return wrongReply(await recordFailedLogin(req.db, user.id));
+        }
 
-            if (lockUntil) {
-                errorResponse.code = 'ACCOUNT_LOCKED';
-                errorResponse.message = `Too many failed login attempts. Your account has been temporarily locked until ${lockUntil.toLocaleString()}.`;
-                errorResponse.locked_until = lockUntil.toISOString();
-                return res.status(423).json(errorResponse);
-            }
-
-            return res.status(401).json(errorResponse);
+        // A disabled account is only said to be disabled to someone who knows
+        // its password.
+        if (lockStatus.locked && lockStatus.reason === 'Account disabled') {
+            return res.status(403).json({
+                error: 'Account disabled',
+                message: 'Your account has been disabled. Please contact the administrator.',
+                code: 'ACCOUNT_DISABLED'
+            });
         }
 
         // Successful login - reset failed attempts

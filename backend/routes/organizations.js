@@ -163,8 +163,7 @@ router.post('/', async (req, res) => {
                 fields.seat_limit, fields.notes ?? null, req.user.id]
         );
         await replaceContent(req.db, created.id, content);
-        if (ee) await orgs.grantReserve(req.db, created.id, 'ee', ee, req.user.id, 'Initial credits');
-        if (eo) await orgs.grantReserve(req.db, created.id, 'eo', eo, req.user.id, 'Initial credits');
+        if (ee || eo) await orgs.adjustReserve(req.db, created.id, 'grant', { ee, eo }, req.user.id, 'Initial credits');
         const account = await accounts.createAccount(req.db, created, 'org_admin', manager, req.user.id);
         await orgs.audit(req.db, created.id, req.user.id, 'company_created', {
             name: created.name, access_ends_at: created.access_ends_at, seat_limit: created.seat_limit, ee_credits: ee, eo_credits: eo,
@@ -272,16 +271,21 @@ router.put('/:id/content', async (req, res) => {
     } catch (err) { sendError(res, err, 'PUT /admin/organizations/:id/content'); }
 });
 
+/**
+ * Adds credits to the reserve or takes some back: `amounts: { ee, eo }` moves
+ * one kind or both at once (both or neither), or the older `type` + `amount`.
+ */
 router.post('/:id/credits', async (req, res) => {
     try {
         const org = await loadOrg(req);
-        const { action, type, amount } = req.body || {};
+        const { action } = req.body || {};
         const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 500) : null;
-        let reserve;
-        if (action === 'grant') reserve = await orgs.grantReserve(req.db, org.id, type, amount, req.user.id, notes);
-        else if (action === 'revoke') reserve = await orgs.revokeReserve(req.db, org.id, type, amount, req.user.id, notes);
-        else throw new OrgError('BAD_ACTION', 'The action must be grant or revoke.');
-        await orgs.audit(req.db, org.id, req.user.id, action === 'grant' ? 'credits_granted' : 'credits_revoked', { type, amount: Number(amount), reserve });
+        let amounts;
+        if (req.body?.amounts && typeof req.body.amounts === 'object') amounts = orgs.readAmounts(req.body.amounts);
+        else if (orgs.CREDIT_TYPES.includes(req.body?.type)) amounts = orgs.readAmounts({ [req.body.type]: req.body.amount });
+        else throw new OrgError('BAD_CREDIT_TYPE', 'Choose writing (EE) and/or speaking (EO) credits.');
+        const reserve = await orgs.adjustReserve(req.db, org.id, action, amounts, req.user.id, notes);
+        await orgs.audit(req.db, org.id, req.user.id, action === 'grant' ? 'credits_granted' : 'credits_revoked', { amounts, reserve });
         res.json({ reserve, credits: await orgs.creditSummary(req.db, org.id) });
     } catch (err) { sendError(res, err, 'POST /admin/organizations/:id/credits'); }
 });

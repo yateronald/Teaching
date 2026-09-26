@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntApp, Button, DatePicker, Drawer, Dropdown, Input, InputNumber, Modal, Popconfirm, Segmented, Skeleton, Tabs, Upload } from 'antd';
 import {
   ArrowLeftOutlined, BankOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, HistoryOutlined,
-  MailOutlined, MoreOutlined, PictureOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
+  MailOutlined, MinusOutlined, MoreOutlined, PictureOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
   UploadOutlined, UserAddOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -11,10 +11,12 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { FAMILY_CODE } from '../examAdminData';
 import {
-  auditText, call, creditName, errorText, familyOfRef, fmtDate, moveText, personName, ago,
+  auditText, call, chosenAmounts, creditName, errorText, familyOfRef, fmtDate, moveText, personName, ago,
 } from '../../Org/orgModel';
 import type { AuditEntry, Company, ContentRef, CreditMove, CreditType, Learner, Person } from '../../Org/orgModel';
 import ContentTreePicker from '../../Org/ContentTreePicker';
+import { AmountBoxes, CreditReceipt, KindPicker } from '../../Org/CreditControls';
+import type { Amounts, ReceiptLine } from '../../Org/CreditControls';
 import { indexTree } from '../../Org/contentTreeIndex';
 import type { ContentNode } from '../../Org/contentTreeIndex';
 import { Credits, Empty, Kpi, Level, LogoTile, StatePill } from '../../Org/OrgUi';
@@ -411,37 +413,58 @@ const ExtendModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onD
   );
 };
 
-/* ── Credits: add to or take back from the reserve ── */
+/* ── Credits: add to or take back from the reserve — writing, speaking or both at once ── */
 const CreditsModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onDone: () => void }> = ({ open, c, onClose, onDone }) => {
   const { apiCall } = useAuth();
   const { message } = AntApp.useApp();
   const [action, setAction] = useState<'grant' | 'revoke'>('grant');
-  const [type, setType] = useState<CreditType>('eo');
-  const [amount, setAmount] = useState<number | null>(10);
+  const [kinds, setKinds] = useState<CreditType[]>(['ee', 'eo']);
+  const [amounts, setAmounts] = useState<Amounts>({ ee: 10, eo: 10 });
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setAction('grant'); setAmount(10); setNotes(''); } }, [open]);
-  const reserve = c.credits[type].reserve;
-  const tooMuch = action === 'revoke' && (amount || 0) > reserve;
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { if (open) { setAction('grant'); setKinds(['ee', 'eo']); setAmounts({ ee: 10, eo: 10 }); setNotes(''); setErr(null); } }, [open]);
+  const grant = action === 'grant';
+  const lines: ReceiptLine[] = kinds.map(t => {
+    const n = amounts[t] || 0;
+    const reserve = c.credits[t].reserve;
+    const after = grant ? reserve + n : reserve - n;
+    const ok = n > 0 && after >= 0;
+    return {
+      kind: t,
+      ok,
+      what: `${creditName(t, 'en')} reserve`,
+      detail: after < 0 ? `It holds ${reserve}: credits already with learners must be taken back from them first` : `${reserve} → ${after}`,
+      total: `${grant ? '+' : '−'}${n}`,
+    };
+  });
+  const ready = lines.every(l => l.ok);
   const save = async () => {
-    setBusy(true);
+    setBusy(true); setErr(null);
     try {
-      const r = await call<{ reserve: number }>(apiCall, `/admin/organizations/${c.id}/credits`, 'POST', { action, type, amount, notes: notes.trim() || null });
-      message.success(`${action === 'grant' ? 'Added' : 'Taken back'} · the ${type.toUpperCase()} reserve is now ${r.reserve}`);
+      const r = await call<{ reserve: Record<CreditType, number> }>(apiCall, `/admin/organizations/${c.id}/credits`, 'POST',
+        { action, amounts: chosenAmounts(kinds, amounts), notes: notes.trim() || null });
+      message.success(`${grant ? 'Added' : 'Taken back'} · reserve now ${r.reserve.ee} EE and ${r.reserve.eo} EO`);
       onDone();
-    } catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
+    } catch (e) { setErr(errorText(e, en)); } finally { setBusy(false); }
   };
   return (
-    <Modal open={open} onCancel={onClose} onOk={save} okText={action === 'grant' ? 'Add credits' : 'Take credits back'} okButtonProps={{ loading: busy, disabled: !amount || tooMuch, danger: action === 'revoke' }}
-      title="Company credits" wrapClassName="og-modal" width={460}>
+    <Modal open={open} onCancel={onClose} footer={null} wrapClassName="og-modal" width={520} destroyOnHidden>
+      <div className="og-modal-head"><span className="og-logo"><ThunderboltOutlined /></span><div>
+        <h3>Company credits</h3><p>{c.name} · the reserve its managers hand out from</p></div></div>
       <div className="og-form">
-        <Segmented block value={action} onChange={v => setAction(v as 'grant' | 'revoke')} options={[{ value: 'grant', label: <><PlusOutlined /> Add</> }, { value: 'revoke', label: 'Take back' }]} />
-        <Segmented block value={type} onChange={v => setType(v as CreditType)} options={[
-          { value: 'eo', label: `Speaking (EO) · ${c.credits.eo.reserve}` }, { value: 'ee', label: `Writing (EE) · ${c.credits.ee.reserve}` },
-        ]} />
-        <InputNumber min={1} max={100000} value={amount} onChange={v => setAmount(v)} style={{ width: '100%' }} addonAfter="credits" />
+        <Segmented block value={action} onChange={v => { setAction(v as 'grant' | 'revoke'); setErr(null); }}
+          options={[{ value: 'grant', label: <><PlusOutlined /> Add</> }, { value: 'revoke', label: <><MinusOutlined /> Take back</> }]} />
+        <div className="og-field"><label>Which credits <em>one or both</em></label>
+          <KindPicker value={kinds} onChange={setKinds} lang="en" note={t => `${c.credits[t].reserve} in reserve · ${c.credits[t].with_learners} with learners`} /></div>
+        <AmountBoxes kinds={kinds} values={amounts} onChange={setAmounts} label={t => `${creditName(t, 'en')} credits`} />
+        <CreditReceipt lines={lines} />
         <Input value={notes} onChange={e => setNotes(e.target.value)} maxLength={500} placeholder="Note (optional), e.g. invoice number" />
-        {tooMuch && <div className="og-check tone-bad"><WarningOutlined /><span>The reserve holds {reserve}. Credits already with learners must be taken back from them first.</span></div>}
+        {err && <div className="og-check tone-bad"><WarningOutlined /><span>{err}</span></div>}
+        <div className="og-foot">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button type="primary" danger={!grant} onClick={save} loading={busy} disabled={!ready}>{grant ? 'Add credits' : 'Take credits back'}</Button>
+        </div>
       </div>
     </Modal>
   );
