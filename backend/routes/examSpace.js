@@ -15,6 +15,7 @@ const { hasTable } = require('../services/schemaFeatures');
 const scale = require('../services/examScale');
 const candidates = require('../services/candidateService');
 const aiCredits = require('../services/aiCreditService');
+const { learnerAssignments } = require('../services/examAccessService');
 
 const router = express.Router();
 router.use(authenticateToken, authorizeRoles('candidate', 'student'));
@@ -50,46 +51,70 @@ function shape(skill, row) {
     };
 }
 
-/** Completed attempts of the user, newest first, optionally for one skill. */
-async function history(db, userId, { skill = null, limit = 500 } = {}) {
+/**
+ * The SQL of completed attempts for each skill. `who` is the condition on the
+ * learner column ("= $1" for one learner, "= ANY($1::int[])" for several);
+ * every row carries the learner id as uid.
+ */
+async function attemptQueries(db, who, skill = null) {
     const parts = [];
     const want = (k) => !skill || skill === k;
     if (want('ce') && (await hasTable(db, 'tcf_ce_quiz_attempts'))) {
-        parts.push(`SELECT 'ce' AS skill, a.id, s.name AS title, a.completed_at AS at, a.earned_points AS score,
+        parts.push(`SELECT 'ce' AS skill, a.student_id AS uid, a.id, s.name AS title, a.completed_at AS at, a.earned_points AS score,
                 a.time_spent_seconds AS duration, (a.correct_count || '/' || a.total_questions) AS detail
             FROM tcf_ce_quiz_attempts a JOIN tcf_ce_series s ON s.id = a.series_id
-            WHERE a.student_id = $1 AND a.completed_at IS NOT NULL`);
+            WHERE a.student_id ${who} AND a.completed_at IS NOT NULL`);
     }
     if (want('co')) {
-        parts.push(`SELECT 'co' AS skill, a.id, s.name AS title, a.completed_at AS at, a.earned_points AS score,
+        parts.push(`SELECT 'co' AS skill, a.student_id AS uid, a.id, s.name AS title, a.completed_at AS at, a.earned_points AS score,
                 a.time_spent_seconds AS duration, (a.correct_count || '/' || a.total_questions) AS detail
             FROM tcf_co_quiz_attempts a JOIN tcf_co_series s ON s.id = a.series_id
-            WHERE a.student_id = $1 AND a.completed_at IS NOT NULL`);
+            WHERE a.student_id ${who} AND a.completed_at IS NOT NULL`);
     }
     if (want('ee')) {
-        parts.push(`SELECT 'ee' AS skill, s.id, TRIM(COALESCE(c.name, 'Combinaison') || ' · ' || COALESCE(m.month_name, '') || ' ' || COALESCE(y.year::text, '')) AS title,
+        parts.push(`SELECT 'ee' AS skill, s.student_id AS uid, s.id, TRIM(COALESCE(c.name, 'Combinaison') || ' · ' || COALESCE(m.month_name, '') || ' ' || COALESCE(y.year::text, '')) AS title,
                 COALESCE(s.submitted_at, s.started_at) AS at, s.average_score AS score, s.time_used_seconds AS duration, NULL::text AS detail
             FROM tcf_ee_simulations s
             LEFT JOIN tcf_ee_combinaisons c ON c.id = s.combinaison_id
             LEFT JOIN tcf_ee_months m ON m.id = c.month_id
             LEFT JOIN tcf_ee_years y ON y.id = m.year_id
-            WHERE s.student_id = $1 AND s.status = 'completed'`);
+            WHERE s.student_id ${who} AND s.status = 'completed'`);
     }
     if (want('eo')) {
-        parts.push(`SELECT 'eo' AS skill, s.id, TRIM(COALESCE(p.name, 'Simulation') || ' · ' || COALESCE(m.month_name, '') || ' ' || COALESCE(y.year::text, '')) AS title,
+        parts.push(`SELECT 'eo' AS skill, s.user_id AS uid, s.id, TRIM(COALESCE(p.name, 'Simulation') || ' · ' || COALESCE(m.month_name, '') || ' ' || COALESCE(y.year::text, '')) AS title,
                 s.completed_at AS at, s.overall_score AS score, s.duration_seconds AS duration, NULL::text AS detail
             FROM eo_simulations s
             LEFT JOIN tcf_eo_parties p ON p.id = s.partie_id
             LEFT JOIN tcf_eo_months m ON m.id = p.month_id
             LEFT JOIN tcf_eo_years y ON y.id = m.year_id
-            WHERE s.user_id = $1 AND s.status = 'completed'`);
+            WHERE s.user_id ${who} AND s.status = 'completed'`);
     }
+    return parts;
+}
+
+/** Completed attempts of the user, newest first, optionally for one skill. */
+async function history(db, userId, { skill = null, limit = 500 } = {}) {
+    const parts = await attemptQueries(db, '= $1', skill);
     if (!parts.length) return [];
     const rows = await db.all(
         `SELECT * FROM (${parts.join(' UNION ALL ')}) h WHERE h.at IS NOT NULL ORDER BY h.at DESC LIMIT $2`,
         [userId, limit]
     );
     return rows.map(r => shape(r.skill, r));
+}
+
+/** Completed attempts of several learners (a company's), newest first: learner id → attempts. */
+async function historyOf(db, userIds, { limit = 20000 } = {}) {
+    const ids = [...new Set((userIds || []).map(Number).filter(Number.isInteger))];
+    const out = new Map(ids.map(id => [id, []]));
+    if (!ids.length) return out;
+    const parts = await attemptQueries(db, '= ANY($1::int[])');
+    const rows = await db.all(
+        `SELECT * FROM (${parts.join(' UNION ALL ')}) h WHERE h.at IS NOT NULL ORDER BY h.at DESC LIMIT $2`,
+        [ids, limit]
+    );
+    for (const r of rows) out.get(Number(r.uid))?.push(shape(r.skill, r));
+    return out;
 }
 
 /** Per-skill figures: attempts, best, latest and an estimate from the three latest results. */
@@ -111,14 +136,9 @@ function skillSummary(skill, attempts) {
     };
 }
 
-/** What is open to the learner (direct and batch assignments), with readable names and end dates. */
+/** What is open to the learner (direct, batch and company-group assignments, company dates applied), with readable names and end dates. */
 async function accessList(db, userId) {
-    const rows = await db.all(`
-        SELECT a.content_type, a.content_id, a.expires_at, a.assigned_at, a.group_name
-        FROM tcf_exam_assignments a
-        WHERE a.student_id = $1 OR a.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $1)
-        ORDER BY a.expires_at ASC NULLS LAST
-    `, [userId]);
+    const rows = await learnerAssignments(db, userId);
     const ids = (type) => [...new Set(rows.filter(r => r.content_type === type).map(r => Number(r.content_id)))];
     const names = new Map();
     const load = async (type, sql) => {
@@ -161,50 +181,56 @@ async function accessList(db, userId) {
             || ((a.expires_at ? new Date(a.expires_at).getTime() : Infinity) - (b.expires_at ? new Date(b.expires_at).getTime() : Infinity)));
 }
 
+/** Everything the exam dashboard shows for one learner (also used by their company's space). */
+async function buildOverview(db, userId, role) {
+    const [all, access, credits, goal] = await Promise.all([
+        history(db, userId, { limit: 400 }),
+        accessList(db, userId),
+        aiCredits.getBalance(db, userId).catch(() => null),
+        role === 'candidate' ? candidates.getGoal(db, userId) : Promise.resolve(null),
+    ]);
+
+    const skills = SKILLS.map(k => skillSummary(k, all.filter(a => a.skill === k)));
+    const estimates = skills.filter(s => s.estimate);
+    const withNclc = estimates.filter(s => s.estimate.nclc != null);
+    const active = access.filter(a => a.active);
+    const upcomingEnd = active.filter(a => a.expires_at).map(a => a.expires_at).sort()[0] || null;
+
+    const since = Date.now() - 30 * 86400e3;
+    return {
+        role,
+        goal,
+        credits: credits ? { ee: Number(credits.ee_credits) || 0, eo: Number(credits.eo_credits) || 0 } : null,
+        skills,
+        level: {
+            // Immigration files are judged on the weakest skill, so the overall level is the lowest one.
+            nclc: withNclc.length === 4 ? Math.min(...withNclc.map(s => s.estimate.nclc)) : null,
+            skills_measured: estimates.length,
+            // Every skill measured, but at least one is still under the NCLC 4 threshold
+            below_4: estimates.length === 4 && withNclc.length < 4,
+            weakest: estimates.length ? estimates.reduce((w, s) => (s.estimate.percent < w.estimate.percent ? s : w)).skill : null,
+        },
+        activity: {
+            total: all.length,
+            last_30_days: all.filter(a => new Date(a.at).getTime() >= since).length,
+            minutes: Math.round(all.reduce((s, a) => s + (a.duration_seconds || 0), 0) / 60),
+            last_at: all[0]?.at || null,
+        },
+        access: {
+            active_items: active.length,
+            next_end: upcomingEnd,
+            items: access.slice(0, 60),
+        },
+        recent: all.slice(0, 8),
+    };
+}
+
 // GET /overview — everything the exam dashboard shows, in one call
 router.get('/overview', async (req, res) => {
     try {
-        const userId = req.user.id;
-        const [all, access, credits, goal] = await Promise.all([
-            history(req.db, userId, { limit: 400 }),
-            accessList(req.db, userId),
-            aiCredits.getBalance(req.db, userId).catch(() => null),
-            req.user.role === 'candidate' ? candidates.getGoal(req.db, userId) : Promise.resolve(null),
-        ]);
-
-        const skills = SKILLS.map(k => skillSummary(k, all.filter(a => a.skill === k)));
-        const estimates = skills.filter(s => s.estimate);
-        const withNclc = estimates.filter(s => s.estimate.nclc != null);
-        const active = access.filter(a => a.active);
-        const upcomingEnd = active.filter(a => a.expires_at).map(a => a.expires_at).sort()[0] || null;
-
-        const since = Date.now() - 30 * 86400e3;
-        res.json({
-            role: req.user.role,
-            goal,
-            credits: credits ? { ee: Number(credits.ee_credits) || 0, eo: Number(credits.eo_credits) || 0 } : null,
-            skills,
-            level: {
-                // Immigration files are judged on the weakest skill, so the overall level is the lowest one.
-                nclc: withNclc.length === 4 ? Math.min(...withNclc.map(s => s.estimate.nclc)) : null,
-                skills_measured: estimates.length,
-                // Every skill measured, but at least one is still under the NCLC 4 threshold
-                below_4: estimates.length === 4 && withNclc.length < 4,
-                weakest: estimates.length ? estimates.reduce((w, s) => (s.estimate.percent < w.estimate.percent ? s : w)).skill : null,
-            },
-            activity: {
-                total: all.length,
-                last_30_days: all.filter(a => new Date(a.at).getTime() >= since).length,
-                minutes: Math.round(all.reduce((s, a) => s + (a.duration_seconds || 0), 0) / 60),
-                last_at: all[0]?.at || null,
-            },
-            access: {
-                active_items: active.length,
-                next_end: upcomingEnd,
-                items: access.slice(0, 60),
-            },
-            recent: all.slice(0, 8),
-        });
+        const overview = await buildOverview(req.db, req.user.id, req.user.role);
+        // A company learner's dashboard carries the company's name, logo and state.
+        res.json({ ...overview, organization: req.user.organization || null });
     } catch (error) {
         console.error('GET /exam-space/overview error:', error);
         res.status(500).json({ error: 'Could not load your exam dashboard.' });
@@ -255,3 +281,7 @@ router.put('/goal', authorizeRoles('candidate'), async (req, res) => {
 
 module.exports = router;
 module.exports.history = history;
+module.exports.buildOverview = buildOverview;
+module.exports.SKILLS = SKILLS;
+module.exports.historyOf = historyOf;
+module.exports.skillSummary = skillSummary;

@@ -25,13 +25,24 @@ export const SKILLS: Record<SkillKey, SkillMeta> = {
 };
 export const SKILL_ORDER: SkillKey[] = ['ce', 'co', 'ee', 'eo'];
 
+export type Lang = 'en' | 'fr';
+type Tr = (en: string, fr: string) => string;
+/** The skill's name in the reader's language, and the other one (shown smaller). */
+export const skillName = (k: SkillKey, lang: Lang = 'en') => (lang === 'fr' ? SKILLS[k].french : SKILLS[k].english);
+export const skillOther = (k: SkillKey, lang: Lang = 'en') => (lang === 'fr' ? SKILLS[k].english : SKILLS[k].french);
+const FORMAT_FR: Record<SkillKey, string> = {
+    ce: '39 questions · 60 min', co: '39 questions · 35 min',
+    ee: '3 tâches · 60 min · correction IA', eo: '3 tâches · 12 min · examinateur IA',
+};
+export const skillFormat = (k: SkillKey, lang: Lang = 'en') => (lang === 'fr' ? FORMAT_FR[k] : SKILLS[k].format);
+
 export const EXAM_LABEL: Record<ExamTarget, string> = {
     tcf_canada: 'TCF Canada',
     tcf_quebec: 'TCF Québec',
     tcf_tp: 'TCF Tout public',
 };
 export const NCLC_OPTIONS = [4, 5, 6, 7, 8, 9, 10];
-/** What each NCLC level usually unlocks, for candidates aiming at Canada. */
+/** What each NCLC level usually unlocks, for candidates aiming at Canada (English; see nclcNote). */
 export const NCLC_NOTE: Record<number, string> = {
     4: 'Canadian citizenship (speaking and listening)',
     5: 'Canadian Experience Class for TEER 2–3 jobs, several provincial programmes',
@@ -41,6 +52,17 @@ export const NCLC_NOTE: Record<number, string> = {
     9: 'Top of the Federal Skilled Worker language grid',
     10: 'Highest Express Entry language points',
 };
+
+const NCLC_NOTE_FR: Record<number, string> = {
+    4: 'Citoyenneté canadienne (oral et compréhension orale)',
+    5: 'Catégorie de l’expérience canadienne pour les emplois FEER 2–3, plusieurs programmes provinciaux',
+    6: 'Exigé par certains volets des programmes des candidats des provinces',
+    7: 'Entrée express : minimum des travailleurs qualifiés et points bonus pour le français',
+    8: 'Un score linguistique solide pour Entrée express',
+    9: 'Haut de la grille linguistique des travailleurs qualifiés',
+    10: 'Maximum des points linguistiques d’Entrée express',
+};
+export const nclcNote = (n: number, lang: Lang = 'en') => (lang === 'fr' ? NCLC_NOTE_FR[n] : NCLC_NOTE[n]);
 
 export interface Goal { target_exam: ExamTarget; target_nclc: number | null; exam_date: string | null }
 
@@ -89,25 +111,26 @@ export const scoreUnit = (max: number) => (max === 699 ? '/ 699' : '/ 20');
 
 const asDate = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
 
-export const dateText = (iso: string | null | undefined, withYear = true) => {
+export const dateText = (iso: string | null | undefined, withYear = true, locale = 'en-GB') => {
     if (!iso) return '—';
     const d = asDate(iso);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(locale, { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
 };
 
-export const longDate = (iso: string | null | undefined) => {
+export const longDate = (iso: string | null | undefined, locale = 'en-GB') => {
     if (!iso) return '—';
     const d = asDate(iso);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 };
 
-export const agoText = (iso: string | null | undefined) => {
-    if (!iso) return 'never';
+const english: Tr = (en) => en;
+export const agoText = (iso: string | null | undefined, tr: Tr = english, locale = 'en-GB') => {
+    if (!iso) return tr('never', 'jamais');
     const days = Math.floor((Date.now() - asDate(iso).getTime()) / 86_400_000);
-    if (days <= 0) return 'today';
-    if (days === 1) return 'yesterday';
-    if (days < 30) return `${days} days ago`;
-    return dateText(iso);
+    if (days <= 0) return tr('today', 'aujourd’hui');
+    if (days === 1) return tr('yesterday', 'hier');
+    if (days < 30) return tr(`${days} days ago`, `il y a ${days} jours`);
+    return dateText(iso, true, locale);
 };
 
 /** Whole days from today to a calendar date (negative when it has passed). */
@@ -134,7 +157,7 @@ export const durationText = (seconds: number | null | undefined) => {
 
 export const minutesText = (minutes: number) => (minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60 ? `${minutes % 60} min` : ''}`.trim());
 
-export const greeting = (d = new Date()) => (d.getHours() < 12 ? 'Good morning' : d.getHours() < 18 ? 'Good afternoon' : 'Good evening');
+export const greeting = (d = new Date(), tr: Tr = english) => (d.getHours() < 12 ? tr('Good morning', 'Bonjour') : d.getHours() < 18 ? tr('Good afternoon', 'Bonjour') : tr('Good evening', 'Bonsoir'));
 
 /** Reached / close / below a target level. */
 export const toneFor = (nclc: number | null | undefined, target: number | null | undefined): 'good' | 'fair' | 'weak' | 'none' => {

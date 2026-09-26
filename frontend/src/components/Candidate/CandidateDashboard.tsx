@@ -8,10 +8,11 @@ import {
 } from '@ant-design/icons';
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTr } from '../../utils/useTr';
 import ExamGoalEditor from './ExamGoalEditor';
 import {
-    EXAM_LABEL, NCLC_NOTE, SKILLS, SKILL_ORDER, agoText, dateText, daysLeft, daysUntil, greeting, longDate, minutesText,
-    plural, scoreText, scoreUnit, toneFor,
+    EXAM_LABEL, SKILLS, SKILL_ORDER, agoText, dateText, daysLeft, daysUntil, greeting, longDate, minutesText,
+    nclcNote, scoreText, scoreUnit, skillFormat, skillName, skillOther, toneFor,
     type Attempt, type Goal, type Overview, type SkillKey, type SkillSummary,
 } from './candidateModel';
 import './Candidate.css';
@@ -63,6 +64,7 @@ const NclcScale: React.FC<{ value: number | null; target: number | null }> = ({ 
 };
 
 const ChartTip: React.FC<{ active?: boolean; payload?: { payload: { t: number; v: number; score: number; skill: SkillKey } }[] }> = ({ active, payload }) => {
+    const { lang, locale } = useTr();
     if (!active || !payload?.length) return null;
     const p = payload[0].payload;
     const s = SKILLS[p.skill];
@@ -70,33 +72,34 @@ const ChartTip: React.FC<{ active?: boolean; payload?: { payload: { t: number; v
         <div className="cx-chart-tip">
             <span className="cx-dot" style={{ background: s.color }} />
             <div>
-                <strong>{s.english} · {p.v}%</strong>
-                <span>{scoreText(p.score, s.max)} {scoreUnit(s.max)} · {dateText(new Date(p.t).toISOString())}</span>
+                <strong>{skillName(p.skill, lang)} · {p.v}%</strong>
+                <span>{scoreText(p.score, s.max)} {scoreUnit(s.max)} · {dateText(new Date(p.t).toISOString(), true, locale)}</span>
             </div>
         </div>
     );
 };
 
 const ProgressChart: React.FC<{ skills: SkillSummary[] }> = ({ skills }) => {
+    const { tr, lang, locale } = useTr();
     const [hidden, setHidden] = useState<SkillKey[]>([]);
     const series = skills
         .filter(s => s.trend.length)
         .map(s => ({ skill: s.skill, data: s.trend.map(p => ({ t: new Date(p.at).getTime(), v: p.percent, score: p.score, skill: s.skill })) }));
     const all = series.flatMap(s => s.data.map(d => d.t));
     if (all.length < 2) {
-        return <div className="cx-empty-note">Your progress curve appears after two results. Every practice counts.</div>;
+        return <div className="cx-empty-note">{tr('Your progress curve appears after two results. Every practice counts.', 'Votre courbe de progression apparaît après deux résultats. Chaque entraînement compte.')}</div>;
     }
     let min = Math.min(...all), max = Math.max(...all);
     if (min === max) { min -= 86_400_000; max += 86_400_000; }
     return (
         <>
-            <div className="cx-legend" role="group" aria-label="Show skills">
+            <div className="cx-legend" role="group" aria-label={tr('Show skills', 'Afficher les compétences')}>
                 {series.map(s => {
                     const off = hidden.includes(s.skill);
                     return (
                         <button key={s.skill} type="button" className={`cx-legend-item${off ? ' is-off' : ''}`} aria-pressed={!off}
                             onClick={() => setHidden(h => (off ? h.filter(k => k !== s.skill) : [...h, s.skill]))}>
-                            <span className="cx-dot" style={{ background: SKILLS[s.skill].color }} />{SKILLS[s.skill].english}
+                            <span className="cx-dot" style={{ background: SKILLS[s.skill].color }} />{skillName(s.skill, lang)}
                         </button>
                     );
                 })}
@@ -106,13 +109,13 @@ const ProgressChart: React.FC<{ skills: SkillSummary[] }> = ({ skills }) => {
                     <LineChart margin={{ top: 8, right: 12, bottom: 0, left: -14 }}>
                         <CartesianGrid stroke="#f1f5f9" vertical={false} />
                         <XAxis dataKey="t" type="number" scale="time" domain={[min, max]} allowDuplicatedCategory={false}
-                            tickFormatter={t => dateText(new Date(t).toISOString(), false)} tick={{ fontSize: 11, fill: '#94a3b8' }}
+                            tickFormatter={t => dateText(new Date(t).toISOString(), false, locale)} tick={{ fontSize: 11, fill: '#94a3b8' }}
                             axisLine={false} tickLine={false} minTickGap={28} />
                         <YAxis domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} tickFormatter={v => `${v}%`}
                             tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={48} />
                         <ChartTooltip content={<ChartTip />} cursor={{ stroke: '#e2e8f0' }} />
                         {series.filter(s => !hidden.includes(s.skill)).map(s => (
-                            <Line key={s.skill} data={s.data} dataKey="v" name={SKILLS[s.skill].english} type="monotone"
+                            <Line key={s.skill} data={s.data} dataKey="v" name={skillName(s.skill, lang)} type="monotone"
                                 stroke={SKILLS[s.skill].color} strokeWidth={2} dot={{ r: 3, strokeWidth: 1.5, fill: '#fff' }}
                                 activeDot={{ r: 5 }} isAnimationActive={false} />
                         ))}
@@ -126,8 +129,12 @@ const ProgressChart: React.FC<{ skills: SkillSummary[] }> = ({ skills }) => {
 /* ══════════════════════════════════════════ */
 const CandidateDashboard: React.FC = () => {
     const { apiCall, user } = useAuth();
+    const { tr, lang, locale } = useTr();
     const navigate = useNavigate();
     const [data, setData] = useState<Overview | null>(null);
+    // Company learners get their content from their company; others from the school's administrator.
+    const opener = user?.organization ? tr('your company', 'votre entreprise') : tr('your administrator', 'votre administrateur');
+    const Opener = opener.charAt(0).toUpperCase() + opener.slice(1);
     const [tree, setTree] = useState<TreeNode[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -137,12 +144,12 @@ const CandidateDashboard: React.FC = () => {
         setLoading(true);
         setError(null);
         try {
-            const [ov, tr] = await Promise.all([apiCall('/exam-space/overview'), apiCall('/tcf/student/content-tree')]);
-            if (!ov.ok) throw new Error((await ov.json().catch(() => ({}))).error || 'Your dashboard could not be loaded.');
+            const [ov, tree] = await Promise.all([apiCall('/exam-space/overview'), apiCall('/tcf/student/content-tree')]);
+            if (!ov.ok) throw new Error((await ov.json().catch(() => ({}))).error || '');
             setData(await ov.json());
-            setTree(tr.ok ? await tr.json() : []);
+            setTree(tree.ok ? await tree.json() : []);
         } catch (e) {
-            setError((e as Error).message || 'Your dashboard could not be loaded.');
+            setError((e as Error).message || '');
         } finally {
             setLoading(false);
         }
@@ -169,7 +176,7 @@ const CandidateDashboard: React.FC = () => {
         return out;
     }, [tree, data]);
 
-    const firstName = user?.first_name || 'there';
+    const firstName = user?.first_name || '';
     const goal: Goal | null = data?.goal ?? null;
     const examIn = daysUntil(goal?.exam_date);
     const target = goal?.target_nclc ?? null;
@@ -189,8 +196,8 @@ const CandidateDashboard: React.FC = () => {
             <div className="cx">
                 <div className="cx-alert" role="alert">
                     <WarningOutlined />
-                    <div><strong>Your dashboard could not be loaded.</strong><span>{error}</span></div>
-                    <Button icon={<ReloadOutlined />} onClick={load}>Try again</Button>
+                    <div><strong>{tr('Your dashboard could not be loaded.', 'Votre tableau de bord n’a pas pu être chargé.')}</strong><span>{error}</span></div>
+                    <Button icon={<ReloadOutlined />} onClick={load}>{tr('Try again', 'Réessayer')}</Button>
                 </div>
             </div>
         );
@@ -199,11 +206,11 @@ const CandidateDashboard: React.FC = () => {
     const skillsBy = Object.fromEntries(data.skills.map(s => [s.skill, s])) as Record<SkillKey, SkillSummary>;
     const openSkills = SKILL_ORDER.filter(k => availability[k].open).length;
     const subtitle = examIn == null
-        ? 'Practise the four skills of the exam in real conditions and follow your level as you go.'
-        : examIn > 1 ? `Your exam is in ${examIn} days. Keep every skill moving.`
-            : examIn === 1 ? 'Your exam is tomorrow. Rest well — bonne chance !'
-                : examIn === 0 ? 'Your exam is today. Bonne chance !'
-                    : 'Your exam date has passed. Update your goal if you are sitting it again.';
+        ? tr('Practise the four skills of the exam in real conditions and follow your level as you go.', 'Entraînez-vous aux quatre compétences de l’examen en conditions réelles et suivez votre niveau au fil du temps.')
+        : examIn > 1 ? tr(`Your exam is in ${examIn} days. Keep every skill moving.`, `Votre examen est dans ${examIn} jours. Faites progresser chaque compétence.`)
+            : examIn === 1 ? tr('Your exam is tomorrow. Rest well — bonne chance !', 'Votre examen est demain. Reposez-vous bien — bonne chance !')
+                : examIn === 0 ? tr('Your exam is today. Bonne chance !', 'Votre examen est aujourd’hui. Bonne chance !')
+                    : tr('Your exam date has passed. Update your goal if you are sitting it again.', 'La date de votre examen est passée. Mettez à jour votre objectif si vous le repassez.');
     const endingSoon = data.access.items.filter(i => i.active && i.expires_at && (daysLeft(i.expires_at) ?? 99) <= 7);
     const activeItems = data.access.items.filter(i => i.active);
     const endedItems = data.access.items.filter(i => !i.active);
@@ -215,13 +222,13 @@ const CandidateDashboard: React.FC = () => {
                 {/* ── Greeting ── */}
                 <header className="cx-head">
                     <div className="cx-head-text">
-                        <div className="cx-overline">Exam space · {EXAM_LABEL[goal?.target_exam || 'tcf_canada']}</div>
-                        <h1 className="cx-title">{greeting()}, {firstName}</h1>
+                        <div className="cx-overline">{user?.organization ? user.organization.name : tr('Exam space', 'Espace examen')} · {EXAM_LABEL[goal?.target_exam || 'tcf_canada']}</div>
+                        <h1 className="cx-title">{greeting(new Date(), tr)}{firstName ? `, ${firstName}` : ''}</h1>
                         <p className="cx-subtitle">{subtitle}</p>
                     </div>
                     <div className="cx-head-actions">
-                        <Button icon={<TrophyOutlined />} onClick={() => navigate('/app/exam-results')}>My results</Button>
-                        <Button type="primary" icon={<ReadOutlined />} onClick={() => navigate('/app/exam-practice')}>Practise now</Button>
+                        <Button icon={<TrophyOutlined />} onClick={() => navigate('/app/exam-results')}>{tr('My results', 'Mes résultats')}</Button>
+                        <Button type="primary" icon={<ReadOutlined />} onClick={() => navigate('/app/exam-practice')}>{tr('Practise now', 'S’entraîner')}</Button>
                     </div>
                 </header>
 
@@ -229,69 +236,69 @@ const CandidateDashboard: React.FC = () => {
                     <div className="cx-notice" role="status">
                         <ClockCircleOutlined />
                         <span>
-                            <strong>{plural(endingSoon.length, 'practice item')} {endingSoon.length === 1 ? 'closes' : 'close'} soon.</strong>{' '}
-                            {endingSoon.slice(0, 2).map(i => `${i.name} (${dateText(i.expires_at, false)})`).join(', ')}
-                            {endingSoon.length > 2 ? ` and ${endingSoon.length - 2} more` : ''}. Ask your administrator if you need more time.
+                            <strong>{tr(`${endingSoon.length} practice item${endingSoon.length === 1 ? ' closes' : 's close'} soon.`, `${endingSoon.length} entraînement${endingSoon.length === 1 ? ' se ferme' : 's se ferment'} bientôt.`)}</strong>{' '}
+                            {endingSoon.slice(0, 2).map(i => `${i.name} (${dateText(i.expires_at, false, locale)})`).join(', ')}
+                            {endingSoon.length > 2 ? tr(` and ${endingSoon.length - 2} more`, ` et ${endingSoon.length - 2} autre(s)`) : ''}. {tr(`Ask ${opener} if you need more time.`, `Demandez à ${opener} si vous avez besoin de plus de temps.`)}
                         </span>
                     </div>
                 )}
 
                 {/* ── Goal hero ── */}
-                <section className="cx-hero" aria-label="Your exam goal">
+                <section className="cx-hero" aria-label={tr('Your exam goal', 'Votre objectif d’examen')}>
                     <div className="cx-hero-block cx-countdown">
-                        <span className="cx-hero-label"><CalendarOutlined /> Exam day</span>
+                        <span className="cx-hero-label"><CalendarOutlined /> {tr('Exam day', 'Jour de l’examen')}</span>
                         {examIn != null && examIn >= 0 ? (
                             <>
-                                <div className="cx-countdown-value"><b>{examIn}</b><span>{examIn === 1 ? 'day left' : 'days left'}</span></div>
-                                <span className="cx-hero-note">{longDate(goal?.exam_date)}</span>
+                                <div className="cx-countdown-value"><b>{examIn}</b><span>{examIn === 1 ? tr('day left', 'jour restant') : tr('days left', 'jours restants')}</span></div>
+                                <span className="cx-hero-note">{longDate(goal?.exam_date, locale)}</span>
                             </>
                         ) : (
                             <>
-                                <div className="cx-countdown-value is-empty">{examIn != null ? 'Passed' : 'Not set'}</div>
+                                <div className="cx-countdown-value is-empty">{examIn != null ? tr('Passed', 'Passé') : tr('Not set', 'Non défini')}</div>
                                 <button type="button" className="cx-hero-link" onClick={() => setGoalOpen(true)}>
-                                    {examIn != null ? 'Update your exam date' : 'Add your exam date'} <RightOutlined />
+                                    {examIn != null ? tr('Update your exam date', 'Modifier la date d’examen') : tr('Add your exam date', 'Ajouter la date d’examen')} <RightOutlined />
                                 </button>
                             </>
                         )}
                     </div>
 
                     <div className="cx-hero-block cx-level">
-                        <span className="cx-hero-label"><SafetyCertificateOutlined /> Estimated level</span>
+                        <span className="cx-hero-label"><SafetyCertificateOutlined /> {tr('Estimated level', 'Niveau estimé')}</span>
                         <div className="cx-level-row">
                             <div className="cx-level-value">
-                                {data.level.nclc != null ? <><b>NCLC {data.level.nclc}</b><span>lowest of your four skills</span></>
-                                    : data.level.below_4 ? <><b>Below NCLC 4</b><span>lowest of your four skills</span></>
-                                        : <><b className="is-empty">—</b><span>{data.level.skills_measured}/4 skills measured</span></>}
+                                {data.level.nclc != null ? <><b>NCLC {data.level.nclc}</b><span>{tr('lowest of your four skills', 'la plus faible de vos quatre compétences')}</span></>
+                                    : data.level.below_4 ? <><b>{tr('Below NCLC 4', 'Sous NCLC 4')}</b><span>{tr('lowest of your four skills', 'la plus faible de vos quatre compétences')}</span></>
+                                        : <><b className="is-empty">—</b><span>{tr(`${data.level.skills_measured}/4 skills measured`, `${data.level.skills_measured}/4 compétences évaluées`)}</span></>}
                             </div>
                             <div className="cx-level-target">
-                                <span>Target</span>
+                                <span>{tr('Target', 'Objectif')}</span>
                                 <b>{target ? `NCLC ${target}` : '—'}</b>
                             </div>
                         </div>
                         <NclcScale value={data.level.nclc} target={target} />
                         <span className="cx-hero-note">
                             {data.level.nclc == null && !data.level.below_4
-                                ? 'Practise all four skills to see your overall level.'
-                                : target && data.level.nclc != null && data.level.nclc >= target ? 'You are at your target level. Keep it steady on exam day.'
-                                    : weakest ? `Your ${weakest.english.toLowerCase()} decides your level for now — start there.` : ''}
+                                ? tr('Practise all four skills to see your overall level.', 'Entraînez-vous aux quatre compétences pour voir votre niveau global.')
+                                : target && data.level.nclc != null && data.level.nclc >= target ? tr('You are at your target level. Keep it steady on exam day.', 'Vous êtes à votre niveau cible. Gardez le cap jusqu’au jour J.')
+                                    : weakest ? tr(`Your ${weakest.english.toLowerCase()} decides your level for now — start there.`, `Votre niveau en ${weakest.french.toLowerCase()} détermine votre niveau pour l’instant — commencez par là.`) : ''}
                         </span>
                     </div>
 
                     <div className="cx-hero-block cx-hero-stats">
-                        <div><b>{data.activity.total}</b><span>results</span></div>
-                        <div><b>{data.activity.last_30_days}</b><span>last 30 days</span></div>
-                        <div><b>{minutesText(data.activity.minutes)}</b><span>practised</span></div>
+                        <div><b>{data.activity.total}</b><span>{tr('results', 'résultats')}</span></div>
+                        <div><b>{data.activity.last_30_days}</b><span>{tr('last 30 days', '30 derniers jours')}</span></div>
+                        <div><b>{minutesText(data.activity.minutes)}</b><span>{tr('practised', 'd’entraînement')}</span></div>
                         <button type="button" className="cx-hero-edit" onClick={() => setGoalOpen(true)}>
-                            <EditOutlined /> {goal?.target_nclc || goal?.exam_date ? 'Edit my goal' : 'Set my goal'}
+                            <EditOutlined /> {goal?.target_nclc || goal?.exam_date ? tr('Edit my goal', 'Modifier mon objectif') : tr('Set my goal', 'Définir mon objectif')}
                         </button>
                     </div>
                 </section>
 
                 {/* ── Skills ── */}
-                <section aria-label="Your four skills">
+                <section aria-label={tr('Your four skills', 'Vos quatre compétences')}>
                     <div className="cx-section-head">
-                        <h2>Your four skills</h2>
-                        <span>{openSkills}/4 open to you · levels estimated from your three latest results</span>
+                        <h2>{tr('Your four skills', 'Vos quatre compétences')}</h2>
+                        <span>{tr(`${openSkills}/4 open to you · levels estimated from your three latest results`, `${openSkills}/4 ouvertes · niveaux estimés à partir de vos trois derniers résultats`)}</span>
                     </div>
                     <div className="cx-skills">
                         {SKILL_ORDER.map(k => {
@@ -306,41 +313,41 @@ const CandidateDashboard: React.FC = () => {
                                     <div className="cx-skill-top">
                                         <span className="cx-skill-icon" aria-hidden>{ICON[k]}</span>
                                         <div className="cx-skill-name">
-                                            <strong>{meta.english}</strong>
-                                            <span>{meta.french}</span>
+                                            <strong>{skillName(k, lang)}</strong>
+                                            <span>{skillOther(k, lang)}</span>
                                         </div>
                                         {a.open ? (
                                             a.endsIn != null && a.endsIn <= 7
-                                                ? <span className="cx-state is-warn"><ClockCircleOutlined /> {a.endsIn <= 0 ? 'Ends today' : `${a.endsIn} d left`}</span>
-                                                : <span className="cx-state is-open"><CheckCircleFilled /> Open</span>
-                                        ) : <span className="cx-state"><LockOutlined /> {a.ended ? 'Ended' : 'Locked'}</span>}
+                                                ? <span className="cx-state is-warn"><ClockCircleOutlined /> {a.endsIn <= 0 ? tr('Ends today', 'Se termine aujourd’hui') : tr(`${a.endsIn} d left`, `${a.endsIn} j restants`)}</span>
+                                                : <span className="cx-state is-open"><CheckCircleFilled /> {tr('Open', 'Ouvert')}</span>
+                                        ) : <span className="cx-state"><LockOutlined /> {a.ended ? tr('Ended', 'Terminé') : tr('Locked', 'Verrouillé')}</span>}
                                     </div>
 
                                     <div className="cx-skill-level">
                                         {est ? (
                                             <>
                                                 <b>{est.cefr}</b>
-                                                <span className={`cx-nclc is-${tone}`}>{est.nclc != null ? `NCLC ${est.nclc}` : 'Below NCLC 4'}</span>
+                                                <span className={`cx-nclc is-${tone}`}>{est.nclc != null ? `NCLC ${est.nclc}` : tr('Below NCLC 4', 'Sous NCLC 4')}</span>
                                             </>
-                                        ) : <span className="cx-skill-none">No result yet</span>}
+                                        ) : <span className="cx-skill-none">{tr('No result yet', 'Aucun résultat')}</span>}
                                         <Sparkline points={s?.trend || []} color={meta.color} />
                                     </div>
 
                                     <dl className="cx-skill-facts">
-                                        <div><dt>Best</dt><dd>{s?.best ? <>{scoreText(s.best.score, meta.max)}<em> {scoreUnit(meta.max)}</em></> : '—'}</dd></div>
-                                        <div><dt>Results</dt><dd>{s?.attempts ?? 0}</dd></div>
-                                        <div><dt>Last</dt><dd>{s?.last_at ? agoText(s.last_at) : '—'}</dd></div>
+                                        <div><dt>{tr('Best', 'Meilleur')}</dt><dd>{s?.best ? <>{scoreText(s.best.score, meta.max)}<em> {scoreUnit(meta.max)}</em></> : '—'}</dd></div>
+                                        <div><dt>{tr('Results', 'Résultats')}</dt><dd>{s?.attempts ?? 0}</dd></div>
+                                        <div><dt>{tr('Last', 'Dernier')}</dt><dd>{s?.last_at ? agoText(s.last_at, tr, locale) : '—'}</dd></div>
                                     </dl>
 
                                     <div className="cx-skill-foot">
                                         <span className="cx-skill-hint">
-                                            {!a.open ? (a.ended ? 'Your access has ended' : 'Not opened to you yet')
-                                                : gap == null ? (a.total ? `${a.available} of ${plural(a.total, 'section')} open` : meta.format)
-                                                    : gap <= 0 ? <><AimOutlined /> On target</> : `${gap} level${gap > 1 ? 's' : ''} to your target`}
+                                            {!a.open ? (a.ended ? tr('Your access has ended', 'Votre accès est terminé') : tr('Not opened to you yet', 'Pas encore ouvert'))
+                                                : gap == null ? (a.total ? tr(`${a.available} of ${a.total} section${a.total === 1 ? '' : 's'} open`, `${a.available} section(s) ouverte(s) sur ${a.total}`) : skillFormat(k, lang))
+                                                    : gap <= 0 ? <><AimOutlined /> {tr('On target', 'Objectif atteint')}</> : tr(`${gap} level${gap > 1 ? 's' : ''} to your target`, `${gap} niveau${gap > 1 ? 'x' : ''} avant votre objectif`)}
                                         </span>
                                         <Button size="small" type={a.open ? 'primary' : 'default'} ghost={a.open} disabled={!a.open}
                                             onClick={() => navigate(`/app/exam-practice?skill=${k}`)}>
-                                            Practise <ArrowRightOutlined />
+                                            {tr('Practise', 'S’entraîner')} <ArrowRightOutlined />
                                         </Button>
                                     </div>
                                 </article>
@@ -354,35 +361,34 @@ const CandidateDashboard: React.FC = () => {
                     <div className="cx-col">
                         <section className="cx-card">
                             <div className="cx-card-head">
-                                <div><h2 className="cx-card-title">Progress</h2><div className="cx-card-sub">Score of each result, as a share of the maximum</div></div>
+                                <div><h2 className="cx-card-title">{tr('Progress', 'Progression')}</h2><div className="cx-card-sub">{tr('Score of each result, as a share of the maximum', 'Score de chaque résultat, en part du maximum')}</div></div>
                             </div>
                             <div className="cx-card-body"><ProgressChart skills={data.skills} /></div>
                         </section>
 
                         <section className="cx-card">
                             <div className="cx-card-head">
-                                <div><h2 className="cx-card-title">Latest results</h2><div className="cx-card-sub">Open a result to read its correction</div></div>
-                                <button type="button" className="cx-link" onClick={() => navigate('/app/exam-results')}>All results <RightOutlined /></button>
+                                <div><h2 className="cx-card-title">{tr('Latest results', 'Derniers résultats')}</h2><div className="cx-card-sub">{tr('Open a result to read its correction', 'Ouvrez un résultat pour lire sa correction')}</div></div>
+                                <button type="button" className="cx-link" onClick={() => navigate('/app/exam-results')}>{tr('All results', 'Tous les résultats')} <RightOutlined /></button>
                             </div>
                             {data.recent.length === 0 ? (
                                 <div className="cx-empty">
                                     <HistoryOutlined />
-                                    <strong>No result yet</strong>
-                                    <span>Finish a practice series or simulation and your score appears here.</span>
-                                    <Button type="primary" onClick={() => navigate('/app/exam-practice')}>Start practising</Button>
+                                    <strong>{tr('No result yet', 'Aucun résultat pour l’instant')}</strong>
+                                    <span>{tr('Finish a practice series or simulation and your score appears here.', 'Terminez une série ou une simulation et votre score apparaîtra ici.')}</span>
+                                    <Button type="primary" onClick={() => navigate('/app/exam-practice')}>{tr('Start practising', 'Commencer à s’entraîner')}</Button>
                                 </div>
                             ) : (
                                 <ul className="cx-results">
                                     {data.recent.map((r: Attempt) => {
-                                        const meta = SKILLS[r.skill];
                                         return (
                                             <li key={`${r.skill}-${r.id}`}>
                                                 <button type="button" className="cx-result" style={skillStyle(r.skill)}
                                                     onClick={() => navigate(`/app/exam-results?open=${r.skill}-${r.id}`)}>
                                                     <span className="cx-result-icon" aria-hidden>{ICON[r.skill]}</span>
                                                     <span className="cx-result-main">
-                                                        <span className="cx-result-title">{r.title || meta.english}</span>
-                                                        <span className="cx-result-meta">{meta.english} · {agoText(r.at)}</span>
+                                                        <span className="cx-result-title">{r.title || skillName(r.skill, lang)}</span>
+                                                        <span className="cx-result-meta">{skillName(r.skill, lang)} · {agoText(r.at, tr, locale)}</span>
                                                     </span>
                                                     <span className="cx-result-score">
                                                         <b>{scoreText(r.score, r.max)}</b><em>{scoreUnit(r.max)}</em>
@@ -401,29 +407,28 @@ const CandidateDashboard: React.FC = () => {
                     <div className="cx-col">
                         <section className="cx-card">
                             <div className="cx-card-head">
-                                <div><h2 className="cx-card-title">Your access</h2><div className="cx-card-sub">Opened by your administrator</div></div>
+                                <div><h2 className="cx-card-title">{tr('Your access', 'Votre accès')}</h2><div className="cx-card-sub">{tr(`Opened by ${opener}`, `Ouvert par ${opener}`)}</div></div>
                                 <span className="cx-count">{activeItems.length}</span>
                             </div>
                             {activeItems.length === 0 ? (
                                 <div className="cx-empty">
                                     <LockOutlined />
-                                    <strong>Nothing is open yet</strong>
-                                    <span>Your administrator opens the practice content included in your preparation.</span>
+                                    <strong>{tr('Nothing is open yet', 'Rien n’est ouvert pour l’instant')}</strong>
+                                    <span>{tr(`${Opener} opens the practice content included in your preparation.`, `${Opener} ouvre les entraînements inclus dans votre préparation.`)}</span>
                                 </div>
                             ) : (
                                 <ul className="cx-access">
                                     {activeItems.slice(0, 8).map(i => {
                                         const left = daysLeft(i.expires_at);
-                                        const meta = i.skill ? SKILLS[i.skill] : null;
                                         return (
                                             <li key={`${i.type}-${i.id}`} style={i.skill ? skillStyle(i.skill) : undefined}>
                                                 <span className="cx-access-dot" aria-hidden />
                                                 <span className="cx-access-main">
-                                                    <strong>{i.type === 'category' && meta ? `All ${meta.english.toLowerCase()} practice` : i.name}</strong>
-                                                    <span>{meta ? meta.english : 'Practice'}</span>
+                                                    <strong>{i.type === 'category' && i.skill ? tr(`All ${SKILLS[i.skill].english.toLowerCase()} practice`, `Tout l’entraînement en ${SKILLS[i.skill].french.toLowerCase()}`) : i.name}</strong>
+                                                    <span>{i.skill ? skillName(i.skill, lang) : tr('Practice', 'Entraînement')}</span>
                                                 </span>
                                                 <span className={`cx-access-end${left != null && left <= 7 ? ' is-warn' : ''}`}>
-                                                    {i.expires_at ? <>until {dateText(i.expires_at, false)}</> : 'No end date'}
+                                                    {i.expires_at ? <>{tr('until', 'jusqu’au')} {dateText(i.expires_at, false, locale)}</> : tr('No end date', 'Sans date de fin')}
                                                 </span>
                                             </li>
                                         );
@@ -432,10 +437,10 @@ const CandidateDashboard: React.FC = () => {
                             )}
                             {(activeItems.length > 8 || endedItems.length > 0) && (
                                 <div className="cx-card-foot">
-                                    {activeItems.length > 8 && <span>+{activeItems.length - 8} more open</span>}
+                                    {activeItems.length > 8 && <span>{tr(`+${activeItems.length - 8} more open`, `+${activeItems.length - 8} autre(s) ouvert(s)`)}</span>}
                                     {endedItems.length > 0 && (
-                                        <Tooltip title={endedItems.slice(0, 8).map(i => `${i.name} — ended ${dateText(i.expires_at)}`).join(' · ')}>
-                                            <span className="cx-muted">{plural(endedItems.length, 'item')} ended</span>
+                                        <Tooltip title={endedItems.slice(0, 8).map(i => `${i.name} — ${tr('ended', 'terminé le')} ${dateText(i.expires_at, true, locale)}`).join(' · ')}>
+                                            <span className="cx-muted">{tr(`${endedItems.length} item${endedItems.length === 1 ? '' : 's'} ended`, `${endedItems.length} terminé(s)`)}</span>
                                         </Tooltip>
                                     )}
                                 </div>
@@ -445,7 +450,7 @@ const CandidateDashboard: React.FC = () => {
                         {data.credits && (
                             <section className="cx-card">
                                 <div className="cx-card-head">
-                                    <div><h2 className="cx-card-title"><ThunderboltOutlined /> AI correction credits</h2><div className="cx-card-sub">One credit per new writing or speaking simulation</div></div>
+                                    <div><h2 className="cx-card-title"><ThunderboltOutlined /> {tr('AI correction credits', 'Crédits de correction IA')}</h2><div className="cx-card-sub">{tr('One credit per new writing or speaking simulation', 'Un crédit par nouvelle simulation d’expression écrite ou orale')}</div></div>
                                 </div>
                                 <div className="cx-credits">
                                     {(['ee', 'eo'] as const).map(k => {
@@ -453,26 +458,32 @@ const CandidateDashboard: React.FC = () => {
                                         return (
                                             <div key={k} className={`cx-credit${n <= 0 ? ' is-empty' : ''}`} style={skillStyle(k)}>
                                                 <span className="cx-credit-icon" aria-hidden>{ICON[k]}</span>
-                                                <div><b>{n}</b><span>{SKILLS[k].english}</span></div>
+                                                <div><b>{n}</b><span>{skillName(k, lang)}</span></div>
                                             </div>
                                         );
                                     })}
                                 </div>
                                 {(data.credits.ee <= 0 || data.credits.eo <= 0) && (
-                                    <div className="cx-card-foot"><span className="cx-muted">Out of credits? Your administrator can add more.</span></div>
+                                    <div className="cx-card-foot"><span className="cx-muted">{tr(`Out of credits? ${Opener} can add more.`, `Plus de crédits ? ${Opener} peut en ajouter.`)}</span></div>
                                 )}
                             </section>
                         )}
 
                         <section className="cx-card cx-guide">
                             <div className="cx-card-head">
-                                <div><h2 className="cx-card-title"><FieldTimeOutlined /> How your level is read</h2></div>
+                                <div><h2 className="cx-card-title"><FieldTimeOutlined /> {tr('How your level is read', 'Comment lire votre niveau')}</h2></div>
                             </div>
                             <ul className="cx-guide-list">
-                                <li><b>Reading &amp; listening</b> are scored out of 699 points, from A1 to C2.</li>
-                                <li><b>Writing &amp; speaking</b> are scored out of 20, on the official grid.</li>
-                                <li>Canada reads each skill as an <b>NCLC level</b>; most programmes look at your <b>lowest</b> skill.</li>
-                                {target && NCLC_NOTE[target] && <li>Your target, <b>NCLC {target}</b>: {NCLC_NOTE[target]}.</li>}
+                                {lang === 'fr' ? <>
+                                    <li><b>Compréhension écrite et orale</b> sont notées sur 699 points, de A1 à C2.</li>
+                                    <li><b>Expression écrite et orale</b> sont notées sur 20, selon la grille officielle.</li>
+                                    <li>Le Canada lit chaque compétence en <b>niveau NCLC</b> ; la plupart des programmes regardent votre compétence la <b>plus faible</b>.</li>
+                                </> : <>
+                                    <li><b>Reading &amp; listening</b> are scored out of 699 points, from A1 to C2.</li>
+                                    <li><b>Writing &amp; speaking</b> are scored out of 20, on the official grid.</li>
+                                    <li>Canada reads each skill as an <b>NCLC level</b>; most programmes look at your <b>lowest</b> skill.</li>
+                                </>}
+                                {target && nclcNote(target, lang) && <li>{tr('Your target', 'Votre objectif')}, <b>NCLC {target}</b> : {nclcNote(target, lang)}.</li>}
                             </ul>
                         </section>
                     </div>
@@ -485,10 +496,10 @@ const CandidateDashboard: React.FC = () => {
                     destroyOnHidden
                     centered
                     width={520}
-                    title={<div className="cx-modal-title"><AimOutlined /> My exam goal</div>}
+                    title={<div className="cx-modal-title"><AimOutlined /> {tr('My exam goal', 'Mon objectif d’examen')}</div>}
                     rootClassName="cx-modal"
                 >
-                    <p className="cx-modal-lead">Everything in your exam space is measured against this goal.</p>
+                    <p className="cx-modal-lead">{tr('Everything in your exam space is measured against this goal.', 'Tout votre espace examen se mesure à cet objectif.')}</p>
                     <ExamGoalEditor
                         goal={goal}
                         onCancel={() => setGoalOpen(false)}

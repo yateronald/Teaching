@@ -5,11 +5,11 @@ import {
     AudioOutlined, FormOutlined, HistoryOutlined, ReadOutlined, ReloadOutlined, RightOutlined, SoundOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTr } from '../../utils/useTr';
 import AttemptReview from './AttemptReview';
 import {
     SKILLS, SKILL_ORDER, dateText, durationText, scoreText, scoreUnit,
-    type Attempt, type Overview, type SkillKey,
-} from './candidateModel';
+    type Attempt, type Overview, type SkillKey, skillName } from './candidateModel';
 import './Candidate.css';
 
 /* ══════════════════════════════════════════
@@ -25,6 +25,7 @@ const skillStyle = (k: SkillKey) => ({ '--sk': SKILLS[k].color, '--sk-soft': SKI
 
 const CandidateResults: React.FC = () => {
     const { apiCall } = useAuth();
+    const { tr, lang, locale } = useTr();
     const navigate = useNavigate();
     const [params, setParams] = useSearchParams();
     const [overview, setOverview] = useState<Overview | null>(null);
@@ -52,7 +53,7 @@ const CandidateResults: React.FC = () => {
         if (f !== 'all') q.set('skill', f);
         const res = await apiCall(`/exam-space/results?${q}`);
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.error || 'Your results could not be loaded.');
+        if (!res.ok) throw new Error(body.error || '');
         return body as { total: number; counts: Record<SkillKey, number>; items: Attempt[] };
     }, [apiCall]);
 
@@ -100,9 +101,9 @@ const CandidateResults: React.FC = () => {
 
     const allCount = SKILL_ORDER.reduce((s, k) => s + (counts[k] || 0), 0);
     const options = useMemo<{ value: Filter; label: React.ReactNode }[]>(() => [
-        { value: 'all', label: <span className="cx-seg-label">All <b>{allCount}</b></span> },
-        ...SKILL_ORDER.map(k => ({ value: k as Filter, label: <span className="cx-seg-label">{SKILLS[k].english} <b>{counts[k] || 0}</b></span> })),
-    ], [counts, allCount]);
+        { value: 'all', label: <span className="cx-seg-label">{tr('All', 'Tout')} <b>{allCount}</b></span> },
+        ...SKILL_ORDER.map(k => ({ value: k as Filter, label: <span className="cx-seg-label">{skillName(k, lang)} <b>{counts[k] || 0}</b></span> })),
+    ], [counts, allCount, tr, lang]);
 
     const skillsBy = overview ? Object.fromEntries(overview.skills.map(s => [s.skill, s])) : {};
 
@@ -111,17 +112,17 @@ const CandidateResults: React.FC = () => {
             <div className="cx">
                 <header className="cx-head">
                     <div className="cx-head-text">
-                        <div className="cx-overline">Exam space</div>
-                        <h1 className="cx-title">My results</h1>
-                        <p className="cx-subtitle">Every practice you completed, with its score, level and full correction.</p>
+                        <div className="cx-overline">{tr('Exam space', 'Espace examen')}</div>
+                        <h1 className="cx-title">{tr('My results', 'Mes résultats')}</h1>
+                        <p className="cx-subtitle">{tr('Every practice you completed, with its score, level and full correction.', 'Chaque entraînement terminé, avec son score, son niveau et sa correction complète.')}</p>
                     </div>
                     <div className="cx-head-actions">
-                        <Button type="primary" icon={<ReadOutlined />} onClick={() => navigate('/app/exam-practice')}>Practise</Button>
+                        <Button type="primary" icon={<ReadOutlined />} onClick={() => navigate('/app/exam-practice')}>{tr('Practise', 'S’entraîner')}</Button>
                     </div>
                 </header>
 
                 {/* ── Per-skill summary ── */}
-                <section className="cx-summary" aria-label="Summary by skill">
+                <section className="cx-summary" aria-label={tr('Summary by skill', 'Résumé par compétence')}>
                     {SKILL_ORDER.map(k => {
                         const s = (skillsBy as Record<string, Overview['skills'][number]>)[k];
                         const meta = SKILLS[k];
@@ -131,15 +132,15 @@ const CandidateResults: React.FC = () => {
                                 aria-pressed={active} onClick={() => setFilter(active ? 'all' : k)}>
                                 <span className="cx-sum-icon" aria-hidden>{ICON[k]}</span>
                                 <span className="cx-sum-main">
-                                    <span className="cx-sum-name">{meta.english}</span>
+                                    <span className="cx-sum-name">{skillName(k, lang)}</span>
                                     {s?.best ? (
                                         <span className="cx-sum-best">
                                             <b>{scoreText(s.best.score, meta.max)}</b><em>{scoreUnit(meta.max)}</em>
                                             <span className="cx-level-tag">{s.best.cefr}</span>
                                         </span>
-                                    ) : <span className="cx-sum-none">No result yet</span>}
+                                    ) : <span className="cx-sum-none">{tr('No result yet', 'Aucun résultat')}</span>}
                                     <span className="cx-sum-meta">
-                                        {s?.estimate ? `Estimated ${s.estimate.cefr}${s.estimate.nclc ? ` · NCLC ${s.estimate.nclc}` : ''}` : `${counts[k] || 0} results`}
+                                        {s?.estimate ? `${tr('Estimated', 'Estimé')} ${s.estimate.cefr}${s.estimate.nclc ? ` · NCLC ${s.estimate.nclc}` : ''}` : tr(`${counts[k] || 0} results`, `${counts[k] || 0} résultat(s)`)}
                                     </span>
                                 </span>
                             </button>
@@ -150,51 +151,50 @@ const CandidateResults: React.FC = () => {
                 <section className="cx-card">
                     <div className="cx-card-head cx-list-head">
                         <Segmented<Filter> value={filter} onChange={setFilter} options={options} className="cx-filter" />
-                        <span className="cx-muted">{loading ? '' : `${total} ${total === 1 ? 'result' : 'results'}`}</span>
+                        <span className="cx-muted">{loading ? '' : tr(`${total} ${total === 1 ? 'result' : 'results'}`, `${total} résultat${total === 1 ? '' : 's'}`)}</span>
                     </div>
 
                     {error ? (
                         <div className="cx-alert is-inline" role="alert">
                             <WarningOutlined />
-                            <div><strong>Your results could not be loaded.</strong><span>{error}</span></div>
-                            <Button icon={<ReloadOutlined />} onClick={() => load(filter)}>Try again</Button>
+                            <div><strong>{tr('Your results could not be loaded.', 'Vos résultats n’ont pas pu être chargés.')}</strong><span>{error}</span></div>
+                            <Button icon={<ReloadOutlined />} onClick={() => load(filter)}>{tr('Try again', 'Réessayer')}</Button>
                         </div>
                     ) : loading ? (
                         <div className="cx-card-body"><Skeleton active paragraph={{ rows: 6 }} /></div>
                     ) : items.length === 0 ? (
                         <div className="cx-empty">
                             <HistoryOutlined />
-                            <strong>{filter === 'all' ? 'No result yet' : `No ${SKILLS[filter].english.toLowerCase()} result yet`}</strong>
-                            <span>Complete a practice series or a simulation and it appears here with its correction.</span>
-                            <Button type="primary" onClick={() => navigate(filter === 'all' ? '/app/exam-practice' : `/app/exam-practice?skill=${filter}`)}>Start practising</Button>
+                            <strong>{filter === 'all' ? tr('No result yet', 'Aucun résultat pour l’instant') : tr(`No ${SKILLS[filter].english.toLowerCase()} result yet`, `Aucun résultat en ${SKILLS[filter].french.toLowerCase()} pour l’instant`)}</strong>
+                            <span>{tr('Complete a practice series or a simulation and it appears here with its correction.', 'Terminez une série ou une simulation : elle apparaîtra ici avec sa correction.')}</span>
+                            <Button type="primary" onClick={() => navigate(filter === 'all' ? '/app/exam-practice' : `/app/exam-practice?skill=${filter}`)}>{tr('Start practising', 'Commencer à s’entraîner')}</Button>
                         </div>
                     ) : (
                         <>
-                            <div className="cx-table" role="table" aria-label="Results">
+                            <div className="cx-table" role="table" aria-label={tr('Results', 'Résultats')}>
                                 <div className="cx-tr is-head" role="row">
-                                    <span role="columnheader">Practice</span>
+                                    <span role="columnheader">{tr('Practice', 'Entraînement')}</span>
                                     <span role="columnheader">Date</span>
-                                    <span role="columnheader">Time</span>
+                                    <span role="columnheader">{tr('Time', 'Durée')}</span>
                                     <span role="columnheader">Score</span>
-                                    <span role="columnheader">Level</span>
-                                    <span role="columnheader" aria-label="Open" />
+                                    <span role="columnheader">{tr('Level', 'Niveau')}</span>
+                                    <span role="columnheader" aria-label={tr('Open', 'Ouvrir')} />
                                 </div>
                                 {items.map(r => {
-                                    const meta = SKILLS[r.skill];
                                     return (
                                         <button key={`${r.skill}-${r.id}`} type="button" className="cx-tr" role="row" style={skillStyle(r.skill)}
                                             onClick={() => setReview(r)}>
                                             <span className="cx-td-main" role="cell">
                                                 <span className="cx-result-icon" aria-hidden>{ICON[r.skill]}</span>
                                                 <span className="cx-result-main">
-                                                    <span className="cx-result-title">{r.title || meta.english}</span>
-                                                    <span className="cx-result-meta">{meta.english}{r.detail ? ` · ${r.detail} correct` : ''}</span>
+                                                    <span className="cx-result-title">{r.title || skillName(r.skill, lang)}</span>
+                                                    <span className="cx-result-meta">{skillName(r.skill, lang)}{r.detail ? ` · ${r.detail} ${tr('correct', 'justes')}` : ''}</span>
                                                 </span>
                                             </span>
-                                            <span className="cx-td" role="cell" data-label="Date">{dateText(r.at)}</span>
-                                            <span className="cx-td" role="cell" data-label="Time">{durationText(r.duration_seconds)}</span>
+                                            <span className="cx-td" role="cell" data-label="Date">{dateText(r.at, true, locale)}</span>
+                                            <span className="cx-td" role="cell" data-label={tr('Time', 'Durée')}>{durationText(r.duration_seconds)}</span>
                                             <span className="cx-td cx-td-score" role="cell" data-label="Score"><b>{scoreText(r.score, r.max)}</b><em>{scoreUnit(r.max)}</em></span>
-                                            <span className="cx-td" role="cell" data-label="Level">
+                                            <span className="cx-td" role="cell" data-label={tr('Level', 'Niveau')}>
                                                 <span className="cx-level-tag">{r.cefr || '—'}</span>
                                                 {r.nclc != null && <span className="cx-nclc-small">NCLC {r.nclc}</span>}
                                             </span>
@@ -204,7 +204,7 @@ const CandidateResults: React.FC = () => {
                                 })}
                             </div>
                             {items.length < total && (
-                                <div className="cx-more"><Button onClick={loadMore} loading={more}>Show {Math.min(PAGE, total - items.length)} more</Button></div>
+                                <div className="cx-more"><Button onClick={loadMore} loading={more}>{tr(`Show ${Math.min(PAGE, total - items.length)} more`, `Afficher ${Math.min(PAGE, total - items.length)} de plus`)}</Button></div>
                             )}
                         </>
                     )}

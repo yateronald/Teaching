@@ -18,6 +18,7 @@ import EOAnalytics from './EOAnalytics';
 import EOGlobalAnalytics from './EOGlobalAnalytics';
 import { useAuth } from '../../contexts/AuthContext';
 import { cefrOf } from '../ExamSim/examModel';
+import { useTr } from '../../utils/useTr';
 import './StudentExamPreparation.css';
 
 /* ── Content tree (loaded one level at a time from /tcf/student/content-tree) ── */
@@ -33,21 +34,21 @@ interface ContentNode {
 }
 
 type Skill = { key: 'ce' | 'co' | 'ee' | 'eo'; english: string; icon: React.ReactNode; summary: string; format: string; session: string; credit?: string };
+type Tr = (en: string, fr: string) => string;
 
-/** The four TCF skills, keyed by the category names used by the backend. */
-const SKILLS: Record<string, Skill> = {
-  'Compréhension Écrite': { key: 'ce', english: 'Reading', icon: <ReadOutlined />, summary: 'Read and understand written documents of increasing difficulty.', format: 'Multiple choice', session: 'Multiple-choice series' },
-  'Compréhension Orale': { key: 'co', english: 'Listening', icon: <SoundOutlined />, summary: 'Timed listening series, scored from A1 to C2.', format: 'Timed series', session: 'Timed listening series · scored on 699' },
-  'Expression Écrite': { key: 'ee', english: 'Writing', icon: <FormOutlined />, summary: 'Write the three official tasks and get an AI correction.', format: 'AI-corrected', session: '3 tasks · 60 minutes · corrected on the official grid', credit: 'writing' },
-  'Expression Orale': { key: 'eo', english: 'Speaking', icon: <AudioOutlined />, summary: 'Talk with an AI examiner, then review detailed feedback.', format: 'Live AI examiner', session: '3 tasks · about 12 minutes · live AI examiner', credit: 'speaking' },
-};
-const skillOf = (name?: string): Skill | null => (name ? SKILLS[name] ?? null : null);
+/** The four TCF skills, keyed by the category names used by the backend, in the reader's language. */
+const skillsIn = (tr: Tr): Record<string, Skill> => ({
+  'Compréhension Écrite': { key: 'ce', english: tr('Reading', 'Compréhension écrite'), icon: <ReadOutlined />, summary: tr('Read and understand written documents of increasing difficulty.', 'Lire et comprendre des documents écrits de difficulté croissante.'), format: tr('Multiple choice', 'QCM'), session: tr('Multiple-choice series', 'Séries de QCM') },
+  'Compréhension Orale': { key: 'co', english: tr('Listening', 'Compréhension orale'), icon: <SoundOutlined />, summary: tr('Timed listening series, scored from A1 to C2.', 'Séries d’écoute chronométrées, notées de A1 à C2.'), format: tr('Timed series', 'Séries chronométrées'), session: tr('Timed listening series · scored on 699', 'Séries d’écoute chronométrées · notées sur 699') },
+  'Expression Écrite': { key: 'ee', english: tr('Writing', 'Expression écrite'), icon: <FormOutlined />, summary: tr('Write the three official tasks and get an AI correction.', 'Rédigez les trois tâches officielles et recevez une correction par l’IA.'), format: tr('AI-corrected', 'Corrigé par l’IA'), session: tr('3 tasks · 60 minutes · corrected on the official grid', '3 tâches · 60 minutes · corrigé selon la grille officielle'), credit: tr('writing', 'expression écrite') },
+  'Expression Orale': { key: 'eo', english: tr('Speaking', 'Expression orale'), icon: <AudioOutlined />, summary: tr('Talk with an AI examiner, then review detailed feedback.', 'Échangez avec un examinateur IA, puis lisez un retour détaillé.'), format: tr('Live AI examiner', 'Examinateur IA en direct'), session: tr('3 tasks · about 12 minutes · live AI examiner', '3 tâches · environ 12 minutes · examinateur IA en direct'), credit: tr('speaking', 'expression orale') },
+});
 
 const LEAF_TYPES = ['ce_series', 'co_series', 'ee_combinaison', 'eo_partie'];
-const LEVEL_LABEL: Record<string, string> = {
-  ce_series: 'series', co_series: 'series', ee_year: 'years', ee_month: 'months', ee_combinaison: 'combinations',
-  eo_year: 'years', eo_month: 'months', eo_partie: 'parts',
-};
+const levelLabels = (tr: Tr): Record<string, string> => ({
+  ce_series: tr('series', 'séries'), co_series: tr('series', 'séries'), ee_year: tr('years', 'années'), ee_month: tr('months', 'mois'),
+  ee_combinaison: 'combinaisons', eo_year: tr('years', 'années'), eo_month: tr('months', 'mois'), eo_partie: 'parties',
+});
 const TYPE_ICON: Record<string, React.ReactNode> = {
   ee_year: <CalendarOutlined />, eo_year: <CalendarOutlined />, ee_month: <CalendarOutlined />, eo_month: <CalendarOutlined />,
   ce_series: <ReadOutlined />, co_series: <SoundOutlined />, ee_combinaison: <FormOutlined />, eo_partie: <AudioOutlined />,
@@ -61,11 +62,11 @@ const isAvailable = (n: ContentNode) => {
   const empty = n.available_count !== undefined && n.available_count === 0;
   return !!accessible && !expired && !empty;
 };
-/** Who opens content: the teacher for students, the school's administrator for exam candidates. */
-const lockReason = (n: ContentNode, who = 'your teacher') => {
-  if (n.is_assigned && n.is_expired && !n.has_assigned_children) return `Your access has expired. Ask ${who} to renew it.`;
-  if (n.available_count === 0 && (n.is_assigned || n.has_assigned_children)) return 'Nothing inside is assigned to you yet.';
-  return `Not assigned yet. Ask ${who} to open it for you.`;
+/** Who opens content: the teacher for students, the administrator (or the company) for exam candidates. */
+const lockReason = (n: ContentNode, who: string, tr: Tr) => {
+  if (n.is_assigned && n.is_expired && !n.has_assigned_children) return tr(`Your access has expired. Ask ${who} to renew it.`, `Votre accès a expiré. Demandez à ${who} de le renouveler.`);
+  if (n.available_count === 0 && (n.is_assigned || n.has_assigned_children)) return tr('Nothing inside is assigned to you yet.', 'Rien ici ne vous est encore attribué.');
+  return tr(`Not assigned yet. Ask ${who} to open it for you.`, `Pas encore attribué. Demandez à ${who} de vous l’ouvrir.`);
 };
 
 type LeafState = 'new' | 'running' | 'done' | 'soon' | 'locked' | 'expired';
@@ -86,19 +87,24 @@ const bestOf = (n: ContentNode): { text: string; level: string | null } | null =
   }
   return { text: `${Math.round(best)}/20`, level: cefrOf(best) };
 };
-const ago = (iso: string | null | undefined) => {
+const ago = (iso: string | null | undefined, tr: Tr, locale: string) => {
   if (!iso) return '';
   const days = Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 30) return `${days} days ago`;
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  if (days <= 0) return tr('today', 'aujourd’hui');
+  if (days === 1) return tr('yesterday', 'hier');
+  if (days < 30) return tr(`${days} days ago`, `il y a ${days} jours`);
+  return new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
 };
 type Filter = 'all' | 'available' | 'new' | 'running' | 'done' | 'locked';
 
 const StudentExamPreparation: React.FC = () => {
-  const { apiCall, isCandidate } = useAuth();
-  const who = isCandidate ? 'your administrator' : 'your teacher';
+  const { apiCall, isCandidate, user } = useAuth();
+  const { tr, locale } = useTr();
+  const SKILLS = skillsIn(tr);
+  const LEVEL_LABEL = levelLabels(tr);
+  const skillOf = (name?: string): Skill | null => (name ? SKILLS[name] ?? null : null);
+  // Company learners are opened content by their company; other candidates by the school's administrator.
+  const who = user?.organization ? tr('your company', 'votre entreprise') : isCandidate ? tr('your administrator', 'votre administrateur') : tr('your teacher', 'votre professeur');
   const [searchParams, setSearchParams] = useSearchParams();
   const [messageApi, contextHolder] = message.useMessage();
 
@@ -191,8 +197,8 @@ const StudentExamPreparation: React.FC = () => {
       setOpeningKey(key);
       const data = await loadChildren(node);
       setOpeningKey(null);
-      if (!data) { messageApi.error('Could not open this section. Please try again.'); return; }
-      if (data.length === 0) { messageApi.info('This section is empty for now.'); return; }
+      if (!data) { messageApi.error(tr('Could not open this section. Please try again.', 'Impossible d’ouvrir cette section. Réessayez.')); return; }
+      if (data.length === 0) { messageApi.info(tr('This section is empty for now.', 'Cette section est vide pour le moment.')); return; }
     }
     navigateTo([...path, node]);
   };
@@ -228,7 +234,7 @@ const StudentExamPreparation: React.FC = () => {
 
   /* ── Figures ── */
   const available = current.filter(isAvailable).length;
-  const levelWord = LEVEL_LABEL[current[0]?.type] ?? 'items';
+  const levelWord = LEVEL_LABEL[current[0]?.type] ?? tr('items', 'éléments');
   const isLeafLevel = current.length > 0 && current.every(n => LEAF_TYPES.includes(n.type));
   const skillsOpen = tree.filter(isAvailable).length;
   const sectionsOpen = tree.reduce((s, n) => s + (isAvailable(n) ? n.available_count ?? 0 : 0), 0);
@@ -248,15 +254,15 @@ const StudentExamPreparation: React.FC = () => {
 
   const filterOptions: { value: Filter; label: string }[] = isLeafLevel
     ? [
-      { value: 'all', label: `All ${current.length}` },
-      ...(countOf('new') ? [{ value: 'new' as Filter, label: `Not started ${countOf('new')}` }] : []),
-      ...(countOf('running') ? [{ value: 'running' as Filter, label: `In progress ${countOf('running')}` }] : []),
-      ...(practised ? [{ value: 'done' as Filter, label: `Practised ${practised}` }] : []),
-      ...(countOf('locked') + countOf('expired') ? [{ value: 'locked' as Filter, label: `Locked ${countOf('locked') + countOf('expired')}` }] : []),
+      { value: 'all', label: `${tr('All', 'Tout')} ${current.length}` },
+      ...(countOf('new') ? [{ value: 'new' as Filter, label: `${tr('Not started', 'Pas commencés')} ${countOf('new')}` }] : []),
+      ...(countOf('running') ? [{ value: 'running' as Filter, label: `${tr('In progress', 'En cours')} ${countOf('running')}` }] : []),
+      ...(practised ? [{ value: 'done' as Filter, label: `${tr('Practised', 'Faits')} ${practised}` }] : []),
+      ...(countOf('locked') + countOf('expired') ? [{ value: 'locked' as Filter, label: `${tr('Locked', 'Verrouillés')} ${countOf('locked') + countOf('expired')}` }] : []),
     ]
     : [
-      { value: 'all', label: `All ${current.length}` },
-      ...(available < current.length ? [{ value: 'available' as Filter, label: `Available ${available}` }] : []),
+      { value: 'all', label: `${tr('All', 'Tout')} ${current.length}` },
+      ...(available < current.length ? [{ value: 'available' as Filter, label: `${tr('Available', 'Disponibles')} ${available}` }] : []),
     ];
 
   /* ── Filtered items for display ── */
@@ -282,36 +288,36 @@ const StudentExamPreparation: React.FC = () => {
     const total = node.total_count ?? 0;
     const avail = node.available_count ?? 0;
     const opening = openingKey === keyOf(node);
-    const unit = LEVEL_LABEL[node.child_type || ''] ?? 'items';
+    const unit = LEVEL_LABEL[node.child_type || ''] ?? tr('items', 'éléments');
     return (
       <article className={`ep-skill ep-skill-${s?.key ?? 'other'}${open ? '' : ' is-locked'}`}
         onMouseEnter={() => prefetch(node)} onFocus={() => prefetch(node)}>
         <div className="ep-skill-head">
           <span className="ep-skill-icon">{s?.icon ?? <FolderOutlined />}</span>
           <div className="ep-skill-head-text">
-            <span className="ep-skill-tag">{s?.english ?? 'Practice'}</span>
+            <span className="ep-skill-tag">{s?.english ?? tr('Practice', 'Entraînement')}</span>
             <span className="ep-skill-format">{s?.format}</span>
           </div>
           <span className={`ep-state${open ? ' is-open' : ''}`}>
-            {open ? <><CheckCircleFilled /> Open</> : <><LockOutlined /> Locked</>}
+            {open ? <><CheckCircleFilled /> {tr('Open', 'Ouvert')}</> : <><LockOutlined /> {tr('Locked', 'Verrouillé')}</>}
           </span>
         </div>
         <div className="ep-skill-body">
           <h3 className="ep-skill-title">{node.name}</h3>
           <p className="ep-skill-sub">{s?.summary ?? node.description}</p>
           <div className="ep-skill-stats">
-            <div><strong>{avail}</strong><span>available</span></div>
-            <div><strong>{total}</strong><span>{unit} in total</span></div>
+            <div><strong>{avail}</strong><span>{tr('available', 'disponibles')}</span></div>
+            <div><strong>{total}</strong><span>{tr(`${unit} in total`, `${unit} au total`)}</span></div>
           </div>
           <div className="ep-bar"><span style={{ width: `${total ? (avail / total) * 100 : 0}%` }} /></div>
         </div>
         <div className="ep-skill-foot">
           {open ? (
             <Button type="primary" block onClick={() => openNode(node)} loading={opening}>
-              {opening ? 'Opening…' : <>Open {s?.english.toLowerCase() ?? 'section'} <RightOutlined /></>}
+              {opening ? tr('Opening…', 'Ouverture…') : <>{tr('Open', 'Ouvrir')} {s?.english.toLowerCase() ?? tr('section', 'la section')} <RightOutlined /></>}
             </Button>
           ) : (
-            <span className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node, who)}</span>
+            <span className="ep-lock-note"><InfoCircleOutlined /> {lockReason(node, who, tr)}</span>
           )}
         </div>
       </article>
@@ -323,11 +329,11 @@ const StudentExamPreparation: React.FC = () => {
     const opening = openingKey === keyOf(node);
     const total = node.total_count ?? 0;
     const avail = node.available_count ?? 0;
-    const unit = LEVEL_LABEL[node.child_type || ''] ?? 'items';
+    const unit = LEVEL_LABEL[node.child_type || ''] ?? tr('items', 'éléments');
     const isMonth = !!node.month_name;
     const year = isMonth ? path[path.length - 1]?.year : node.year;
     return (
-      <Tooltip title={open ? undefined : lockReason(node, who)}>
+      <Tooltip title={open ? undefined : lockReason(node, who, tr)}>
         <button
           type="button"
           className={`ep-folder${open ? '' : ' is-locked'}`}
@@ -343,7 +349,7 @@ const StudentExamPreparation: React.FC = () => {
           </span>
           <span className="ep-folder-text">
             <strong>{isMonth && year ? `${labelOf(node)} ${year}` : labelOf(node)}</strong>
-            <span>{total > 0 ? `${total} ${unit}${open && avail < total ? ` · ${avail} open to you` : ''}` : 'Section'}</span>
+            <span>{total > 0 ? `${total} ${unit}${open && avail < total ? ` · ${tr(`${avail} open to you`, `${avail} ouvert(s) pour vous`)}` : ''}` : 'Section'}</span>
           </span>
           <span className="ep-folder-end">
             {!open ? <LockOutlined /> : opening ? <LoadingOutlined /> : <RightOutlined />}
@@ -358,15 +364,16 @@ const StudentExamPreparation: React.FC = () => {
     const num = numberOf(node);
     const best = bestOf(node);
     const attempts = node.progress?.attempts ?? 0;
-    const credit = node.type === 'ee_combinaison' ? 'writing' : node.type === 'eo_partie' ? 'speaking' : null;
+    const credit = node.type === 'ee_combinaison' ? tr('writing', 'expression écrite') : node.type === 'eo_partie' ? tr('speaking', 'expression orale') : null;
     const canAnalyse = st === 'done' && node.content_id && (node.type === 'co_series' || node.type === 'ce_series' || node.type === 'eo_partie');
     const sub = node.theme
-      || (node.type === 'eo_partie' ? 'Interview · Role play · Point of view'
-        : node.type === 'ee_combinaison' ? 'Message · Narrative · Argued opinion'
+      || (node.type === 'eo_partie' ? tr('Interview · Role play · Point of view', 'Entretien · Jeu de rôle · Point de vue')
+        : node.type === 'ee_combinaison' ? tr('Message · Narrative · Argued opinion', 'Message · Récit · Opinion argumentée')
           : node.total_questions ? `${node.total_questions} questions${node.total_points ? ` · ${node.total_points} points` : ''}` : node.description || '');
-    const cta = st === 'running' ? 'Resume' : st === 'done' ? 'Retake' : node.type === 'co_series' || node.type === 'ce_series' ? 'Start series' : 'Start';
-    const ctaTip = st === 'running' ? 'Continue where you stopped — no credit used.'
-      : credit ? `Uses 1 ${credit} credit.` : undefined;
+    const cta = st === 'running' ? tr('Resume', 'Reprendre') : st === 'done' ? tr('Retake', 'Refaire')
+      : node.type === 'co_series' || node.type === 'ce_series' ? tr('Start series', 'Commencer la série') : tr('Start', 'Commencer');
+    const ctaTip = st === 'running' ? tr('Continue where you stopped — no credit used.', 'Reprenez là où vous vous êtes arrêté — aucun crédit utilisé.')
+      : credit ? tr(`Uses 1 ${credit} credit.`, `Utilise 1 crédit ${credit}.`) : undefined;
 
     return (
       <article className={`ep-leaf is-${st}`}>
@@ -376,10 +383,10 @@ const StudentExamPreparation: React.FC = () => {
             <h4 className="ep-leaf-name">{labelOf(node)}</h4>
             {sub && <p className="ep-leaf-sub" title={sub}>{sub}</p>}
           </div>
-          {st === 'done' && <span className="ep-tag is-done"><CheckCircleFilled /> Done</span>}
-          {st === 'running' && <span className="ep-tag is-running"><ClockCircleOutlined /> In progress</span>}
-          {st === 'locked' && <span className="ep-tag is-locked"><LockOutlined /> Locked</span>}
-          {st === 'expired' && <span className="ep-tag is-locked"><ClockCircleOutlined /> Expired</span>}
+          {st === 'done' && <span className="ep-tag is-done"><CheckCircleFilled /> {tr('Done', 'Fait')}</span>}
+          {st === 'running' && <span className="ep-tag is-running"><ClockCircleOutlined /> {tr('In progress', 'En cours')}</span>}
+          {st === 'locked' && <span className="ep-tag is-locked"><LockOutlined /> {tr('Locked', 'Verrouillé')}</span>}
+          {st === 'expired' && <span className="ep-tag is-locked"><ClockCircleOutlined /> {tr('Expired', 'Expiré')}</span>}
         </div>
 
         <div className="ep-leaf-foot">
@@ -387,26 +394,26 @@ const StudentExamPreparation: React.FC = () => {
             {st === 'done' && best ? (
               <>
                 <span className="ep-best"><b>{best.text}</b>{best.level && <em>{best.level}</em>}</span>
-                <span className="ep-record-meta">{attempts} attempt{attempts > 1 ? 's' : ''} · {ago(node.progress?.last_at)}</span>
+                <span className="ep-record-meta">{tr(`${attempts} attempt${attempts > 1 ? 's' : ''}`, `${attempts} essai${attempts > 1 ? 's' : ''}`)} · {ago(node.progress?.last_at, tr, locale)}</span>
               </>
             ) : st === 'running' ? (
-              <span className="ep-record-meta is-strong">Your draft is saved</span>
+              <span className="ep-record-meta is-strong">{tr('Your draft is saved', 'Votre brouillon est enregistré')}</span>
             ) : st === 'new' ? (
-              <span className="ep-record-meta">Not attempted yet</span>
+              <span className="ep-record-meta">{tr('Not attempted yet', 'Pas encore tenté')}</span>
             ) : st === 'soon' ? (
-              <span className="ep-record-meta"><InfoCircleOutlined /> Practice coming soon</span>
+              <span className="ep-record-meta"><InfoCircleOutlined /> {tr('Practice coming soon', 'Entraînement bientôt disponible')}</span>
             ) : (
-              <span className="ep-record-meta">{st === 'expired' ? `Access expired · ask ${who} to renew it` : 'Not assigned to you yet'}</span>
+              <span className="ep-record-meta">{st === 'expired' ? tr(`Access expired · ask ${who} to renew it`, `Accès expiré · demandez à ${who} de le renouveler`) : tr('Not assigned to you yet', 'Pas encore attribué')}</span>
             )}
           </div>
           {(st === 'new' || st === 'running' || st === 'done') && (
             <div className="ep-leaf-actions">
               {canAnalyse && (
-                <Tooltip title="Results and feedback">
+                <Tooltip title={tr('Results and feedback', 'Résultats et retours')}>
                   <Button
                     className="ep-icon-btn"
                     icon={<BarChartOutlined />}
-                    aria-label={`Results for ${labelOf(node)}`}
+                    aria-label={tr(`Results for ${labelOf(node)}`, `Résultats de ${labelOf(node)}`)}
                     onClick={() => (node.type === 'co_series'
                       ? setCoAnalytics({ id: node.content_id!, name: labelOf(node) })
                       : node.type === 'ce_series'
@@ -442,29 +449,29 @@ const StudentExamPreparation: React.FC = () => {
         {path.length === 0 && (
           <header className="ep-hero">
             <div className="ep-hero-main">
-              <div className="ep-overline">Exam preparation</div>
+              <div className="ep-overline">{tr('Exam preparation', 'Préparation aux examens')}</div>
               <h1 className="ep-title">TCF Canada</h1>
-              <p className="ep-subtitle">Practise the four skills of the exam in the official format. {isCandidate ? 'Your administrator decides which parts are open to you.' : 'Your teacher decides which parts are open to you.'}</p>
+              <p className="ep-subtitle">{tr('Practise the four skills of the exam in the official format.', 'Entraînez-vous aux quatre compétences de l’examen, au format officiel.')} {tr(`${who.charAt(0).toUpperCase()}${who.slice(1)} decides which parts are open to you.`, `${who.charAt(0).toUpperCase()}${who.slice(1)} décide des parties qui vous sont ouvertes.`)}</p>
               {!treeLoading && !treeError && (
                 <div className="ep-hero-stats">
-                  <div><strong>{skillsOpen}<small>/{tree.length || 4}</small></strong><span>skills open</span></div>
-                  <div><strong>{sectionsOpen}</strong><span>sections available</span></div>
+                  <div><strong>{skillsOpen}<small>/{tree.length || 4}</small></strong><span>{tr('skills open', 'compétences ouvertes')}</span></div>
+                  <div><strong>{sectionsOpen}</strong><span>{tr('sections available', 'sections disponibles')}</span></div>
                 </div>
               )}
             </div>
             {credits && (
-              <div className="ep-credits" aria-label="AI correction credits">
-                <div className="ep-credits-title"><ThunderboltOutlined /> AI credits</div>
-                <Tooltip title="Each Expression écrite attempt corrected by AI uses one credit.">
+              <div className="ep-credits" aria-label={tr('AI correction credits', 'Crédits de correction IA')}>
+                <div className="ep-credits-title"><ThunderboltOutlined /> {tr('AI credits', 'Crédits IA')}</div>
+                <Tooltip title={tr('Each Expression écrite attempt corrected by AI uses one credit.', 'Chaque essai d’expression écrite corrigé par l’IA utilise un crédit.')}>
                   <div className={`ep-credit is-ee${credits.ee_credits <= 0 ? ' is-empty' : ''}`}>
                     <span className="ep-credit-icon"><FormOutlined /></span>
-                    <div><strong>{credits.ee_credits}</strong><span>Writing</span></div>
+                    <div><strong>{credits.ee_credits}</strong><span>{tr('Writing', 'Écrit')}</span></div>
                   </div>
                 </Tooltip>
-                <Tooltip title="Each Expression orale session with the AI examiner uses one credit.">
+                <Tooltip title={tr('Each Expression orale session with the AI examiner uses one credit.', 'Chaque session d’expression orale avec l’examinateur IA utilise un crédit.')}>
                   <div className={`ep-credit is-eo${credits.eo_credits <= 0 ? ' is-empty' : ''}`}>
                     <span className="ep-credit-icon"><AudioOutlined /></span>
-                    <div><strong>{credits.eo_credits}</strong><span>Speaking</span></div>
+                    <div><strong>{credits.eo_credits}</strong><span>{tr('Speaking', 'Oral')}</span></div>
                   </div>
                 </Tooltip>
               </div>
@@ -476,9 +483,9 @@ const StudentExamPreparation: React.FC = () => {
         {path.length > 0 && (
           <header className="ep-head">
             <div className="ep-head-nav">
-              <Button className="ep-back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigateTo(path.slice(0, -1))} size="small">Back</Button>
+              <Button className="ep-back-btn" icon={<ArrowLeftOutlined />} onClick={() => navigateTo(path.slice(0, -1))} size="small">{tr('Back', 'Retour')}</Button>
               <nav className="ep-crumbs" aria-label="Breadcrumb">
-                <button type="button" onClick={() => navigateTo([])}>Exam preparation</button>
+                <button type="button" onClick={() => navigateTo([])}>{tr('Exam preparation', 'Préparation aux examens')}</button>
                 {path.map((n, i) => (
                   <React.Fragment key={keyOf(n)}>
                     <RightOutlined className="ep-crumb-sep" />
@@ -507,17 +514,17 @@ const StudentExamPreparation: React.FC = () => {
                       <ThunderboltOutlined />
                       <div>
                         <strong>{n}</strong>
-                        <span>{skill.credit} credit{n === 1 ? '' : 's'}</span>
+                        <span>{tr(`${skill.credit} credit${n === 1 ? '' : 's'}`, `crédit${n === 1 ? '' : 's'} ${skill.credit}`)}</span>
                       </div>
-                      <em>{n <= 0 ? `Ask ${who} for more` : '1 per new attempt'}</em>
+                      <em>{n <= 0 ? tr(`Ask ${who} for more`, `Demandez-en à ${who}`) : tr('1 per new attempt', '1 par nouvel essai')}</em>
                     </div>
                   );
                 })()}
                 {skill?.key === 'co' && (
-                  <Button className="ep-perf-btn" icon={<BarChartOutlined />} onClick={() => setCoGlobalOpen(true)}>My listening results</Button>
+                  <Button className="ep-perf-btn" icon={<BarChartOutlined />} onClick={() => setCoGlobalOpen(true)}>{tr('My listening results', 'Mes résultats en compréhension orale')}</Button>
                 )}
                 {skill?.key === 'eo' && (
-                  <Button className="ep-perf-btn" icon={<BarChartOutlined />} onClick={() => setEoGlobalOpen(true)}>My speaking results</Button>
+                  <Button className="ep-perf-btn" icon={<BarChartOutlined />} onClick={() => setEoGlobalOpen(true)}>{tr('My speaking results', 'Mes résultats en expression orale')}</Button>
                 )}
               </div>
             </div>
@@ -525,8 +532,8 @@ const StudentExamPreparation: React.FC = () => {
             {isLeafLevel && playable > 0 && (
               <div className="ep-head-progress">
                 <div className="ep-progress-line">
-                  <span><strong>{practised}</strong> of {playable} practised</span>
-                  {bestOverall && <span className="ep-progress-best">Best score <b>{bestOverall.text}</b>{bestOverall.level && <em>{bestOverall.level}</em>}</span>}
+                  <span><strong>{practised}</strong> {tr(`of ${playable} practised`, `sur ${playable} faits`)}</span>
+                  {bestOverall && <span className="ep-progress-best">{tr('Best score', 'Meilleur score')} <b>{bestOverall.text}</b>{bestOverall.level && <em>{bestOverall.level}</em>}</span>}
                 </div>
                 <div className="ep-bar"><span style={{ width: `${playable ? (practised / playable) * 100 : 0}%` }} /></div>
               </div>
@@ -540,7 +547,7 @@ const StudentExamPreparation: React.FC = () => {
                 {current.length > 6 && (
                   <Input
                     className="ep-search"
-                    placeholder={isLeafLevel && skill?.key === 'ee' ? 'Search a combination or a theme' : `Search ${levelWord}`}
+                    placeholder={isLeafLevel && skill?.key === 'ee' ? tr('Search a combination or a theme', 'Rechercher une combinaison ou un thème') : tr(`Search ${levelWord}`, `Rechercher (${levelWord})`)}
                     prefix={<SearchOutlined />}
                     value={searchText}
                     onChange={e => setSearchText(e.target.value)}
@@ -564,21 +571,21 @@ const StudentExamPreparation: React.FC = () => {
           </div>
         ) : treeError && path.length === 0 ? (
           <div className="ep-empty">
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="The exam content could not be loaded.">
-              <Button onClick={fetchTree}>Try again</Button>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={tr('The exam content could not be loaded.', 'Le contenu des examens n’a pas pu être chargé.')}>
+              <Button onClick={fetchTree}>{tr('Try again', 'Réessayer')}</Button>
             </Empty>
           </div>
         ) : current.length === 0 ? (
-          <div className="ep-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing here yet." /></div>
+          <div className="ep-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={tr('Nothing here yet.', 'Rien pour le moment.')} /></div>
         ) : path.length === 0 ? (
           <div className="ep-skills">{current.map(n => <SkillCard key={keyOf(n)} node={n} />)}</div>
         ) : displayItems.length === 0 ? (
           <div className="ep-empty">
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description={searchText.trim() ? `No ${levelWord} match "${searchText.trim()}".` : `No ${levelWord} in this view.`}
+              description={searchText.trim() ? tr(`No ${levelWord} match "${searchText.trim()}".`, `Aucun résultat pour « ${searchText.trim()} ».`) : tr(`No ${levelWord} in this view.`, 'Rien dans cette vue.')}
             >
-              <Button onClick={() => { setSearchText(''); setFilterTab('all'); }}>Show all {levelWord}</Button>
+              <Button onClick={() => { setSearchText(''); setFilterTab('all'); }}>{tr(`Show all ${levelWord}`, 'Tout afficher')}</Button>
             </Empty>
           </div>
         ) : (

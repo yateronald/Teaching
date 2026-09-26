@@ -1,5 +1,5 @@
 /** Account roles and where each one lands after signing in. */
-export type Role = 'admin' | 'teacher' | 'student' | 'candidate';
+export type Role = 'admin' | 'teacher' | 'student' | 'candidate' | 'org_admin';
 
 export const ROLE_HOME: Record<Role, string> = {
     admin: '/app/dashboard',
@@ -7,6 +7,8 @@ export const ROLE_HOME: Record<Role, string> = {
     student: '/app/student-dashboard',
     // Exam candidates only prepare for the exam: their own space, nothing else.
     candidate: '/app/exam-home',
+    // Company managers run their company's space only.
+    org_admin: '/app/org',
 };
 
 export const homeFor = (role?: string | null): string =>

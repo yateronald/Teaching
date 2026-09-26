@@ -56,29 +56,27 @@ async function grantCredits(db, userId, type, amount, opts = {}) {
   );
 }
 
-/** Consume 1 credit. Throws if insufficient. Returns the new balance. */
+/**
+ * Consume 1 credit. Throws if insufficient. Returns the new balance.
+ * The check and the spend are one statement: two attempts started at the same
+ * moment cannot both spend the last credit.
+ */
 async function consumeCredit(db, userId, type, opts = {}) {
   if (!VALID_TYPES.includes(type)) throw new Error(`Invalid credit type: ${type}`);
-  const balance = await getBalance(db, userId);
-  const current = type === 'ee' ? balance.ee_credits : balance.eo_credits;
-  if (current <= 0) {
-    const err = new Error('INSUFFICIENT_CREDITS');
-    err.code = 'INSUFFICIENT_CREDITS';
-    err.creditType = type;
-    throw err;
-  }
   const column = type === 'ee' ? 'ee_credits' : 'eo_credits';
-  await db.run(
-    `UPDATE student_ai_credits
-     SET ${column} = ${column} - 1,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE user_id = $1`,
-    [userId]
-  );
-  await db.run(
-    `INSERT INTO ai_credit_transactions
-       (user_id, credit_type, delta, reason, actor_id, related_entity_type, related_entity_id, notes)
-     VALUES ($1, $2, -1, $3, $4, $5, $6, $7)`,
+  const row = await db.get(
+    `WITH spent AS (
+        UPDATE student_ai_credits
+           SET ${column} = ${column} - 1, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1 AND ${column} > 0
+        RETURNING ee_credits, eo_credits
+     ), logged AS (
+        INSERT INTO ai_credit_transactions
+          (user_id, credit_type, delta, reason, actor_id, related_entity_type, related_entity_id, notes)
+        SELECT $1, $2, -1, $3, $4, $5, $6, $7 FROM spent
+        RETURNING id
+     )
+     SELECT ee_credits, eo_credits FROM spent`,
     [
       userId, type,
       opts.reason || `${type}_attempt`,
@@ -88,10 +86,13 @@ async function consumeCredit(db, userId, type, opts = {}) {
       opts.notes || null,
     ]
   );
-  return {
-    ee_credits: type === 'ee' ? current - 1 : balance.ee_credits,
-    eo_credits: type === 'eo' ? current - 1 : balance.eo_credits,
-  };
+  if (!row) {
+    const err = new Error('INSUFFICIENT_CREDITS');
+    err.code = 'INSUFFICIENT_CREDITS';
+    err.creditType = type;
+    throw err;
+  }
+  return { ee_credits: Number(row.ee_credits) || 0, eo_credits: Number(row.eo_credits) || 0 };
 }
 
 /** Bulk grant for many students. Used during admin assignment. */
@@ -121,32 +122,31 @@ async function getRecentTransactions(db, userId, limit = 20) {
   );
 }
 
-/** Revoke credits (negative). Used for admin corrections. */
+/** Revoke credits (negative). Used for admin corrections. Never takes more than the balance, in one statement. */
 async function revokeCredits(db, userId, type, amount, opts = {}) {
   if (!VALID_TYPES.includes(type)) throw new Error(`Invalid credit type: ${type}`);
-  const balance = await getBalance(db, userId);
-  const current = type === 'ee' ? balance.ee_credits : balance.eo_credits;
-  
-  const toRemove = amount === 'all' ? current : Math.max(0, Math.floor(Number(amount) || 0));
-  const finalRemove = Math.min(current, toRemove);
-  if (finalRemove === 0) return 0; // no-op
-
   const column = type === 'ee' ? 'ee_credits' : 'eo_credits';
-  await db.run(
-    `UPDATE student_ai_credits
-     SET ${column} = ${column} - $1,
-         updated_at = CURRENT_TIMESTAMP
-     WHERE user_id = $2`,
-    [finalRemove, userId]
-  );
-
-  // Audit log
-  await db.run(
-    `INSERT INTO ai_credit_transactions
-       (user_id, credit_type, delta, reason, actor_id, related_entity_type, related_entity_id, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+  const all = amount === 'all';
+  const n = all ? 0 : Math.max(0, Math.floor(Number(amount) || 0));
+  if (!all && n === 0) return 0; // no-op
+  const row = await db.get(
+    `WITH picked AS (
+        SELECT user_id, LEAST(${column}, COALESCE($2::int, ${column})) AS amount -- $2 null = everything
+          FROM student_ai_credits WHERE user_id = $1 AND ${column} > 0
+         FOR UPDATE
+     ), taken AS (
+        UPDATE student_ai_credits s SET ${column} = s.${column} - p.amount, updated_at = CURRENT_TIMESTAMP
+          FROM picked p WHERE s.user_id = p.user_id
+        RETURNING p.amount
+     ), logged AS (
+        INSERT INTO ai_credit_transactions
+          (user_id, credit_type, delta, reason, actor_id, related_entity_type, related_entity_id, notes)
+        SELECT $1, $3, -amount, $4, $5, $6, $7, $8 FROM taken
+        RETURNING id
+     )
+     SELECT COALESCE((SELECT amount FROM taken), 0)::int AS removed`,
     [
-      userId, type, -finalRemove,
+      userId, all ? null : n, type,
       opts.reason || 'admin_revoke',
       opts.actor_id || null,
       opts.related_entity_type || null,
@@ -154,7 +154,7 @@ async function revokeCredits(db, userId, type, amount, opts = {}) {
       opts.notes || null,
     ]
   );
-  return finalRemove;
+  return row ? row.removed : 0;
 }
 
 module.exports = {

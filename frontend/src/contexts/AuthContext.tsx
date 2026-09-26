@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { App as AntApp } from 'antd';
+import i18n from '../i18n';
 import type { DeviceSession } from '../utils/devices';
 
 interface User {
@@ -9,7 +10,7 @@ interface User {
     email: string;
     first_name: string;
     last_name: string;
-    role: 'admin' | 'teacher' | 'student' | 'candidate';
+    role: 'admin' | 'teacher' | 'student' | 'candidate' | 'org_admin';
     created_at: string;
     // IANA timezone identifier (e.g. 'America/Toronto'). Defaults to 'UTC'
     // if the user hasn't set one. Used to localize all displayed times.
@@ -22,6 +23,23 @@ interface User {
     must_change_password?: number | boolean;
     password_expires_at?: string | null;
     force_password_change?: boolean;
+    /** Company managers and company learners: their company's name, logo and state. */
+    organization_id?: number | null;
+    organization?: OrgBrand | null;
+}
+
+/** The company a manager or learner belongs to, as the server describes it. */
+export interface OrgBrand {
+    id: number;
+    name: string;
+    slug: string;
+    default_language: 'fr' | 'en';
+    state: 'active' | 'expired' | 'not_started' | 'suspended';
+    access_starts_at: string;
+    access_ends_at: string;
+    days_left: number;
+    expiring_soon: boolean;
+    logo_url: string | null;
 }
 
 export interface LoginResult {
@@ -56,6 +74,8 @@ interface AuthContextType {
     isStudent: boolean;
     /** Exam-preparation-only account. */
     isCandidate: boolean;
+    /** Manager of a company's space. */
+    isOrgAdmin: boolean;
     /** An administrator who may also see website monitoring. */
     canViewMonitoring: boolean;
     isForcePasswordChange: boolean;
@@ -108,6 +128,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                         const userData = await response.json();
                         setUser(userData.user);
                         setToken(storedToken);
+                        applyCompanyLanguage(userData.user);
                         // Auto-detect timezone if user hasn't explicitly set one yet.
                         // The DB default is 'UTC' from the migration; if the user
                         // is on a non-UTC machine we sync their profile to the
@@ -148,7 +169,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             });
             if (r.ok) {
                 const d = await r.json();
-                if (d?.user) setUser(d.user);
+                if (d?.user) mergeUser(d.user);
             }
         } catch { /* silent */ }
     };
@@ -169,13 +190,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 localStorage.setItem('token', data.token);
                 setToken(data.token);
                 setUser(data.user);
+                applyCompanyLanguage(data.user);
                 message.success('Login successful!');
                 // Sync profile timezone to browser on fresh login too.
                 autoDetectTimezone(data.user, data.token);
                 return { success: true, signed_out_others: data.signed_out_others };
             } else {
                 // Don't show message here for security errors - let the component handle it
-                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED') {
+                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED' || data.code === 'ORG_SUSPENDED') {
                     return {
                         success: false,
                         error: data.error,
@@ -207,6 +229,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             return { success: false, error: 'Network error' };
         }
     };
+
+    /**
+     * A company account opens in its company's language, unless the person
+     * already chose one on this device (the sign-in page or the header switch).
+     */
+    const applyCompanyLanguage = (u: User | null) => {
+        const lang = u?.organization?.default_language;
+        if (!lang) return;
+        let chosen: string | null = null;
+        try { chosen = localStorage.getItem('i18n_lang'); } catch { /* private mode */ }
+        if (!chosen && i18n.language !== lang) i18n.changeLanguage(lang);
+    };
+
+    /**
+     * Profile answers carry the account fields only: keep what the sign-in
+     * check added (the company of a company account) instead of dropping it.
+     */
+    const mergeUser = (next: User) => setUser(prev => (prev ? { ...prev, ...next } : next));
 
     /** Forgets the sign-in on this device. */
     const clearSession = () => {
@@ -243,7 +283,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const data = await response.json();
 
             if (response.ok) {
-                setUser(data.user);
+                mergeUser(data.user);
                 message.success('Profile updated successfully!');
                 return { success: true };
             } else {
@@ -395,6 +435,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 }
                 if (!check) throw new Error('Network error. Please try again.');
             }
+            if (response.status === 403) {
+                // The administrator disabled the company while this person was signed in.
+                const body = await response.clone().json().catch(() => null);
+                if (body?.code === 'ORG_SUSPENDED') {
+                    clearSession();
+                    message.warning(i18n.language?.startsWith('fr')
+                        ? 'Le compte de votre entreprise est désactivé. Contactez l’administrateur.'
+                        : 'Your company’s account is disabled. Please contact the administrator.');
+                    throw new Error('Company account disabled.');
+                }
+            }
             return response;
         } catch (error) {
             throw error;
@@ -417,7 +468,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const res = await apiCall('/email-change/verify', { method: 'POST', body: JSON.stringify({ code }) });
             const data = await res.json();
             if (res.ok) {
-                setUser(data.user);
+                mergeUser(data.user);
                 return { success: true, user: data.user };
             }
             return { success: false, error: data.error, attemptsLeft: data.attemptsLeft };
@@ -503,6 +554,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         isTeacher: user?.role === 'teacher',
         isStudent: user?.role === 'student',
         isCandidate: user?.role === 'candidate',
+        isOrgAdmin: user?.role === 'org_admin',
         canViewMonitoring: user?.role === 'admin' && !!user?.can_view_monitoring,
         isForcePasswordChange: !!user?.force_password_change,
         requestEmailChange,

@@ -10,7 +10,8 @@ import {
   StarFilled,
 } from '@ant-design/icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useParams } from 'react-router-dom';
+import { apiAsset } from '../../utils/apiAsset';
 import { ASSET_PATHS } from '../../utils/assets';
 import { brandingUtils } from '../../utils/branding';
 import { useTranslation } from 'react-i18next';
@@ -27,8 +28,13 @@ interface LoginForm {
   password: string;
 }
 
+/** A company's public branding, for its own sign-in address (/o/<slug>). */
+interface CompanyBrand { name: string; slug: string; logo_url: string | null; default_language: 'fr' | 'en' }
+
 const Login: React.FC = () => {
   const [form] = Form.useForm();
+  const { slug } = useParams<{ slug?: string }>();
+  const [company, setCompany] = useState<CompanyBrand | null>(null);
   const [loading, setLoading] = useState(false);
   const { login, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
@@ -82,9 +88,29 @@ const Login: React.FC = () => {
   const fromFull = `${from}${fromLoc?.search || ''}${fromLoc?.hash || ''}`;
 
   useEffect(() => {
-    document.title = 'Learn French';
+    document.title = company ? company.name : 'Learn French';
     brandingUtils.applyCSSVariables();
-  }, []);
+  }, [company]);
+
+  // A company's sign-in address shows its name and logo, in its language
+  // unless this device already chose one.
+  useEffect(() => {
+    if (!slug) { setCompany(null); return; }
+    let alive = true;
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    fetch(`${base}/public/org/${encodeURIComponent(slug)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then((b: CompanyBrand | null) => {
+        if (!alive || !b) return;
+        setCompany(b);
+        let chosen: string | null = null;
+        try { chosen = localStorage.getItem('i18n_lang'); } catch { /* private mode */ }
+        if (!chosen && b.default_language && i18n.language !== b.default_language) i18n.changeLanguage(b.default_language);
+      })
+      .catch(() => { /* the plain sign-in page still works */ });
+    return () => { alive = false; };
+  }, [slug, i18n]);
+  const fr = !!i18n.language?.startsWith('fr');
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -100,6 +126,14 @@ const Login: React.FC = () => {
         // Navigation handled by useEffect
       } else if (result.code === 'ACCOUNT_DISABLED') {
         setAccountDisabledData({ type: 'disabled', message: result.message });
+        setAccountDisabledOpen(true);
+      } else if (result.code === 'ORG_SUSPENDED') {
+        setAccountDisabledData({
+          type: 'disabled',
+          message: fr
+            ? 'Le compte de votre entreprise est désactivé. Contactez l’administrateur de votre entreprise ou Learn French with Natives.'
+            : 'Your company’s account is disabled. Please contact your company’s administrator or Learn French with Natives.',
+        });
         setAccountDisabledOpen(true);
       } else if (result.code === 'ACCOUNT_LOCKED') {
         setAccountDisabledData({
@@ -167,6 +201,17 @@ const Login: React.FC = () => {
             <span /><span /><span />
           </div>
 
+          {company ? (
+            <div className="login-side-logo">
+              <span className="login-side-logo-mark login-company-mark">
+                {company.logo_url ? <img src={apiAsset(company.logo_url)} alt={company.name} /> : <b>{company.name.slice(0, 1).toUpperCase()}</b>}
+              </span>
+              <span className="login-side-logo-text">
+                <strong>{company.name}</strong>
+                <em>{fr ? 'Préparation aux examens' : 'Exam preparation'}</em>
+              </span>
+            </div>
+          ) : (
           <a href="/" className="login-side-logo" aria-label="Accueil">
             <span className="login-side-logo-mark">
               <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
@@ -176,7 +221,24 @@ const Login: React.FC = () => {
               <em>with Natives</em>
             </span>
           </a>
+          )}
 
+          {company ? (
+            <div className="login-side-body">
+              <p className="login-eyebrow">
+                <span className="login-eyebrow-dash" aria-hidden="true" />
+                {fr ? 'Espace de préparation' : 'Preparation space'}
+              </p>
+              <h1 className="login-side-title">
+                {fr ? `Préparez le TCF avec ${company.name}` : `Prepare for the TCF with ${company.name}`}
+              </h1>
+              <div className="login-side-exams">
+                {(fr
+                  ? ['Compréhension écrite', 'Compréhension orale', 'Expression écrite', 'Expression orale']
+                  : ['Reading', 'Listening', 'Writing', 'Speaking']).map(e => <span key={e}>{e}</span>)}
+              </div>
+            </div>
+          ) : (
           <div className="login-side-body">
             <p className="login-eyebrow">
               <span className="login-eyebrow-dash" aria-hidden="true" />
@@ -207,23 +269,37 @@ const Login: React.FC = () => {
               </div>
             </dl>
           </div>
+          )}
 
+          {company ? (
+            <div className="login-side-foot">
+              <span>{fr ? 'Propulsé par' : 'Powered by'} <strong>Learn French with Natives</strong></span>
+            </div>
+          ) : (
           <div className="login-side-foot">
             <span className="login-side-rating">
               {[...Array(5)].map((_, i) => <StarFilled key={i} aria-hidden="true" />)}
             </span>
             <span>4,9 / 5 · 500+ avis</span>
           </div>
+          )}
         </aside>
 
         {/* ── RIGHT — form panel ── */}
         <main className="login-main">
           <header className="login-topbar">
             {/* Mobile-only logo (side panel hidden on small screens) */}
+            {company ? (
+              <span className="login-topbar-logo">
+                {company.logo_url && <img src={apiAsset(company.logo_url)} alt="" />}
+                <strong>{company.name}</strong>
+              </span>
+            ) : (
             <a href="/" className="login-topbar-logo" aria-label="Accueil">
               <img src={ASSET_PATHS.LOGOS.MAIN} alt="Learn French with Natives" />
               <strong>Learn French <em>with Natives</em></strong>
             </a>
+            )}
 
             <div className="login-topbar-actions">
               <div ref={langSwitcherRef} className={`login-lang${langOpen ? ' is-open' : ''}`}>
@@ -272,13 +348,15 @@ const Login: React.FC = () => {
                 <span /><span /><span />
               </div>
 
-              <div className="login-card-mark">
-                <img src={ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" />
+              <div className={`login-card-mark${company ? ' login-card-mark--company' : ''}`}>
+                {company && !company.logo_url
+                  ? <b className="login-card-initial" aria-hidden="true">{company.name.slice(0, 1).toUpperCase()}</b>
+                  : <img src={company?.logo_url ? apiAsset(company.logo_url) : ASSET_PATHS.LOGOS.MAIN} alt="" aria-hidden="true" />}
               </div>
 
               <p className="login-eyebrow login-eyebrow--dark">
                 <span className="login-eyebrow-dash" aria-hidden="true" />
-                {i18n.language === 'en' ? 'Student space' : 'Espace étudiant'}
+                {company ? company.name : i18n.language === 'en' ? 'Student space' : 'Espace étudiant'}
               </p>
               <h2 className="login-title">{t('login.title')}</h2>
               <p className="login-sub">{t('login.sub')}</p>

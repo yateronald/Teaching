@@ -17,13 +17,14 @@ export function useActiveMeeting() {
   const { user, apiCall } = useAuth();
   const [activeMeeting, setActiveMeeting] = useState<ActiveMeetingSummary | null>(null);
   const [hasActiveMeeting, setHasActiveMeeting] = useState(false);
-  // Exam candidates have no live classes: nothing to watch for them.
-  const signedIn = !!user?.id && user.role !== 'candidate';
+  // Exam candidates and company managers have no live classes: nothing to watch for them.
+  const noClasses = user?.role === 'candidate' || user?.role === 'org_admin';
+  const signedIn = !!user?.id && !noClasses;
   const apiCallRef = useRef(apiCall);
   apiCallRef.current = apiCall;
 
   const checkActive = useCallback(async () => {
-    if (!user || user.role === 'candidate') {
+    if (!user || user.role === 'candidate' || user.role === 'org_admin') {
       setActiveMeeting(null);
       setHasActiveMeeting(false);
       return;

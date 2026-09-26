@@ -213,6 +213,12 @@ app.use('/api/webhooks', livekitWebhookRoutes);
 const eoSimulationRoutes = require('./routes/eoSimulation');
 app.use('/api/eo-simulation', eoSimulationRoutes);
 
+// Companies: the administrator's pages, the company's own space, and the
+// public branding of a company's sign-in page (name and logo only).
+app.use('/api/admin/organizations', require('./routes/organizations'));
+app.use('/api/org', require('./routes/orgPortal'));
+app.use('/api/public/org', require('./routes/orgPublic'));
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'French Teaching System API is running' });
@@ -480,6 +486,9 @@ async function startServer() {
 
         // Expired sign-ins are closed and old ones forgotten, once a day
         require('./services/sessionService').startSessionSweeper(database);
+
+        // Companies whose access ends within 14 days are warned (once per end date)
+        require('./services/organizationReminder').start(database);
 
         // Website monitoring: API timings are written once a minute, and old
         // visit rows (and the salts that made them) are forgotten twice a day.

@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Button, DatePicker, Form, Select, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
-import { EXAM_LABEL, NCLC_NOTE, NCLC_OPTIONS, type ExamTarget, type Goal } from './candidateModel';
+import { useTr } from '../../utils/useTr';
+import { EXAM_LABEL, NCLC_OPTIONS, nclcNote, type ExamTarget, type Goal } from './candidateModel';
 import './Candidate.css';
 
 interface Props {
@@ -15,8 +16,9 @@ interface Props {
 interface Values { target_exam: ExamTarget; target_nclc: number | null; exam_date: Dayjs | null }
 
 /** Target exam, target NCLC level and exam date — what the whole exam space measures against. */
-const ExamGoalEditor: React.FC<Props> = ({ goal, onSaved, onCancel, submitLabel = 'Save my goal' }) => {
+const ExamGoalEditor: React.FC<Props> = ({ goal, onSaved, onCancel, submitLabel }) => {
     const { apiCall } = useAuth();
+    const { tr, lang } = useTr();
     const [form] = Form.useForm<Values>();
     const [saving, setSaving] = useState(false);
     const target = Form.useWatch('target_nclc', form);
@@ -34,8 +36,8 @@ const ExamGoalEditor: React.FC<Props> = ({ goal, onSaved, onCancel, submitLabel 
                 }),
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || 'Your goal could not be saved.');
-            message.success('Your exam goal is saved.');
+            if (!res.ok) throw new Error(data.error || tr('Your goal could not be saved.', 'Votre objectif n’a pas pu être enregistré.'));
+            message.success(tr('Your exam goal is saved.', 'Votre objectif d’examen est enregistré.'));
             onSaved(data as Goal);
         } catch (e) {
             message.error((e as Error).message);
@@ -57,26 +59,26 @@ const ExamGoalEditor: React.FC<Props> = ({ goal, onSaved, onCancel, submitLabel 
             }}
             onFinish={save}
         >
-            <Form.Item name="target_exam" label="Exam">
+            <Form.Item name="target_exam" label={tr('Exam', 'Examen')}>
                 <Select options={Object.entries(EXAM_LABEL).map(([value, label]) => ({ value, label }))} />
             </Form.Item>
             <div className="cx-goal-grid">
-                <Form.Item name="target_nclc" label="Target level" extra={target ? NCLC_NOTE[target] : 'The level your project requires.'}>
-                    <Select allowClear placeholder="Choose a level" options={NCLC_OPTIONS.map(n => ({ value: n, label: `NCLC ${n}` }))} />
+                <Form.Item name="target_nclc" label={tr('Target level', 'Niveau visé')} extra={target ? nclcNote(target, lang) : tr('The level your project requires.', 'Le niveau exigé par votre projet.')}>
+                    <Select allowClear placeholder={tr('Choose a level', 'Choisissez un niveau')} options={NCLC_OPTIONS.map(n => ({ value: n, label: `NCLC ${n}` }))} />
                 </Form.Item>
-                <Form.Item name="exam_date" label="Exam date" extra="Leave empty if it is not booked yet.">
+                <Form.Item name="exam_date" label={tr('Exam date', 'Date de l’examen')} extra={tr('Leave empty if it is not booked yet.', 'Laissez vide si elle n’est pas encore réservée.')}>
                     <DatePicker
                         className="cx-full"
                         format="D MMM YYYY"
-                        placeholder="Choose a date"
+                        placeholder={tr('Choose a date', 'Choisissez une date')}
                         disabledDate={d => d.isBefore(dayjs().startOf('day'))}
                         inputReadOnly
                     />
                 </Form.Item>
             </div>
             <div className="cx-goal-actions">
-                {onCancel && <Button onClick={onCancel} disabled={saving}>Cancel</Button>}
-                <Button type="primary" htmlType="submit" loading={saving}>{submitLabel}</Button>
+                {onCancel && <Button onClick={onCancel} disabled={saving}>{tr('Cancel', 'Annuler')}</Button>}
+                <Button type="primary" htmlType="submit" loading={saving}>{submitLabel || tr('Save my goal', 'Enregistrer mon objectif')}</Button>
             </div>
         </Form>
     );

@@ -54,6 +54,16 @@ const ForcePasswordChange = lazy(() => import('./components/Auth/ForcePasswordCh
 const MonitoringPage = lazy(() => import('./components/Admin/Monitoring/MonitoringPage'));
 const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDashboard'));
 const CandidateResults = lazy(() => import('./components/Candidate/CandidateResults'));
+// Companies: the administrator's pages and the company's own space.
+const Companies = lazy(() => import('./components/Admin/Companies/Companies'));
+const CompanyDetail = lazy(() => import('./components/Admin/Companies/CompanyDetail'));
+const OrgDashboard = lazy(() => import('./components/Org/OrgDashboard'));
+const OrgLearners = lazy(() => import('./components/Org/OrgLearners'));
+const OrgLearnerDetail = lazy(() => import('./components/Org/OrgLearnerDetail'));
+const OrgGroups = lazy(() => import('./components/Org/OrgGroups'));
+const OrgAssignments = lazy(() => import('./components/Org/OrgAssignments'));
+const OrgCredits = lazy(() => import('./components/Org/OrgCredits'));
+const OrgSettings = lazy(() => import('./components/Org/OrgSettings'));
 
 /** Redirect that keeps the query string (e.g. ?demo=12 in a notification link). */
 function KeepQuery({ to }: { to: string }) {
@@ -82,6 +92,8 @@ export function SiteRoutes() {
               {/* The signed-in app. */}
               <Route element={<Suspense fallback={loading}><AppShell /></Suspense>}>
               <Route path="/login" element={<Login />} />
+              {/* A company's own sign-in page: its name and logo. */}
+              <Route path="/o/:slug" element={<Login />} />
               <Route path="/force-change-password" element={<ProtectedRoute><ForcePasswordChange /></ProtectedRoute>} />
 
               {/* Convenience redirects for legacy/root-level paths */}
@@ -167,6 +179,18 @@ export function SiteRoutes() {
                     <BatchInsightsAdmin />
                   </ProtectedRoute>
                 } />
+
+                <Route path="companies" element={<ProtectedRoute requiredRole="admin"><Companies /></ProtectedRoute>} />
+                <Route path="companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetail /></ProtectedRoute>} />
+
+                {/* Company space (company managers) */}
+                <Route path="org" element={<ProtectedRoute requiredRole="org_admin"><OrgDashboard /></ProtectedRoute>} />
+                <Route path="org/learners" element={<ProtectedRoute requiredRole="org_admin"><OrgLearners /></ProtectedRoute>} />
+                <Route path="org/learners/:id" element={<ProtectedRoute requiredRole="org_admin"><OrgLearnerDetail /></ProtectedRoute>} />
+                <Route path="org/groups" element={<ProtectedRoute requiredRole="org_admin"><OrgGroups /></ProtectedRoute>} />
+                <Route path="org/assignments" element={<ProtectedRoute requiredRole="org_admin"><OrgAssignments /></ProtectedRoute>} />
+                <Route path="org/credits" element={<ProtectedRoute requiredRole="org_admin"><OrgCredits /></ProtectedRoute>} />
+                <Route path="org/settings" element={<ProtectedRoute requiredRole="org_admin"><OrgSettings /></ProtectedRoute>} />
 
                 {/* Teacher Routes */}
                 <Route path="teacher-dashboard" element={

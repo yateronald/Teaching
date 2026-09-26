@@ -1,6 +1,8 @@
 import React from 'react';
 import { Modal } from 'antd';
 import { ThunderboltFilled, MailOutlined, FormOutlined, AudioOutlined } from '@ant-design/icons';
+import { useAuth } from '../../contexts/AuthContext';
+import { useTr } from '../../utils/useTr';
 
 interface OutOfCreditsModalProps {
   open: boolean;
@@ -11,6 +13,10 @@ interface OutOfCreditsModalProps {
 const SUPPORT_EMAIL = 'support@learnfrenchwithnatives.com';
 
 const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClose }) => {
+  const { user } = useAuth();
+  const { tr } = useTr();
+  // A company learner gets credits from their company, not from us.
+  const company = user?.organization?.name || null;
   const isEE = type === 'ee';
   const accent = isEE ? '#f43f5e' : '#10b981';
   const accentLight = isEE ? '#fb7185' : '#34d399';
@@ -96,7 +102,7 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
             color: '#0f172a', letterSpacing: -0.4,
             fontFamily: '"Manrope", "Inter", sans-serif',
           }}>
-            You're out of credits
+            {tr('You’re out of credits', 'Vous n’avez plus de crédits')}
           </h2>
 
           {/* Subtitle */}
@@ -106,8 +112,10 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
             color: '#64748b', fontWeight: 500,
             maxWidth: 360, marginLeft: 'auto', marginRight: 'auto',
           }}>
-            You've used all your <strong style={{ color: '#0f172a' }}>{skillName}</strong> AI credits.
-            Each attempt uses one credit — please contact your administrator to add more.
+            {tr('You’ve used all your ', 'Vous avez utilisé tous vos crédits IA ')}<strong style={{ color: '#0f172a' }}>{skillName}</strong>{tr(' AI credits.', '.')}{' '}
+            {company
+              ? tr(`Each attempt uses one credit — ask ${company} to give you more.`, `Chaque essai utilise un crédit — demandez-en à ${company}.`)
+              : tr('Each attempt uses one credit — please contact your administrator to add more.', 'Chaque essai utilise un crédit — contactez votre administrateur pour en obtenir davantage.')}
           </p>
 
           {/* Info bullet list */}
@@ -124,13 +132,13 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
               letterSpacing: 0.8, textTransform: 'uppercase',
               marginBottom: 10,
             }}>
-              How credits work
+              {tr('How credits work', 'Comment fonctionnent les crédits')}
             </div>
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
-                { icon: '✓', text: 'Each AI-graded attempt consumes 1 credit' },
-                { icon: '✓', text: 'Credits never expire — they stay until used' },
-                { icon: '✓', text: 'Your administrator can add credits anytime' },
+                { icon: '✓', text: tr('Each AI-graded attempt consumes 1 credit', 'Chaque essai corrigé par l’IA utilise 1 crédit') },
+                { icon: '✓', text: tr('Credits never expire — they stay until used', 'Les crédits n’expirent pas — ils restent jusqu’à leur utilisation') },
+                { icon: '✓', text: company ? tr(`${company} can hand out more credits`, `${company} peut vous distribuer des crédits`) : tr('Your administrator can add credits anytime', 'Votre administrateur peut ajouter des crédits à tout moment') },
               ].map((b, i) => (
                 <li key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#334155' }}>
                   <span style={{
@@ -148,7 +156,7 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
 
           {/* Action buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-            <a
+            {!company && <a
               href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(`Request more ${skillName} credits`)}&body=${encodeURIComponent(`Hello,\n\nI'd like to request more ${skillName} credits to continue practicing on the platform.\n\nThank you.`)}`}
               style={{
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 10,
@@ -172,8 +180,8 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
                 (e.currentTarget as HTMLAnchorElement).style.boxShadow = `0 10px 22px -8px ${accent}66, inset 0 1px 0 rgba(255,255,255,0.2)`;
               }}
             >
-              <MailOutlined /> Email administrator
-            </a>
+              <MailOutlined /> {tr('Email administrator', 'Écrire à l’administrateur')}
+            </a>}
             <button
               onClick={onClose}
               style={{
@@ -190,7 +198,7 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
               onMouseEnter={e => (e.currentTarget.style.color = '#0f172a')}
               onMouseLeave={e => (e.currentTarget.style.color = '#64748b')}
             >
-              Maybe later
+              {company ? tr('OK', 'OK') : tr('Maybe later', 'Plus tard')}
             </button>
           </div>
 
@@ -199,7 +207,7 @@ const OutOfCreditsModal: React.FC<OutOfCreditsModalProps> = ({ open, type, onClo
             marginTop: 18, paddingTop: 14, borderTop: '1px solid #f1f5f9',
             fontSize: 11.5, color: '#94a3b8', fontWeight: 500,
           }}>
-            Need help? <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: accent, fontWeight: 600, textDecoration: 'none' }}>{SUPPORT_EMAIL}</a>
+            {tr('Need help?', 'Besoin d’aide ?')} <a href={`mailto:${SUPPORT_EMAIL}`} style={{ color: accent, fontWeight: 600, textDecoration: 'none' }}>{SUPPORT_EMAIL}</a>
           </div>
         </div>
       </div>

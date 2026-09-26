@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const { authenticateToken } = require('../middleware/auth');
 const { getKDriveService } = require('../services/kdriveService');
-const { checkExamAccess, hasAnyActiveAssignmentForCategory } = require('../services/examAccessService');
+const { checkExamAccess, hasAnyActiveAssignmentForCategory, learnerAssignments } = require('../services/examAccessService');
 const { hasColumn, hasTable } = require('../services/schemaFeatures');
 
 const router = express.Router();
@@ -3120,89 +3120,14 @@ function ensureAssignmentColumns(db) {
   return assignmentColumnsReady;
 }
 
-// Display names of assigned content — one query per content type.
-const CONTENT_NAME_SQL = {
-  category: `SELECT id, name FROM tcf_categories WHERE id = ANY($1::int[])`,
-  ce_series: `SELECT id, name FROM tcf_ce_series WHERE id = ANY($1::int[])`,
-  co_series: `SELECT id, name FROM tcf_co_series WHERE id = ANY($1::int[])`,
-  ee_year: `SELECT id, 'EE ' || year AS name FROM tcf_ee_years WHERE id = ANY($1::int[])`,
-  ee_month: `SELECT m.id, m.month_name || ' ' || y.year AS name FROM tcf_ee_months m JOIN tcf_ee_years y ON y.id = m.year_id WHERE m.id = ANY($1::int[])`,
-  ee_combinaison: `SELECT id, name FROM tcf_ee_combinaisons WHERE id = ANY($1::int[])`,
-  eo_year: `SELECT id, 'EO ' || year AS name FROM tcf_eo_years WHERE id = ANY($1::int[])`,
-  eo_month: `SELECT m.id, m.month_name || ' ' || y.year AS name FROM tcf_eo_months m JOIN tcf_eo_years y ON y.id = m.year_id WHERE m.id = ANY($1::int[])`,
-  eo_partie: `SELECT id, name FROM tcf_eo_parties WHERE id = ANY($1::int[])`,
-};
-async function contentNameResolver(db, rows) {
-  const idsByType = {};
-  for (const r of rows) {
-    if (!idsByType[r.content_type]) idsByType[r.content_type] = new Set();
-    idsByType[r.content_type].add(Number(r.content_id));
-  }
-  const names = {};
-  for (const [type, ids] of Object.entries(idsByType)) {
-    if (!CONTENT_NAME_SQL[type]) continue;
-    const found = await db.all(CONTENT_NAME_SQL[type], [Array.from(ids)]);
-    for (const f of found) names[`${type}:${f.id}`] = f.name;
-  }
-  return (type, id) => names[`${type}:${id}`] || `${type} #${id}`;
-}
+// Display names of assigned content (shared with the company space).
+const { contentNameResolver } = require('../services/contentNames');
+const { buildContentTree } = require('../services/contentTree');
 
 // GET /exam-assignments/content-tree — full content tree for the assignment modal
 router.get('/exam-assignments/content-tree', adminOnly, async (req, res) => {
   try {
-    // One query per table, assembled in memory (this used to run one query per category, year and month).
-    // Sequential on purpose: the app shares a single pg client, which runs one query at a time.
-    const categories = await req.db.all(`SELECT id, name, description, icon, display_order FROM tcf_categories ORDER BY display_order ASC, id ASC`);
-    const ceSeries = await req.db.all(`SELECT id, category_id, name, description, total_questions, total_points FROM tcf_ce_series ORDER BY name ASC`);
-    const coSeries = await req.db.all(`SELECT id, category_id, name, description, total_questions, total_points FROM tcf_co_series ORDER BY name ASC`);
-    const eeYears = await req.db.all(`SELECT id, category_id, year FROM tcf_ee_years ORDER BY year DESC`);
-    const eeMonths = await req.db.all(`SELECT id, year_id, month, month_name FROM tcf_ee_months ORDER BY month ASC`);
-    const eeCombs = await req.db.all(`SELECT id, month_id, name, display_order FROM tcf_ee_combinaisons ORDER BY display_order ASC, id ASC`);
-    const eoYears = await req.db.all(`SELECT id, category_id, year FROM tcf_eo_years ORDER BY year DESC`);
-    const eoMonths = await req.db.all(`SELECT id, year_id, month, month_name FROM tcf_eo_months ORDER BY month ASC`);
-    const eoParties = await req.db.all(`SELECT id, month_id, name, display_order FROM tcf_eo_parties ORDER BY display_order ASC, id ASC`);
-
-    const groupBy = (rows, key) => {
-      const m = new Map();
-      for (const r of rows) {
-        if (!m.has(r[key])) m.set(r[key], []);
-        m.get(r[key]).push(r);
-      }
-      return m;
-    };
-    const without = (row, key) => { const o = { ...row }; delete o[key]; return o; };
-    const ceBy = groupBy(ceSeries, 'category_id');
-    const coBy = groupBy(coSeries, 'category_id');
-    const eeYearsBy = groupBy(eeYears, 'category_id');
-    const eeMonthsBy = groupBy(eeMonths, 'year_id');
-    const eeCombsBy = groupBy(eeCombs, 'month_id');
-    const eoYearsBy = groupBy(eoYears, 'category_id');
-    const eoMonthsBy = groupBy(eoMonths, 'year_id');
-    const eoPartiesBy = groupBy(eoParties, 'month_id');
-
-    // EE/EO: category → years → months → combinaisons / parties
-    const yearsTree = (years, monthsBy, leavesBy, prefix, leafType) => (years || []).map(y => ({
-      ...without(y, 'category_id'), type: `${prefix}_year`, content_id: y.id,
-      children: (monthsBy.get(y.id) || []).map(m => ({
-        ...without(m, 'year_id'), type: `${prefix}_month`, content_id: m.id,
-        children: (leavesBy.get(m.id) || []).map(l => ({ ...without(l, 'month_id'), type: leafType, content_id: l.id })),
-      })),
-    }));
-
-    const tree = categories.map(cat => {
-      const node = { ...cat, type: 'category', children: [] };
-      if (cat.name === 'Compréhension Écrite') {
-        node.children = (ceBy.get(cat.id) || []).map(s => ({ ...without(s, 'category_id'), type: 'ce_series', content_id: s.id }));
-      } else if (cat.name === 'Compréhension Orale') {
-        node.children = (coBy.get(cat.id) || []).map(s => ({ ...without(s, 'category_id'), type: 'co_series', content_id: s.id }));
-      } else if (cat.name === 'Expression Écrite') {
-        node.children = yearsTree(eeYearsBy.get(cat.id), eeMonthsBy, eeCombsBy, 'ee', 'ee_combinaison');
-      } else if (cat.name === 'Expression Orale') {
-        node.children = yearsTree(eoYearsBy.get(cat.id), eoMonthsBy, eoPartiesBy, 'eo', 'eo_partie');
-      }
-      return node;
-    });
-
+    const tree = await buildContentTree(req.db);
     res.json(tree);
   } catch (error) {
     console.error('GET /exam-assignments/content-tree error:', error);
@@ -3391,16 +3316,20 @@ router.get('/exam-assignments', adminOnly, async (req, res) => {
   try {
     await ensureAssignmentColumns(req.db);
 
+    // Company assignments (migration 025) may go to a company group instead of a learner or batch.
+    const withOrgs = await hasColumn(req.db, 'tcf_exam_assignments', 'org_group_id');
     const assignments = await req.db.all(`
       SELECT a.id, a.content_type, a.content_id, a.student_id, a.batch_id,
              a.expires_at, a.assigned_by, a.assigned_at, a.group_id, a.group_name,
              u.first_name AS student_first_name, u.last_name AS student_last_name, u.email AS student_email,
              b.name AS batch_name,
              ab.first_name AS assigned_by_first, ab.last_name AS assigned_by_last
+             ${withOrgs ? `, a.org_group_id, og.name AS org_group_name, COALESCE(org.display_name, org.name) AS organization_name` : ''}
       FROM tcf_exam_assignments a
       LEFT JOIN users u ON a.student_id = u.id
       LEFT JOIN batches b ON a.batch_id = b.id
       LEFT JOIN users ab ON a.assigned_by = ab.id
+      ${withOrgs ? `LEFT JOIN organization_groups og ON og.id = a.org_group_id LEFT JOIN organizations org ON org.id = a.organization_id` : ''}
       ORDER BY a.assigned_at DESC
     `);
 
@@ -3421,6 +3350,7 @@ router.get('/exam-assignments', adminOnly, async (req, res) => {
           expires_at: a.expires_at,
           is_expired: a.is_expired,
           assigned_by: a.assigned_by ? `${a.assigned_by_first} ${a.assigned_by_last}` : null,
+          organization_name: a.organization_name || null,
           recipients: [],
           items: [],
           item_ids: [],
@@ -3436,12 +3366,12 @@ router.get('/exam-assignments', adminOnly, async (req, res) => {
       }
 
       // Add unique recipients
-      const recipientKey = a.student_id ? `student:${a.student_id}` : `batch:${a.batch_id}`;
+      const recipientKey = a.student_id ? `student:${a.student_id}` : a.batch_id ? `batch:${a.batch_id}` : `org_group:${a.org_group_id}`;
       if (!g.recipients.find(r => r.key === recipientKey)) {
         g.recipients.push({
           key: recipientKey,
-          type: a.student_id ? 'student' : 'batch',
-          name: a.student_id ? `${a.student_first_name} ${a.student_last_name}` : a.batch_name,
+          type: a.student_id ? 'student' : a.batch_id ? 'batch' : 'org_group',
+          name: a.student_id ? `${a.student_first_name} ${a.student_last_name}` : a.batch_id ? a.batch_name : `${a.org_group_name} (${a.organization_name})`,
         });
       }
     }
@@ -3591,16 +3521,13 @@ async function attachLeafProgress(db, studentId, leaves) {
   }
 }
 
-/** "content_type:content_id" → { is_assigned, is_expired } for direct and batch assignments. */
+/**
+ * "content_type:content_id" → { is_assigned, is_expired } for everything that reaches the
+ * learner (direct, batch, company group), with the company's dates applied: once a company's
+ * access ends, its learners still see their content, greyed out as expired.
+ */
 async function loadStudentAssignmentMap(db, studentId) {
-  const rows = await db.all(`
-    SELECT content_type, content_id, expires_at FROM tcf_exam_assignments WHERE student_id = $1
-    UNION ALL
-    SELECT a.content_type, a.content_id, a.expires_at
-    FROM tcf_exam_assignments a
-    JOIN batch_students bs ON bs.batch_id = a.batch_id
-    WHERE bs.student_id = $1
-  `, [studentId]);
+  const rows = await learnerAssignments(db, studentId);
   const now = new Date();
   const map = {};
   for (const a of rows) {

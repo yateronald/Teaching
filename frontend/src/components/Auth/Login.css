@@ -591,3 +591,12 @@
   }
   .login-submit-btn:hover:not(:disabled) { transform: none; }
 }
+
+/* ── A company's own sign-in page (/o/<slug>) ──
+   Company logos come in every shape: shown on a white rounded tile, whole. */
+.login-company-mark { width: 56px; height: 56px; border-radius: 14px; }
+.login-company-mark img { width: 46px; height: 46px; object-fit: contain; }
+.login-company-mark b { font-size: 22px; font-weight: 700; color: #14264c; }
+.login-card-mark--company { width: 72px; height: 72px; border-radius: 18px; background: #fff; }
+.login-card-mark--company img { width: 58px; height: 58px; }
+.login-card-initial { font-size: 28px; font-weight: 700; color: #14264c; }

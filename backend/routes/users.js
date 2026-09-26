@@ -21,35 +21,19 @@ const router = express.Router();
  */
 const monitoringColumn = (db) => hasColumn(db, 'users', 'can_view_monitoring');
 const monitoringValue = (role, value) => (role === 'admin' ? value === true || value === 'true' : false);
-/** Extra columns for a SELECT, once the migration has run. */
-const extraUserColumns = async (db, prefix = '') =>
-    (await monitoringColumn(db)) ? `, ${prefix}can_view_monitoring` : '';
-
-// Helper: generate a temporary password of exact length 10 including letters (upper/lower) and digits
-function generateTempPassword(len = 10) {
-    const U = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // exclude I/O
-    const L = 'abcdefghijkmnopqrstuvwxyz'; // exclude l
-    const D = '23456789'; // exclude 0/1
-    const pools = [U, L, D];
-
-    // Ensure at least one from each required class
-    const required = [
-        U[Math.floor(Math.random() * U.length)],
-        L[Math.floor(Math.random() * L.length)],
-        D[Math.floor(Math.random() * D.length)]
-    ];
-
-    const all = (U + L + D).split('');
-    while (required.length < len) {
-        required.push(all[Math.floor(Math.random() * all.length)]);
+/** Extra columns for a SELECT (on `users`, unaliased), once their migrations have run. */
+const extraUserColumns = async (db, prefix = '') => {
+    let cols = (await monitoringColumn(db)) ? `, ${prefix}can_view_monitoring` : '';
+    // Company accounts show which company they belong to.
+    if (await hasColumn(db, 'users', 'organization_id')) {
+        cols += `, ${prefix}organization_id, (SELECT COALESCE(o.display_name, o.name) FROM organizations o WHERE o.id = users.organization_id) AS organization_name`;
     }
-    // Shuffle
-    for (let i = required.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [required[i], required[j]] = [required[j], required[i]];
-    }
-    return required.join('');
-}
+    return cols;
+};
+const orgs = require('../services/organizationService');
+
+// Temporary passwords come from the shared, cryptographically secure generator.
+const { generateTempPassword } = require('../services/tempPassword');
 
 // Get all users (Admin only)
 router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
@@ -173,6 +157,11 @@ router.post('/', [
 
         const { username, email, role, first_name, last_name, is_active = true } = req.body;
 
+        // A company manager always belongs to a company: created from that company's page.
+        if (role === 'org_admin') {
+            return res.status(400).json({ error: 'Company managers are added from the company’s page (Companies).', code: 'USE_COMPANY_PAGE' });
+        }
+
         // An exam candidate may come with an exam goal (target, level, date, private note)
         const { goal, error: goalError } = role === 'candidate'
             ? candidates.readGoal(req.body, { withNotes: true })
@@ -264,9 +253,16 @@ router.put('/:id', [
         const { username, email, role, first_name, last_name, is_active } = req.body;
 
         // Check if user exists
-        const existingUser = await req.db.get('SELECT id, role FROM users WHERE id = ?', [id]);
+        const withOrg = await hasColumn(req.db, 'users', 'organization_id');
+        const existingUser = await req.db.get(`SELECT id, role, is_active${withOrg ? ', organization_id' : ''} FROM users WHERE id = ?`, [id]);
         if (!existingUser) {
             return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Company accounts keep their role (manager or learner of their company);
+        // nobody becomes a company manager from here.
+        if (role && role !== existingUser.role && (existingUser.organization_id || role === 'org_admin')) {
+            return res.status(400).json({ error: 'The role of a company account cannot be changed here. Manage it from the company’s page.', code: 'COMPANY_ACCOUNT' });
         }
 
         // Prevent self-deactivation for logged-in admin
@@ -372,6 +368,13 @@ router.put('/:id', [
         if (is_active === false || (role && role !== existingUser.role)) {
             await sessions.endAllForUser(req.db, targetIdForUpdate, 'admin').catch(() => 0);
         }
+        // A company learner turned off gives its unused credits back to the company.
+        if (is_active === false && existingUser.is_active && existingUser.organization_id && existingUser.role === 'candidate') {
+            for (const type of ['ee', 'eo']) {
+                await orgs.reclaim(req.db, existingUser.organization_id, [targetIdForUpdate], type, 'all', req.user.id, { requireOpen: false, reason: 'learner_left' })
+                    .catch(e => console.error('Could not return the credits of user', targetIdForUpdate, e.message));
+            }
+        }
 
         // Get updated user
         const updatedUser = await req.db.get(
@@ -385,6 +388,9 @@ router.put('/:id', [
         res.json({ message: 'User updated successfully', user: updatedUser });
 
     } catch (error) {
+        if (String(error?.message || '').includes('SEAT_LIMIT_REACHED')) {
+            return res.status(409).json({ error: 'This company’s package is full. Raise it on the company’s page first.', code: 'SEAT_LIMIT_REACHED' });
+        }
         console.error('Update user error:', error);
         res.status(500).json({ error: 'Failed to update user' });
     }

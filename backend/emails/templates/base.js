@@ -187,13 +187,18 @@ function formatRecipientTime(when, tz, opts = {}) {
  *   bodyHtml: string,           // main body content
  * }} opts
  */
-function baseHtml({ subject, preheader, eyebrow, title, bodyHtml }) {
-    const logoUrl = getLogoUrl();
+/**
+ * `logo` / `logoAlt` put another brand in the header (a company's own logo);
+ * `lang` sets the document language and the footer wording (en or fr).
+ */
+function baseHtml({ subject, preheader, eyebrow, title, bodyHtml, logo = null, logoAlt = null, lang = 'en' }) {
+    const logoUrl = logo || getLogoUrl();
     const supportEmail = getSupportEmail();
     const year = new Date().getFullYear();
+    const fr = lang === 'fr';
 
     return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${fr ? 'fr' : 'en'}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -225,7 +230,7 @@ function baseHtml({ subject, preheader, eyebrow, title, bodyHtml }) {
           <tr>
             <td class="email-header" style="padding: 32px 40px 0; text-align: left;">
               <a href="${(process.env.FRONTEND_URL || 'https://learnfrenchwithnatives.com').replace(/\/$/, '')}" target="_blank" style="text-decoration: none;">
-                <img src="${logoUrl}" alt="Learn French with Natives" height="40" style="display: block; height: 40px; width: auto; margin-bottom: 24px; border: 0;" />
+                <img src="${logoUrl}" alt="${escapeHtml(logoAlt || 'Learn French with Natives')}" height="40" style="display: block; height: 40px; width: auto; margin-bottom: 24px; border: 0;" />
               </a>
               ${eyebrow ? `<div style="font-size: 11px; font-weight: 700; color: ${BRAND.primary}; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px;">${escapeHtml(eyebrow)}</div>` : ''}
               <h1 style="margin: 0 0 8px; font-size: 24px; font-weight: 700; color: ${BRAND.text}; letter-spacing: -0.4px; line-height: 1.3;">
@@ -248,13 +253,13 @@ function baseHtml({ subject, preheader, eyebrow, title, bodyHtml }) {
               <table width="100%" cellspacing="0" cellpadding="0" role="presentation">
                 <tr>
                   <td align="left" style="font-size: 12px; color: ${BRAND.textMuted}; line-height: 1.6;">
-                    Need help? Reply to this email or write to
+                    ${fr ? 'Besoin d’aide ? Répondez à cet email ou écrivez à' : 'Need help? Reply to this email or write to'}
                     <a href="mailto:${supportEmail}" style="color: ${BRAND.primary}; text-decoration: none; font-weight: 600;">${supportEmail}</a>
                   </td>
                 </tr>
                 <tr>
                   <td align="left" style="font-size: 11px; color: ${BRAND.textLight}; padding-top: 10px;">
-                    © ${year} Learn French with Natives. All rights reserved.
+                    © ${year} Learn French with Natives. ${fr ? 'Tous droits réservés.' : 'All rights reserved.'}
                   </td>
                 </tr>
               </table>

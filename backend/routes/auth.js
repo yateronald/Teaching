@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { generateToken, tokenExpiry, tokenDaysFor, MOBILE_TOKEN_DAYS, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
+const { generateToken, tokenExpiry, tokenDaysFor, MOBILE_TOKEN_DAYS, hashPassword, verifyPassword, authenticateToken, recordFailedLogin, resetFailedLogins, isAccountLocked, ORG_SUSPENDED } = require('../middleware/auth');
+const orgs = require('../services/organizationService');
 const sessions = require('../services/sessionService');
 const { createNotification } = require('../services/notificationService');
 
@@ -88,6 +89,16 @@ router.post('/login', [
 
         // Successful login - reset failed attempts
         await resetFailedLogins(req.db, user.id);
+
+        // A company account signs in only while its company is enabled. Checked
+        // after the password, so the answer tells a stranger nothing.
+        if (user.organization_id || user.role === 'org_admin') {
+            const org = user.organization_id
+                ? await req.db.get('SELECT * FROM organizations WHERE id = ?', [user.organization_id])
+                : null;
+            if (!org || org.status === 'suspended') return res.status(403).json(ORG_SUSPENDED);
+            user.organization = orgs.brandOf(org);
+        }
 
         // Some accounts may only be used on so many devices at a time (exam
         // candidates: two). A further sign-in is refused and shows which devices

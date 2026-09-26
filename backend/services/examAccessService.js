@@ -1,201 +1,84 @@
 /**
  * Exam Access Service — manages and verifies student access to exam content.
+ *
+ * learnerAssignments() is the one place that says what is open to a learner:
+ * every screen and every "start" goes through it, so a company rule (its dates,
+ * its suspension, the content it may use) cannot be missed on one path.
  */
+const { hasColumn } = require('./schemaFeatures');
+const orgs = require('./organizationService');
 
-async function checkExamAccess(db, studentId, contentType, contentId) {
-  if (!studentId || !contentType || !contentId) return false;
+const PAST = new Date(0);
 
-  // Resolve hierarchy parents if needed
-  let monthId = null;
-  let yearId = null;
-  let categoryId = null;
+/**
+ * Every assignment that reaches the learner — direct, through a class batch or
+ * through a company group — with its effective end date:
+ *  - a company learner's access never outlasts the company's own end date, and
+ *    is closed while the company is not open (expired, not started, suspended);
+ *  - an assignment the company made counts only while the company may still use
+ *    that content.
+ * Rows: { content_type, content_id, expires_at, assigned_at, group_name, organization_id }.
+ */
+async function learnerAssignments(db, userId) {
+  const withOrgs = await hasColumn(db, 'tcf_exam_assignments', 'org_group_id');
+  const rows = await db.all(`
+    SELECT a.content_type, a.content_id, a.expires_at, a.assigned_at, a.group_name
+           ${withOrgs ? ', a.organization_id' : ', NULL::int AS organization_id'}
+      FROM tcf_exam_assignments a
+     WHERE a.student_id = $1
+        OR a.batch_id IN (SELECT batch_id FROM batch_students WHERE student_id = $1)
+        ${withOrgs ? 'OR a.org_group_id IN (SELECT group_id FROM organization_group_members WHERE user_id = $1)' : ''}
+  `, [userId]);
+  if (!withOrgs) return rows;
 
-  if (contentType === 'ee_combinaison') {
-    const row = await db.get(`
-      SELECT c.id, c.month_id, m.year_id, y.category_id
-      FROM tcf_ee_combinaisons c
-      JOIN tcf_ee_months m ON c.month_id = m.id
-      JOIN tcf_ee_years y ON m.year_id = y.id
-      WHERE c.id = $1
-    `, [contentId]);
-    if (!row) return false;
-    monthId = row.month_id;
-    yearId = row.year_id;
-    categoryId = row.category_id;
-  } else if (contentType === 'eo_partie') {
-    const row = await db.get(`
-      SELECT p.id, p.month_id, m.year_id, y.category_id
-      FROM tcf_eo_parties p
-      JOIN tcf_eo_months m ON p.month_id = m.id
-      JOIN tcf_eo_years y ON m.year_id = y.id
-      WHERE p.id = $1
-    `, [contentId]);
-    if (!row) return false;
-    monthId = row.month_id;
-    yearId = row.year_id;
-    categoryId = row.category_id;
-  } else if (contentType === 'ce_series') {
-    const row = await db.get(`
-      SELECT s.id, s.category_id
-      FROM tcf_ce_series s
-      WHERE s.id = $1
-    `, [contentId]);
-    if (!row) return false;
-    categoryId = row.category_id;
-  } else if (contentType === 'co_series') {
-    const row = await db.get(`
-      SELECT s.id, s.category_id
-      FROM tcf_co_series s
-      WHERE s.id = $1
-    `, [contentId]);
-    if (!row) return false;
-    categoryId = row.category_id;
-  } else {
-    // If checking access directly at parent nodes
-    if (contentType === 'ee_month') {
-      const row = await db.get(`
-        SELECT m.id, m.year_id, y.category_id
-        FROM tcf_ee_months m
-        JOIN tcf_ee_years y ON m.year_id = y.id
-        WHERE m.id = $1
-      `, [contentId]);
-      if (!row) return false;
-      monthId = contentId;
-      yearId = row.year_id;
-      categoryId = row.category_id;
-    } else if (contentType === 'eo_month') {
-      const row = await db.get(`
-        SELECT m.id, m.year_id, y.category_id
-        FROM tcf_eo_months m
-        JOIN tcf_eo_years y ON m.year_id = y.id
-        WHERE m.id = $1
-      `, [contentId]);
-      if (!row) return false;
-      monthId = contentId;
-      yearId = row.year_id;
-      categoryId = row.category_id;
-    } else if (contentType === 'ee_year') {
-      const row = await db.get(`
-        SELECT y.id, y.category_id
-        FROM tcf_ee_years y
-        WHERE y.id = $1
-      `, [contentId]);
-      if (!row) return false;
-      yearId = contentId;
-      categoryId = row.category_id;
-    } else if (contentType === 'eo_year') {
-      const row = await db.get(`
-        SELECT y.id, y.category_id
-        FROM tcf_eo_years y
-        WHERE y.id = $1
-      `, [contentId]);
-      if (!row) return false;
-      yearId = contentId;
-      categoryId = row.category_id;
-    } else if (contentType === 'category') {
-      categoryId = contentId;
-    } else {
-      return false;
-    }
+  const org = await orgs.orgOfUser(db, userId);
+  if (!org) return rows.filter(r => r.organization_id == null);
+
+  const open = orgs.stateOf(org) === 'active';
+  const orgEnd = new Date(org.access_ends_at);
+  const made = rows.filter(r => r.organization_id != null);
+  let allowed = null;
+  let keysOf = null;
+  if (made.length) {
+    allowed = await orgs.entitlementKeys(db, org.id);
+    keysOf = await orgs.ancestorKeys(db, made);
   }
-
-  // Get student's batch IDs
-  const batchRows = await db.all(
-    `SELECT batch_id FROM batch_students WHERE student_id = $1`,
-    [studentId]
-  );
-  const batchIds = batchRows.map(r => r.batch_id);
-
-  // Fetch all assignments for this student (direct or batch)
-  let query = `
-    SELECT content_type, content_id, expires_at 
-    FROM tcf_exam_assignments 
-    WHERE student_id = $1
-  `;
-  const params = [studentId];
-  if (batchIds.length > 0) {
-    const placeholders = batchIds.map((_, i) => `$${i + 2}`).join(',');
-    query += ` OR batch_id IN (${placeholders})`;
-    params.push(...batchIds);
-  }
-
-  const assignments = await db.all(query, params);
-
-  // Check if any matching assignment exists and is not expired
-  for (const a of assignments) {
-    const isExpired = a.expires_at ? new Date(a.expires_at) < new Date() : false;
-    if (isExpired) continue;
-
-    // Check matches
-    if (a.content_type === contentType && String(a.content_id) === String(contentId)) {
-      return true;
-    }
-    if (monthId && a.content_type === (contentType.startsWith('ee_') ? 'ee_month' : 'eo_month') && String(a.content_id) === String(monthId)) {
-      return true;
-    }
-    if (yearId && a.content_type === (contentType.startsWith('ee_') ? 'ee_year' : 'eo_year') && String(a.content_id) === String(yearId)) {
-      return true;
-    }
-    if (categoryId && a.content_type === 'category' && String(a.content_id) === String(categoryId)) {
-      return true;
-    }
-  }
-
-  return false;
+  return rows
+    .filter(r => r.organization_id == null
+      || (Number(r.organization_id) === Number(org.id) && orgs.covered(keysOf.get(`${r.content_type}:${r.content_id}`), allowed)))
+    .map(r => {
+      if (!open) return { ...r, expires_at: PAST };
+      const own = r.expires_at ? new Date(r.expires_at) : null;
+      return { ...r, expires_at: own && own < orgEnd ? own : orgEnd };
+    });
 }
 
+const isLive = (row, now = Date.now()) => !row.expires_at || new Date(row.expires_at).getTime() > now;
+
+/** Can the learner open this content? True when it, or something above it, is assigned and still open. */
+async function checkExamAccess(db, studentId, contentType, contentId) {
+  if (!studentId || !contentType || !contentId) return false;
+  const keys = (await orgs.ancestorKeys(db, [{ content_type: contentType, content_id: contentId }]))
+    .get(`${contentType}:${Number(contentId)}`);
+  if (!keys) return false;
+  const wanted = new Set(keys);
+  const rows = await learnerAssignments(db, studentId);
+  return rows.some(r => isLive(r) && wanted.has(`${r.content_type}:${r.content_id}`));
+}
+
+/** Is anything of this category (by name) open to the learner? */
 async function hasAnyActiveAssignmentForCategory(db, studentId, categoryName) {
   if (!studentId || !categoryName) return false;
-
-  const batchRows = await db.all(
-    `SELECT batch_id FROM batch_students WHERE student_id = $1`,
-    [studentId]
-  );
-  const batchIds = batchRows.map(r => r.batch_id);
-
-  let query = `
-    SELECT 1 FROM tcf_exam_assignments a
-    LEFT JOIN batch_students bs ON a.batch_id = bs.batch_id
-    WHERE (a.student_id = $1 OR bs.student_id = $1)
-      AND (a.expires_at IS NULL OR a.expires_at > CURRENT_TIMESTAMP)
-      AND (
-        (a.content_type = 'category' AND a.content_id = (SELECT id FROM tcf_categories WHERE name = $2))
-  `;
-
-  const params = [studentId, categoryName];
-
-  if (categoryName === 'Expression Écrite') {
-    query += `
-        OR (a.content_type = 'ee_year' AND a.content_id IN (SELECT id FROM tcf_ee_years WHERE category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-        OR (a.content_type = 'ee_month' AND a.content_id IN (SELECT m.id FROM tcf_ee_months m JOIN tcf_ee_years y ON m.year_id = y.id WHERE y.category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-        OR (a.content_type = 'ee_combinaison' AND a.content_id IN (SELECT c.id FROM tcf_ee_combinaisons c JOIN tcf_ee_months m ON c.month_id = m.id JOIN tcf_ee_years y ON m.year_id = y.id WHERE y.category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-    `;
-  } else if (categoryName === 'Expression Orale') {
-    query += `
-        OR (a.content_type = 'eo_year' AND a.content_id IN (SELECT id FROM tcf_eo_years WHERE category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-        OR (a.content_type = 'eo_month' AND a.content_id IN (SELECT m.id FROM tcf_eo_months m JOIN tcf_eo_years y ON m.year_id = y.id WHERE y.category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-        OR (a.content_type = 'eo_partie' AND a.content_id IN (SELECT p.id FROM tcf_eo_parties p JOIN tcf_eo_months m ON p.month_id = m.id JOIN tcf_eo_years y ON m.year_id = y.id WHERE y.category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-    `;
-  } else if (categoryName === 'Compréhension Orale') {
-    query += `
-        OR (a.content_type = 'co_series' AND a.content_id IN (SELECT id FROM tcf_co_series WHERE category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-    `;
-  } else if (categoryName === 'Compréhension Écrite') {
-    query += `
-        OR (a.content_type = 'ce_series' AND a.content_id IN (SELECT id FROM tcf_ce_series WHERE category_id = (SELECT id FROM tcf_categories WHERE name = $2)))
-    `;
-  }
-
-  query += `
-      )
-    LIMIT 1
-  `;
-
-  const row = await db.get(query, params);
-  return !!row;
+  const category = await db.get(`SELECT id FROM tcf_categories WHERE name = $1`, [categoryName]);
+  if (!category) return false;
+  const live = (await learnerAssignments(db, studentId)).filter(r => isLive(r));
+  if (!live.length) return false;
+  const keysOf = await orgs.ancestorKeys(db, live);
+  return live.some(r => (keysOf.get(`${r.content_type}:${r.content_id}`) || []).includes(`category:${category.id}`));
 }
 
 module.exports = {
+  learnerAssignments,
   checkExamAccess,
   hasAnyActiveAssignmentForCategory,
 };

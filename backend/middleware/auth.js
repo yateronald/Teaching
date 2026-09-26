@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const sessions = require('../services/sessionService');
 const { hasColumn } = require('../services/schemaFeatures');
+const orgs = require('../services/organizationService');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 const TOKEN_DAYS = 7;
@@ -15,7 +16,7 @@ const isMobileApp = (req) => /^lfwn-mobile\//i.test(String(req.headers['x-client
 /** How long a token issued to this user on this client lives, in days. */
 const tokenDaysFor = (req, role) => (isMobileApp(req) && MOBILE_ROLES.includes(role) ? MOBILE_TOKEN_DAYS : TOKEN_DAYS);
 
-const ROLES = ['admin', 'teacher', 'student', 'candidate'];
+const ROLES = ['admin', 'teacher', 'student', 'candidate', 'org_admin'];
 
 // Exam candidates only prepare for the exam: they reach their account, their
 // notifications and the exam practice API — nothing else (no classes, batches,
@@ -34,6 +35,26 @@ const CANDIDATE_API = [
 const candidateMayUse = (req) => {
     const pathname = (req.originalUrl || '').split('?')[0];
     return CANDIDATE_API.some(rule => rule.test(pathname));
+};
+
+// Company managers run their company's space and nothing else. Deny by default
+// as for candidates: a route added later stays closed to them until listed here.
+const ORG_ADMIN_API = [
+    /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo|logout|sessions)(\/|$)/,
+    /^\/api\/email-change\//,
+    /^\/api\/notifications(\/|$)/,
+    /^\/api\/org(\/|$)/,
+];
+const orgAdminMayUse = (req) => {
+    const pathname = (req.originalUrl || '').split('?')[0];
+    return ORG_ADMIN_API.some(rule => rule.test(pathname));
+};
+
+/** Refusal sent to every account of a company the administrator disabled. */
+const ORG_SUSPENDED = {
+    error: 'Company account disabled',
+    message: 'Your company’s account is disabled. Please contact the administrator.',
+    code: 'ORG_SUSPENDED',
 };
 
 // Generate JWT token. A `jti` ties the token to a row in user_sessions, which
@@ -75,8 +96,9 @@ async function authenticateToken(req, res, next) {
         // The monitoring flag is only selected once its migration has run, so
         // deploying this code before the migration cannot lock anyone out.
         const monitoring = await hasColumn(req.db, 'users', 'can_view_monitoring') ? ', can_view_monitoring' : '';
+        const withOrg = await hasColumn(req.db, 'users', 'organization_id');
         const user = await req.db.get(
-            `SELECT id, username, email, role, first_name, last_name, timezone, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id${monitoring} FROM users WHERE id = ?`,
+            `SELECT id, username, email, role, first_name, last_name, timezone, created_at, must_change_password, password_changed_at, password_expires_at, is_active, failed_login_attempts, account_locked_until, profile_photo_kdrive_file_id${monitoring}${withOrg ? ', organization_id' : ''} FROM users WHERE id = ?`,
             [decoded.id]
         );
 
@@ -102,6 +124,18 @@ async function authenticateToken(req, res, next) {
                 code: 'ACCOUNT_LOCKED',
                 locked_until: lockUntil.toISOString()
             });
+        }
+
+        // A company account lives and dies with its company: once the administrator
+        // disables the company, every manager and learner of it is refused here, on
+        // every request, whatever token or open tab they still hold. Checked before
+        // the session, so the person is told why they are out.
+        if (user.organization_id) {
+            const org = await req.db.get('SELECT * FROM organizations WHERE id = ?', [user.organization_id]);
+            if (!org || org.status === 'suspended') return res.status(403).json(ORG_SUSPENDED);
+            user.organization = orgs.brandOf(org);
+        } else if (user.role === 'org_admin') {
+            return res.status(403).json(ORG_SUSPENDED); // a manager without a company has nothing to run
         }
 
         // Compute force password change flag
@@ -135,6 +169,9 @@ async function authenticateToken(req, res, next) {
 
         if (user.role === 'candidate' && !candidateMayUse(req)) {
             return res.status(403).json({ error: 'This area is not part of your exam preparation space.', code: 'ROLE_NOT_ALLOWED' });
+        }
+        if (user.role === 'org_admin' && !orgAdminMayUse(req)) {
+            return res.status(403).json({ error: 'This area is not part of your company space.', code: 'ROLE_NOT_ALLOWED' });
         }
 
         req.user = user;
@@ -230,6 +267,8 @@ async function isAccountLocked(db, userId) {
 module.exports = {
     ROLES,
     candidateMayUse,
+    orgAdminMayUse,
+    ORG_SUSPENDED,
     generateToken,
     tokenExpiry,
     tokenDaysFor,

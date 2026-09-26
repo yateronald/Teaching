@@ -1,5 +1,9 @@
 import React, { Suspense, useEffect, useState } from 'react';
-import { Dropdown, Button, Tooltip, Drawer, notification } from 'antd';
+import { ConfigProvider, Dropdown, Button, Tooltip, Drawer, notification } from 'antd';
+import frFR from 'antd/locale/fr_FR';
+import enGB from 'antd/locale/en_GB';
+import dayjs from 'dayjs';
+import 'dayjs/locale/fr';
 import type { MenuProps } from 'antd';
 import {
     DashboardOutlined,
@@ -24,6 +28,11 @@ import {
     ScheduleOutlined,
     TrophyOutlined,
     LineChartOutlined,
+    BankOutlined,
+    SendOutlined,
+    ThunderboltOutlined,
+    ApartmentOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -32,6 +41,9 @@ import useResponsive from '../../hooks/useResponsive';
 import { useActiveMeeting } from '../../hooks/useActiveMeeting';
 import useDemoAlerts from '../../hooks/useDemoAlerts';
 import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
+import OrgStateBanner from '../Org/OrgStateBanner';
+import { useTr } from '../../utils/useTr';
+import { apiAsset } from '../../utils/apiAsset';
 import './Layout.css';
 
 /* ══════════════════════════════════════════
@@ -40,7 +52,8 @@ import './Layout.css';
    (see .al-role-* in Layout.css). Geometry lives in layoutMetrics.ts.
 ══════════════════════════════════════════ */
 
-type Role = 'admin' | 'teacher' | 'student' | 'candidate';
+type Role = 'admin' | 'teacher' | 'student' | 'candidate' | 'org_admin';
+type Tr = (en: string, fr: string) => string;
 
 interface NavItem {
     key: string;
@@ -63,6 +76,14 @@ const ROLE_META: Record<Role, { portal: string; roleName: string; home: string }
     teacher: { portal: 'Teacher space', roleName: 'Teacher', home: '/app/teacher-dashboard' },
     student: { portal: 'Student space', roleName: 'Student', home: '/app/student-dashboard' },
     candidate: { portal: 'Exam space', roleName: 'Exam candidate', home: '/app/exam-home' },
+    org_admin: { portal: 'Company space', roleName: 'Company manager', home: '/app/org' },
+};
+
+/** Wording of the two bilingual spaces (company managers and exam candidates). */
+const roleMetaFor = (role: Role, tr: Tr) => {
+    if (role === 'org_admin') return { ...ROLE_META.org_admin, portal: tr('Company space', 'Espace entreprise'), roleName: tr('Company manager', 'Responsable entreprise') };
+    if (role === 'candidate') return { ...ROLE_META.candidate, portal: tr('Exam space', 'Espace examen'), roleName: tr('Learner', 'Apprenant') };
+    return ROLE_META[role];
 };
 
 const NAV: Record<Role, NavGroup[]> = {
@@ -72,6 +93,7 @@ const NAV: Record<Role, NavGroup[]> = {
             items: [
                 { key: '/app/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
                 { key: '/app/users', icon: <UserOutlined />, label: 'Users' },
+                { key: '/app/companies', icon: <BankOutlined />, label: 'Companies' },
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
                 { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
                 { key: '/app/timetable', icon: <CalendarOutlined />, label: 'Teacher Timetable' },
@@ -146,25 +168,48 @@ const NAV: Record<Role, NavGroup[]> = {
             items: [{ key: '/app/profile', icon: <SettingOutlined />, label: 'Profile Settings' }],
         },
     ],
-    candidate: [
-        {
-            label: 'Exam preparation',
-            items: [
-                { key: '/app/exam-home', icon: <DashboardOutlined />, label: 'Dashboard' },
-                { key: '/app/exam-practice', icon: <ReadOutlined />, label: 'Practice' },
-                { key: '/app/exam-results', icon: <TrophyOutlined />, label: 'My Results' },
-            ],
-        },
-        {
-            label: 'Account',
-            items: [{ key: '/app/profile', icon: <SettingOutlined />, label: 'Profile Settings' }],
-        },
-    ],
+    candidate: [],
+    org_admin: [],
 };
 
+/** The two bilingual spaces: an exam candidate's and a company manager's. */
+const bilingualNav = (role: Role, tr: Tr): NavGroup[] => role === 'org_admin' ? [
+    {
+        label: tr('My company', 'Mon entreprise'),
+        items: [
+            { key: '/app/org', icon: <DashboardOutlined />, label: tr('Dashboard', 'Tableau de bord') },
+            { key: '/app/org/learners', icon: <TeamOutlined />, label: tr('Learners', 'Apprenants') },
+            { key: '/app/org/groups', icon: <ApartmentOutlined />, label: tr('Groups', 'Groupes') },
+            { key: '/app/org/assignments', icon: <SendOutlined />, label: tr('Assignments', 'Attributions') },
+            { key: '/app/org/credits', icon: <ThunderboltOutlined />, label: tr('Credits', 'Crédits') },
+        ],
+    },
+    {
+        label: tr('Account', 'Compte'),
+        items: [
+            { key: '/app/org/settings', icon: <BankOutlined />, label: tr('Company settings', 'Paramètres entreprise') },
+            { key: '/app/profile', icon: <SettingOutlined />, label: tr('Profile settings', 'Mon profil') },
+        ],
+    },
+] : [
+    {
+        label: tr('Exam preparation', 'Préparation aux examens'),
+        items: [
+            { key: '/app/exam-home', icon: <DashboardOutlined />, label: tr('Dashboard', 'Tableau de bord') },
+            { key: '/app/exam-practice', icon: <ReadOutlined />, label: tr('Practice', 'S’entraîner') },
+            { key: '/app/exam-results', icon: <TrophyOutlined />, label: tr('My results', 'Mes résultats') },
+        ],
+    },
+    {
+        label: tr('Account', 'Compte'),
+        items: [{ key: '/app/profile', icon: <SettingOutlined />, label: tr('Profile settings', 'Mon profil') }],
+    },
+];
+
 /** The navigation this account actually sees: entries needing a key they don't hold are dropped. */
-function navFor(role: Role, keys: { monitoring: boolean }): NavGroup[] {
-    return NAV[role]
+function navFor(role: Role, keys: { monitoring: boolean }, tr: Tr): NavGroup[] {
+    const groups = role === 'candidate' || role === 'org_admin' ? bilingualNav(role, tr) : NAV[role];
+    return groups
         .map(group => ({ ...group, items: group.items.filter(item => !item.needs || keys[item.needs]) }))
         .filter(group => group.items.length > 0);
 }
@@ -221,8 +266,32 @@ const TITLES: Record<string, string> = {
 
 interface PageInfo { title: string; parent?: { label: string; to: string }; }
 
-const pageInfo = (pathname: string, role: Role): PageInfo => {
+/** Page titles of the two bilingual spaces. */
+const bilingualTitle = (p: string, tr: Tr): string | null => {
+    if (/^\/org\/learners\/\d+/.test(p)) return tr('Learner', 'Apprenant');
+    const titles: Record<string, string> = {
+        '/org': tr('Dashboard', 'Tableau de bord'),
+        '/org/learners': tr('Learners', 'Apprenants'),
+        '/org/groups': tr('Groups', 'Groupes'),
+        '/org/assignments': tr('Assignments', 'Attributions'),
+        '/org/credits': tr('Credits', 'Crédits'),
+        '/org/settings': tr('Company settings', 'Paramètres entreprise'),
+        '/exam-home': tr('Dashboard', 'Tableau de bord'),
+        '/exam-practice': tr('Practice', 'S’entraîner'),
+        '/exam-results': tr('My results', 'Mes résultats'),
+        '/profile': tr('Profile settings', 'Mon profil'),
+    };
+    return titles[p.replace(/\/$/, '')] || null;
+};
+
+const pageInfo = (pathname: string, role: Role, tr: Tr): PageInfo => {
     const p = pathname.replace(/^\/app/, '') || '/';
+    if (role === 'candidate' || role === 'org_admin') {
+        const t = bilingualTitle(p, tr);
+        if (t) return { title: t, ...(/^\/org\/learners\/\d+/.test(p) ? { parent: { label: tr('Learners', 'Apprenants'), to: '/app/org/learners' } } : {}) };
+    }
+    if (/^\/companies\/\d+/.test(p)) return { title: 'Company', parent: { label: 'Companies', to: '/app/companies' } };
+    if (p === '/companies') return { title: 'Companies' };
     if (/^\/batches\/[^/]+\/insights/.test(p)) return { title: 'Batch Insights', parent: { label: 'Batch Management', to: '/app/batches' } };
     if (/^\/meeting\/[^/]+/.test(p)) return { title: 'Live Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };
     if (/^\/meeting-join\/[^/]+/.test(p)) return { title: 'Join Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };
@@ -271,10 +340,13 @@ interface SidebarProps {
     onClose?: () => void;
     showLiveIndicator?: boolean;
     activeMeetingTitle?: string | null;
+    /** A company account: the company's name and logo replace the platform's. */
+    brand?: { name: string; logoUrl: string | null; tagline: string } | null;
+    meta: { portal: string; roleName: string; home: string };
+    logoutLabel: string;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
-    role,
     collapsed,
     groups,
     counters = {},
@@ -286,21 +358,32 @@ const Sidebar: React.FC<SidebarProps> = ({
     onClose,
     showLiveIndicator = false,
     activeMeetingTitle,
+    brand = null,
+    meta,
+    logoutLabel,
 }) => {
-    const meta = ROLE_META[role];
     const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Account';
 
     return (
         <aside className={`al-sidebar${collapsed ? ' is-collapsed' : ''}`} aria-label="Main navigation">
             <div className="al-brand">
-                <Link to={meta.home} className="al-brand-link" onClick={onClose} aria-label={`${BRAND} — home`}>
-                    <span className="al-brand-mark" aria-hidden />
-                    {!collapsed && (
+                <Link to={meta.home} className="al-brand-link" onClick={onClose} aria-label={`${brand?.name || BRAND} — home`}>
+                    {brand ? (
+                        <span className="al-brand-mark is-company" aria-hidden>
+                            {brand.logoUrl ? <img src={brand.logoUrl} alt="" /> : <b>{brand.name.slice(0, 1).toUpperCase()}</b>}
+                        </span>
+                    ) : <span className="al-brand-mark" aria-hidden />}
+                    {!collapsed && (brand ? (
+                        <span className="al-brand-text">
+                            <strong title={brand.name}>{brand.name}</strong>
+                            <span>{brand.tagline}</span>
+                        </span>
+                    ) : (
                         <span className="al-brand-text">
                             <strong>Learn French</strong>
                             <span>with Natives</span>
                         </span>
-                    )}
+                    ))}
                 </Link>
                 {inDrawer && (
                     <Button type="text" className="al-icon-btn" icon={<CloseOutlined />} onClick={onClose} aria-label="Close menu" />
@@ -398,8 +481,8 @@ const Sidebar: React.FC<SidebarProps> = ({
                     </Link>
                 </Tooltip>
                 {!collapsed && (
-                    <Tooltip title="Log out">
-                        <Button type="text" className="al-icon-btn" icon={<LogoutOutlined />} onClick={onLogout} aria-label="Log out" />
+                    <Tooltip title={logoutLabel}>
+                        <Button type="text" className="al-icon-btn" icon={<LogoutOutlined />} onClick={onLogout} aria-label={logoutLabel} />
                     </Tooltip>
                 )}
             </div>
@@ -422,7 +505,8 @@ const writeCollapsePref = (value: boolean) => {
 
 const Layout: React.FC = () => {
     const r = useResponsive();
-    const { user, logout, isAdmin, isTeacher, isCandidate, canViewMonitoring, token } = useAuth();
+    const { user, logout, isAdmin, isTeacher, isCandidate, isOrgAdmin, canViewMonitoring, token } = useAuth();
+    const { tr, lang, setLang } = useTr();
     const navigate = useNavigate();
     const location = useLocation();
     const { hasActiveMeeting, activeMeeting } = useActiveMeeting();
@@ -445,8 +529,15 @@ const Layout: React.FC = () => {
         });
     });
 
-    const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : isCandidate ? 'candidate' : 'student';
-    const meta = ROLE_META[role];
+    const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : isOrgAdmin ? 'org_admin' : isCandidate ? 'candidate' : 'student';
+    const meta = roleMetaFor(role, tr);
+    const bilingual = role === 'candidate' || role === 'org_admin';
+    const org = user?.organization || null;
+    const brand = org ? {
+        name: org.name,
+        logoUrl: org.logo_url ? apiAsset(org.logo_url) : null,
+        tagline: tr('Exam preparation', 'Préparation aux examens'),
+    } : null;
     const isMobile = r.shouldUseDrawer;
 
     // Check if user is currently inside any live meeting page/room
@@ -473,13 +564,17 @@ const Layout: React.FC = () => {
 
     useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
-    const page = pageInfo(location.pathname, role);
-    useEffect(() => { document.title = `${page.title} · ${BRAND}`; }, [page.title]);
+    useEffect(() => { if (bilingual) dayjs.locale(lang === 'fr' ? 'fr' : 'en'); }, [bilingual, lang]);
 
-    const nav = navFor(role, { monitoring: canViewMonitoring });
+    const page = pageInfo(location.pathname, role, tr);
+    useEffect(() => { document.title = `${page.title} · ${brand?.name || BRAND}`; }, [page.title, brand?.name]);
+
+    const nav = navFor(role, { monitoring: canViewMonitoring }, tr);
     const allItems = nav.flatMap(g => g.items);
     const firstSegment = '/app/' + (location.pathname.replace(/^\/app\/?/, '').split('/')[0] || '');
-    const activeKey = allItems.find(i => location.pathname === i.key || location.pathname.startsWith(i.key + '/'))?.key
+    const activeKey = allItems
+        .filter(i => location.pathname === i.key || location.pathname.startsWith(i.key + '/'))
+        .sort((a, b) => b.key.length - a.key.length)[0]?.key
         ?? ACTIVE_ALIASES[firstSegment]
         ?? firstSegment;
 
@@ -494,10 +589,11 @@ const Layout: React.FC = () => {
     };
 
     const fullName = [user?.first_name, user?.last_name].filter(Boolean).join(' ') || 'Account';
+    const logoutLabel = bilingual ? tr('Log out', 'Se déconnecter') : 'Log out';
     const accountItems: MenuProps['items'] = [
-        { key: 'profile', icon: <SettingOutlined />, label: 'Profile settings', onClick: () => navigate('/app/profile') },
+        { key: 'profile', icon: <SettingOutlined />, label: bilingual ? tr('Profile settings', 'Mon profil') : 'Profile settings', onClick: () => navigate('/app/profile') },
         { type: 'divider' },
-        { key: 'logout', icon: <LogoutOutlined />, label: 'Log out', danger: true, onClick: handleLogout },
+        { key: 'logout', icon: <LogoutOutlined />, label: logoutLabel, danger: true, onClick: handleLogout },
     ];
 
     const sideW = isMobile ? 0 : collapsed ? SIDEBAR_W_COLLAPSED : SIDEBAR_W;
@@ -506,7 +602,7 @@ const Layout: React.FC = () => {
     return (
         <div className={`al al-role-${role}`} style={{ '--al-sidebar-w': `${sideW}px` } as React.CSSProperties}>
             {noticeHolder}
-            <a href="#al-main" className="al-skip">Skip to content</a>
+            <a href="#al-main" className="al-skip">{bilingual ? tr('Skip to content', 'Aller au contenu') : 'Skip to content'}</a>
 
             {isMobile ? (
                 <Drawer
@@ -531,6 +627,9 @@ const Layout: React.FC = () => {
                         onClose={() => setDrawerOpen(false)}
                         showLiveIndicator={showLiveIndicator}
                         activeMeetingTitle={activeMeeting?.title}
+                        brand={brand}
+                        meta={meta}
+                        logoutLabel={logoutLabel}
                     />
                 </Drawer>
             ) : (
@@ -545,6 +644,9 @@ const Layout: React.FC = () => {
                     onLogout={handleLogout}
                     showLiveIndicator={showLiveIndicator}
                     activeMeetingTitle={activeMeeting?.title}
+                    brand={brand}
+                    meta={meta}
+                    logoutLabel={logoutLabel}
                 />
             )}
 
@@ -575,6 +677,14 @@ const Layout: React.FC = () => {
                 </div>
 
                 <div className="al-header-actions">
+                    {bilingual && (
+                        <Tooltip title={tr('Language', 'Langue')}>
+                            <button type="button" className="al-lang" onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
+                                aria-label={lang === 'fr' ? 'Switch to English' : 'Passer en français'}>
+                                <GlobalOutlined /><span>{lang === 'fr' ? 'FR' : 'EN'}</span>
+                            </button>
+                        </Tooltip>
+                    )}
                     <NotificationBell variant="light" />
                     {(isTeacher || isAdmin) && <MeetingLobbyWatcher />}
                     <Dropdown
@@ -610,9 +720,16 @@ const Layout: React.FC = () => {
 
             <div className="al-main">
                 <main id="al-main" className="al-content" tabIndex={-1}>
+                    {/* A company account sees its company's state: ends soon, expired (read-only). */}
+                    {org && bilingual && <OrgStateBanner org={org} manager={role === 'org_admin'} />}
                     {/* Pages are loaded on demand: keep the shell on screen while one loads. */}
                     <Suspense fallback={<div className="app-route-loading is-inner" role="status" aria-label="Loading" />}>
-                        <Outlet />
+                        {bilingual ? (
+                            <ConfigProvider locale={lang === 'fr' ? frFR : enGB}
+                                theme={role === 'org_admin' ? { token: { colorPrimary: '#0f766e' } } : undefined}>
+                                <Outlet />
+                            </ConfigProvider>
+                        ) : <Outlet />}
                     </Suspense>
                 </main>
             </div>
