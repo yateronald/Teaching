@@ -139,6 +139,28 @@ async function entitlementKeys(db, orgId) {
 
 const covered = (keys, allowed) => !!keys && keys.some(k => allowed.has(k));
 
+// ── Package: used accounts ────────────────────────────────────────────────
+
+/**
+ * An account has been "used" (and keeps its place in the package for good) as
+ * soon as any of these is true. Otherwise it was created by mistake and may be
+ * deleted, which frees its place. Deliberately strict: signing in once is use.
+ *   - the person set their own password (forced at the first sign-in; kept for ever),
+ *   - a sign-in session exists,
+ *   - an exam was taken (reading, listening, writing, speaking),
+ *   - an AI credit was spent.
+ * `u` is the alias of the users row in the query using it.
+ */
+const ACCOUNT_USED_SQL = (u) => `(
+    ${u}.password_changed_at IS NOT NULL
+    OR EXISTS (SELECT 1 FROM user_sessions us WHERE us.user_id = ${u}.id)
+    OR EXISTS (SELECT 1 FROM tcf_ce_quiz_attempts x WHERE x.student_id = ${u}.id)
+    OR EXISTS (SELECT 1 FROM tcf_co_quiz_attempts x WHERE x.student_id = ${u}.id)
+    OR EXISTS (SELECT 1 FROM tcf_ee_simulations x WHERE x.student_id = ${u}.id)
+    OR EXISTS (SELECT 1 FROM eo_simulations x WHERE x.user_id = ${u}.id)
+    OR EXISTS (SELECT 1 FROM ai_credit_transactions x WHERE x.user_id = ${u}.id AND x.reason IN ('ee_attempt', 'eo_attempt'))
+)`;
+
 // ── Audit ──────────────────────────────────────────────────────────────────
 
 /**
@@ -500,6 +522,7 @@ module.exports = {
     entitlementKeys,
     covered,
     audit,
+    ACCOUNT_USED_SQL,
     readAmounts,
     adjustReserve,
     grantReserve,

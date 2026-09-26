@@ -421,9 +421,28 @@ router.delete('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
         }
 
         // Check if user exists
-        const existingUser = await req.db.get('SELECT id FROM users WHERE id = ?', [id]);
+        const withOrg = await hasColumn(req.db, 'users', 'organization_id');
+        const existingUser = await req.db.get(
+            `SELECT id, role, email, first_name, last_name${withOrg ? ', organization_id' : ''} FROM users WHERE id = ?`, [id]);
         if (!existingUser) {
             return res.status(404).json({ error: 'User not found' });
+        }
+
+        // A company account: its unused credits go back to the company's reserve
+        // first (they would vanish with the account), and the deletion is written
+        // in the company's history. Deleting frees its place in the package.
+        if (existingUser.organization_id) {
+            let returned = null;
+            if (existingUser.role === 'candidate') {
+                returned = await orgs.reclaimMany(req.db, existingUser.organization_id, [targetId], { ee: 'all', eo: 'all' }, req.user.id,
+                    { requireOpen: false, reason: 'learner_left', notes: `Account deleted by an administrator: ${existingUser.email}` })
+                    .then(r => r.returned)
+                    .catch(e => { console.error('Could not return the credits of user', targetId, e.message); return null; });
+            }
+            await orgs.audit(req.db, existingUser.organization_id, req.user.id, 'account_deleted', {
+                email: existingUser.email, name: `${existingUser.first_name} ${existingUser.last_name}`.trim(), role: existingUser.role,
+                reason: 'administrator', via: 'users_page', ...(returned && (returned.ee || returned.eo) ? { credits_returned: returned } : {}),
+            });
         }
 
         await req.db.run('DELETE FROM users WHERE id = ?', [id]);

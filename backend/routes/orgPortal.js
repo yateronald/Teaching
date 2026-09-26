@@ -239,6 +239,15 @@ router.put('/learners/:uid/active', writable, async (req, res) => {
     } catch (err) { sendError(res, err, 'PUT /org/learners/:uid/active'); }
 });
 
+/** Deletes a learner account never used (created by mistake): its place in the package is freed. */
+router.delete('/learners/:uid', writable, async (req, res) => {
+    try {
+        const uid = intId(req.params.uid);
+        if (!uid) throw new OrgError('NOT_FOUND', 'Account not found in this company.', 404);
+        res.json(await accounts.deleteUnused(req.db, req.org, uid, req.user.id, { via: 'company' }));
+    } catch (err) { sendError(res, err, 'DELETE /org/learners/:uid'); }
+});
+
 router.post('/learners/:uid/invite', writable, async (req, res) => {
     try {
         const learner = await ownLearner(req, req.params.uid);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { App as AntApp, Button, Checkbox, Dropdown, Input, Modal, Segmented, Select, Skeleton, Tooltip, Upload } from 'antd';
 import {
-  ApartmentOutlined, CheckCircleOutlined, DownloadOutlined, MailOutlined, MoreOutlined, ReloadOutlined, SearchOutlined, SendOutlined,
+  ApartmentOutlined, CheckCircleOutlined, DeleteOutlined, DownloadOutlined, MailOutlined, MoreOutlined, ReloadOutlined, SearchOutlined, SendOutlined,
   StopOutlined, TeamOutlined, ThunderboltOutlined, UploadOutlined, UserAddOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -67,7 +67,7 @@ const OrgLearners: React.FC = () => {
   }), [learners]);
   const activeVisible = visible.filter(l => l.is_active);
   const full = !!pkg && pkg.used >= pkg.limit;
-  const fullText = tr('Your package is full: contact the administrator to add accounts.', 'Votre forfait est complet : contactez l’administrateur pour ajouter des comptes.');
+  const fullText = tr('Your package is full: contact the administrator to add accounts. An account never used can be deleted to free its place.', 'Votre forfait est complet : contactez l’administrateur pour ajouter des comptes. Un compte jamais utilisé peut être supprimé pour libérer sa place.');
   const allPicked = activeVisible.length > 0 && activeVisible.every(l => picked.includes(l.id));
 
   const setActive = async (l: Learner, active: boolean) => {
@@ -81,6 +81,27 @@ const OrgLearners: React.FC = () => {
       load();
     } catch (e) { message.error(errorText(e, tr)); }
   };
+  // An account created by mistake and never used can be deleted: its place in the package is freed.
+  const remove = async (l: Learner) => {
+    try {
+      await call(apiCall, `/org/learners/${l.id}`, 'DELETE');
+      message.success(tr(`${personName(l)} deleted · one place freed in your package`, `${personName(l)} supprimé · une place libérée dans votre forfait`));
+      load();
+    } catch (e) { message.error(errorText(e, tr)); }
+  };
+  const askRemove = (l: Learner) => Modal.confirm({
+    title: tr(`Delete ${personName(l)}?`, `Supprimer ${personName(l)} ?`),
+    content: tr('This account has never been used (never signed in, no exam). Deleting it frees its place in your package. Any credits it was given go back to your reserve.',
+      'Ce compte n’a jamais été utilisé (aucune connexion, aucun examen). Le supprimer libère sa place dans votre forfait. Les crédits qui lui avaient été donnés reviennent dans votre réserve.'),
+    okText: tr('Delete', 'Supprimer'), okButtonProps: { danger: true }, cancelText: tr('Cancel', 'Annuler'),
+    onOk: () => remove(l),
+  });
+  const removeItem = (l: Learner) => (l.unused
+    ? { key: 'delete', icon: <DeleteOutlined />, danger: true, disabled: !open, label: tr('Delete (never used)', 'Supprimer (jamais utilisé)'), onClick: () => askRemove(l) }
+    : { key: 'delete', icon: <DeleteOutlined />, disabled: true,
+      label: <Tooltip placement="left" title={tr('This learner has used their account: it keeps its place in the package. You can deactivate it.', 'Cet apprenant a utilisé son compte : il garde sa place dans le forfait. Vous pouvez le désactiver.')}>
+        <span>{tr('Delete (already used)', 'Supprimer (déjà utilisé)')}</span></Tooltip> });
+
   const resend = async (l: Learner) => {
     try {
       const r = await call<{ invitation_sent: boolean }>(apiCall, `/org/learners/${l.id}/invite`, 'POST');
@@ -186,13 +207,15 @@ const OrgLearners: React.FC = () => {
                         { key: 'off', icon: <StopOutlined />, danger: true, disabled: !open, label: tr('Deactivate', 'Désactiver'),
                           onClick: () => Modal.confirm({
                             title: tr(`Deactivate ${personName(l)}?`, `Désactiver ${personName(l)} ?`),
-                            content: tr('They can no longer sign in. Their unused credits return to your reserve and their results are kept.',
-                              'La personne ne pourra plus se connecter. Ses crédits non utilisés reviennent dans votre réserve et ses résultats sont conservés.'),
+                            content: tr('They can no longer sign in. Their unused credits return to your reserve and their results are kept. The account keeps its place in your package.',
+                              'La personne ne pourra plus se connecter. Ses crédits non utilisés reviennent dans votre réserve et ses résultats sont conservés. Le compte garde sa place dans votre forfait.'),
                             okText: tr('Deactivate', 'Désactiver'), okButtonProps: { danger: true }, cancelText: tr('Cancel', 'Annuler'),
                             onOk: () => setActive(l, false),
                           }) },
+                        removeItem(l),
                       ] : [
                         { key: 'on', icon: <CheckCircleOutlined />, disabled: !open, label: tr('Reactivate', 'Réactiver'), onClick: () => setActive(l, true) },
+                        removeItem(l),
                       ]),
                     ],
                   }}>

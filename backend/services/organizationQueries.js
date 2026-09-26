@@ -21,6 +21,8 @@ async function learnersWithHistory(db, orgId) {
     const rows = await db.all(
         `SELECT u.id, u.first_name, u.last_name, u.email, u.is_active, u.created_at, u.must_change_password,
                 COALESCE(c.ee_credits, 0)::int AS ee_credits, COALESCE(c.eo_credits, 0)::int AS eo_credits,
+                -- Never used: may be deleted, which frees its place in the package.
+                NOT ${orgs.ACCOUNT_USED_SQL('u')} AS unused,
                 COALESCE((SELECT json_agg(json_build_object('id', g.id, 'name', g.name) ORDER BY g.name)
                             FROM organization_group_members gm JOIN organization_groups g ON g.id = gm.group_id
                            WHERE gm.user_id = u.id), '[]'::json) AS groups
@@ -221,7 +223,7 @@ const HISTORY_CATEGORIES = {
     package: ['company_created', 'package_changed'],
     status: ['company_suspended', 'company_reactivated'],
     exams: ['content_changed'],
-    people: ['manager_added', 'learner_added', 'account_deactivated', 'account_reactivated', 'invitation_resent', 'learner_updated', 'account_updated'],
+    people: ['manager_added', 'learner_added', 'account_deactivated', 'account_reactivated', 'account_deleted', 'invitation_resent', 'learner_updated', 'account_updated'],
     activity: ['group_created', 'group_updated', 'group_deleted', 'assigned', 'assignment_removed'],
     profile: ['company_created', 'company_updated', 'logo_changed', 'logo_removed', 'settings_changed'],
 };

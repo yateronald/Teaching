@@ -65,6 +65,8 @@ export interface Person {
 }
 export interface SkillLevel { nclc: number | null; cefr: string | null; percent: number }
 export interface Learner extends Person {
+  /** Never used (never signed in, no exam): may be deleted, which frees its place in the package. */
+  unused?: boolean;
   ee_credits: number;
   eo_credits: number;
   groups: { id: number; name: string }[];
@@ -179,6 +181,7 @@ export function errorText(err: unknown, tr: Tr): string {
     case 'DATE_PAST': return tr('The end date must be in the future.', 'La date de fin doit être dans le futur.');
     case 'SEAT_LIMIT_REACHED': return tr('Your package is full: every learner account it includes has been created. Contact the administrator to add more.', 'Votre forfait est complet : tous les comptes apprenants qu’il comprend ont été créés. Contactez l’administrateur pour en ajouter.');
     case 'TOTAL_TOO_SMALL': return tr(`A total of ${String(err.data.total)}${err.data.type ? ` ${String(err.data.type).toUpperCase()}` : ''} cannot be shared between ${String(err.data.learners)} learners: give at least ${String(err.data.learners)}.`, `Un total de ${String(err.data.total)}${err.data.type ? ` ${String(err.data.type).toUpperCase()}` : ''} ne peut pas être partagé entre ${String(err.data.learners)} apprenants : donnez-en au moins ${String(err.data.learners)}.`);
+    case 'ACCOUNT_USED': return tr('This learner has already used their account, so it keeps its place in the package. Deactivate it instead, or ask the administrator for more places.', 'Cet apprenant a déjà utilisé son compte : il garde sa place dans le forfait. Désactivez-le plutôt, ou demandez des places à l’administrateur.');
     case 'BAD_SEATS': return tr('Set the package: the number of learner accounts (at least 1).', 'Indiquez le forfait : le nombre de comptes apprenants (au moins 1).');
     case 'EMAIL_TAKEN': return tr('An account already uses this email address.', 'Un compte utilise déjà cette adresse email.');
     case 'CONTENT_NOT_ALLOWED': return tr('Your company may not assign some of this content.', 'Votre entreprise ne peut pas attribuer une partie de ce contenu.');
@@ -267,6 +270,7 @@ export function auditText(a: AuditEntry, tr: Tr): string {
     case 'credits_reclaimed': return typeof d.returned === 'object'
       ? tr(`${kindsText(d.returned as never) || '0'} credit(s) taken back`, `${kindsText(d.returned as never) || '0'} crédit(s) récupéré(s)`)
       : tr(`${d.returned} credit(s) taken back`, `${d.returned} crédit(s) récupéré(s)`);
+    case 'account_deleted': return tr(`Unused account deleted: ${d.email}`, `Compte jamais utilisé supprimé : ${d.email}`);
     case 'manager_added': return tr(`Manager added: ${d.email}`, `Responsable ajouté : ${d.email}`);
     case 'learner_added': return tr(`Learner added: ${d.email}`, `Apprenant ajouté : ${d.email}`);
     case 'learner_updated': return tr('Learner updated', 'Apprenant modifié');

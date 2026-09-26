@@ -10,7 +10,7 @@ const { hashPassword } = require('../middleware/auth');
 const sessions = require('./sessionService');
 const { generateTempPassword } = require('./tempPassword');
 const { sendCompanyInvite } = require('../emails/emailService');
-const { OrgError, fromDbError, reclaimMany, audit } = require('./organizationService');
+const { OrgError, fromDbError, reclaimMany, audit, ACCOUNT_USED_SQL } = require('./organizationService');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAME_MAX = 50;
@@ -139,4 +139,55 @@ async function setActive(db, org, userId, active, actorId, { role = null } = {})
     return { changed: true, credits_returned: returned };
 }
 
-module.exports = { readPerson, createAccount, resendInvite, setActive };
+/**
+ * Deletes a learner account that was never used (see ACCOUNT_USED_SQL), which
+ * frees its place in the package. One statement: the "never used" check, the
+ * return of any credits it was given to the company's reserve (with a ledger
+ * line) and the deletion happen together, so an account used a moment before
+ * can never be deleted. A used account is refused: deactivate it instead.
+ */
+async function deleteUnused(db, org, userId, actorId, { via = 'company' } = {}) {
+    const row = await db.get(
+        `WITH target AS (
+            SELECT u.id, u.email, u.first_name, u.last_name FROM users u
+             WHERE u.id = $1 AND u.organization_id = $2 AND u.role = 'candidate' AND NOT ${ACCOUNT_USED_SQL('u')}
+             FOR UPDATE
+         ),
+         held AS (
+            SELECT COALESCE(SUM(s.ee_credits), 0)::int AS ee, COALESCE(SUM(s.eo_credits), 0)::int AS eo
+              FROM student_ai_credits s JOIN target t ON t.id = s.user_id
+         ),
+         back AS (
+            UPDATE organizations SET ee_credits = ee_credits + (SELECT ee FROM held), eo_credits = eo_credits + (SELECT eo FROM held),
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND EXISTS (SELECT 1 FROM target) RETURNING id
+         ),
+         ledger AS (
+            INSERT INTO organization_credit_transactions (organization_id, credit_type, delta, reason, actor_id, notes)
+            SELECT $2, k.t, k.n, 'learner_left', $3, 'Unused account deleted: ' || (SELECT email FROM target)
+              FROM held CROSS JOIN LATERAL (VALUES ('ee', held.ee), ('eo', held.eo)) AS k(t, n)
+             WHERE k.n > 0 AND EXISTS (SELECT 1 FROM back)
+            RETURNING id
+         ),
+         gone AS (DELETE FROM users WHERE id IN (SELECT id FROM target) RETURNING id)
+         SELECT (SELECT id FROM gone) AS deleted, t.email, t.first_name, t.last_name, (SELECT ee FROM held) AS ee, (SELECT eo FROM held) AS eo
+           FROM (SELECT 1) one LEFT JOIN target t ON true`,
+        [userId, org.id, actorId || null]
+    );
+    if (!row?.deleted) {
+        const user = await db.get(
+            `SELECT u.id, u.role, ${ACCOUNT_USED_SQL('u')} AS used FROM users u WHERE u.id = $1 AND u.organization_id = $2`, [userId, org.id]);
+        if (!user) throw new OrgError('NOT_FOUND', 'Account not found in this company.', 404);
+        if (user.role !== 'candidate') throw new OrgError('NOT_A_LEARNER', 'Only learner accounts can be deleted here.', 400);
+        throw new OrgError('ACCOUNT_USED',
+            'This learner has already used their account, so it keeps its place in the package. Deactivate it instead, or ask the administrator for more places.', 409);
+    }
+    const creditsReturned = { ee: row.ee, eo: row.eo };
+    await audit(db, org.id, actorId, 'account_deleted', {
+        email: row.email, name: `${row.first_name} ${row.last_name}`.trim(), role: 'candidate', reason: 'never_used', via,
+        ...(row.ee || row.eo ? { credits_returned: creditsReturned } : {}),
+    });
+    return { deleted: true, credits_returned: creditsReturned };
+}
+
+module.exports = { readPerson, createAccount, resendInvite, setActive, deleteUnused };

@@ -93,7 +93,7 @@ class _FakeAdminApi extends ApiClient {
     },
     '/admin/organizations/4/learners': [
       {'id': 41, 'first_name': 'Awa', 'last_name': 'Diallo', 'email': 'awa@sgtl.example', 'is_active': true, 'ee_credits': 3, 'eo_credits': 1, 'invitation_pending': false},
-      {'id': 42, 'first_name': 'Koffi', 'last_name': 'Yao', 'email': 'koffi@sgtl.example', 'is_active': false, 'ee_credits': 0, 'eo_credits': 0},
+      {'id': 42, 'first_name': 'Koffi', 'last_name': 'Yao', 'email': 'koffi@sgtl.example', 'is_active': false, 'ee_credits': 0, 'eo_credits': 0, 'unused': true},
     ],
     '/admin/organizations/4/credits': {
       'credits': {},
@@ -553,6 +553,24 @@ void main() {
     final until = DateTime.parse(body['access_ends_at'] as String).toLocal();
     expect(until.year, 2031);
     expect(until.month, 6);
+  });
+
+  testWidgets('only a learner account never used can be deleted', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 4000));
+    // Awa has used her account: deleting is offered but disabled.
+    await tester.tap(find.byIcon(Icons.more_vert).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('Delete (already used: keeps its place)'), findsOneWidget);
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    // Koffi never signed in: it can go, which frees its place.
+    await tester.tap(find.byIcon(Icons.more_vert).at(2));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete (never used)'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(api.sent['DELETE /admin/organizations/4/accounts/42'], isTrue);
   });
 
   testWidgets('an extension can carry its reason', (tester) async {

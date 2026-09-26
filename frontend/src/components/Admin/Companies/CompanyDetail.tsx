@@ -165,9 +165,12 @@ const LearnersTab: React.FC<{ c: Detail; onChanged: () => void }> = ({ c, onChan
   const [q, setQ] = useState('');
   const load = useCallback(() => { call<Learner[]>(apiCall, `/admin/organizations/${c.id}/learners`).then(setList).catch(() => setList([])); }, [apiCall, c.id]);
   useEffect(() => { load(); }, [load]);
-  const act = async (l: Learner, what: 'on' | 'off' | 'invite') => {
+  const act = async (l: Learner, what: 'on' | 'off' | 'invite' | 'delete') => {
     try {
-      if (what === 'invite') {
+      if (what === 'delete') {
+        await call(apiCall, `/admin/organizations/${c.id}/accounts/${l.id}`, 'DELETE');
+        message.success(`${personName(l)} deleted · one place freed in the package`);
+      } else if (what === 'invite') {
         const r = await call<{ invitation_sent: boolean }>(apiCall, `/admin/organizations/${c.id}/accounts/${l.id}/invite`, 'POST');
         message[r.invitation_sent ? 'success' : 'warning'](r.invitation_sent ? `New invitation sent to ${l.email}` : 'Password reset, but the email could not be sent');
       } else {
@@ -189,10 +192,18 @@ const LearnersTab: React.FC<{ c: Detail; onChanged: () => void }> = ({ c, onChan
               <span className="og-hide-sm"><Level nclc={l.nclc} level={Object.values(l.skills).find(Boolean) || null} /></span>
               <span className="og-hide-sm"><Credits ee={l.ee_credits} eo={l.eo_credits} /></span>
               <span className="og-hide-sm og-muted">{l.last_practice_at ? `practised ${ago(l.last_practice_at, en)}` : 'never practised'}</span>
-              <Dropdown trigger={['click']} menu={{ items: l.is_active ? [
-                { key: 'i', icon: <MailOutlined />, label: 'Send a new invitation', onClick: () => act(l, 'invite') },
-                { key: 'off', icon: <StopOutlined />, danger: true, label: 'Deactivate', onClick: () => act(l, 'off') },
-              ] : [{ key: 'on', icon: <CheckCircleOutlined />, label: 'Reactivate', onClick: () => act(l, 'on') }] }}>
+              <Dropdown trigger={['click']} menu={{ items: [
+                ...(l.is_active ? [
+                  { key: 'i', icon: <MailOutlined />, label: 'Send a new invitation', onClick: () => act(l, 'invite') },
+                  { key: 'off', icon: <StopOutlined />, danger: true, label: 'Deactivate', onClick: () => act(l, 'off') },
+                ] : [{ key: 'on', icon: <CheckCircleOutlined />, label: 'Reactivate', onClick: () => act(l, 'on') }]),
+                // Only an account never used can be deleted here: that frees its place in the package.
+                l.unused
+                  ? { key: 'del', icon: <DeleteOutlined />, danger: true, label: 'Delete (never used)', onClick: () => Modal.confirm({
+                    title: `Delete ${personName(l)}?`, content: 'Never signed in, no exam: deleting it frees its place in the package. Its credits go back to the company’s reserve.',
+                    okText: 'Delete', okButtonProps: { danger: true }, onOk: () => act(l, 'delete') }) }
+                  : { key: 'del', icon: <DeleteOutlined />, disabled: true, label: 'Delete (already used: keeps its place)' },
+              ] }}>
                 <Button type="text" size="small" icon={<MoreOutlined />} aria-label="Actions" />
               </Dropdown>
             </div>

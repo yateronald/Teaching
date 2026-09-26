@@ -367,6 +367,16 @@ router.put('/:id/accounts/:uid/active', async (req, res) => {
     } catch (err) { sendError(res, err, 'PUT /admin/organizations/:id/accounts/:uid/active'); }
 });
 
+/** Deletes a learner account never used; its place in the package is freed. */
+router.delete('/:id/accounts/:uid', async (req, res) => {
+    try {
+        const org = await loadOrg(req);
+        const uid = intId(req.params.uid);
+        if (!uid) throw new OrgError('NOT_FOUND', 'Account not found in this company.', 404);
+        res.json(await accounts.deleteUnused(req.db, org, uid, req.user.id, { via: 'admin' }));
+    } catch (err) { sendError(res, err, 'DELETE /admin/organizations/:id/accounts/:uid'); }
+});
+
 router.post('/:id/accounts/:uid/invite', async (req, res) => {
     try {
         const org = await loadOrg(req);

@@ -212,6 +212,25 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
     );
   }
 
+  /// Only a learner account never used can be deleted here: that frees its place in the package.
+  Future<void> _deleteUnused(Map<String, dynamic> p) async {
+    final fr = context.isFrench;
+    final name = J.name(p);
+    final ok = await confirmAdmin(
+      context,
+      title: fr ? 'Supprimer $name ?' : 'Delete $name?',
+      message: fr
+          ? 'Ce compte n’a jamais été utilisé (aucune connexion, aucun examen). Le supprimer libère sa place dans le forfait ; ses crédits reviennent dans la réserve de l’entreprise.'
+          : 'This account has never been used (never signed in, no exam). Deleting it frees its place in the package; its credits go back to the company’s reserve.',
+      confirmLabel: fr ? 'Supprimer' : 'Delete',
+    );
+    if (!ok || !mounted) return;
+    await _run(
+      () => ref.read(apiClientProvider).delete('$_base/accounts/${J.i(p['id'])}'),
+      done: fr ? '$name supprimé · une place libérée' : '$name deleted · one place freed',
+    );
+  }
+
   Future<void> _resend(Map<String, dynamic> p) async {
     final fr = context.isFrench;
     final name = J.name(p);
@@ -484,11 +503,16 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
             if (v == 'invite') _resend(p);
             if (v == 'off') _setActive(p, false, manager: manager);
             if (v == 'on') _setActive(p, true, manager: manager);
+            if (v == 'delete') _deleteUnused(p);
           },
           itemBuilder: (_) => [
             if (active) PopupMenuItem(value: 'invite', child: Text(fr ? 'Renvoyer l’invitation' : 'Send the invitation again')),
             if (active) PopupMenuItem(value: 'off', child: Text(fr ? 'Désactiver' : 'Deactivate', style: const TextStyle(color: AppColors.bad))),
             if (!active) PopupMenuItem(value: 'on', child: Text(fr ? 'Réactiver' : 'Reactivate')),
+            if (!manager)
+              p['unused'] == true
+                  ? PopupMenuItem(value: 'delete', child: Text(fr ? 'Supprimer (jamais utilisé)' : 'Delete (never used)', style: const TextStyle(color: AppColors.bad)))
+                  : PopupMenuItem(enabled: false, child: Text(fr ? 'Supprimer (déjà utilisé : garde sa place)' : 'Delete (already used: keeps its place)')),
           ],
         ),
       ]),

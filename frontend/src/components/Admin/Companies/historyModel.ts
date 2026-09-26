@@ -156,6 +156,13 @@ export function describe(item: HistoryItem): Described {
       if (!added.length && !removed.length && d.from !== undefined) out.changes.push({ label: 'Exam items', from: String(d.from), to: String(d.to) });
       break;
     }
+    case 'account_deleted':
+      out.title = `${d.reason === 'never_used' ? 'Unused account deleted' : 'Account deleted by an administrator'}: ${d.email}${via}`;
+      out.tone = 'down';
+      out.facts.push(d.reason === 'never_used' ? 'Never signed in, no exam: its place in the package was freed' : 'Its place in the package was freed');
+      if (d.name) out.facts.push(String(d.name));
+      if (kinds(d.credits_returned)) out.facts.push(`${kinds(d.credits_returned)} returned to the reserve`);
+      break;
     case 'manager_added': out.title = `Manager added: ${d.email}`; break;
     case 'learner_added': out.title = `Learner added: ${d.email}`; break;
     case 'invitation_resent': out.title = `New invitation sent${d.email ? ` to ${d.email}` : ''}`; break;

@@ -136,6 +136,13 @@ HistoryText describeHistory(BuildContext context, Map<String, dynamic> item) {
       out.tone = on ? 'up' : 'down';
       out.title = '${on ? (fr ? 'Compte réactivé' : 'Account reactivated') : (fr ? 'Compte désactivé' : 'Account deactivated')}${J.s(d['email']).isEmpty ? '' : ' : ${d['email']}'}$via';
       if (_kinds(d['credits_returned']).isNotEmpty) out.facts.add(fr ? '${_kinds(d['credits_returned'])} rendus à la réserve' : '${_kinds(d['credits_returned'])} returned to the reserve');
+    case 'account_deleted':
+      out.tone = 'down';
+      out.title = d['reason'] == 'never_used'
+          ? '${fr ? 'Compte jamais utilisé supprimé' : 'Unused account deleted'} : ${J.s(d['email'])}$via'
+          : '${fr ? 'Compte supprimé par un administrateur' : 'Account deleted by an administrator'} : ${J.s(d['email'])}$via';
+      out.facts.add(fr ? 'Sa place dans le forfait a été libérée' : 'Its place in the package was freed');
+      if (_kinds(d['credits_returned']).isNotEmpty) out.facts.add(fr ? '${_kinds(d['credits_returned'])} rendus à la réserve' : '${_kinds(d['credits_returned'])} returned to the reserve');
     case 'account_updated':
       out.title = '${fr ? 'Compte modifié' : 'Account changed'}${J.s(d['email']).isEmpty ? '' : ' : ${d['email']}'}$via';
       for (final e in J.map(d['changes']).entries) {
