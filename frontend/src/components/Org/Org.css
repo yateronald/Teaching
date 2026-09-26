@@ -274,3 +274,13 @@
 @media (prefers-reduced-motion: reduce) {
   .og-track > span, .og-row { transition: none; }
 }
+
+/* ── New assignment (company) ── */
+.og-assign-side { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.og-credits-step { transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.og-credits-step.is-on { border-color: var(--x-accent-line); box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-accent) 6%, transparent); }
+.og-credits-off { display: flex; align-items: flex-start; gap: 10px; margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--x-muted); }
+.og-credits-off > .anticon { margin-top: 3px; color: var(--x-accent); }
+.og-assign-foot { margin-top: 14px; }
+.og-foot-note.is-ready { color: var(--x-ink); }
+.og-foot-note.is-ready .anticon { margin-right: 2px; color: #059669; }

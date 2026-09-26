@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button, DatePicker, Input, Modal, Popconfirm, Segmented, Select, Skeleton, Tooltip } from 'antd';
+import { App as AntApp, Button, DatePicker, Input, Modal, Popconfirm, Segmented, Select, Skeleton, Switch, Tooltip } from 'antd';
 import {
-  ApartmentOutlined, CalendarOutlined, CheckCircleOutlined, DeleteOutlined, SearchOutlined, SendOutlined, UserOutlined, WarningOutlined,
+  ApartmentOutlined, CalendarOutlined, CheckCircleOutlined, DeleteOutlined, SearchOutlined, SendOutlined, ThunderboltOutlined, UserOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -9,8 +9,10 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTr } from '../../utils/useTr';
 import { FAMILY_CODE } from '../Admin/examAdminData';
-import { call, errorText, familyOfRef, fmtDate, personName } from './orgModel';
-import type { Group, Learner, OrgAssignment } from './orgModel';
+import { CREDIT_KINDS, call, chosenAmounts, creditName, errorText, familyOfRef, fmtDate, kindsText, personName } from './orgModel';
+import type { CreditType, Group, Learner, OrgAssignment } from './orgModel';
+import { AmountBoxes, CreditReceipt, KindPicker } from './CreditControls';
+import type { Amounts, ReceiptLine } from './CreditControls';
 import ContentTreePicker from './ContentTreePicker';
 import { indexTree } from './contentTreeIndex';
 import type { ContentNode } from './contentTreeIndex';
@@ -114,19 +116,28 @@ const OrgAssignments: React.FC = () => {
   );
 };
 
+/* ── New assignment: exams, who, until when — and, if wanted, AI credits in the same step ── */
 const NewAssignmentModal: React.FC<{ preset: { learners: number[]; groups: number[] } | null; onClose: () => void; onDone: () => void }> = ({ preset, onClose, onDone }) => {
   const { apiCall, user } = useAuth();
-  const { tr, locale } = useTr();
+  const { tr, lang, locale } = useTr();
   const { message } = AntApp.useApp();
   const open = !!preset;
   const [tree, setTree] = useState<ContentNode[] | null>(null);
   const [learners, setLearners] = useState<Learner[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [reserve, setReserve] = useState<Record<CreditType, number> | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [target, setTarget] = useState<'learners' | 'groups'>('learners');
   const [learnerIds, setLearnerIds] = useState<number[]>([]);
   const [groupIds, setGroupIds] = useState<number[]>([]);
   const [name, setName] = useState('');
   const [until, setUntil] = useState<Dayjs | null>(null);
+  // Optional credits, same rules as the Credits page.
+  const [withCredits, setWithCredits] = useState(false);
+  const [kinds, setKinds] = useState<CreditType[]>(['ee', 'eo']);
+  const [kindsTouched, setKindsTouched] = useState(false);
+  const [share, setShare] = useState<'each' | 'split'>('each');
+  const [amounts, setAmounts] = useState<Amounts>({ ee: 1, eo: 1 });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const companyEnd = user?.organization?.access_ends_at ? dayjs(user.organization.access_ends_at) : null;
@@ -135,35 +146,62 @@ const NewAssignmentModal: React.FC<{ preset: { learners: number[]; groups: numbe
     if (!preset) return;
     setSelected([]); setName(''); setErr(null);
     setLearnerIds(preset.learners); setGroupIds(preset.groups);
+    setTarget(preset.groups.length && !preset.learners.length ? 'groups' : 'learners');
+    setWithCredits(false); setKinds(['ee', 'eo']); setKindsTouched(false); setShare('each'); setAmounts({ ee: 1, eo: 1 });
     const inAMonth = dayjs().add(1, 'month').endOf('day');
     setUntil(companyEnd && companyEnd.isBefore(inAMonth) ? companyEnd : inAMonth);
-    Promise.all([call<ContentNode[]>(apiCall, '/org/content-tree'), call<Learner[]>(apiCall, '/org/learners'), call<Group[]>(apiCall, '/org/groups')])
-      .then(([t, l, g]) => { setTree(t); setLearners(l); setGroups(g); })
+    Promise.all([
+      call<ContentNode[]>(apiCall, '/org/content-tree'), call<Learner[]>(apiCall, '/org/learners'), call<Group[]>(apiCall, '/org/groups'),
+      call<{ credits: Record<CreditType, { reserve: number }> }>(apiCall, '/org/credits?limit=1').catch(() => null),
+    ])
+      .then(([t, l, g, c]) => { setTree(t); setLearners(l); setGroups(g); setReserve(c ? { ee: c.credits.ee.reserve, eo: c.credits.eo.reserve } : null); })
       .catch(e => setErr(errorText(e, tr)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preset, apiCall]);
 
   const index = useMemo(() => indexTree(tree || []), [tree]);
-  const picked = selected.map(k => index.map.get(k)).filter(Boolean);
+  const picked = useMemo(() => selected.map(k => index.map.get(k)).filter(Boolean), [selected, index]);
   const autoName = picked.slice(0, 2).map(r => r!.label).join(', ') + (picked.length > 2 ? ` +${picked.length - 2}` : '');
-  const reach = useMemo(() => {
-    const set = new Set(learnerIds);
-    groups.filter(g => groupIds.includes(g.id)).forEach(g => g.member_ids.forEach(id => set.add(id)));
+  // Writing and speaking exams are the ones corrected by AI (they use credits).
+  const aiKinds = useMemo(() => CREDIT_KINDS.filter(t => picked.some(p => p!.family === t)), [picked]);
+  const aiKey = aiKinds.join(',');
+  useEffect(() => { if (!kindsTouched && aiKinds.length) setKinds(aiKinds); }, [aiKey, kindsTouched]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const activeIds = useMemo(() => new Set(learners.filter(l => l.is_active).map(l => l.id)), [learners]);
+  const recipients = target === 'learners' ? learnerIds : groupIds;
+  // Everyone reached today (credits go to active learners only).
+  const reached = useMemo(() => {
+    if (target === 'learners') return learnerIds.length;
+    const set = new Set<number>();
+    groups.filter(g => groupIds.includes(g.id)).forEach(g => g.member_ids.forEach(id => { if (activeIds.has(id)) set.add(id); }));
     return set.size;
-  }, [learnerIds, groupIds, groups]);
+  }, [target, learnerIds, groupIds, groups, activeIds]);
+  const split = withCredits && target === 'groups' && share === 'split';
+  const lines = kinds.map(t => {
+    const amount = amounts[t] || 0;
+    const each = split ? (reached ? Math.floor(amount / reached) : 0) : amount;
+    const total = each * reached;
+    const available = reserve ? reserve[t] : null;
+    return { t, amount, each, total, available, kept: split ? amount - total : 0, splittable: !split || each >= 1, enough: available == null || total <= available };
+  });
+  const creditsOk = !withCredits || (reached > 0 && lines.every(l => l.amount > 0 && l.splittable && l.enough));
+
   const dateOk = !!until && until.isAfter(dayjs()) && (!companyEnd || !until.isAfter(companyEnd));
-  const canSubmit = selected.length > 0 && (learnerIds.length + groupIds.length) > 0 && dateOk && !busy;
+  const canSubmit = selected.length > 0 && recipients.length > 0 && dateOk && creditsOk && !busy;
 
   const submit = async () => {
     setBusy(true); setErr(null);
     try {
-      const r = await call<{ created: number; skipped: number }>(apiCall, '/org/assignments', 'POST', {
+      const r = await call<{ created: number; skipped: number; credits: null | { given: number; each: Partial<Record<CreditType, number>> } }>(apiCall, '/org/assignments', 'POST', {
         items: picked.map(p => ({ content_type: p!.node.type, content_id: p!.node.content_id ?? p!.node.id })),
-        learner_ids: learnerIds, group_ids: groupIds, expires_at: until!.toISOString(), name: name.trim() || autoName,
+        learner_ids: target === 'learners' ? learnerIds : [], group_ids: target === 'groups' ? groupIds : [],
+        expires_at: until!.toISOString(), name: name.trim() || autoName,
+        credits: withCredits ? { amounts: chosenAmounts(kinds, amounts), mode: split ? 'split' : 'each' } : undefined,
       });
+      const given = r.credits ? tr(` · ${kindsText(r.credits.each)} credit(s) each to ${r.credits.given} learner(s)`, ` · ${kindsText(r.credits.each)} crédit(s) chacun à ${r.credits.given} apprenant(s)`) : '';
       message.success(r.skipped
-        ? tr(`Assigned · ${r.skipped} already opened by the administrator`, `Attribué · ${r.skipped} déjà ouvert(s) par l’administrateur`)
-        : tr('Assigned: the learners are notified', 'Attribué : les apprenants sont prévenus'));
+        ? tr(`Assigned · ${r.skipped} already opened by the administrator${given}`, `Attribué · ${r.skipped} déjà ouvert(s) par l’administrateur${given}`)
+        : tr(`Assigned: the learners are notified${given}`, `Attribué : les apprenants sont prévenus${given}`));
       onDone();
     } catch (e) { setErr(errorText(e, tr)); } finally { setBusy(false); }
   };
@@ -175,43 +213,115 @@ const NewAssignmentModal: React.FC<{ preset: { learners: number[]; groups: numbe
   ].filter(p => !companyEnd || !p.value.isAfter(companyEnd));
   if (companyEnd) presets.push({ label: tr('Until the end of access', 'Jusqu’à la fin de l’accès'), value: companyEnd });
 
+  const receipt: ReceiptLine[] = lines.map(l => ({
+    kind: l.t,
+    ok: l.amount > 0 && l.splittable && l.enough,
+    what: split
+      ? tr(`${l.amount} shared between ${reached} → ${l.each} each`, `${l.amount} répartis entre ${reached} → ${l.each} chacun`)
+      : tr(`${reached} learner(s) × ${l.each}`, `${reached} apprenant(s) × ${l.each}`),
+    detail: !l.splittable
+      ? tr(`Give at least ${reached} to share between ${reached} learners`, `Donnez-en au moins ${reached} pour ${reached} apprenants`)
+      : l.available == null ? undefined
+        : !l.enough
+          ? tr(`Reserve ${l.available} · ${l.total - l.available} missing`, `Réserve ${l.available} · il en manque ${l.total - l.available}`)
+          : tr(`Reserve ${l.available} → ${l.available - l.total}${l.kept ? ` · ${l.kept} kept (not divisible)` : ''}`, `Réserve ${l.available} → ${l.available - l.total}${l.kept ? ` · ${l.kept} gardé(s) (non divisible)` : ''}`),
+    total: `−${l.total}`,
+  }));
+
+  const eachText = kindsText(Object.fromEntries(lines.map(l => [l.t, l.each])));
+  const hint = !selected.length ? tr('Choose at least one exam.', 'Choisissez au moins un examen.')
+    : !recipients.length ? (target === 'learners' ? tr('Choose learners.', 'Choisissez des apprenants.') : tr('Choose groups.', 'Choisissez des groupes.'))
+      : !dateOk ? tr('Choose a date within your access.', 'Choisissez une date comprise dans votre accès.')
+        : !creditsOk ? tr('Check the credits.', 'Vérifiez les crédits.')
+          : tr(`${selected.length} exam item(s) · ${reached} learner(s) · until ${until!.format('DD/MM/YYYY')}${withCredits ? ` · ${eachText} credit(s) each` : ''}`,
+            `${selected.length} élément(s) · ${reached} apprenant(s) · jusqu’au ${until!.format('DD/MM/YYYY')}${withCredits ? ` · ${eachText} crédit(s) chacun` : ''}`);
+
   return (
-    <Modal open={open} onCancel={onClose} footer={null} width="min(1040px, calc(100vw - 24px))" wrapClassName="og-modal is-company" destroyOnHidden>
+    <Modal open={open} onCancel={onClose} footer={null} width="min(1120px, calc(100vw - 24px))" wrapClassName="og-modal is-company" destroyOnHidden>
       <div className="og-modal-head"><span className="og-logo"><SendOutlined /></span><div>
         <h3>{tr('New assignment', 'Nouvelle attribution')}</h3>
-        <p>{tr('Choose the exams, who may take them, and until when.', 'Choisissez les examens, qui peut les passer, et jusqu’à quand.')}</p></div></div>
+        <p>{tr('Choose the exams, who may take them and until when — and give AI credits in the same step if you wish.', 'Choisissez les examens, qui peut les passer et jusqu’à quand — et donnez des crédits IA dans la même étape si vous le souhaitez.')}</p></div></div>
       <div className="og-grid" style={{ gap: 14 }}>
-        <div className="og-section og-span-7">
+        <div className="og-section og-span-6">
           <div className="og-section-title"><span className="og-step">1</span>{tr('Exams', 'Examens')} <span className="og-muted" style={{ fontWeight: 400 }}>{selected.length ? `· ${selected.length}` : ''}</span></div>
-          <ContentTreePicker tree={tree} value={selected} onChange={setSelected} loading={!tree} height={380} />
+          <ContentTreePicker tree={tree} value={selected} onChange={setSelected} loading={!tree} height={460} />
         </div>
-        <div className="og-section og-span-5">
-          <div className="og-section-title"><span className="og-step">2</span>{tr('Learners and date', 'Apprenants et date')}</div>
-          <div className="og-field"><label><UserOutlined />{tr('Learners', 'Apprenants')}</label>
-            <Select mode="multiple" value={learnerIds} onChange={setLearnerIds} showSearch optionFilterProp="search" allowClear maxTagCount="responsive"
-              placeholder={tr('Search by name or email', 'Rechercher par nom ou email')}
-              options={learners.filter(l => l.is_active).map(l => ({ value: l.id, label: personName(l), search: `${personName(l)} ${l.email}`.toLowerCase() }))} /></div>
-          <div className="og-field"><label><ApartmentOutlined />{tr('Groups', 'Groupes')}</label>
-            <Select mode="multiple" value={groupIds} onChange={setGroupIds} allowClear maxTagCount="responsive" placeholder={tr('Every member of the group', 'Tous les membres du groupe')}
-              options={groups.map(g => ({ value: g.id, label: `${g.name} (${g.member_count})` }))} />
-            <small>{tr('Learners who join the group later get these exams too.', 'Les apprenants ajoutés plus tard au groupe reçoivent aussi ces examens.')}</small></div>
-          <div className="og-field"><label><CalendarOutlined />{tr('Open until', 'Ouvert jusqu’au')}</label>
-            <DatePicker value={until} onChange={setUntil} format="DD/MM/YYYY" style={{ width: '100%' }} presets={presets}
-              disabledDate={d => d.isBefore(dayjs(), 'day') || (!!companyEnd && d.isAfter(companyEnd, 'day'))}
-              status={until && !dateOk ? 'error' : undefined} />
-            {companyEnd && <small>{tr(`At the latest ${fmtDate(companyEnd.toISOString(), locale)}, the end of your company’s access.`, `Au plus tard le ${fmtDate(companyEnd.toISOString(), locale)}, fin de l’accès de votre entreprise.`)}</small>}</div>
-          <div className="og-field"><label>{tr('Name', 'Nom')} <em>{tr('optional', 'facultatif')}</em></label>
-            <Input value={name} onChange={e => setName(e.target.value)} maxLength={200} placeholder={autoName || tr('e.g. Week 1 practice', 'ex. Entraînement semaine 1')} /></div>
-          {canSubmit && <div className="og-check tone-ok"><CheckCircleOutlined /><span>{tr(`${selected.length} exam item(s) for ${reach} learner(s), until ${until!.format('DD/MM/YYYY')}.`, `${selected.length} élément(s) pour ${reach} apprenant(s), jusqu’au ${until!.format('DD/MM/YYYY')}.`)}</span></div>}
+
+        <div className="og-span-6 og-assign-side">
+          <div className="og-section">
+            <div className="og-section-title"><span className="og-step">2</span>{tr('Who and until when', 'Qui et jusqu’à quand')}</div>
+            {groups.length > 0 && (
+              <Segmented block value={target} onChange={v => { setTarget(v as 'learners' | 'groups'); setShare('each'); }} options={[
+                { value: 'learners', label: <><UserOutlined /> {tr('Learners', 'Apprenants')}</> },
+                { value: 'groups', label: <><ApartmentOutlined /> {tr('Groups', 'Groupes')}</> },
+              ]} />
+            )}
+            {target === 'learners' ? (
+              <Select mode="multiple" value={learnerIds} onChange={setLearnerIds} showSearch optionFilterProp="search" allowClear maxTagCount="responsive"
+                placeholder={tr('Search by name or email', 'Rechercher par nom ou email')}
+                options={learners.filter(l => l.is_active).map(l => ({ value: l.id, label: personName(l), search: `${personName(l)} ${l.email}`.toLowerCase() }))} />
+            ) : (
+              <div className="og-field">
+                <Select mode="multiple" value={groupIds} onChange={setGroupIds} allowClear maxTagCount="responsive" placeholder={tr('Choose groups', 'Choisissez des groupes')}
+                  options={groups.map(g => ({ value: g.id, label: `${g.name} (${g.member_count})` }))} />
+                <small>{groupIds.length
+                  ? tr(`${reached} active learner(s) today. Those who join later get these exams too.`, `${reached} apprenant(s) actif(s) aujourd’hui. Ceux qui rejoignent le groupe plus tard reçoivent aussi ces examens.`)
+                  : tr('Learners who join the group later get these exams too.', 'Les apprenants ajoutés plus tard au groupe reçoivent aussi ces examens.')}</small>
+              </div>
+            )}
+            <div className="og-two">
+              <div className="og-field"><label><CalendarOutlined />{tr('Open until', 'Ouvert jusqu’au')}</label>
+                <DatePicker value={until} onChange={setUntil} format="DD/MM/YYYY" style={{ width: '100%' }} presets={presets}
+                  disabledDate={d => d.isBefore(dayjs(), 'day') || (!!companyEnd && d.isAfter(companyEnd, 'day'))}
+                  status={until && !dateOk ? 'error' : undefined} /></div>
+              <div className="og-field"><label>{tr('Name', 'Nom')} <em>{tr('optional', 'facultatif')}</em></label>
+                <Input value={name} onChange={e => setName(e.target.value)} maxLength={200} placeholder={autoName || tr('e.g. Week 1 practice', 'ex. Entraînement semaine 1')} /></div>
+            </div>
+            {companyEnd && <small className="og-muted">{tr(`At the latest ${fmtDate(companyEnd.toISOString(), locale)}, the end of your company’s access.`, `Au plus tard le ${fmtDate(companyEnd.toISOString(), locale)}, fin de l’accès de votre entreprise.`)}</small>}
+          </div>
+
+          <div className={`og-section og-credits-step${withCredits ? ' is-on' : ''}`}>
+            <div className="og-section-title">
+              <span className="og-step">3</span>{tr('AI credits', 'Crédits IA')} <em className="og-muted" style={{ fontWeight: 400, fontStyle: 'normal' }}>{tr('optional', 'facultatif')}</em>
+              <Switch size="small" checked={withCredits} onChange={setWithCredits} style={{ marginLeft: 'auto' }} aria-label={tr('Also give AI credits', 'Donner aussi des crédits IA')} />
+            </div>
+            {!withCredits ? (
+              <p className="og-credits-off">
+                <ThunderboltOutlined />
+                <span>{aiKinds.length
+                  ? tr(`These exams include ${aiKinds.map(t => t.toUpperCase()).join(' and ')}: each attempt uses an AI credit. Give them now so your learners can start right away.`,
+                    `Ces examens comprennent ${aiKinds.map(t => t.toUpperCase()).join(' et ')} : chaque passage utilise un crédit IA. Donnez-les maintenant pour que vos apprenants puissent commencer tout de suite.`)
+                  : tr('Writing (EE) and speaking (EO) exams use one AI credit per attempt. Turn this on to hand them out with the assignment.',
+                    'Les examens d’expression écrite (EE) et orale (EO) utilisent un crédit IA par passage. Activez pour les distribuer avec l’attribution.')}</span>
+              </p>
+            ) : (
+              <>
+                <KindPicker value={kinds} onChange={v => { setKinds(v); setKindsTouched(true); }} lang={lang}
+                  note={t => (reserve ? tr(`${reserve[t]} in reserve`, `${reserve[t]} en réserve`) : '')} />
+                {target === 'groups' && (
+                  <Segmented block value={share} onChange={v => setShare(v as 'each' | 'split')} options={[
+                    { value: 'each', label: tr('Per learner', 'Par apprenant') }, { value: 'split', label: tr('Total to share', 'Total à répartir') },
+                  ]} />
+                )}
+                <AmountBoxes kinds={kinds} values={amounts} onChange={setAmounts}
+                  label={t => (split ? tr(`${creditName(t, lang)}, total`, `${creditName(t, lang)}, total`) : tr(`${creditName(t, lang)} per learner`, `${creditName(t, lang)} par apprenant`))} />
+                {reached > 0
+                  ? <CreditReceipt lines={receipt} />
+                  : <div className="og-check tone-soon"><WarningOutlined /><span>{recipients.length
+                    ? tr('No active learner to receive credits yet.', 'Aucun apprenant actif pour recevoir des crédits pour l’instant.')
+                    : tr('Choose who receives the exams first.', 'Choisissez d’abord qui reçoit les examens.')}</span></div>}
+              </>
+            )}
+          </div>
           {err && <div className="og-check tone-bad"><WarningOutlined /><span>{err}</span></div>}
         </div>
       </div>
-      <div className="og-foot" style={{ marginTop: 14 }}>
-        <span className="og-foot-note">{!selected.length ? tr('Choose at least one exam.', 'Choisissez au moins un examen.')
-          : !(learnerIds.length + groupIds.length) ? tr('Choose learners or groups.', 'Choisissez des apprenants ou des groupes.')
-            : !dateOk ? tr('Choose a date within your access.', 'Choisissez une date comprise dans votre accès.') : ''}</span>
+      <div className="og-foot og-assign-foot">
+        <span className={`og-foot-note${canSubmit ? ' is-ready' : ''}`}>{canSubmit && <CheckCircleOutlined />} {hint}</span>
         <Button onClick={onClose}>{tr('Cancel', 'Annuler')}</Button>
-        <Button type="primary" icon={<SendOutlined />} onClick={submit} loading={busy} disabled={!canSubmit}>{tr('Assign', 'Attribuer')}</Button>
+        <Button type="primary" icon={<SendOutlined />} onClick={submit} loading={busy} disabled={!canSubmit}>
+          {withCredits ? tr('Assign and give credits', 'Attribuer et donner les crédits') : tr('Assign', 'Attribuer')}
+        </Button>
       </div>
     </Modal>
   );

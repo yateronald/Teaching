@@ -364,6 +364,10 @@ router.get('/assignments', async (req, res) => {
  * a learner or group is not the company's. The date check and the company's
  * state are re-checked inside the insert itself, and the database refuses an
  * end after the company's end (migration 025) — three locks on the same door.
+ *
+ * Optional `credits: { amounts: { ee, eo }, mode: 'each' | 'split' }` also
+ * hands AI credits to everyone reached, with the rules of /credits/distribute.
+ * They move first, all or nothing: short of credits, nothing is assigned.
  */
 router.post('/assignments', writable, async (req, res) => {
     try {
@@ -401,56 +405,84 @@ router.post('/assignments', writable, async (req, res) => {
             const valid = await req.db.all(`SELECT id FROM users WHERE id = ANY($1::int[]) AND organization_id = $2 AND role = 'candidate' AND is_active`, [learnerIds, req.org.id]);
             if (valid.length !== learnerIds.length) throw new OrgError('LEARNER_NOT_IN_COMPANY', 'Some of the chosen learners are not active learners of your company.');
         }
-        if (groupIds.length) await membersOf(req, groupIds);
+        // Everyone reached today (active learners chosen + active members of the groups).
+        const reached = [...new Set([...learnerIds, ...(groupIds.length ? await membersOf(req, groupIds) : [])])];
+
+        // Optional AI credits for everyone reached. Planned (and refused) before
+        // anything is written; handed out before the assignment, all or nothing.
+        let credits = null;
+        if (body.credits != null) {
+            if (typeof body.credits !== 'object') throw new OrgError('BAD_AMOUNT', 'Invalid credits.');
+            const wanted = requestAmounts(body.credits);
+            const mode = body.credits.mode === 'split' ? 'split' : 'each';
+            if (!reached.length) throw new OrgError('NO_LEARNERS', 'These groups have no active learner to receive credits yet.');
+            credits = { wanted, mode, each: planCredits(wanted, mode, reached.length), result: null };
+        }
 
         const name = String(body.name ?? '').trim().slice(0, 200)
             || (await contentNameResolver(req.db, items)).call(null, items[0].content_type, items[0].content_id) + (items.length > 1 ? ` +${items.length - 1}` : '');
         const batchId = crypto.randomUUID();
-        const row = await req.db.get(
-            `WITH org AS (
-                SELECT id FROM organizations
-                 WHERE id = $1 AND status = 'active' AND access_starts_at <= CURRENT_TIMESTAMP
-                   AND access_ends_at > CURRENT_TIMESTAMP AND $4::timestamptz <= access_ends_at
-             ),
-             items AS (SELECT * FROM unnest($2::text[], $3::int[]) AS i(t, cid)),
-             learners AS (
-                SELECT id FROM users WHERE id = ANY($5::int[]) AND organization_id = $1 AND role = 'candidate' AND is_active
-             ),
-             grps AS (SELECT id FROM organization_groups WHERE id = ANY($6::int[]) AND organization_id = $1),
-             to_learners AS (
-                INSERT INTO tcf_exam_assignments (content_type, content_id, student_id, expires_at, assigned_by, group_id, group_name, organization_id)
-                SELECT i.t, i.cid, l.id, ($4::timestamptz AT TIME ZONE 'UTC'), $7, $8, $9, $1
-                  FROM items i CROSS JOIN learners l WHERE EXISTS (SELECT 1 FROM org)
-                ON CONFLICT (content_type, content_id, student_id) WHERE student_id IS NOT NULL
-                DO UPDATE SET expires_at = EXCLUDED.expires_at, assigned_by = EXCLUDED.assigned_by, assigned_at = CURRENT_TIMESTAMP,
-                              group_id = EXCLUDED.group_id, group_name = EXCLUDED.group_name
-                 WHERE tcf_exam_assignments.organization_id = $1
-                RETURNING id
-             ),
-             to_groups AS (
-                INSERT INTO tcf_exam_assignments (content_type, content_id, org_group_id, expires_at, assigned_by, group_id, group_name, organization_id)
-                SELECT i.t, i.cid, g.id, ($4::timestamptz AT TIME ZONE 'UTC'), $7, $8, $9, $1
-                  FROM items i CROSS JOIN grps g WHERE EXISTS (SELECT 1 FROM org)
-                ON CONFLICT (content_type, content_id, org_group_id) WHERE org_group_id IS NOT NULL
-                DO UPDATE SET expires_at = EXCLUDED.expires_at, assigned_by = EXCLUDED.assigned_by, assigned_at = CURRENT_TIMESTAMP,
-                              group_id = EXCLUDED.group_id, group_name = EXCLUDED.group_name
-                 WHERE tcf_exam_assignments.organization_id = $1
-                RETURNING id
-             )
-             SELECT (SELECT COUNT(*) FROM org)::int AS open,
-                    (SELECT COUNT(*) FROM to_learners)::int + (SELECT COUNT(*) FROM to_groups)::int AS written`,
-            [req.org.id, items.map(i => i.content_type), items.map(i => i.content_id), expires.toISOString(),
-                learnerIds, groupIds, req.user.id, batchId, name]
-        );
-        if (!row.open) {
-            const fresh = await req.db.get('SELECT * FROM organizations WHERE id = $1', [req.org.id]);
-            orgs.assertActive(fresh);
-            throw new OrgError('AFTER_COMPANY_END', 'The end date cannot be after your company’s access ends.', 400, { max_expires_at: new Date(fresh.access_ends_at).toISOString() });
+        if (credits) {
+            credits.result = await orgs.distributeMany(req.db, req.org.id, reached, credits.each, req.user.id, { notes: `Assignment: ${name}`.slice(0, 500) });
+        }
+        // If the assignment cannot be written after the credits left the
+        // reserve (the company closed in between), they go back at once.
+        const giveBack = async () => {
+            if (!credits?.result) return;
+            await orgs.reclaimMany(req.db, req.org.id, reached, credits.result.each, req.user.id,
+                { requireOpen: false, reason: 'reclaim', notes: 'Assignment not created: credits returned' })
+                .catch(e => console.error('[org] could not return the credits of a failed assignment:', e.message));
+        };
+        let row;
+        try {
+            row = await req.db.get(
+                `WITH org AS (
+                    SELECT id FROM organizations
+                     WHERE id = $1 AND status = 'active' AND access_starts_at <= CURRENT_TIMESTAMP
+                       AND access_ends_at > CURRENT_TIMESTAMP AND $4::timestamptz <= access_ends_at
+                 ),
+                 items AS (SELECT * FROM unnest($2::text[], $3::int[]) AS i(t, cid)),
+                 learners AS (
+                    SELECT id FROM users WHERE id = ANY($5::int[]) AND organization_id = $1 AND role = 'candidate' AND is_active
+                 ),
+                 grps AS (SELECT id FROM organization_groups WHERE id = ANY($6::int[]) AND organization_id = $1),
+                 to_learners AS (
+                    INSERT INTO tcf_exam_assignments (content_type, content_id, student_id, expires_at, assigned_by, group_id, group_name, organization_id)
+                    SELECT i.t, i.cid, l.id, ($4::timestamptz AT TIME ZONE 'UTC'), $7, $8, $9, $1
+                      FROM items i CROSS JOIN learners l WHERE EXISTS (SELECT 1 FROM org)
+                    ON CONFLICT (content_type, content_id, student_id) WHERE student_id IS NOT NULL
+                    DO UPDATE SET expires_at = EXCLUDED.expires_at, assigned_by = EXCLUDED.assigned_by, assigned_at = CURRENT_TIMESTAMP,
+                                  group_id = EXCLUDED.group_id, group_name = EXCLUDED.group_name
+                     WHERE tcf_exam_assignments.organization_id = $1
+                    RETURNING id
+                 ),
+                 to_groups AS (
+                    INSERT INTO tcf_exam_assignments (content_type, content_id, org_group_id, expires_at, assigned_by, group_id, group_name, organization_id)
+                    SELECT i.t, i.cid, g.id, ($4::timestamptz AT TIME ZONE 'UTC'), $7, $8, $9, $1
+                      FROM items i CROSS JOIN grps g WHERE EXISTS (SELECT 1 FROM org)
+                    ON CONFLICT (content_type, content_id, org_group_id) WHERE org_group_id IS NOT NULL
+                    DO UPDATE SET expires_at = EXCLUDED.expires_at, assigned_by = EXCLUDED.assigned_by, assigned_at = CURRENT_TIMESTAMP,
+                                  group_id = EXCLUDED.group_id, group_name = EXCLUDED.group_name
+                     WHERE tcf_exam_assignments.organization_id = $1
+                    RETURNING id
+                 )
+                 SELECT (SELECT COUNT(*) FROM org)::int AS open,
+                        (SELECT COUNT(*) FROM to_learners)::int + (SELECT COUNT(*) FROM to_groups)::int AS written`,
+                [req.org.id, items.map(i => i.content_type), items.map(i => i.content_id), expires.toISOString(),
+                    learnerIds, groupIds, req.user.id, batchId, name]
+            );
+            if (!row.open) {
+                const fresh = await req.db.get('SELECT * FROM organizations WHERE id = $1', [req.org.id]);
+                orgs.assertActive(fresh);
+                throw new OrgError('AFTER_COMPANY_END', 'The end date cannot be after your company’s access ends.', 400, { max_expires_at: new Date(fresh.access_ends_at).toISOString() });
+            }
+        } catch (err) {
+            await giveBack();
+            throw err;
         }
         const expected = items.length * (learnerIds.length + groupIds.length);
 
         // Tell the learners reached.
-        const reached = [...new Set([...learnerIds, ...(await membersOf(req, groupIds))])];
         const until = expires.toLocaleDateString(req.org.default_language === 'en' ? 'en-GB' : 'fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
         for (const uid of reached) {
             await createNotification(req.db, {
@@ -463,10 +495,17 @@ router.post('/assignments', writable, async (req, res) => {
                 sender_id: req.user.id,
             }).catch(e => console.warn('[org] notification failed:', e.message));
         }
+        let creditsOut = null;
+        if (credits) {
+            creditsOut = { mode: credits.mode, given: credits.result.given, each: credits.result.each, kept_in_reserve: keptOf(credits.wanted, credits.mode, credits.result) };
+            await orgs.audit(req.db, req.org.id, req.user.id, 'credits_distributed',
+                { mode: credits.mode, amounts: credits.result.each, learners: credits.result.given, reserve: credits.result.reserve, kept_in_reserve: creditsOut.kept_in_reserve, assignment: name });
+        }
         await orgs.audit(req.db, req.org.id, req.user.id, 'assigned', {
             name, items: items.length, learners: learnerIds.length, groups: groupIds.length, expires_at: expires.toISOString(), written: row.written,
+            credits: creditsOut ? creditsOut.each : undefined,
         });
-        res.status(201).json({ created: row.written, skipped: expected - row.written, group_id: batchId });
+        res.status(201).json({ created: row.written, skipped: expected - row.written, group_id: batchId, credits: creditsOut });
     } catch (err) { sendError(res, err, 'POST /org/assignments'); }
 });
 
@@ -490,6 +529,31 @@ router.get('/credits', async (req, res) => {
         res.json({ credits: await orgs.creditSummary(req.db, req.org.id), items: await queries.creditTransactions(req.db, req.org.id, req.query.limit) });
     } catch (err) { sendError(res, err, 'GET /org/credits'); }
 });
+
+/**
+ * Per-learner amounts for `count` learners. "each": the amounts are per
+ * learner; "split": each amount is a total shared evenly (what cannot be
+ * shared stays in the reserve). Refuses a total too small to give everyone one.
+ */
+function planCredits(wanted, mode, count) {
+    const each = {};
+    for (const [type, amount] of Object.entries(wanted)) {
+        each[type] = mode === 'split' ? Math.floor(amount / count) : amount;
+        if (each[type] < 1) {
+            throw new OrgError('TOTAL_TOO_SMALL',
+                `A total of ${amount} ${type.toUpperCase()} credits cannot be shared between ${count} learners: give at least ${count}.`, 400,
+                { learners: count, total: amount, type });
+        }
+    }
+    return each;
+}
+
+/** What a split hand-out kept in the reserve, per kind. */
+function keptOf(wanted, mode, result) {
+    const kept = {};
+    for (const type of orgs.CREDIT_TYPES) kept[type] = mode === 'split' && wanted[type] ? wanted[type] - (result.each[type] || 0) * result.given : 0;
+    return kept;
+}
 
 /**
  * The credit amounts of a request: `amounts: { ee, eo }` (one kind or both at
@@ -517,23 +581,11 @@ router.post('/credits/distribute', writable, async (req, res) => {
         const groupIds = idList(req.body?.group_ids);
         const everyone = [...new Set([...learnerIds, ...(await membersOf(req, groupIds))])];
         if (!everyone.length) throw new OrgError('NO_LEARNERS', groupIds.length ? 'These groups have no active learner.' : 'Choose at least one learner.');
-        const each = {};
-        for (const [type, amount] of Object.entries(wanted)) {
-            each[type] = mode === 'split' ? Math.floor(amount / everyone.length) : amount;
-            if (each[type] < 1) {
-                throw new OrgError('TOTAL_TOO_SMALL',
-                    `A total of ${amount} ${type.toUpperCase()} credits cannot be shared between ${everyone.length} learners: give at least ${everyone.length}.`, 400,
-                    { learners: everyone.length, total: amount, type });
-            }
-        }
+        const each = planCredits(wanted, mode, everyone.length);
         const notes = req.body?.notes ? String(req.body.notes).trim().slice(0, 500) : null;
         const result = await orgs.distributeMany(req.db, req.org.id, everyone, each, req.user.id, { notes });
-        const kept = {};
-        const total = {};
-        for (const type of orgs.CREDIT_TYPES) {
-            total[type] = (result.each[type] || 0) * result.given;
-            kept[type] = mode === 'split' && wanted[type] ? wanted[type] - total[type] : 0;
-        }
+        const kept = keptOf(wanted, mode, result);
+        const total = Object.fromEntries(orgs.CREDIT_TYPES.map(t => [t, (result.each[t] || 0) * result.given]));
         await orgs.audit(req.db, req.org.id, req.user.id, 'credits_distributed',
             { mode, amounts: result.each, learners: result.given, reserve: result.reserve, kept_in_reserve: kept });
         res.json({ ...result, mode, total, kept_in_reserve: kept, credits: await orgs.creditSummary(req.db, req.org.id) });
