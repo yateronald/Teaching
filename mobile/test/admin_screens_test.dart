@@ -22,6 +22,7 @@ import 'package:mobile/features/admin/exam_prep/exam_prep_screen.dart';
 import 'package:mobile/features/admin/exam_prep/exam_results_screen.dart';
 import 'package:mobile/features/admin/exam_prep/expression_screens.dart';
 import 'package:mobile/features/admin/monitoring/monitoring_screen.dart';
+import 'package:mobile/features/admin/monitoring/world_map.dart';
 import 'package:mobile/features/admin/resources/admin_resources_screen.dart';
 import 'package:mobile/features/admin/settings/admin_settings_screen.dart';
 import 'package:mobile/features/admin/timetable/timetable_screen.dart';
@@ -130,6 +131,18 @@ class _FakeAdminApi extends ApiClient {
         {'id': 1, 'action': 'company_created', 'category': 'created', 'created_at': '2026-09-01T10:00:00Z', 'details': {'access_ends_at': '2026-12-31T23:59:59Z', 'seat_limit': 5}, 'actor': null},
       ],
       'next_before': null,
+    },
+    '/monitoring/geo': {
+      'totals': {'countries': 3, 'visits': 900, 'visitors': 310, 'unplaced': 20},
+      'countries': [
+        {'country': 'FR', 'visits': 500, 'visitors': 160, 'sessions': 220, 'share': 55.6, 'bounce_rate': 41, 'avg_seconds': 95, 'load_p75': 820, 'lcp_p75': 1400, 'ttfb_p75': 180,
+         'phone': 300, 'tablet': 20, 'desktop': 180, 'search': 200, 'social': 50, 'campaign': 10, 'top_page': '/tcf-canada'},
+        {'country': 'CA', 'visits': 280, 'visitors': 110, 'sessions': 140, 'share': 31.1, 'bounce_rate': 35, 'avg_seconds': 120, 'load_p75': 640, 'lcp_p75': 1100, 'ttfb_p75': 150,
+         'phone': 120, 'tablet': 10, 'desktop': 150, 'search': 90, 'social': 20, 'campaign': 5, 'top_page': '/'},
+        {'country': 'CM', 'visits': 100, 'visitors': 40, 'sessions': 60, 'share': 11.1, 'bounce_rate': 55, 'avg_seconds': 60, 'load_p75': 2600, 'lcp_p75': 3900, 'ttfb_p75': 700,
+         'phone': 90, 'tablet': 0, 'desktop': 10, 'search': 30, 'social': 40, 'campaign': 0, 'top_page': '/login'},
+        {'country': '??', 'visits': 20, 'visitors': 8, 'sessions': 10, 'share': 2.2, 'bounce_rate': 50, 'avg_seconds': 30, 'phone': 10, 'tablet': 0, 'desktop': 10},
+      ],
     },
     '/tcf/categories': [
       {'id': 1, 'name': 'Compréhension Écrite', 'description': 'Lire et comprendre des documents du quotidien', 'series_count': 40, 'question_count': 1560},
@@ -626,6 +639,43 @@ void main() {
     await tester.tap(find.byKey(const Key('company-credit-submit')));
     await tester.pumpAndSettle();
     expect(api.sent['/admin/organizations/4/credits'], {'action': 'revoke', 'amounts': {'ee': 12, 'eo': 3}, 'notes': ''});
+  });
+
+  test('the world map ships the same countries as the web map', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final world = await WorldShapes.load();
+    expect(world.countries.length, 176, reason: 'world-atlas 110m without Antarctica');
+    final codes = {for (final c in world.countries) c.code};
+    for (final c in ['FR', 'CA', 'CM', 'US', 'IN', 'BR']) {
+      expect(codes, contains(c));
+    }
+    final cameroon = world.countries.firstWhere((c) => c.code == 'CM');
+    expect(world.at(cameroon.bounds.center)?.code, 'CM', reason: 'a tap in the middle of Cameroon finds Cameroon');
+    expect(world.at(const Offset(470, 30)), isNull, reason: 'the Arctic Ocean is no country');
+  });
+
+  testWidgets('the countries tab draws the map, shades and picks a country', (tester) async {
+    // The shapes are read from the app's assets (real I/O): load them outside
+    // the test's fake clock first, as the app does on its first map.
+    await tester.runAsync(() => WorldShapes.load());
+    await _show(tester, const MonitoringScreen(), size: const Size(1024, 3000));
+    await tester.tap(find.text('Countries').first);
+    await tester.pumpAndSettle();
+    expect(find.byType(VisitorWorldMap), findsOneWidget);
+    expect(find.descendant(of: find.byType(VisitorWorldMap), matching: find.byType(CircularProgressIndicator)), findsNothing, reason: 'the shapes are loaded');
+    expect(find.descendant(of: find.byType(VisitorWorldMap), matching: find.byType(CustomPaint)), findsWidgets);
+    expect(find.text('Pick a country'), findsOneWidget);
+
+    await tester.tap(find.text('Cameroon').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Country'), findsOneWidget);
+    expect(find.text('11.1% of all page views in this period'), findsOneWidget);
+    expect(find.text('90% phone or tablet · 10% computer'), findsOneWidget);
+
+    await tester.tap(find.descendant(of: find.byType(SegmentedButton<MapMeasure>), matching: find.text('Speed')));
+    await tester.pumpAndSettle();
+    expect(find.text('slow'), findsOneWidget, reason: 'the legend follows the measure');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the shell builds a screen only when it is first opened', (tester) async {

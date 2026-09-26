@@ -9,6 +9,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
+import 'world_map.dart';
 
 /// Who visits the public website, from where, and how fast it is for them,
 /// next to the health of the platform. Aggregates only: no visitor is stored.
@@ -449,15 +450,37 @@ class _Kpi extends StatelessWidget {
 
 // ── Countries ──────────────────────────────────────────────────────────────
 
-class _Geo extends StatelessWidget {
+class _Geo extends StatefulWidget {
   final Map<String, dynamic> d;
   const _Geo({required this.d});
 
   @override
+  State<_Geo> createState() => _GeoState();
+}
+
+class _GeoState extends State<_Geo> {
+  MapMeasure _measure = MapMeasure.visitors;
+  String? _code;
+  String? _name;
+
+  void _pick(String? code, String name) => setState(() {
+        final same = code != null && code == _code;
+        _code = same ? null : code;
+        _name = same ? null : name;
+      });
+
+  @override
   Widget build(BuildContext context) {
     final fr = context.isFrench;
+    final d = widget.d;
     final t = J.map(d['totals']);
     final list = J.list(d['countries']);
+    final byCode = {for (final c in list) J.s(c['country']).toUpperCase(): c};
+    final ranked = [for (final c in list) if (J.s(c['country']) != '??') c].take(10).toList();
+    final unplaced = byCode['??'];
+    final picked = _code == null ? null : byCode[_code];
+    String nameOf(String code, [String? fallback]) => _countries.containsKey(code) ? _country(code, fr) : (fallback ?? code);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -466,13 +489,95 @@ class _Geo extends StatelessWidget {
           maxColumns: 4,
           spacing: 10,
           children: [
-            StatTile(label: fr ? 'Pays' : 'Countries', value: '${J.i(t['countries'])}', icon: Icons.public),
-            StatTile(label: fr ? 'Visites' : 'Visits', value: AdminFmt.number(context, J.n(t['visits'])), icon: Icons.visibility_outlined, color: AppColors.good),
-            StatTile(label: fr ? 'Visiteurs' : 'Visitors', value: AdminFmt.number(context, J.n(t['visitors'])), icon: Icons.people_outline, color: const Color(0xFF0891B2)),
-            StatTile(label: fr ? 'Non localisées' : 'Unplaced', value: AdminFmt.number(context, J.n(t['unplaced'])), icon: Icons.help_outline, color: AppColors.textMuted),
+            StatTile(label: fr ? 'Pays' : 'Countries', value: '${J.i(t['countries'])}', sub: fr ? 'atteints sur la période' : 'reached in this period', icon: Icons.public),
+            StatTile(
+              label: fr ? 'Visiteurs' : 'Visitors',
+              value: AdminFmt.number(context, J.n(t['visitors'])),
+              sub: fr ? '${AdminFmt.number(context, J.n(t['visits']))} pages vues' : '${AdminFmt.number(context, J.n(t['visits']))} page views',
+              icon: Icons.people_outline,
+              color: const Color(0xFF0891B2),
+            ),
+            if (ranked.isNotEmpty)
+              StatTile(
+                label: fr ? 'Plus grande audience' : 'Largest audience',
+                value: '${_flag(J.s(ranked.first['country']))} ${nameOf(J.s(ranked.first['country']).toUpperCase())}',
+                sub: fr ? '${J.n(ranked.first['share'])} % des pages vues' : '${J.n(ranked.first['share'])}% of page views',
+                icon: Icons.emoji_events_outlined,
+                color: AppColors.good,
+              ),
+            if (unplaced != null)
+              StatTile(
+                label: fr ? 'Non localisées' : 'Not placed',
+                value: AdminFmt.number(context, J.n(unplaced['visits'])),
+                sub: fr ? '${J.n(unplaced['share'])} % des pages vues' : '${J.n(unplaced['share'])}% of page views',
+                icon: Icons.help_outline,
+                color: AppColors.textMuted,
+              ),
           ],
         ),
         const SizedBox(height: 14),
+        AdminCard(
+          title: fr ? 'Où sont les visiteurs' : 'Where visitors are',
+          icon: Icons.map_outlined,
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            SegmentedButton<MapMeasure>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: [
+                ButtonSegment(value: MapMeasure.visitors, label: Text(fr ? 'Visiteurs' : 'Visitors')),
+                ButtonSegment(value: MapMeasure.visits, label: Text(fr ? 'Pages vues' : 'Page views')),
+                ButtonSegment(value: MapMeasure.speed, label: Text(fr ? 'Vitesse' : 'Speed')),
+              ],
+              selected: {_measure},
+              onSelectionChanged: (s) => setState(() => _measure = s.first),
+            ),
+            const SizedBox(height: 10),
+            VisitorWorldMap(byCode: byCode, measure: _measure, selected: _code, onPick: (p) => _pick(p.code, p.name)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Expanded(
+                child: Text(
+                  fr ? 'Pincez pour zoomer · touchez un pays' : 'Pinch to zoom · tap a country',
+                  style: AppTypography.caption.copyWith(color: AppColors.textSubtle, fontSize: 11),
+                ),
+              ),
+              MapLegend(measure: _measure),
+            ]),
+          ]),
+        ),
+        const SizedBox(height: 12),
+        AdminCard(
+          title: _code == null ? (fr ? 'Choisissez un pays' : 'Pick a country') : (fr ? 'Pays' : 'Country'),
+          icon: Icons.flag_outlined,
+          action: _code == null ? null : AdminLink(fr ? 'Effacer' : 'Clear', onTap: () => setState(() => _code = _name = null)),
+          child: _code == null
+              ? Text(fr ? 'Touchez un pays sur la carte ou dans le classement.' : 'Tap a country on the map or in the ranking.',
+                  style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted))
+              : _CountryCard(code: _code!, name: nameOf(_code!, _name), c: picked),
+        ),
+        const SizedBox(height: 12),
+        AdminCard(
+          title: fr ? 'Pays les plus actifs' : 'Top countries',
+          icon: Icons.leaderboard_outlined,
+          child: ranked.isEmpty
+              ? Text(fr ? 'Aucune visite localisée pour l’instant.' : 'No visit has been placed yet.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted))
+              : Column(children: [
+                  for (final c in ranked)
+                    _RankRow(
+                      flag: _flag(J.s(c['country'])),
+                      name: nameOf(J.s(c['country']).toUpperCase()),
+                      visits: J.n(c['visits']),
+                      max: J.n(ranked.first['visits']),
+                      share: J.n(c['share']),
+                      speed: _ms(c['load_p75'] as num?),
+                      picked: J.s(c['country']).toUpperCase() == _code,
+                      onTap: () => _pick(J.s(c['country']).toUpperCase(), nameOf(J.s(c['country']).toUpperCase())),
+                    ),
+                ]),
+        ),
+        const SizedBox(height: 14),
+        PanelSection(fr ? 'Tous les pays' : 'All countries'),
         for (final c in list)
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
@@ -513,6 +618,110 @@ class _Geo extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// Everything known about the picked country (as the web's country card).
+class _CountryCard extends StatelessWidget {
+  final String code;
+  final String name;
+  final Map<String, dynamic>? c;
+  const _CountryCard({required this.code, required this.name, required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    final fr = context.isFrench;
+    final c = this.c;
+    final head = Row(children: [
+      Text(_flag(code), style: const TextStyle(fontSize: 30)),
+      const SizedBox(width: 10),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name, style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink)),
+          Text(
+            c == null
+                ? (fr ? 'Aucune visite depuis ce pays sur la période.' : 'No visit from here in this period.')
+                : (fr ? '${J.n(c['share'])} % des pages vues de la période' : '${J.n(c['share'])}% of all page views in this period'),
+            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+          ),
+        ]),
+      ),
+    ]);
+    if (c == null) return head;
+    final devices = J.n(c['visits']) == 0 ? 0 : ((J.n(c['phone']) + J.n(c['tablet'])) / J.n(c['visits']) * 100).round();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      head,
+      const SizedBox(height: 12),
+      Wrap(spacing: 18, runSpacing: 10, children: [
+        _Fact(fr ? 'Visiteurs' : 'Visitors', AdminFmt.number(context, J.n(c['visitors']))),
+        _Fact(fr ? 'Pages vues' : 'Page views', AdminFmt.number(context, J.n(c['visits']))),
+        _Fact(fr ? 'Visites' : 'Visits', AdminFmt.number(context, J.n(c['sessions']))),
+        _Fact(fr ? 'Rebond' : 'Bounce rate', '${J.n(c['bounce_rate']).round()}%'),
+        _Fact(fr ? 'Temps sur la page' : 'Time on page', _duration(J.n(c['avg_seconds']))),
+        _Fact(fr ? 'Chargement' : 'Page load', _ms(c['load_p75'] as num?)),
+        _Fact(fr ? 'Plus grand rendu' : 'Largest paint', _ms(c['lcp_p75'] as num?)),
+        _Fact(fr ? 'Premier octet' : 'First byte', _ms(c['ttfb_p75'] as num?)),
+      ]),
+      const SizedBox(height: 10),
+      Text(
+        fr ? '$devices % téléphone ou tablette · ${100 - devices} % ordinateur' : '$devices% phone or tablet · ${100 - devices}% computer',
+        style: AppTypography.caption.copyWith(color: AppColors.text),
+      ),
+      if (J.s(c['top_page']).isNotEmpty) ...[
+        const SizedBox(height: 4),
+        Text('${fr ? 'Page la plus lue' : 'Most read'} : ${J.s(c['top_page'])}', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+      ],
+    ]);
+  }
+}
+
+class _RankRow extends StatelessWidget {
+  final String flag;
+  final String name;
+  final num visits;
+  final num max;
+  final num share;
+  final String speed;
+  final bool picked;
+  final VoidCallback onTap;
+  const _RankRow({required this.flag, required this.name, required this.visits, required this.max, required this.share, required this.speed, required this.picked, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: picked ? const Color(0xFF4338CA) : Colors.transparent),
+        ),
+        child: Stack(children: [
+          Positioned.fill(
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: max == 0 ? 0 : (visits / max).clamp(0.0, 1.0).toDouble(),
+              child: Container(decoration: BoxDecoration(color: const Color(0xFFE8EAFF), borderRadius: BorderRadius.circular(6))),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: Row(children: [
+              Text(flag, style: const TextStyle(fontSize: 18)),
+              const SizedBox(width: 8),
+              Expanded(child: Text(name, style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink), overflow: TextOverflow.ellipsis)),
+              Text(speed, style: AppTypography.caption.copyWith(color: AppColors.textMuted, fontSize: 11)),
+              const SizedBox(width: 10),
+              Text(AdminFmt.number(context, visits), style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(width: 6),
+              SizedBox(width: 38, child: Text('$share%', textAlign: TextAlign.right, style: AppTypography.caption.copyWith(color: AppColors.textMuted))),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }
