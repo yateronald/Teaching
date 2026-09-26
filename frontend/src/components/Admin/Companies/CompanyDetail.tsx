@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntApp, Button, DatePicker, Drawer, Dropdown, Input, InputNumber, Modal, Popconfirm, Segmented, Skeleton, Tabs, Upload } from 'antd';
 import {
-  ArrowLeftOutlined, BankOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined, HistoryOutlined,
+  ArrowLeftOutlined, BankOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined,
   MailOutlined, MinusOutlined, MoreOutlined, PictureOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
   UploadOutlined, UserAddOutlined, WarningOutlined,
 } from '@ant-design/icons';
@@ -11,10 +11,11 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { FAMILY_CODE } from '../examAdminData';
 import {
-  auditText, call, chosenAmounts, creditName, errorText, familyOfRef, fmtDate, moveText, personName, ago,
+  call, chosenAmounts, creditName, errorText, familyOfRef, fmtDate, moveText, personName, ago,
 } from '../../Org/orgModel';
-import type { AuditEntry, Company, ContentRef, CreditMove, CreditType, Learner, Person } from '../../Org/orgModel';
+import type { Company, ContentRef, CreditMove, CreditType, Learner, Person } from '../../Org/orgModel';
 import ContentTreePicker from '../../Org/ContentTreePicker';
+import CompanyHistory from './CompanyHistory';
 import { AmountBoxes, CreditReceipt, KindPicker } from '../../Org/CreditControls';
 import type { Amounts, ReceiptLine } from '../../Org/CreditControls';
 import { indexTree } from '../../Org/contentTreeIndex';
@@ -108,7 +109,7 @@ const CompanyDetail: React.FC = () => {
         { key: 'content', label: 'Exams', children: <ContentTab c={c} onChanged={load} /> },
         { key: 'credits', label: 'Credit history', children: <CreditsTab c={c} /> },
         { key: 'brand', label: 'Logo', children: <BrandTab c={c} onChanged={load} /> },
-        { key: 'audit', label: 'Activity', children: <AuditTab c={c} /> },
+        { key: 'audit', label: 'History & audit', children: <CompanyHistory c={c} /> },
       ]} />
 
       <ExtendModal open={extendOpen} c={c} onClose={() => setExtendOpen(false)} onDone={() => { setExtendOpen(false); load(); }} />
@@ -356,27 +357,6 @@ const BrandTab: React.FC<{ c: Detail; onChanged: () => void }> = ({ c, onChanged
 };
 
 /* ── Activity ── */
-const AuditTab: React.FC<{ c: Detail }> = ({ c }) => {
-  const { apiCall } = useAuth();
-  const [items, setItems] = useState<AuditEntry[] | null>(null);
-  useEffect(() => { call<AuditEntry[]>(apiCall, `/admin/organizations/${c.id}/audit?limit=300`).then(setItems).catch(() => setItems([])); }, [apiCall, c.id, c]);
-  return (
-    <section className="og-card">
-      {items === null ? <div style={{ padding: 18 }}><Skeleton active /></div> : items.length === 0 ? <Empty icon={<HistoryOutlined />} title="Nothing yet" /> : (
-        <div className="og-list">
-          {items.map(a => (
-            <div key={a.id} className="og-row" style={{ gridTemplateColumns: '140px 1fr minmax(120px, auto)' }}>
-              <span className="og-muted">{new Date(a.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-              <span className="og-cell-main"><strong style={{ fontWeight: 500 }}>{auditText(a, en)}</strong></span>
-              <span className="og-muted og-hide-sm">{a.actor_first_name ? `${personName({ first_name: a.actor_first_name, last_name: a.actor_last_name })}${a.actor_role === 'admin' ? ' (admin)' : ''}` : 'System'}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-};
-
 /* ── Extend access ── */
 const ExtendModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onDone: () => void }> = ({ open, c, onClose, onDone }) => {
   const { apiCall } = useAuth();
@@ -384,12 +364,13 @@ const ExtendModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onD
   const base = dayjs(c.access_ends_at);
   const from = base.isBefore(dayjs()) ? dayjs() : base;
   const [until, setUntil] = useState<Dayjs | null>(from.add(3, 'month').endOf('day'));
+  const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) setUntil(from.add(3, 'month').endOf('day')); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setUntil(from.add(3, 'month').endOf('day')); setNote(''); } }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const save = async () => {
     setBusy(true);
     try {
-      await call(apiCall, `/admin/organizations/${c.id}`, 'PUT', { access_ends_at: until!.toISOString() });
+      await call(apiCall, `/admin/organizations/${c.id}`, 'PUT', { access_ends_at: until!.toISOString(), note: note.trim() || undefined });
       message.success(`Access until ${until!.format('DD/MM/YYYY')}${c.state !== 'active' ? ': everything is open again' : ''}`);
       onDone();
     } catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
@@ -407,7 +388,10 @@ const ExtendModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; onD
             { label: '+6 months', value: from.add(6, 'month').endOf('day') },
             { label: '+1 year', value: from.add(1, 'year').endOf('day') },
           ]} />
+        {until && <p className="og-muted" style={{ margin: 0 }}>{fmtDate(c.access_ends_at, 'en-GB')} → <b>{until.format('DD/MM/YYYY')}</b> · {until.diff(dayjs(c.access_ends_at), 'day') >= 0 ? '+' : ''}{until.diff(dayjs(c.access_ends_at), 'day')} days</p>}
+        <Input value={note} onChange={e => setNote(e.target.value)} maxLength={500} placeholder="Reason (optional), e.g. contract renewed, invoice 2026-114" />
         {shorter && <div className="og-check tone-warn"><WarningOutlined /><span>This shortens the access: every learner’s access is capped at the new date.</span></div>}
+        <small className="og-muted">Recorded in the company’s history with the previous date, the new one and who changed it.</small>
       </div>
     </Modal>
   );

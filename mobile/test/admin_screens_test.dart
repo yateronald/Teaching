@@ -101,10 +101,36 @@ class _FakeAdminApi extends ApiClient {
         {'id': 2, 'credit_type': 'ee', 'delta': -3, 'reason': 'distribute', 'learner_first_name': 'Awa', 'learner_last_name': 'Diallo', 'created_at': '2026-09-02T10:00:00Z'},
       ],
     },
-    '/admin/organizations/4/audit': [
-      {'id': 1, 'action': 'company_created', 'details': {}, 'created_at': '2026-09-01T10:00:00Z', 'actor_first_name': 'Ada', 'actor_last_name': 'Admin'},
-      {'id': 2, 'action': 'credits_distributed', 'details': {'amounts': {'ee': 3, 'eo': 1}, 'learners': 1}, 'created_at': '2026-09-02T10:00:00Z', 'actor_first_name': 'Mariam', 'actor_last_name': 'Kouassi-Bamba'},
-    ],
+    '/admin/organizations/4/history': {
+      'summary': {
+        'access': {
+          'starts_at': '2026-01-01T00:00:00Z', 'original_end': '2026-12-31T23:59:59Z', 'current_end': '2030-06-30T23:59:59Z',
+          'extensions': 2, 'shortenings': 0, 'days_added': 1277, 'last_change': null,
+        },
+        'credits': {'granted': {'ee': 22, 'eo': 5}, 'revoked': {'ee': 0, 'eo': 0}, 'reserve': {'ee': 12, 'eo': 3}, 'movements': 1, 'last_at': '2026-09-03T10:00:00Z'},
+        'package': {'original': 5, 'current': 3, 'changes': 1},
+        'status': {'current': 'active', 'suspensions': 1, 'last_change': null},
+      },
+      'items': [
+        {
+          'id': 5, 'action': 'dates_changed', 'category': 'access', 'created_at': '2026-09-04T10:00:00Z',
+          'details': {'access_ends_at': {'from': '2026-12-31T23:59:59Z', 'to': '2027-03-31T23:59:59Z'}, 'note': 'Contract renewed, invoice 2026-114'},
+          'actor': {'name': 'Ada Admin', 'email': 'ada@lfwn.example', 'role': 'admin'},
+        },
+        {
+          'id': 4, 'action': 'credits_granted', 'category': 'credits', 'created_at': '2026-09-03T10:00:00Z',
+          'details': {'amounts': {'ee': 10}, 'before': {'ee': 2, 'eo': 3}, 'reserve': {'ee': 12, 'eo': 3}, 'notes': 'INV-204'},
+          'actor': {'name': 'Ada Admin', 'email': 'ada@lfwn.example', 'role': 'admin'},
+        },
+        {
+          'id': 3, 'action': 'credits_distributed', 'category': 'handouts', 'created_at': '2026-09-02T10:00:00Z',
+          'details': {'amounts': {'ee': 3, 'eo': 1}, 'learners': 1},
+          'actor': {'name': 'Mariam Kouassi-Bamba', 'email': 'mariam.kouassi@sgtl.example', 'role': 'org_admin'},
+        },
+        {'id': 1, 'action': 'company_created', 'category': 'created', 'created_at': '2026-09-01T10:00:00Z', 'details': {'access_ends_at': '2026-12-31T23:59:59Z', 'seat_limit': 5}, 'actor': null},
+      ],
+      'next_before': null,
+    },
     '/tcf/categories': [
       {'id': 1, 'name': 'Compréhension Écrite', 'description': 'Lire et comprendre des documents du quotidien', 'series_count': 40, 'question_count': 1560},
       {'id': 2, 'name': 'Compréhension Orale', 'description': 'Écouter', 'series_count': 38, 'question_count': 1482},
@@ -301,9 +327,13 @@ class _FakeAdminApi extends ApiClient {
 
   Response<T> _ok<T>(String path, dynamic data) => Response<T>(requestOptions: RequestOptions(path: path), statusCode: 200, data: data as T);
 
+  /// The query of the last request to each path.
+  final queries = <String, Map<String, dynamic>?>{};
+
   @override
   Future<Response<T>> get<T>(String path, {Map<String, dynamic>? queryParameters, Options? options}) async {
     final bare = path.split('?').first;
+    queries[bare] = queryParameters;
     return _ok<T>(path, _routes[bare] ?? <dynamic>[]);
   }
 
@@ -494,7 +524,7 @@ void main() {
     expect(find.text('Invited'), findsOneWidget);
     expect(find.text('Off'), findsOneWidget, reason: 'Koffi is deactivated');
     expect(find.text('Given to Awa Diallo'), findsOneWidget);
-    expect(find.text('3 EE + 1 EO credit(s) each to 1 learner(s)'), findsOneWidget);
+    expect(find.text('The company gave 3 EE, 1 EO to each of 1 learner(s)'), findsOneWidget);
     expect(find.text('Delete the company'), findsNothing, reason: 'a company with accounts cannot be deleted');
   });
 
@@ -510,6 +540,40 @@ void main() {
     final until = DateTime.parse(body['access_ends_at'] as String).toLocal();
     expect(until.year, 2031);
     expect(until.month, 6);
+  });
+
+  testWidgets('an extension can carry its reason', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 3000));
+    await tester.tap(find.byKey(const Key('company-extend')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('company-extend-note')), 'Contract renewed, invoice 2026-114');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect((api.sent['/admin/organizations/4'] as Map)['note'], 'Contract renewed, invoice 2026-114');
+  });
+
+  testWidgets('the history shows each change before → after, with who and why', (tester) async {
+    await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 4000));
+    expect(find.text('Access extended by 90 days'), findsOneWidget);
+    expect(find.text('Contract renewed, invoice 2026-114'), findsOneWidget, reason: 'the reason of the extension');
+    expect(find.text('Credits added: +10 EE'), findsOneWidget);
+    expect(find.text('2'), findsWidgets, reason: 'reserve before');
+    expect(find.text('INV-204'), findsOneWidget);
+    expect(find.textContaining('Ada Admin · Administrator'), findsWidgets);
+    expect(find.textContaining('2 extension(s) · +1277 d'), findsOneWidget, reason: 'the summary');
+    expect(find.text('22 EE · 5 EO'), findsOneWidget);
+    expect(find.text('5 → 3'), findsOneWidget, reason: 'package history');
+  });
+
+  testWidgets('the history can be filtered', (tester) async {
+    final api = await _show(tester, const CompanyDetailPanel(companyId: 4), size: const Size(1024, 4000));
+    expect(api.queries['/admin/organizations/4/history']?['category'], isNull);
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Access'));
+    await tester.pumpAndSettle();
+    expect(api.queries['/admin/organizations/4/history']?['category'], 'access');
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Credits (admin)'));
+    await tester.pumpAndSettle();
+    expect(api.queries['/admin/organizations/4/history']?['category'], 'credits');
   });
 
   testWidgets('the reserve gets writing and speaking credits at once', (tester) async {

@@ -193,27 +193,48 @@ router.get('/:id', async (req, res) => {
     } catch (err) { sendError(res, err, 'GET /admin/organizations/:id'); }
 });
 
+/** Which audit entry a changed field belongs to. */
+const CHANGE_GROUPS = [
+    ['dates_changed', ['access_starts_at', 'access_ends_at']],
+    ['package_changed', ['seat_limit']],
+    ['company_updated', ['name', 'display_name', 'default_language', 'notes']],
+];
+const auditValue = (v) => (v instanceof Date ? v.toISOString() : v ?? null);
+
 router.put('/:id', async (req, res) => {
     try {
         const org = await loadOrg(req);
         const fields = readFields(req.body || {}, { current: org });
         const keys = Object.keys(fields);
         if (!keys.length) throw new OrgError('NOTHING_TO_UPDATE', 'Nothing to update.');
+        // Why (a renewed contract, an invoice…): kept with the entry for the record.
+        const note = req.body?.note ? String(req.body.note).trim().slice(0, 500) || null : null;
         const sets = keys.map((k, i) => `${k} = $${i + 2}`);
-        const updated = await req.db.get(
-            `UPDATE organizations SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`,
+        // The previous values are read, locked and replaced in one statement, so
+        // the trail shows exactly what this change replaced.
+        const row = await req.db.get(
+            `UPDATE organizations o SET ${sets.join(', ')}, updated_at = CURRENT_TIMESTAMP
+               FROM (SELECT * FROM organizations WHERE id = $1 FOR UPDATE) old
+              WHERE o.id = old.id
+          RETURNING to_jsonb(old.*) AS before, to_jsonb(o.*) AS after`,
             [org.id, ...keys.map(k => fields[k])]
         );
-        const changes = {};
-        for (const k of keys) {
-            const before = org[k] instanceof Date ? org[k].toISOString() : org[k];
-            const after = updated[k] instanceof Date ? updated[k].toISOString() : updated[k];
-            if (String(before) !== String(after)) changes[k] = { from: before, to: after };
+        if (!row) throw new OrgError('ORG_NOT_FOUND', 'Company not found.', 404);
+        for (const [action, group] of CHANGE_GROUPS) {
+            const changes = {};
+            for (const k of group) {
+                if (!keys.includes(k)) continue;
+                const before = auditValue(row.before[k]);
+                const after = auditValue(row.after[k]);
+                // Dates compare as instants (the same moment may be written two ways).
+                const same = k.endsWith('_at')
+                    ? new Date(before || 0).getTime() === new Date(after || 0).getTime()
+                    : String(before) === String(after);
+                if (!same) changes[k] = { from: before, to: after };
+            }
+            if (Object.keys(changes).length) await orgs.audit(req.db, org.id, req.user.id, action, { ...changes, ...(note ? { note } : {}) });
         }
-        if (Object.keys(changes).length) {
-            await orgs.audit(req.db, org.id, req.user.id,
-                changes.access_ends_at || changes.access_starts_at ? 'dates_changed' : 'company_updated', changes);
-        }
+        const updated = await req.db.get('SELECT * FROM organizations WHERE id = $1', [org.id]);
         res.json(await queries.describe(req.db, updated));
     } catch (err) { sendError(res, err, 'PUT /admin/organizations/:id'); }
 });
@@ -229,9 +250,11 @@ router.post('/:id/status', async (req, res) => {
         const org = await loadOrg(req);
         const status = req.body?.status;
         if (!['active', 'suspended'].includes(status)) throw new OrgError('BAD_STATUS', 'The status must be active or suspended.');
-        if (status === org.status) return res.json(await queries.describe(req.db, org));
+        const note = req.body?.note ? String(req.body.note).trim().slice(0, 500) || null : null;
+        // Applied only if it changes something, so two clicks never log twice.
         const updated = await req.db.get(
-            `UPDATE organizations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`, [org.id, status]);
+            `UPDATE organizations SET status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND status IS DISTINCT FROM $2 RETURNING *`, [org.id, status]);
+        if (!updated) return res.json(await queries.describe(req.db, await loadOrg(req)));
         let signedOut = 0;
         if (status === 'suspended' && await sessions.ready(req.db)) {
             const ended = await req.db.all(
@@ -239,7 +262,8 @@ router.post('/:id/status', async (req, res) => {
                   WHERE ended_at IS NULL AND user_id IN (SELECT id FROM users WHERE organization_id = $1) RETURNING id`, [org.id]);
             signedOut = ended.length;
         }
-        await orgs.audit(req.db, org.id, req.user.id, status === 'suspended' ? 'company_suspended' : 'company_reactivated', { sessions_ended: signedOut });
+        await orgs.audit(req.db, org.id, req.user.id, status === 'suspended' ? 'company_suspended' : 'company_reactivated',
+            { status: { from: status === 'suspended' ? 'active' : 'suspended', to: status }, sessions_ended: signedOut, ...(note ? { note } : {}) });
         res.json({ ...(await queries.describe(req.db, updated)), sessions_ended: signedOut });
     } catch (err) { sendError(res, err, 'POST /admin/organizations/:id/status'); }
 });
@@ -266,8 +290,17 @@ router.put('/:id/content', async (req, res) => {
         const list = await readContent(req.db, req.body?.content || []);
         const before = await queries.contentOf(req.db, org.id);
         await replaceContent(req.db, org.id, list);
-        await orgs.audit(req.db, org.id, req.user.id, 'content_changed', { from: before.length, to: list.length });
-        res.json(await queries.contentOf(req.db, org.id));
+        const after = await queries.contentOf(req.db, org.id);
+        const keyOf = (c) => `${c.content_type}:${c.content_id}`;
+        const had = new Set(before.map(keyOf));
+        const has = new Set(after.map(keyOf));
+        const brief = (c) => ({ content_type: c.content_type, content_id: c.content_id, name: c.name });
+        const added = after.filter(c => !had.has(keyOf(c))).map(brief);
+        const removed = before.filter(c => !has.has(keyOf(c))).map(brief);
+        if (added.length || removed.length) {
+            await orgs.audit(req.db, org.id, req.user.id, 'content_changed', { from: before.length, to: after.length, added, removed });
+        }
+        res.json(after);
     } catch (err) { sendError(res, err, 'PUT /admin/organizations/:id/content'); }
 });
 
@@ -285,7 +318,11 @@ router.post('/:id/credits', async (req, res) => {
         else if (orgs.CREDIT_TYPES.includes(req.body?.type)) amounts = orgs.readAmounts({ [req.body.type]: req.body.amount });
         else throw new OrgError('BAD_CREDIT_TYPE', 'Choose writing (EE) and/or speaking (EO) credits.');
         const reserve = await orgs.adjustReserve(req.db, org.id, action, amounts, req.user.id, notes);
-        await orgs.audit(req.db, org.id, req.user.id, action === 'grant' ? 'credits_granted' : 'credits_revoked', { amounts, reserve });
+        // "after" comes from the statement that moved the credits, so "before" is exact.
+        const sign = action === 'grant' ? 1 : -1;
+        const before = { ee: reserve.ee - sign * (amounts.ee || 0), eo: reserve.eo - sign * (amounts.eo || 0) };
+        await orgs.audit(req.db, org.id, req.user.id, action === 'grant' ? 'credits_granted' : 'credits_revoked',
+            { amounts, before, reserve, ...(notes ? { notes } : {}) });
         res.json({ reserve, credits: await orgs.creditSummary(req.db, org.id) });
     } catch (err) { sendError(res, err, 'POST /admin/organizations/:id/credits'); }
 });
@@ -361,6 +398,20 @@ router.delete('/:id/logo', async (req, res) => {
         await orgs.audit(req.db, org.id, req.user.id, 'logo_removed');
         res.json({ removed: true });
     } catch (err) { sendError(res, err, 'DELETE /admin/organizations/:id/logo'); }
+});
+
+/**
+ * The company's history for the administrator: every change to its access
+ * dates, credits, package, status, exams and people, with before/after, who
+ * and when — filterable (category, from, to, q) and paged (before = last id).
+ */
+router.get('/:id/history', async (req, res) => {
+    try {
+        const org = await loadOrg(req);
+        const { category, from, to, q, before, limit } = req.query;
+        const page = await queries.companyHistory(req.db, org.id, { category, from, to, q, before, limit });
+        res.json({ summary: await queries.companyHistorySummary(req.db, org), categories: Object.keys(queries.HISTORY_CATEGORIES), ...page });
+    } catch (err) { sendError(res, err, 'GET /admin/organizations/:id/history'); }
 });
 
 router.get('/:id/audit', async (req, res) => {

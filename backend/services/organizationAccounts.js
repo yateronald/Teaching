@@ -105,7 +105,7 @@ async function resendInvite(db, org, userId, actorId) {
     );
     await sessions.endAllForUser(db, user.id, 'password').catch(() => 0);
     const emailed = await invite(org, user, tempPassword);
-    await audit(db, org.id, actorId, 'invitation_resent', { user_id: user.id });
+    await audit(db, org.id, actorId, 'invitation_resent', { user_id: user.id, email: user.email });
     return { invitation_sent: emailed };
 }
 
@@ -116,7 +116,7 @@ async function resendInvite(db, org, userId, actorId) {
  */
 async function setActive(db, org, userId, active, actorId, { role = null } = {}) {
     const user = await db.get(
-        `SELECT id, role, is_active FROM users WHERE id = $1 AND organization_id = $2 ${role ? 'AND role = $3' : ''}`,
+        `SELECT id, role, is_active, email FROM users WHERE id = $1 AND organization_id = $2 ${role ? 'AND role = $3' : ''}`,
         role ? [userId, org.id, role] : [userId, org.id]
     );
     if (!user) throw new OrgError('NOT_FOUND', 'Account not found in this company.', 404);
@@ -134,7 +134,8 @@ async function setActive(db, org, userId, active, actorId, { role = null } = {})
             returned = (await reclaimMany(db, org.id, [user.id], { ee: 'all', eo: 'all' }, actorId, { requireOpen: false, reason: 'learner_left' })).returned;
         }
     }
-    await audit(db, org.id, actorId, active ? 'account_reactivated' : 'account_deactivated', { user_id: user.id, credits_returned: returned });
+    await audit(db, org.id, actorId, active ? 'account_reactivated' : 'account_deactivated',
+        { user_id: user.id, email: user.email, role: user.role, credits_returned: returned });
     return { changed: true, credits_returned: returned };
 }
 

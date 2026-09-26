@@ -10,6 +10,7 @@ import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
 import 'company_editor_panel.dart';
 import 'company_model.dart';
+import 'company_history.dart';
 import 'content_picker.dart';
 
 /// Everything about one company: access, package, credits, allowed exams,
@@ -26,7 +27,6 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
   Company? _c;
   List<Map<String, dynamic>> _learners = [];
   List<Map<String, dynamic>> _moves = [];
-  List<Map<String, dynamic>> _audit = [];
   bool _loading = true;
   String? _error;
   bool _busy = false;
@@ -48,14 +48,12 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
         api.get(_base),
         api.get('$_base/learners'),
         api.get('$_base/credits', queryParameters: {'limit': 30}),
-        api.get('$_base/audit', queryParameters: {'limit': 30}),
       ]);
       if (!mounted) return;
       setState(() {
         _c = Company.fromJson(J.map(results[0].data));
         _learners = J.list(results[1].data);
         _moves = J.list(results[2].data, ['items']);
-        _audit = J.list(results[3].data);
         _loading = false;
       });
     } catch (e) {
@@ -91,10 +89,11 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
     final fr = context.isFrench;
     final now = DateTime.now();
     final from = (c.endsAt == null || c.endsAt!.isBefore(now)) ? now : c.endsAt!;
-    final until = await showDialog<DateTime>(context: context, builder: (_) => _ExtendDialog(company: c, from: from));
-    if (until == null || !mounted) return;
+    final picked = await showDialog<(DateTime, String)>(context: context, builder: (_) => _ExtendDialog(company: c, from: from));
+    if (picked == null || !mounted) return;
+    final (until, note) = picked;
     await _run(
-      () => ref.read(apiClientProvider).put(_base, data: {'access_ends_at': until.toUtc().toIso8601String()}),
+      () => ref.read(apiClientProvider).put(_base, data: {'access_ends_at': until.toUtc().toIso8601String(), if (note.isNotEmpty) 'note': note}),
       done: fr ? 'Accès jusqu’au ${AdminFmt.day(context, until)}' : 'Access until ${AdminFmt.day(context, until)}',
     );
   }
@@ -362,11 +361,8 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
           if (_moves.isEmpty) Text(fr ? 'Aucun mouvement.' : 'No movement yet.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted)),
           for (final m in _moves) _move(context, m),
         ])),
-        PanelSection(fr ? 'Activité' : 'Activity'),
-        _box(Column(children: [
-          if (_audit.isEmpty) Text(fr ? 'Aucune activité.' : 'No activity yet.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted)),
-          for (final a in _audit) _auditLine(context, a),
-        ])),
+        PanelSection(fr ? 'Historique et audit' : 'History & audit'),
+        CompanyHistorySection(company: c),
         if (c.learners == 0 && c.managerList.isEmpty) ...[
           const SizedBox(height: 18),
           AdminButton(fr ? 'Supprimer l’entreprise' : 'Delete the company', icon: Icons.delete_forever_outlined, primary: false, danger: true, onPressed: _busy ? null : _delete),
@@ -527,27 +523,6 @@ class _CompanyDetailPanelState extends ConsumerState<CompanyDetailPanel> {
       ]),
     );
   }
-
-  Widget _auditLine(BuildContext context, Map<String, dynamic> a) {
-    final fr = context.isFrench;
-    final who = J.name(a, first: 'actor_first_name', last: 'actor_last_name');
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Padding(padding: EdgeInsets.only(top: 5), child: Icon(Icons.circle, size: 7, color: AppColors.adminAccent)),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(auditLineText(a, fr), style: AppTypography.bodySmall.copyWith(color: AppColors.ink)),
-            Text(
-              [AdminFmt.dateTime(context, J.date(a['created_at'])), who.isEmpty ? (fr ? 'Système' : 'System') : who].join(' · '),
-              style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-            ),
-          ]),
-        ),
-      ]),
-    );
-  }
 }
 
 /// The company's logo, or its initial when it has none (or it fails to load).
@@ -592,6 +567,13 @@ class _ExtendDialog extends StatefulWidget {
 
 class _ExtendDialogState extends State<_ExtendDialog> {
   late DateTime _until = endOfDay(addMonths(widget.from, 3));
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -640,11 +622,22 @@ class _ExtendDialogState extends State<_ExtendDialog> {
             style: AppTypography.caption.copyWith(color: AppColors.warn, fontWeight: FontWeight.w700),
           ),
         ],
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('company-extend-note'),
+          controller: _note,
+          maxLength: 500,
+          decoration: adminInputDecoration(fr ? 'Motif (facultatif), ex. contrat renouvelé' : 'Reason (optional), e.g. contract renewed'),
+        ),
+        Text(
+          fr ? 'Enregistré dans l’historique avec l’ancienne date, la nouvelle et votre nom.' : 'Recorded in the history with the previous date, the new one and your name.',
+          style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+        ),
       ]),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: Text(fr ? 'Annuler' : 'Cancel')),
         FilledButton(
-          onPressed: valid ? () => Navigator.pop(context, _until) : null,
+          onPressed: valid ? () => Navigator.pop(context, (_until, _note.text.trim())) : null,
           style: FilledButton.styleFrom(backgroundColor: AppColors.adminAccent),
           child: Text(fr ? 'Enregistrer' : 'Save'),
         ),

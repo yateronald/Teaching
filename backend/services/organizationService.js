@@ -141,10 +141,19 @@ const covered = (keys, allowed) => !!keys && keys.some(k => allowed.has(k));
 
 // ── Audit ──────────────────────────────────────────────────────────────────
 
+/**
+ * Records what happened to a company. The actor's name, email and role are
+ * copied into the entry (`_by`), so the trail stays readable even if that
+ * account is later renamed or deleted.
+ */
 async function audit(db, orgId, actorId, action, details = null) {
     try {
         await db.run(
-            `INSERT INTO organization_audit (organization_id, actor_id, action, details) VALUES ($1, $2, $3, $4)`,
+            `INSERT INTO organization_audit (organization_id, actor_id, action, details)
+             SELECT $1, $2, $3, COALESCE($4::jsonb, '{}'::jsonb) || COALESCE(
+                    (SELECT jsonb_build_object('_by', jsonb_build_object(
+                                'name', trim(concat_ws(' ', u.first_name, u.last_name)), 'email', u.email, 'role', u.role))
+                       FROM users u WHERE u.id = $2), '{}'::jsonb)`,
             [orgId, actorId || null, action, details ? JSON.stringify(details) : null]
         );
     } catch (err) {

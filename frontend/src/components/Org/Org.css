@@ -284,3 +284,45 @@
 .og-assign-foot { margin-top: 14px; }
 .og-foot-note.is-ready { color: var(--x-ink); }
 .og-foot-note.is-ready .anticon { margin-right: 2px; color: #059669; }
+
+/* ── Company history (administrator) ── */
+.og-history { display: flex; flex-direction: column; gap: 14px; }
+.og-hsum { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.og-hcard { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 14px 16px; border: 1px solid var(--x-line); border-radius: 14px; background: #fff; font: inherit; text-align: left; color: inherit; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.og-hcard:hover { border-color: var(--x-accent-line); }
+.og-hcard.is-on { border-color: var(--x-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--x-accent) 10%, transparent); }
+.og-hcard-label { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 2px; font-size: 12px; font-weight: 500; color: var(--x-muted); }
+.og-hcard-label .anticon { color: var(--x-accent); }
+.og-hcard strong { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--x-ink); font-variant-numeric: tabular-nums; }
+.og-hcard em { font-size: 12px; font-style: normal; color: var(--x-subtle); }
+.og-htools { flex-direction: column; align-items: stretch; gap: 10px; }
+.og-hchips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; }
+.og-hchip { flex-shrink: 0; padding: 4px 11px; border: 1px solid var(--x-line); border-radius: 999px; background: #fff; font: inherit; font-size: 12.5px; font-weight: 500; color: var(--x-text); cursor: pointer; transition: all 0.15s; }
+.og-hchip:hover { border-color: var(--x-accent-line); color: var(--x-accent); }
+.og-hchip.is-on { border-color: var(--x-accent); background: var(--x-accent); color: #fff; }
+.og-hfilters { display: flex; gap: 8px; flex-wrap: wrap; }
+.og-hfilters .ant-input-affix-wrapper { flex: 1 1 240px; max-width: 360px; }
+.og-timeline { padding: 6px 18px 18px; }
+.og-tday-head { position: sticky; top: 0; z-index: 1; padding: 14px 0 8px; background: #fff; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--x-subtle); }
+.og-tentry { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 0 0 16px; }
+.og-tentry::before { content: ''; position: absolute; top: 34px; bottom: 2px; left: 15px; width: 1px; background: var(--x-line); }
+.og-tday .og-tentry:last-child::before { display: none; }
+.og-tdot { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--x-line); border-radius: 50%; background: var(--x-soft); font-size: 14px; color: var(--x-muted); }
+.og-tentry.tone-up .og-tdot { border-color: #a7f3d0; background: #ecfdf5; color: #047857; }
+.og-tentry.tone-down .og-tdot { border-color: #fde68a; background: #fffbeb; color: #b45309; }
+.og-tentry.tone-bad .og-tdot { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.og-tbody { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 5px; }
+.og-ttitle { font-size: 13.5px; font-weight: 600; line-height: 1.4; color: var(--x-ink); overflow-wrap: anywhere; }
+.og-tchanges { display: flex; flex-direction: column; gap: 4px; }
+.og-tchange { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12.5px; }
+.og-tchange-label { min-width: 120px; color: var(--x-muted); }
+.og-tfrom, .og-tto { padding: 1px 8px; border-radius: 6px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.og-tfrom { background: var(--x-line-soft); color: var(--x-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--x-muted) 45%, transparent); }
+.og-tto { background: var(--x-accent-soft); font-weight: 600; color: var(--x-ink); }
+.og-tarrow { color: var(--x-subtle); }
+.og-tfacts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--x-text); }
+.og-tfacts span { overflow-wrap: anywhere; }
+.og-tnote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--x-accent-line); border-radius: 0 8px 8px 0; background: var(--x-soft); font-size: 12.5px; color: var(--x-text); overflow-wrap: anywhere; }
+.og-tmeta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--x-subtle); }
+.og-tmore { display: flex; justify-content: center; padding-top: 6px; }
+@container og (max-width: 620px) { .og-tchange-label { min-width: 0; width: 100%; } }

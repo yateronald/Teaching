@@ -254,7 +254,7 @@ router.put('/:id', [
 
         // Check if user exists
         const withOrg = await hasColumn(req.db, 'users', 'organization_id');
-        const existingUser = await req.db.get(`SELECT id, role, is_active${withOrg ? ', organization_id' : ''} FROM users WHERE id = ?`, [id]);
+        const existingUser = await req.db.get(`SELECT id, role, is_active, email, first_name, last_name${withOrg ? ', organization_id' : ''} FROM users WHERE id = ?`, [id]);
         if (!existingUser) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -369,9 +369,24 @@ router.put('/:id', [
             await sessions.endAllForUser(req.db, targetIdForUpdate, 'admin').catch(() => 0);
         }
         // A company learner turned off gives its unused credits back to the company.
+        let creditsReturned = null;
         if (is_active === false && existingUser.is_active && existingUser.organization_id && existingUser.role === 'candidate') {
-            await orgs.reclaimMany(req.db, existingUser.organization_id, [targetIdForUpdate], { ee: 'all', eo: 'all' }, req.user.id, { requireOpen: false, reason: 'learner_left' })
-                .catch(e => console.error('Could not return the credits of user', targetIdForUpdate, e.message));
+            creditsReturned = await orgs.reclaimMany(req.db, existingUser.organization_id, [targetIdForUpdate], { ee: 'all', eo: 'all' }, req.user.id, { requireOpen: false, reason: 'learner_left' })
+                .then(r => r.returned)
+                .catch(e => { console.error('Could not return the credits of user', targetIdForUpdate, e.message); return null; });
+        }
+        // A company account changed from this page is written in the company's history too.
+        if (existingUser.organization_id) {
+            const via = { user_id: Number(existingUser.id), email: existingUser.email, role: existingUser.role, via: 'users_page' };
+            if (typeof is_active === 'boolean' && !!is_active !== !!existingUser.is_active) {
+                await orgs.audit(req.db, existingUser.organization_id, req.user.id, is_active ? 'account_reactivated' : 'account_deactivated',
+                    { ...via, ...(creditsReturned ? { credits_returned: creditsReturned } : {}) });
+            }
+            const changes = {};
+            for (const [k, v] of [['email', email], ['first_name', first_name], ['last_name', last_name]]) {
+                if (v !== undefined && v !== null && String(v) !== String(existingUser[k] ?? '')) changes[k] = { from: existingUser[k], to: v };
+            }
+            if (Object.keys(changes).length) await orgs.audit(req.db, existingUser.organization_id, req.user.id, 'account_updated', { ...via, changes });
         }
 
         // Get updated user

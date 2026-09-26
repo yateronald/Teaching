@@ -207,7 +207,158 @@ async function auditOf(db, orgId, limit = 100) {
     );
 }
 
+// ── History (administrator's audit trail of a company) ─────────────────────
+
+/**
+ * What each filter shows. The creation entry opens the access, credit and
+ * package histories (it holds their starting values). Older entries wrote a
+ * package change as "company_updated" with a seat_limit change: still found.
+ */
+const HISTORY_CATEGORIES = {
+    access: ['company_created', 'dates_changed', 'expiry_notice_sent'],
+    credits: ['company_created', 'credits_granted', 'credits_revoked'],
+    handouts: ['credits_distributed', 'credits_reclaimed'],
+    package: ['company_created', 'package_changed'],
+    status: ['company_suspended', 'company_reactivated'],
+    exams: ['content_changed'],
+    people: ['manager_added', 'learner_added', 'account_deactivated', 'account_reactivated', 'invitation_resent', 'learner_updated', 'account_updated'],
+    activity: ['group_created', 'group_updated', 'group_deleted', 'assigned', 'assignment_removed'],
+    profile: ['company_created', 'company_updated', 'logo_changed', 'logo_removed', 'settings_changed'],
+};
+
+/** The filter an entry belongs to (for its icon and colour). */
+function categoryOf(action, details) {
+    if (action === 'company_created') return 'created';
+    if (action === 'company_updated' && details && details.seat_limit) return 'package';
+    for (const [cat, actions] of Object.entries(HISTORY_CATEGORIES)) if (actions.includes(action)) return cat;
+    return 'other';
+}
+
+const dayMs = 86400000;
+const daysBetween = (a, b) => Math.round((new Date(b).getTime() - new Date(a).getTime()) / dayMs);
+
+/**
+ * One page of the trail, newest first. Filters: category, from/to (dates,
+ * inclusive), q (free text in the entry), before (id cursor for "load more").
+ */
+async function companyHistory(db, orgId, { category = null, from = null, to = null, q = null, before = null, limit = 50 } = {}) {
+    const where = ['a.organization_id = $1'];
+    const params = [orgId];
+    /** Adds a condition with one value ("?" becomes its $n). */
+    const add = (sql, v) => { params.push(v); where.push(sql.replace('?', `$${params.length}`)); };
+    if (category && HISTORY_CATEGORIES[category]) {
+        params.push(HISTORY_CATEGORIES[category]);
+        const inList = `a.action = ANY($${params.length}::text[])`;
+        where.push(category === 'package' ? `(${inList} OR (a.action = 'company_updated' AND a.details ? 'seat_limit'))` : inList);
+    }
+    const fromDate = from && !Number.isNaN(new Date(from).getTime()) ? new Date(from) : null;
+    const toDate = to && !Number.isNaN(new Date(to).getTime()) ? new Date(new Date(to).getTime() + dayMs) : null;
+    if (fromDate) add('a.created_at >= ?', fromDate);
+    if (toDate) add('a.created_at < ?', toDate);
+    const text = String(q || '').trim().slice(0, 100);
+    if (text) {
+        // Free text in the entry (an email, an invoice number, an exam name…), LIKE wildcards escaped.
+        params.push(`%${text.replace(/[\\%_]/g, m => `\\${m}`)}%`);
+        const i = params.length;
+        where.push(`(a.action ILIKE $${i} ESCAPE '\\' OR a.details::text ILIKE $${i} ESCAPE '\\')`);
+    }
+    const cursor = Number(before);
+    if (Number.isInteger(cursor) && cursor > 0) add('a.id < ?', cursor);
+    const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    params.push(n + 1);
+    const rows = await db.all(
+        `SELECT a.id, a.action, a.details, a.created_at, a.actor_id,
+                u.first_name AS actor_first_name, u.last_name AS actor_last_name, u.email AS actor_email, u.role AS actor_role
+           FROM organization_audit a LEFT JOIN users u ON u.id = a.actor_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY a.id DESC
+          LIMIT $${params.length}`,
+        params
+    );
+    const more = rows.length > n;
+    const items = rows.slice(0, n).map((r) => {
+        const { _by: by, ...details } = r.details || {};
+        const name = by?.name || [r.actor_first_name, r.actor_last_name].filter(Boolean).join(' ') || null;
+        return {
+            id: Number(r.id),
+            action: r.action,
+            category: categoryOf(r.action, details),
+            details,
+            created_at: r.created_at,
+            // Who, as they were when they acted (kept even if the account is later renamed or deleted).
+            actor: r.actor_id || by ? { name, email: by?.email || r.actor_email || null, role: by?.role || r.actor_role || null } : null,
+        };
+    });
+    return { items, next_before: more ? items[items.length - 1].id : null };
+}
+
+/**
+ * The figures an administrator checks first: how the access dates, the
+ * credits, the package and the status moved since the company was created.
+ */
+async function companyHistorySummary(db, org) {
+    const rows = await db.all(
+        `SELECT action, details, created_at FROM organization_audit
+          WHERE organization_id = $1
+            AND (action IN ('company_created', 'dates_changed', 'package_changed', 'company_suspended', 'company_reactivated', 'credits_granted', 'credits_revoked')
+                 OR (action = 'company_updated' AND details ? 'seat_limit'))
+          ORDER BY id`,
+        [org.id]
+    );
+    const created = rows.find(r => r.action === 'company_created');
+    const endMoves = rows.filter(r => r.action === 'dates_changed' && r.details?.access_ends_at);
+    const extensions = endMoves.filter(r => new Date(r.details.access_ends_at.to) > new Date(r.details.access_ends_at.from));
+    const lastEnd = endMoves[endMoves.length - 1];
+    // Changes only (the creation holds the starting package, not a change).
+    const seatMoves = rows.filter(r => r.action !== 'company_created' && r.details?.seat_limit?.from !== undefined);
+    const suspensions = rows.filter(r => r.action === 'company_suspended');
+    const lastStatus = rows.filter(r => r.action === 'company_suspended' || r.action === 'company_reactivated').pop();
+
+    const tx = await db.get(
+        `SELECT COALESCE(SUM(delta) FILTER (WHERE reason = 'admin_grant' AND credit_type = 'ee'), 0)::int AS ee_granted,
+                COALESCE(SUM(delta) FILTER (WHERE reason = 'admin_grant' AND credit_type = 'eo'), 0)::int AS eo_granted,
+                COALESCE(-SUM(delta) FILTER (WHERE reason = 'admin_revoke' AND credit_type = 'ee'), 0)::int AS ee_revoked,
+                COALESCE(-SUM(delta) FILTER (WHERE reason = 'admin_revoke' AND credit_type = 'eo'), 0)::int AS eo_revoked,
+                MAX(created_at) FILTER (WHERE reason IN ('admin_grant', 'admin_revoke')) AS last_at
+           FROM organization_credit_transactions WHERE organization_id = $1`,
+        [org.id]
+    );
+    const by = (r) => r?.details?._by || null;
+    return {
+        access: {
+            starts_at: org.access_starts_at,
+            original_end: created?.details?.access_ends_at || endMoves[0]?.details.access_ends_at.from || org.access_ends_at,
+            current_end: org.access_ends_at,
+            extensions: extensions.length,
+            shortenings: endMoves.length - extensions.length,
+            days_added: extensions.reduce((t, r) => t + daysBetween(r.details.access_ends_at.from, r.details.access_ends_at.to), 0),
+            last_change: lastEnd ? { at: lastEnd.created_at, from: lastEnd.details.access_ends_at.from, to: lastEnd.details.access_ends_at.to, by: by(lastEnd), note: lastEnd.details.note || null } : null,
+        },
+        credits: {
+            granted: { ee: tx.ee_granted, eo: tx.eo_granted },
+            revoked: { ee: tx.ee_revoked, eo: tx.eo_revoked },
+            reserve: { ee: org.ee_credits, eo: org.eo_credits },
+            // Each addition or withdrawal by an administrator (the initial credits are part of the creation).
+            movements: rows.filter(r => r.action === 'credits_granted' || r.action === 'credits_revoked').length,
+            last_at: tx.last_at,
+        },
+        package: {
+            original: created?.details?.seat_limit ?? seatMoves[0]?.details.seat_limit.from ?? org.seat_limit,
+            current: org.seat_limit,
+            changes: seatMoves.length,
+        },
+        status: {
+            current: org.status,
+            suspensions: suspensions.length,
+            last_change: lastStatus ? { at: lastStatus.created_at, action: lastStatus.action, by: by(lastStatus) } : null,
+        },
+        created_at: org.created_at,
+        created_by: by(created),
+    };
+}
+
 module.exports = {
     INACTIVE_DAYS, IDLE_MINUTES,
     learnersOf, managersOf, groupsOf, countsOf, describe, contentOf, dashboardOf, creditTransactions, auditOf,
+    HISTORY_CATEGORIES, companyHistory, companyHistorySummary,
 };
