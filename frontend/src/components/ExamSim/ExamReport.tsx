@@ -153,6 +153,8 @@ function TaskPanel({ skill, task, extra, recording }: { skill: 'eo' | 'ee'; task
     stats.push(`${task.words} mots prononcés`);
     if (task.stats?.speakingSeconds != null) stats.push(`${Math.round(task.stats.speakingSeconds)} s de parole effective`);
     if (task.stats?.questions != null) stats.push(`${task.stats.questions} question${task.stats.questions > 1 ? 's' : ''} posée${task.stats.questions > 1 ? 's' : ''}`);
+    if (task.stats?.audio === 'poor') stats.push('enregistrement bruité');
+    else if (task.stats?.audio === 'fair') stats.push('un peu de bruit ambiant');
   }
 
   return (

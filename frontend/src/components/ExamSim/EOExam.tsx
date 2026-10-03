@@ -9,6 +9,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import ExamFrame, { type FrameStep } from './ExamFrame';
 import ExamReport from './ExamReport';
 import { ExamAudio, LiveExaminer } from './liveExaminer';
+import type { RoomReport } from './voiceDetector';
 import { clock, errorText, type DialogueTurn, type ExamReport as Report } from './examModel';
 
 // ============================================================
@@ -50,6 +51,17 @@ const humanError = (e: unknown, fallback: string) => {
 };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 type FailKind = 'connect' | 'upload' | 'evaluate';
+/** Room check: a short silence to measure the room, then the candidate's voice. */
+type Calib = 'noise' | 'voice' | 'done';
+const NOISE_FRAMES = 30; // 2.4 s
+const VOICE_MS = 1200;
+const noiseLabel = (db: number) => (db <= -50 ? 'calme' : db <= -42 ? 'léger' : db <= -32 ? 'marqué' : 'élevé');
+const ROOM_TEXT: Record<RoomReport['quality'], { title: string; text: string }> = {
+  good: { title: 'Bonnes conditions', text: 'Votre voix ressort nettement du bruit de la pièce.' },
+  fair: { title: 'Conditions correctes', text: 'Un peu de bruit autour de vous : un casque avec micro, ou une pièce plus calme, rendra l’échange plus fluide.' },
+  poor: { title: 'Pièce trop bruyante', text: 'L’examinateur risque de mal vous entendre et la prononciation sera plus difficile à évaluer. Isolez-vous, fermez la fenêtre, éloignez-vous des appareils bruyants ou utilisez un casque avec micro.' },
+  unknown: { title: 'Mesure en cours', text: '' },
+};
 interface Upload { form: FormData; ok: boolean; promise: Promise<boolean> }
 
 export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOutOfCredits }: Props) {
@@ -66,6 +78,9 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
   const [speaking, setSpeaking] = useState(false);
   const [level, setLevel] = useState(0);
   const [micOk, setMicOk] = useState(false);
+  const [calib, setCalib] = useState<Calib>('noise');
+  const [noiseProgress, setNoiseProgress] = useState(0);
+  const [room, setRoom] = useState<RoomReport | null>(null);
   const [checkError, setCheckError] = useState('');
   const [captions, setCaptions] = useState(false);
   const [lines, setLines] = useState<{ examiner: string; candidate: string }>({ examiner: '', candidate: '' });
@@ -95,6 +110,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
   const doneRef = useRef<Set<number>>(new Set());
   const blobUrlsRef = useRef<string[]>([]);
   const voiceMsRef = useRef(0);
+  const calibRef = useRef<{ step: Calib; samples: number[] }>({ step: 'noise', samples: [] });
 
   const go = (p: Phase) => { phaseRef.current = p; setPhase(p); };
   const toStage = (s: Stage) => { stageRef.current = s; setStage(s); };
@@ -151,14 +167,32 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       const audio = audioRef.current || new ExamAudio();
       audioRef.current = audio;
       await audio.open();
-      voiceMsRef.current = 0;
+      restartRoomCheck();
       let raf = 0;
-      audio.onFrame((_pcm, rms) => {
-        if (rms > 0.035) {
+      audio.onFrame((_pcm, rms, voiced) => {
+        const c = calibRef.current;
+        if (phaseRef.current === 'check' && c.step === 'noise') {
+          // A short silence: the room's level, so the voice is judged against it.
+          c.samples.push(rms);
+          if (c.samples.length % 3 === 0) setNoiseProgress(Math.min(1, c.samples.length / NOISE_FRAMES));
+          if (c.samples.length >= NOISE_FRAMES) {
+            const sorted = [...c.samples].sort((a, b) => a - b);
+            audio.detector.calibrate(sorted[Math.floor(sorted.length * 0.3)]);
+            c.step = 'voice';
+            setCalib('voice');
+          }
+        } else if (voiced) {
+          // Voice is relative to the room (not a fixed level): the silence
+          // prompts and the examiner's turn-taking follow the candidate, not the noise.
           voiceAtRef.current = Date.now();
-          if (phaseRef.current === 'check') {
+          if (phaseRef.current === 'check' && c.step === 'voice') {
             voiceMsRef.current += 80;
-            if (voiceMsRef.current > 700) setMicOk(true);
+            if (voiceMsRef.current >= VOICE_MS) {
+              c.step = 'done';
+              setCalib('done');
+              setRoom(audio.roomReport());
+              setMicOk(true);
+            }
           }
         }
         if (!raf) raf = requestAnimationFrame(() => { raf = 0; setLevel(rms); });
@@ -170,6 +204,31 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
         : name === 'NotFoundError' ? 'Aucun microphone détecté. Branchez un casque-micro, puis réessayez.'
           : 'Le microphone n’a pas pu être ouvert.');
     }
+  };
+
+  /** Measures the room again (after closing a window, putting on a headset…). */
+  const restartRoomCheck = () => {
+    calibRef.current = { step: 'noise', samples: [] };
+    voiceMsRef.current = 0;
+    setCalib('noise');
+    setNoiseProgress(0);
+    setRoom(null);
+    setMicOk(false);
+  };
+
+  /** A very noisy room is allowed, but only knowingly. */
+  const confirmStart = () => {
+    if (room?.quality !== 'poor') { startExam(); return; }
+    modal.confirm({
+      title: 'Commencer malgré le bruit ?',
+      icon: <WarningOutlined />,
+      content: 'Votre pièce est trop bruyante pour un échange fiable : l’examinateur risque de mal vous entendre, et votre note de prononciation peut en souffrir. Le jour de l’examen, vous serez dans une salle calme.',
+      okText: 'Commencer quand même · 1 crédit',
+      cancelText: 'Mesurer à nouveau',
+      centered: true,
+      onOk: startExam,
+      onCancel: restartRoomCheck,
+    });
   };
 
   // ── Start (consumes the credit) ──
@@ -213,10 +272,13 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
     if (!s || !audio) return;
     if (!resume) toStage('connecting');
     const sujet = n === 2 ? s.tache2.prompt : n === 3 ? s.tache3.prompt : undefined;
-    const attempt = async (fallback: boolean) => {
-      const res = await post(`/eo-simulation/${s.simulationId}/live-token`, JSON.stringify({ tache: n, sujet, fallback }), { retry5xx: true });
+    // The server lists the Live models newest first; `attempt` picks one.
+    let modelCount = 3;
+    const attempt = async (index: number) => {
+      const res = await post(`/eo-simulation/${s.simulationId}/live-token`, JSON.stringify({ tache: n, sujet, attempt: index }), { retry5xx: true });
       if (!res.ok) throw new Error(await errorText(res, 'La connexion avec l’examinateur n’a pas pu être préparée.'));
-      const { token, model, wsUrl, tools, endTool } = await res.json();
+      const { token, model, models, wsUrl, tools, endTool } = await res.json();
+      if (Number.isInteger(models) && models > 0) modelCount = models;
       const live = new LiveExaminer(audio, {
         onExaminerSpeaking: (on) => setSpeaking(on),
         onTurnComplete: () => {
@@ -241,13 +303,14 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       return live;
     };
     try {
-      let live: LiveExaminer;
-      try {
-        live = await attempt(false);
-      } catch (e) {
-        // The fallback model only helps when the Live model itself refused; not when our server is unreachable.
-        if (NETWORK_ERROR.test((e as Error)?.message || '')) throw e;
-        live = await attempt(true);
+      let live: LiveExaminer | null = null;
+      for (let i = 0; !live; i++) {
+        try {
+          live = await attempt(i);
+        } catch (e) {
+          // The next model only helps when a Live model itself refused; not when our server is unreachable.
+          if (NETWORK_ERROR.test((e as Error)?.message || '') || i + 1 >= modelCount) throw e;
+        }
       }
       if (taskRef.current !== n || phaseRef.current !== 'task') { live.close(); return; }
       liveRef.current = live;
@@ -333,6 +396,8 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       form.append('dialogue', JSON.stringify(turnsRef.current[n]));
       form.append('sujet', n === 2 ? s.tache2.prompt : n === 3 ? s.tache3.prompt : '');
       if (wav) form.append('audio', wav, `tache${n}.wav`);
+      // How it was recorded (room noise, voice above it): the corrector takes it into account.
+      if (audioRef.current) form.append('audio_quality', JSON.stringify(audioRef.current.roomReport()));
       sendTask(n, form);
     }
   };
@@ -514,7 +579,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
                 </>
               ) : (
                 <>
-                  <p>{micOk ? 'Votre voix est bien captée.' : 'Parlez normalement : « Bonjour, je m’appelle… »'}</p>
+                  <p>{micOk ? 'Votre voix est bien captée.' : calib === 'noise' ? 'Restez silencieux un instant…' : 'Parlez normalement : « Bonjour, je m’appelle… »'}</p>
                   <LevelMeter level={level} />
                 </>
               )}
@@ -525,10 +590,32 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
               <p>Vous devez entendre un signal sonore clair.</p>
               <Button onClick={() => audioRef.current ? audioRef.current.chime() : checkDevices()} disabled={!audioRef.current?.ready}>Tester le son</Button>
             </div>
+            <div className={`xs-card xs-check-item xs-room${room ? ` is-${room.quality}` : ''}`}>
+              <div className="xs-check-head"><CustomerServiceOutlined /><strong>Bruit de la pièce</strong>{room?.quality === 'good' && <CheckCircleFilled className="xs-ok" />}</div>
+              {!audioRef.current?.ready ? (
+                <p>Mesuré après l’activation du micro : quelques secondes de silence, puis votre voix.</p>
+              ) : !room ? (
+                <>
+                  <p>{calib === 'noise' ? 'Silence, s’il vous plaît : mesure du bruit autour de vous…' : 'Parlez quelques secondes pour comparer votre voix au bruit.'}</p>
+                  <span className="xs-room-progress" aria-hidden><i style={{ width: `${Math.round((calib === 'noise' ? noiseProgress * 0.5 : 0.5 + Math.min(1, voiceMsRef.current / VOICE_MS) * 0.5) * 100)}%` }} /></span>
+                </>
+              ) : (
+                <>
+                  <p className="xs-room-title"><b>{ROOM_TEXT[room.quality].title}</b></p>
+                  <ul className="xs-room-facts">
+                    <li><span>Bruit de la pièce</span><b>{noiseLabel(room.noiseDb)}</b></li>
+                    {room.snrDb != null && <li><span>Votre voix au-dessus du bruit</span><b>+{room.snrDb} dB</b></li>}
+                  </ul>
+                  <p className="xs-room-text">{ROOM_TEXT[room.quality].text}</p>
+                  {room.clipping > 0.08 && <p className="xs-check-error"><WarningOutlined /> Votre micro sature : éloignez-le un peu de votre bouche ou parlez un peu moins fort.</p>}
+                  <Button size="small" onClick={restartRoomCheck}>Mesurer à nouveau</Button>
+                </>
+              )}
+            </div>
           </div>
           <div className="xs-actions">
             <Button onClick={() => go('intro')} disabled={phase === 'starting'}>Retour</Button>
-            <Button type="primary" size="large" disabled={!micOk} loading={phase === 'starting'} onClick={startExam}>Commencer l’épreuve · 1 crédit</Button>
+            <Button type="primary" size="large" disabled={!micOk} loading={phase === 'starting'} onClick={confirmStart}>Commencer l’épreuve · 1 crédit</Button>
           </div>
         </div>
       )}
@@ -581,6 +668,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
             {task === 1 ? (
               <div className="xs-card">
                 <h3 className="xs-side-title">Thèmes de l’entretien</h3>
+                <p className="xs-side-note">Aide à l’entraînement : le jour de l’examen, aucune liste n’est affichée.</p>
                 <ul className="xs-points">{s.tache1.points.map(p => <li key={p.number}><b>{p.title}</b>{p.subtitle && <span>{p.subtitle}</span>}</li>)}</ul>
               </div>
             ) : (

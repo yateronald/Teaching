@@ -2,6 +2,7 @@
 // playback), one LiveExaminer per task connection (Gemini Live over an
 // ephemeral token issued by our backend — the API key never reaches the browser).
 import type { DialogueTurn } from './examModel';
+import { NoiseGate, VoiceDetector, type RoomReport } from './voiceDetector';
 
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
@@ -11,21 +12,22 @@ const FRAME = 1280; // 80 ms at 16 kHz
 // posts 80 ms Int16 frames with their RMS level.
 const WORKLET = `
 class XsDownsampler extends AudioWorkletProcessor {
-  constructor() { super(); this.ratio = sampleRate / ${INPUT_RATE}; this.acc = 0; this.sum = 0; this.cnt = 0; this.sq = 0; this.sqn = 0; this.buf = new Int16Array(${FRAME}); this.n = 0; }
+  constructor() { super(); this.ratio = sampleRate / ${INPUT_RATE}; this.acc = 0; this.sum = 0; this.cnt = 0; this.sq = 0; this.sqn = 0; this.peak = 0; this.buf = new Int16Array(${FRAME}); this.n = 0; }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
     if (!ch) return true;
     for (let i = 0; i < ch.length; i++) {
       const v = ch[i];
       this.sum += v; this.cnt++; this.acc += 1; this.sq += v * v; this.sqn++;
+      const a = v < 0 ? -v : v; if (a > this.peak) this.peak = a;
       if (this.acc >= this.ratio) {
         this.acc -= this.ratio;
         const s = Math.max(-1, Math.min(1, this.sum / this.cnt));
         this.sum = 0; this.cnt = 0;
         this.buf[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
         if (this.n === this.buf.length) {
-          this.port.postMessage({ pcm: this.buf.slice(0), rms: Math.sqrt(this.sq / Math.max(1, this.sqn)) });
-          this.n = 0; this.sq = 0; this.sqn = 0;
+          this.port.postMessage({ pcm: this.buf.slice(0), rms: Math.sqrt(this.sq / Math.max(1, this.sqn)), peak: this.peak });
+          this.n = 0; this.sq = 0; this.sqn = 0; this.peak = 0;
         }
       }
     }
@@ -35,7 +37,11 @@ class XsDownsampler extends AudioWorkletProcessor {
 registerProcessor('xs-downsampler', XsDownsampler);
 `;
 
-type FrameListener = (pcm: Int16Array, rms: number) => void;
+/** `voiced`: the frame carries the candidate's voice (see VoiceDetector). */
+type FrameListener = (pcm: Int16Array, rms: number, voiced: boolean) => void;
+
+/** Frames above the barge-in level needed before the candidate counts as talking over the examiner. */
+const BARGE_IN_FRAMES = 3; // 240 ms
 
 export class ExamAudio {
   ctx: AudioContext | null = null;
@@ -48,7 +54,10 @@ export class ExamAudio {
   private recording: Int16Array[] | null = null;
   private playing = new Set<AudioBufferSourceNode>();
   private playhead = 0;
+  private loudFrames = 0;
   level = 0;
+  /** Learns the room and the candidate's voice; calibrated by the device check. */
+  readonly detector = new VoiceDetector();
 
   /** Must be called from a user gesture (click): creates the context and opens the microphone. */
   async open(): Promise<void> {
@@ -66,38 +75,65 @@ export class ExamAudio {
     this.out = this.ctx.createGain();
     this.out.connect(this.ctx.destination);
 
-    const onFrame = (pcm: Int16Array, rms: number) => {
+    const onFrame = (pcm: Int16Array, rms: number, peak: number) => {
       this.level = rms;
-      if (this.recording) this.recording.push(pcm);
-      this.listeners.forEach(l => l(pcm, rms));
+      let voiced: boolean;
+      let examinerOnly = false;
+      if (this.speaking) {
+        // The examiner is speaking: the microphone may hear them through the
+        // speakers. Only a sustained voice close to the candidate's own level
+        // counts as the candidate talking over them; the room and the echo do
+        // not teach the detector anything.
+        this.loudFrames = rms >= this.detector.bargeInLevel ? this.loudFrames + 1 : 0;
+        voiced = this.loudFrames >= BARGE_IN_FRAMES;
+        examinerOnly = !voiced;
+      } else {
+        this.loudFrames = 0;
+        voiced = this.detector.push(rms, peak);
+      }
+      // The recording is the candidate's voice only: while the examiner speaks
+      // (and the candidate does not), it holds silence, so the examiner's voice
+      // leaking from the speakers is never judged as the candidate's.
+      if (this.recording) this.recording.push(examinerOnly ? new Int16Array(pcm.length) : pcm);
+      this.listeners.forEach(l => l(pcm, rms, voiced));
     };
     if (this.ctx.audioWorklet) {
       const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
       try { await this.ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
       const node = new AudioWorkletNode(this.ctx, 'xs-downsampler');
-      node.port.onmessage = (e) => onFrame(e.data.pcm as Int16Array, e.data.rms as number);
+      node.port.onmessage = (e) => onFrame(e.data.pcm as Int16Array, e.data.rms as number, (e.data.peak as number) || 0);
       this.node = node;
     } else {
       // Older browsers: same filter on the main thread.
       const proc = this.ctx.createScriptProcessor(4096, 1, 1);
       const ratio = this.ctx.sampleRate / INPUT_RATE;
       let acc = 0, sum = 0, cnt = 0;
-      let buf = new Int16Array(FRAME), n = 0, sq = 0, sqn = 0;
+      let buf = new Int16Array(FRAME), n = 0, sq = 0, sqn = 0, peak = 0;
       proc.onaudioprocess = (ev) => {
         const ch = ev.inputBuffer.getChannelData(0);
         for (let i = 0; i < ch.length; i++) {
           sum += ch[i]; cnt++; acc += 1; sq += ch[i] * ch[i]; sqn++;
+          peak = Math.max(peak, Math.abs(ch[i]));
           if (acc >= ratio) {
             acc -= ratio;
             const s = Math.max(-1, Math.min(1, sum / cnt)); sum = 0; cnt = 0;
             buf[n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
-            if (n === FRAME) { onFrame(buf, Math.sqrt(sq / sqn)); buf = new Int16Array(FRAME); n = 0; sq = 0; sqn = 0; }
+            if (n === FRAME) { onFrame(buf, Math.sqrt(sq / sqn), peak); buf = new Int16Array(FRAME); n = 0; sq = 0; sqn = 0; peak = 0; }
           }
         }
       };
       this.node = proc;
     }
-    this.source.connect(this.node);
+    // Before the 16 kHz downsampling: a high-pass removes rumble and hum (air
+    // conditioning, traffic, a knock on the desk) that carries no speech, and a
+    // low-pass keeps sibilants from folding back as noise (anti-aliasing).
+    const highPass = this.ctx.createBiquadFilter();
+    highPass.type = 'highpass';
+    highPass.frequency.value = 85;
+    const lowPass = this.ctx.createBiquadFilter();
+    lowPass.type = 'lowpass';
+    lowPass.frequency.value = 7000;
+    this.source.connect(highPass).connect(lowPass).connect(this.node);
     this.node.connect(this.sink);
   }
 
@@ -108,7 +144,13 @@ export class ExamAudio {
     return () => this.listeners.delete(listener);
   }
 
-  startRecording() { this.recording = []; }
+  startRecording() {
+    this.recording = [];
+    this.detector.resetCounts();
+  }
+
+  /** The recording conditions measured so far (noise, voice, saturation). */
+  roomReport(): RoomReport { return this.detector.report(); }
 
   /** Stops recording and returns a 16 kHz mono WAV, or null if nothing was captured. */
   stopRecording(): Blob | null {
@@ -199,6 +241,20 @@ const fromBase64 = (b64: string) => {
   return out;
 };
 
+/** What the Live API sends back (only the fields used here). */
+interface LiveMessage {
+  setupComplete?: unknown;
+  error?: { message?: string };
+  toolCall?: { functionCalls?: { id?: string; name?: string; args?: { raison?: string } }[] };
+  serverContent?: {
+    interrupted?: boolean;
+    inputTranscription?: { text?: string };
+    outputTranscription?: { text?: string };
+    modelTurn?: { parts?: { inlineData?: { data?: string } }[] };
+    turnComplete?: boolean;
+  };
+}
+
 export interface LiveCallbacks {
   onExaminerSpeaking?: (speaking: boolean) => void;
   onTurnComplete?: () => void;
@@ -218,7 +274,7 @@ export class LiveExaminer {
   private speaking = false;
   private turnDone = false;
   private drainTimer: number | null = null;
-  private loudSince = 0;
+  private gate = new NoiseGate();
   turns: DialogueTurn[] = [];
   private audio: ExamAudio;
   private cb: LiveCallbacks;
@@ -246,7 +302,7 @@ export class LiveExaminer {
           settled = true;
           window.clearTimeout(timeout);
           this.ws = ws;
-          this.unsubscribe = this.audio.onFrame((pcm, rms) => this.forward(pcm, rms));
+          this.unsubscribe = this.audio.onFrame((pcm, _rms, voiced) => this.forward(pcm, voiced));
           resolve();
           return;
         }
@@ -285,17 +341,18 @@ export class LiveExaminer {
     this.ws = null;
   }
 
-  private forward(pcm: Int16Array, rms: number) {
+  private forward(pcm: Int16Array, voiced: boolean) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    // While the examiner speaks, only a sustained, clearly louder voice interrupts
-    // (so the room echo of the examiner's own voice never cuts it off).
-    if (this.speaking || this.audio.speaking) {
-      if (rms < 0.16) { this.loudSince = 0; return; }
-      if (!this.loudSince) this.loudSince = Date.now();
-      if (Date.now() - this.loudSince < 280) return;
-    } else this.loudSince = 0;
-    ws.send(JSON.stringify({ realtimeInput: { audio: { data: toBase64(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)), mimeType: `audio/pcm;rate=${INPUT_RATE}` } } }));
+    // While the examiner speaks, only the candidate talking over them goes
+    // through (ExamAudio decides: sustained, close to their own voice level), so
+    // the echo of the examiner's voice never cuts them off.
+    if ((this.speaking || this.audio.speaking) && !voiced) { this.gate = new NoiseGate(); return; }
+    // Otherwise the room between the candidate's words is sent as silence: the
+    // examiner hears a clean pause and answers on time, even in a noisy room.
+    const frame = this.gate.push(pcm, voiced);
+    if (!frame) return;
+    ws.send(JSON.stringify({ realtimeInput: { audio: { data: toBase64(new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength)), mimeType: `audio/pcm;rate=${INPUT_RATE}` } } }));
   }
 
   private append(role: DialogueTurn['role'], text: string) {
@@ -306,8 +363,8 @@ export class LiveExaminer {
     this.cb.onTranscript?.(this.turns);
   }
 
-  private handle(msg: Record<string, any>) {
-    const calls: { id?: string; name?: string; args?: { raison?: string } }[] = msg.toolCall?.functionCalls || [];
+  private handle(msg: LiveMessage) {
+    const calls = msg.toolCall?.functionCalls || [];
     if (calls.length) {
       // Always answer the call, or the model keeps waiting for it.
       this.ws?.send(JSON.stringify({ toolResponse: { functionResponses: calls.map(c => ({ id: c.id, name: c.name, response: { result: 'ok' } })) } }));
@@ -322,7 +379,7 @@ export class LiveExaminer {
     }
     if (sc.inputTranscription?.text) this.append('candidate', sc.inputTranscription.text);
     if (sc.outputTranscription?.text) this.append('examiner', sc.outputTranscription.text);
-    (sc.modelTurn?.parts || []).forEach((p: { inlineData?: { data?: string } }) => {
+    (sc.modelTurn?.parts || []).forEach(p => {
       if (p.inlineData?.data) {
         this.turnDone = false;
         this.setSpeaking(true);
@@ -354,7 +411,7 @@ export class LiveExaminer {
   }
 }
 
-async function parse(data: unknown): Promise<Record<string, any> | null> {
+async function parse(data: unknown): Promise<LiveMessage | null> {
   try {
     if (typeof data === 'string') return JSON.parse(data);
     if (data instanceof Blob) return JSON.parse(await data.text());

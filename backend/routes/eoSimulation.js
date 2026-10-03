@@ -23,7 +23,7 @@ const { examinerFor } = examinerService;
 // ============================================================
 
 const AUDIO_DIR = path.join(os.tmpdir(), 'ltf-eo-audio');
-const MAX_TOKENS_PER_TASK = 5;       // first connection + reconnections
+const MAX_TOKENS_PER_TASK = 10;      // connections (up to one per model each) + reconnections
 const MAX_EVALUATION_ATTEMPTS = 5;
 const RECORDING_TTL_MS = 48 * 3600e3; // orphaned recordings (abandoned sessions)
 
@@ -54,6 +54,18 @@ const DEFAULT_T1_POINTS = [
   { number: 4, title: 'Projets', subtitle: 'Objectifs, projet au Canada' },
 ];
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+/** Recording conditions measured in the browser (room noise, voice above it), checked: numbers only. */
+function readAudioQuality(raw) {
+  try {
+    const q = JSON.parse(String(raw || ''));
+    const num = (v, lo, hi) => (Number.isFinite(Number(v)) ? Math.max(lo, Math.min(hi, Number(v))) : null);
+    const quality = ['good', 'fair', 'poor', 'unknown'].includes(q?.quality) ? q.quality : 'unknown';
+    return { quality, noiseDb: num(q?.noiseDb, -100, 0), voiceDb: num(q?.voiceDb, -100, 0), snrDb: num(q?.snrDb, -60, 100), clipping: num(q?.clipping, 0, 1) };
+  } catch {
+    return null;
+  }
+}
 
 /** Sujets imported from the web sometimes carry editorial notes; keep only the sujet. */
 function cleanSujet(text) {
@@ -209,10 +221,15 @@ router.post('/:id/live-token', async (req, res) => {
     const safeSujet = String(sujet || '').slice(0, 1200);
     const points = n === 1 ? await loadT1Points(req.db, sim.tache1_tache_id) : [];
     const instructions = examinerService.examinerInstructions(n, { firstName: req.user.first_name, examiner, sujet: safeSujet, points });
-    const model = req.body?.fallback ? examinerService.LIVE_FALLBACK_MODEL : examinerService.LIVE_MODEL;
+    // `attempt` picks the model, newest first: the browser moves to the next one when a model
+    // refuses the session (older clients send `fallback: true` for the second one).
+    const models = examinerService.LIVE_MODELS;
+    const asked = Number.isInteger(req.body?.attempt) ? req.body.attempt : (req.body?.fallback ? 1 : 0);
+    const attempt = Math.max(0, Math.min(models.length - 1, asked));
+    const model = models[attempt];
     const token = await examinerService.createLiveToken({ model, voice: examiner.voice, instructions, silenceMs: examinerService.SILENCE_MS[n] });
     // The end-of-task tool cannot be locked into the token; the client declares it in its setup.
-    res.json({ token, model, wsUrl: examinerService.WS_URL, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK });
+    res.json({ token, model, attempt, models: models.length, wsUrl: examinerService.WS_URL, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK });
   } catch (error) {
     console.error('POST /eo-simulation/:id/live-token error:', error.message);
     res.status(502).json({ error: 'La connexion avec l’examinateur n’a pas pu être préparée.' });
@@ -244,7 +261,8 @@ router.post('/:id/task/:n', upload.single('audio'), async (req, res) => {
       if (req.file.buffer.toString('ascii', 0, 4) !== 'RIFF') return res.status(415).json({ error: 'Format audio non pris en charge.' });
       await fs.promises.writeFile(files.wav, req.file.buffer);
     }
-    await fs.promises.writeFile(files.json, JSON.stringify({ dialogue, sujet, savedAt: new Date().toISOString() }));
+    const audioQuality = readAudioQuality(req.body?.audio_quality);
+    await fs.promises.writeFile(files.json, JSON.stringify({ dialogue, sujet, audioQuality, savedAt: new Date().toISOString() }));
 
     // Keep the plain transcript on the row too, so nothing is lost if the recording expires.
     const column = { 1: 'tache1_transcript', 2: 'tache2_transcript', 3: 'tache3_transcript' }[n];
@@ -314,6 +332,7 @@ router.post('/:id/evaluate', async (req, res) => {
         prompt: prompts[n] || saved?.sujet || null,
         dialogue, text, audio,
         speech: audio ? evaluator.analyzeWav(audio) : null,
+        audioQuality: saved?.audioQuality || null,
         notTaken: !saved && sim[`tache${n}_transcript`] == null,
       };
     }));

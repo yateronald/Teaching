@@ -1,4 +1,4 @@
-const { GoogleGenAI } = require('@google/genai');
+const ai = require('./aiModels');
 const wav = require('wav');
 const fs = require('fs');
 const path = require('path');
@@ -6,7 +6,7 @@ const os = require('os');
 const { getKDriveService } = require('./kdriveService');
 
 // ============================================================
-// TTS Service — Text-to-Speech via Gemini 3.1 Flash TTS
+// TTS Service — Text-to-Speech via Gemini TTS (models in aiModels.js)
 // ============================================================
 
 // Curated voice options for French teaching
@@ -23,21 +23,16 @@ const VOICE_OPTIONS = [
 
 class TTSService {
     constructor() {
-        this.apiKeys = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY1].filter(Boolean);
-        this.currentKeyIndex = 0;
-        this.model = process.env.GEMINI_TTS_MODEL || 'gemini-3.1-flash-tts-preview';
-        this.client = null;
-
-        if (this.apiKeys.length > 0) {
-            this.client = new GoogleGenAI({ apiKey: this.apiKeys[this.currentKeyIndex] });
-            console.log(`🎙️ TTS Service initialized (model: ${this.model}, keys available: ${this.apiKeys.length})`);
+        this.models = ai.modelsFor('tts');
+        if (ai.isConfigured()) {
+            console.log(`🎙️ TTS Service initialized (models: ${this.models.join(' → ')}, keys available: ${ai.API_KEYS.length})`);
         } else {
             console.warn('⚠️  TTS Service: GEMINI_API_KEY not set — TTS disabled');
         }
     }
 
     get isConfigured() {
-        return !!this.client;
+        return ai.isConfigured();
     }
 
     get voices() {
@@ -49,7 +44,7 @@ class TTSService {
     // Returns: Buffer (raw PCM data, 24kHz 16-bit mono)
     // --------------------------------------------------------
     async generateAudio(transcript, voiceName = 'Kore') {
-        if (!this.client || this.apiKeys.length === 0) {
+        if (!this.isConfigured) {
             throw new Error('TTS Service is not configured. Set GEMINI_API_KEY in your .env file.');
         }
 
@@ -59,12 +54,11 @@ class TTSService {
 
         console.log(`🎙️ TTS: Generating audio for ${transcript.length} chars with voice "${voiceName}"...`);
 
-        let attempts = 0;
-        
-        while (attempts < this.apiKeys.length) {
-            try {
-                const response = await this.client.models.generateContent({
-                    model: this.model,
+        try {
+            // Newest model first; the other key, then the previous models when it is busy (aiModels.js).
+            const { result: pcmBuffer, model } = await ai.withFallback('tts', async (client, model) => {
+                const response = await client.models.generateContent({
+                    model,
                     contents: [{ parts: [{ text: transcript }] }],
                     config: {
                         responseModalities: ['AUDIO'],
@@ -75,35 +69,18 @@ class TTSService {
                         },
                     },
                 });
-
-                const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-                if (!audioData) {
-                    throw new Error('No audio data in TTS response');
-                }
-
-                const pcmBuffer = Buffer.from(audioData, 'base64');
-                console.log(`✅ TTS: Generated ${pcmBuffer.length} bytes of PCM audio`);
-                return pcmBuffer;
-
-            } catch (error) {
-                if (error.status === 429) {
-                    console.warn(`⚠️ TTS rate limit reached on key (Index: ${this.currentKeyIndex}).`);
-                    attempts++;
-                    if (attempts < this.apiKeys.length) {
-                        this.currentKeyIndex = (this.currentKeyIndex + 1) % this.apiKeys.length;
-                        console.log(`🔄 Switching to alternate API key (Index: ${this.currentKeyIndex})...`);
-                        this.client = new GoogleGenAI({ apiKey: this.apiKeys[this.currentKeyIndex] });
-                        continue;
-                    } else {
-                        throw new Error('All TTS rate limits reached. Please try again later.');
-                    }
-                }
-                if (error.status === 403) {
-                    throw new Error('API key invalid or lacks permissions for TTS.');
-                }
-                console.error('🎙️ TTS generation error:', error.message);
-                throw error;
-            }
+                const audioData = (response.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data)?.inlineData.data;
+                if (!audioData) throw ai.badAnswer('No audio data in TTS response');
+                return Buffer.from(audioData, 'base64');
+            }, { label: 'TTS' });
+            console.log(`✅ TTS: Generated ${pcmBuffer.length} bytes of PCM audio via ${model}`);
+            return pcmBuffer;
+        } catch (error) {
+            const status = ai.statusOf(error);
+            if (status === 401 || status === 403) throw new Error('API key invalid or lacks permissions for TTS.');
+            console.error('🎙️ TTS generation error:', ai.safeMessage(error));
+            if (status === 400) throw new Error('The text could not be converted to speech. Check the transcript and the voice.');
+            throw new Error('The voice service is busy right now. Please try again in a minute.');
         }
     }
 

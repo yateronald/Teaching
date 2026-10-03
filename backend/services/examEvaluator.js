@@ -13,14 +13,12 @@
 //   4. Quoted errors must exist verbatim in the candidate's production;
 //      anything the model cannot quote exactly is dropped.
 // ============================================================
-const { GoogleGenAI } = require('@google/genai');
 const scale = require('./examScale');
+const ai = require('./aiModels');
 
-const API_KEYS = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY1].filter(Boolean);
-const TEXT_MODEL = process.env.GEMINI_MODEL || 'gemini-3-flash-preview';
 const RUNS = Math.max(1, Math.min(3, Number(process.env.EXAM_EVAL_RUNS) || 2));
 const ARBITRATION_GAP = 2.5;
-const SCORING_VERSION = 2;
+const SCORING_VERSION = 3; // 3: Gemini 3.8 Flash, with 3.7 / 3.6 as fallbacks
 
 const LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
@@ -275,10 +273,16 @@ function analyzeWav(buf) {
       rms.push(Math.sqrt(sum / frame));
     }
     if (!rms.length) return { seconds: 0, voicedSeconds: 0 };
-    const sorted = [...rms].sort((a, b) => a - b);
+    // The browser writes digital silence while the examiner speaks: those frames
+    // are not the room, so the noise floor is measured on the others only.
+    const live = rms.filter(v => v > 1e-4);
+    if (!live.length) return { seconds: +(samples / rate).toFixed(1), voicedSeconds: 0 };
+    const sorted = [...live].sort((a, b) => a - b);
     const floor = sorted[Math.floor(sorted.length * 0.2)];
-    const threshold = Math.max(0.012, floor * 2.5);
-    const voiced = rms.filter(v => v > threshold).length;
+    // +6 dB over the room: steady noise never passes, and in a noisy room the
+    // candidate's softer syllables are not lost (tested on the same answer, clean and noisy).
+    const threshold = Math.max(0.012, floor * 2);
+    const voiced = live.filter(v => v > threshold).length;
     return { seconds: +(samples / rate).toFixed(1), voicedSeconds: +(voiced * 0.03).toFixed(1) };
   } catch {
     return null;
@@ -286,37 +290,25 @@ function analyzeWav(buf) {
 }
 
 // ── Gemini ────────────────────────────────────────────────────────────────
-const clients = API_KEYS.map(apiKey => new GoogleGenAI({ apiKey }));
-const isConfigured = () => clients.length > 0;
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const isConfigured = () => ai.isConfigured();
 
+/**
+ * One correction as JSON. The newest text model answers when it can; under
+ * load or over quota, the other key, then the previous models (aiModels.js).
+ * The model that answered is kept on the result (`_model`).
+ */
 async function generateJson({ system, parts, schema }) {
-  if (!clients.length) throw new Error('GEMINI_API_KEY is not configured');
-  const config = {
-    systemInstruction: system,
-    responseMimeType: 'application/json',
-    responseSchema: schema,
-    maxOutputTokens: 16384,
-  };
-  // Gemini 3 models are tuned for their default temperature; older ones get a low one for consistency.
-  if (!/gemini-3/.test(TEXT_MODEL)) config.temperature = 0.2;
-  let lastErr = null;
-  for (let attempt = 0; attempt < Math.max(3, clients.length); attempt++) {
-    const client = clients[attempt % clients.length];
-    try {
-      const res = await client.models.generateContent({ model: TEXT_MODEL, contents: [{ role: 'user', parts }], config });
-      const raw = res.text || res.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-      if (!raw) throw new Error('Empty response');
-      return JSON.parse(raw);
-    } catch (err) {
-      lastErr = err;
-      const status = err.status || err.code;
-      const transient = status === 429 || status === 500 || status === 503 || /quota|rate|overloaded|unavailable|JSON|Empty response/i.test(err.message || '');
-      if (!transient) break;
-      await sleep(800 * (attempt + 1));
-    }
-  }
-  throw lastErr || new Error('Evaluation failed');
+  const { result, model } = await ai.withFallback('text', async (client, model) => {
+    const config = { systemInstruction: system, responseMimeType: 'application/json', responseSchema: schema, maxOutputTokens: 16384 };
+    // Gemini 3 models are tuned for their default temperature; older ones get a low one for consistency.
+    if (!/gemini-3/.test(model)) config.temperature = 0.2;
+    const res = await client.models.generateContent({ model, contents: [{ role: 'user', parts }], config });
+    const raw = res.text || res.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    if (!raw) throw ai.badAnswer('Empty response');
+    try { return JSON.parse(raw); } catch { throw ai.badAnswer('Invalid JSON from the model'); }
+  }, { label: 'Exam scoring' });
+  if (result && typeof result === 'object') Object.defineProperty(result, '_model', { value: model, enumerable: false });
+  return result;
 }
 
 // ── Prompts ───────────────────────────────────────────────────────────────
@@ -326,7 +318,7 @@ function gridText(keys) {
   return keys.map(k => `■ ${CRITERIA[k].label} (clé "${k}")\n${CRITERIA[k].grid.map(g => `   ${g}`).join('\n')}`).join('\n');
 }
 
-function systemPrompt(skill, taskNo, criteriaKeys, hasAudio) {
+function systemPrompt(skill, taskNo, criteriaKeys, hasAudio, audioQuality = null) {
   const task = skill === 'eo' ? EO_TASKS[taskNo] : EE_TASKS[taskNo];
   const epreuve = skill === 'eo' ? 'expression orale' : 'expression écrite';
   const rules = [
@@ -341,7 +333,10 @@ function systemPrompt(skill, taskNo, criteriaKeys, hasAudio) {
     rules.push(hasAudio
       ? 'L’enregistrement audio du candidat est joint : il fait foi. Écoute-le pour juger la prononciation, l’aisance, les hésitations et la grammaire réellement prononcée ; sers-toi de la transcription pour citer les passages.'
       : 'Aucun enregistrement audio n’est disponible : juge l’aisance d’après les hésitations visibles dans la transcription et ne note pas la prononciation.');
-    rules.push('Évalue uniquement le candidat, jamais l’examinateur.');
+    rules.push('Évalue uniquement le candidat, jamais l’examinateur. Dans l’enregistrement, les moments où l’examinateur parle ont été remplacés par du silence : ces silences ne sont pas des hésitations du candidat.');
+    if (hasAudio && audioQuality && (audioQuality.quality === 'poor' || audioQuality.quality === 'fair')) {
+      rules.push(`L’enregistrement a été fait dans une pièce ${audioQuality.quality === 'poor' ? 'bruyante' : 'un peu bruyante'}${audioQuality.snrDb != null ? ` (voix environ ${audioQuality.snrDb} dB au-dessus du bruit)` : ''}. Ne pénalise ni la prononciation ni l’aisance pour des passages masqués par le bruit : dans ce cas, appuie-toi sur la transcription et sur les passages clairement audibles. N’attribue jamais au candidat des voix ou des bruits de fond.`);
+    }
   } else {
     rules.push('Le nombre de mots est compté par le système ; ne le recalcule pas. Juge la longueur seulement à travers la réalisation de la tâche.');
     rules.push('Pour "better_version", réécris le texte DU CANDIDAT en conservant ses idées, sa structure et ses paragraphes (garde les retours à la ligne), corrigé et amélioré d’environ un niveau, dans la fourchette de mots demandée. Ce n’est pas un corrigé type.');
@@ -453,11 +448,23 @@ async function evaluateTask(input) {
   if (skill === 'eo' && !hasAudio) { delete weights.pronunciation; weights.fluency = Math.round((weights.fluency || 0) * 0.6); }
   const keys = Object.keys(weights);
 
+  // Speaking time: measured on the recording, cross-checked with the words
+  // transcribed (0.24 s of voice per word, as measured on clean recordings).
+  // In a noisy room the audio measure misses syllables masked by the noise;
+  // the words do not, so a noisy room never lowers the speaking time.
+  if (skill === 'eo' && input.speech) {
+    const fromWords = Math.min(input.speech.seconds || Infinity, words * 0.24);
+    input = { ...input, speech: { ...input.speech, voicedSeconds: +Math.max(input.speech.voicedSeconds || 0, fromWords).toFixed(1) } };
+  }
   const base = {
     n: taskNo,
     title: spec.title,
     words,
-    stats: { words, ...(input.speech ? { speakingSeconds: input.speech.voicedSeconds, recordedSeconds: input.speech.seconds } : {}) },
+    stats: {
+      words,
+      ...(input.speech ? { speakingSeconds: input.speech.voicedSeconds, recordedSeconds: input.speech.seconds } : {}),
+      ...(['good', 'fair', 'poor'].includes(input.audioQuality?.quality) ? { audio: input.audioQuality.quality } : {}),
+    },
   };
 
   if (input.notTaken) {
@@ -473,7 +480,7 @@ async function evaluateTask(input) {
   }
 
   // ── Build the request ──
-  const system = systemPrompt(skill, taskNo, keys, hasAudio);
+  const system = systemPrompt(skill, taskNo, keys, hasAudio, input.audioQuality);
   const schema = schemaFor(skill, taskNo, keys);
   const injection = INJECTION.test(text);
   const lines = [];
@@ -618,7 +625,7 @@ async function evaluateTask(input) {
     ...(skill === 'eo' ? { betterPhrasings: (ref.better_phrasings || []).filter(p => p && p.said && p.better).slice(0, 5).map(p => ({ said: String(p.said).trim(), better: String(p.better).trim() })) } : {}),
     ...(skill === 'eo' && taskNo === 2 ? { questions: clean(ref.questions_asked, 15) } : {}),
     integrity,
-    reliability: { corrections: runs.length, arbitrated, spread: +spread.toFixed(1), audio: hasAudio },
+    reliability: { corrections: runs.length, arbitrated, spread: +spread.toFixed(1), audio: hasAudio, models: [...new Set(runs.map(r => r._model).filter(Boolean))] },
     evaluated: true,
   };
 }
@@ -723,12 +730,15 @@ function buildReport(skill, tasks) {
     arbitrated: evaluated.some(t => t.reliability?.arbitrated),
     audio: skill === 'eo' ? evaluated.every(t => t.reliability?.audio) : undefined,
   };
+  // The models that actually corrected this copy (the newest, unless it was busy).
+  const modelsUsed = [...new Set(evaluated.flatMap(t => t.reliability?.models || []))];
 
   return {
     version: SCORING_VERSION,
     exam: 'tcf_canada',
     skill,
-    model: TEXT_MODEL,
+    model: modelsUsed[0] || ai.modelsFor('text')[0],
+    models: modelsUsed,
     generatedAt: new Date().toISOString(),
     global: { score: official, precise: +precise.toFixed(2), cefr, nclc, next, weights: W },
     summary: { headline, text: bits.join(' '), priorities, strengths },
@@ -762,5 +772,5 @@ function legacyCriteria(report) {
 module.exports = {
   isConfigured, evaluateTask, buildReport, legacyFeedback, legacyCriteria,
   analyzeWav, wordCount, copyRatio, locate,
-  CRITERIA, EO_TASKS, EE_TASKS, SCORING_VERSION, TEXT_MODEL,
+  CRITERIA, EO_TASKS, EE_TASKS, SCORING_VERSION, TEXT_MODEL: ai.modelsFor('text')[0],
 };

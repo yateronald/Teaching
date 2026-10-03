@@ -21,7 +21,7 @@ export interface TaskReport {
   improvements: string[];
   errors: ReportError[];
   adjustments: ReportAdjustment[];
-  stats?: { words?: number; speakingSeconds?: number; recordedSeconds?: number; questions?: number };
+  stats?: { words?: number; speakingSeconds?: number; recordedSeconds?: number; questions?: number; audio?: 'good' | 'fair' | 'poor' };
   betterVersion?: string | null;
   betterPhrasings?: { said: string; better: string }[];
   questions?: string[];

@@ -9,10 +9,11 @@
 // moves to the next task itself.
 // ============================================================
 const { GoogleGenAI, Modality } = require('@google/genai');
+const { API_KEYS, modelsFor, keyOrder } = require('./aiModels');
 
-const API_KEYS = [process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEY1].filter(Boolean);
-const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-3.1-flash-live-preview';
-const LIVE_FALLBACK_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
+// Newest first. The browser asks for the next one when a model refuses the session.
+const LIVE_MODELS = modelsFor('live');
+const LIVE_MODEL = LIVE_MODELS[0];
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const END_TASK = 'terminer_tache';
 
@@ -114,9 +115,10 @@ const END_TASK_TOOL = {
 async function createLiveToken({ model, voice, instructions, silenceMs }) {
   if (!API_KEYS.length) throw Object.assign(new Error('GEMINI_API_KEY is not configured'), { status: 503 });
   let lastErr;
-  for (const apiKey of API_KEYS) {
+  // A different key first each time: live sessions are spread over all the projects.
+  for (const k of keyOrder()) {
     try {
-      const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1alpha' } });
+      const ai = new GoogleGenAI({ apiKey: API_KEYS[k], httpOptions: { apiVersion: 'v1alpha' } });
       const now = Date.now();
       const token = await ai.authTokens.create({
         config: {
@@ -127,6 +129,9 @@ async function createLiveToken({ model, voice, instructions, silenceMs }) {
             model,
             config: {
               responseModalities: [Modality.AUDIO],
+              // Reasoning Live models refuse a session without a thinking level;
+              // low keeps the examiner's replies quick.
+              ...(/thinking/.test(model) ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}),
               speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
               systemInstruction: { parts: [{ text: instructions }] },
               inputAudioTranscription: {},
@@ -153,4 +158,4 @@ async function createLiveToken({ model, voice, instructions, silenceMs }) {
   throw lastErr;
 }
 
-module.exports = { LIVE_MODEL, LIVE_FALLBACK_MODEL, WS_URL, END_TASK, END_TASK_TOOL, SILENCE_MS, examinerFor, examinerInstructions, createLiveToken };
+module.exports = { LIVE_MODEL, LIVE_MODELS, WS_URL, END_TASK, END_TASK_TOOL, SILENCE_MS, examinerFor, examinerInstructions, createLiveToken };
