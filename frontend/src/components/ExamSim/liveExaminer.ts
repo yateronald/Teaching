@@ -273,6 +273,7 @@ export class LiveExaminer {
   private closing = false;
   private speaking = false;
   private turnDone = false;
+  private held = false;
   private drainTimer: number | null = null;
   private gate = new NoiseGate();
   turns: DialogueTurn[] = [];
@@ -323,6 +324,17 @@ export class LiveExaminer {
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ realtimeInput: { text } }));
   }
 
+  /**
+   * Time is up: the examiner hears silence instead of the candidate, so a last
+   * word cannot cut the closing sentence, and the model, hearing the turn end,
+   * answers [FIN] within a couple of seconds. (Stopping the audio, or ending the
+   * stream, leaves the model waiting: it never answers.) The recording for the
+   * evaluation goes on until the task closes.
+   */
+  holdCandidate() {
+    this.held = true;
+  }
+
   close() {
     this.closing = true;
     if (this.ws?.readyState === WebSocket.OPEN) {
@@ -344,6 +356,7 @@ export class LiveExaminer {
   private forward(pcm: Int16Array, voiced: boolean) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (this.held) { this.sendAudio(ws, new Int16Array(pcm.length)); return; }
     // While the examiner speaks, only the candidate talking over them goes
     // through (ExamAudio decides: sustained, close to their own voice level), so
     // the echo of the examiner's voice never cuts them off.
@@ -351,7 +364,10 @@ export class LiveExaminer {
     // Otherwise the room between the candidate's words is sent as silence: the
     // examiner hears a clean pause and answers on time, even in a noisy room.
     const frame = this.gate.push(pcm, voiced);
-    if (!frame) return;
+    if (frame) this.sendAudio(ws, frame);
+  }
+
+  private sendAudio(ws: WebSocket, frame: Int16Array) {
     ws.send(JSON.stringify({ realtimeInput: { audio: { data: toBase64(new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength)), mimeType: `audio/pcm;rate=${INPUT_RATE}` } } }));
   }
 

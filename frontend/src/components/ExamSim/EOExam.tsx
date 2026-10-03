@@ -10,6 +10,7 @@ import ExamFrame, { type FrameStep } from './ExamFrame';
 import ExamReport from './ExamReport';
 import { ExamAudio, LiveExaminer } from './liveExaminer';
 import type { RoomReport } from './voiceDetector';
+import { CLOSING_LINE, closeCue, freshClock, timeAction, warnCue, type EndClock } from './taskClock';
 import { clock, errorText, type DialogueTurn, type ExamReport as Report } from './examModel';
 
 // ============================================================
@@ -38,6 +39,7 @@ const TASKS = [
   { n: 3, title: 'Expression d’un point de vue', format: '4 min 30 · sans préparation', hint: 'Donnez votre opinion et défendez-la sans attendre les questions : arguments, exemples, nuances, conclusion.' },
 ];
 const SILENCE_NUDGE_MS = { 1: 11000, 2: 12000, 3: 15000 } as Record<number, number>;
+const WRAP_BANNER = 'Temps écoulé : l’examinateur conclut la tâche.';
 const BETWEEN_SECONDS = 8;
 // Safety net: if the examiner starts talking about the next task anyway, the platform moves on at once.
 const NEXT_TASK_TALK: Record<number, RegExp> = {
@@ -92,6 +94,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
   const [early, setEarly] = useState<Record<number, number>>({});
   const [exitOpen, setExitOpen] = useState(false);
   const [recordings, setRecordings] = useState<(string | null)[]>([null, null, null]);
+  const [timeUp, setTimeUp] = useState(false);
 
   const audioRef = useRef<ExamAudio | null>(null);
   const liveRef = useRef<LiveExaminer | null>(null);
@@ -111,6 +114,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
   const blobUrlsRef = useRef<string[]>([]);
   const voiceMsRef = useRef(0);
   const calibRef = useRef<{ step: Calib; samples: number[] }>({ step: 'noise', samples: [] });
+  const endClockRef = useRef<EndClock>(freshClock());
 
   const go = (p: Phase) => { phaseRef.current = p; setPhase(p); };
   const toStage = (s: Stage) => { stageRef.current = s; setStage(s); };
@@ -255,6 +259,8 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
     setTask(n);
     nudgesRef.current = { count: 0, at: 0 };
     reconnectsRef.current = 0;
+    endClockRef.current = freshClock();
+    setTimeUp(false);
     setLines({ examiner: '', candidate: '' });
     setBanner('');
     go('task');
@@ -280,9 +286,17 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       const { token, model, models, wsUrl, tools, endTool } = await res.json();
       if (Number.isInteger(models) && models > 0) modelCount = models;
       const live = new LiveExaminer(audio, {
-        onExaminerSpeaking: (on) => setSpeaking(on),
+        onExaminerSpeaking: (on) => {
+          setSpeaking(on);
+          if (on && taskRef.current === n && endClockRef.current.cueAt) endClockRef.current.spoke = true;
+        },
         onTurnComplete: () => {
-          if (stageRef.current === 'opening' && taskRef.current === n) startSpeakingClock(n);
+          if (taskRef.current !== n) return;
+          if (stageRef.current === 'opening') startSpeakingClock(n);
+          // Time is up and the examiner has just said so: the task closes on their last word.
+          const c = endClockRef.current;
+          const said = [...turnsRef.current[n]].reverse().find(t => t.role === 'examiner')?.text || '';
+          if (c.cueAt && c.spoke && CLOSING_LINE.test(said)) finishEarly(n);
         },
         onTranscript: (turns) => {
           const lastOf = (role: DialogueTurn['role']) => [...turns].reverse().find(t => t.role === role)?.text || '';
@@ -370,6 +384,8 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
 
   const handleDrop = (n: number) => {
     if (phaseRef.current !== 'task' || taskRef.current !== n) return;
+    // Time is already up: nothing left to reconnect for.
+    if (endClockRef.current.upAt) { finishEarly(n); return; }
     if (reconnectsRef.current >= 2) { setBanner('La connexion avec l’examinateur est perdue. Continuez à parler : votre réponse est enregistrée.'); return; }
     reconnectsRef.current++;
     setBanner('Connexion interrompue — reconnexion à l’examinateur…');
@@ -472,14 +488,36 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
     if (st === 'opening' && t - openingSinceRef.current > 30000) { startSpeakingClock(n); return; }
     if (endPendingRef.current && (st === 'live' || st === 'opening')) {
       const since = t - endPendingRef.current;
-      if ((since > 400 && !audioRef.current?.speaking) || since > 4000) { finishEarly(n); return; }
+      // The examiner's last words are still playing when the tool call arrives: they are heard to the end.
+      if ((since > 400 && !audioRef.current?.speaking) || since > 10000) { finishEarly(n); return; }
     }
     if (st === 'live') {
-      if (left <= 0) { endTask(n); nextAfter(n); return; }
       const quiet = t - voiceAtRef.current;
+      const live = liveRef.current;
+      const examinerTalking = !!audioRef.current?.speaking;
+      const endClock = endClockRef.current;
+      if (left <= 0 && !endClock.upAt) { endClock.upAt = t; setTimeUp(true); setBanner(WRAP_BANNER); }
+      // The end of the task, handled like an examiner would (taskClock.ts).
+      const action = timeAction(n, endClock, { now: t, leftMs: left, quietMs: quiet, examinerTalking, connected: !!live });
+      if (action?.kind === 'warn' && live) {
+        endClock.warned = true;
+        live.sendText(warnCue(action.seconds));
+        return;
+      }
+      if (action?.kind === 'close' && live) {
+        endClock.cueAt = t;
+        // A turn the examiner has not finished by now gives way to the closing sentence.
+        if (examinerTalking) audioRef.current?.stopPlayback();
+        live.holdCandidate();
+        live.sendText(closeCue(action.forced));
+        return;
+      }
+      if (action?.kind === 'end') { finishEarly(n); return; }
+      if (endClock.upAt) return;
       const nudge = nudgesRef.current;
-      if (liveRef.current && !audioRef.current?.speaking && quiet > SILENCE_NUDGE_MS[n] && nudge.count < 3 && t - nudge.at > 20000) {
-        liveRef.current.sendText('[SILENCE]');
+      // After the announcement of the end, the examiner has already invited the candidate to go on.
+      if (live && !endClock.warned && !examinerTalking && quiet > SILENCE_NUDGE_MS[n] && nudge.count < 3 && t - nudge.at > 20000) {
+        live.sendText('[SILENCE]');
         nudgesRef.current = { count: nudge.count + 1, at: t };
       }
     }
@@ -516,7 +554,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
     { key: 'r', label: 'Résultats', state: phase === 'results' ? 'current' : 'todo' },
   ];
   const timer = phase === 'task' && stage === 'prep' ? { seconds: left, total: s?.timing.t2Prep || 120, label: 'Préparation' }
-    : phase === 'task' && stage === 'live' ? { seconds: left, total: (task === 1 ? s?.timing.t1 : task === 2 ? s?.timing.t2 : s?.timing.t3) || 120, label: `Tâche ${task}` }
+    : phase === 'task' && stage === 'live' ? { seconds: left, total: (task === 1 ? s?.timing.t1 : task === 2 ? s?.timing.t2 : s?.timing.t3) || 120, label: timeUp ? 'Temps écoulé' : `Tâche ${task}` }
       : null;
   const info = TASKS[task - 1];
 
