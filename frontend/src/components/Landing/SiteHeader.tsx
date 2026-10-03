@@ -4,7 +4,7 @@ import { CloseOutlined, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant
 import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
 
 // Sections of the home page, in the order of the navigation.
-export const SECTIONS = ['programs', 'method', 'simulator', 'platform', 'reviews', 'faq'] as const;
+export const SECTIONS = ['programs', 'simulator', 'pricing', 'platform', 'reviews', 'faq'] as const;
 
 interface Props {
   lang: Lang;

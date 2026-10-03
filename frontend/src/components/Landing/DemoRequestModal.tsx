@@ -23,6 +23,8 @@ import './DemoRequestModal.css';
 interface DemoRequestModalProps {
   isOpen: boolean;
   onClose: () => void;
+  initialInterest?: Interest;
+  offerLabel?: string;
 }
 
 interface FormData {
@@ -127,9 +129,9 @@ const COMMON_TIMEZONES: { value: string; label: string }[] = [
   { value: 'America/Argentina/Buenos_Aires', label: 'America/Argentina/Buenos_Aires (ART/UTC-3)' },
 ];
 
-const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) => {
+const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, initialInterest, offerLabel }) => {
   // Nothing is asked until the visitor says what they came for.
-  const [interest, setInterest] = useState<Interest | ''>('');
+  const [interest, setInterest] = useState<Interest | ''>(initialInterest ?? '');
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -164,7 +166,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
     ? ['Your details', 'Your exam', 'Your practice plan']
     : ['Your details', 'Your French', 'Your goals', 'Your availability'];
   // Use the same base URL logic as AuthContext for consistency.
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || 'https://api.learnfrenchwithnatives.com/api';
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://api.learnfrenchwithnatives.com/api';
 
   const handleInputChange = (field: keyof FormData, value: string) => {
     setFormData(prev => ({
@@ -211,6 +213,9 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
       const payload = {
         ...formData,
         interest: interest || 'classes',
+        // Keep the selected published offer with the request in the existing
+        // expectations field, so the team can see duration, currency and credits.
+        expectations: [offerLabel ? `Requested exam offer: ${offerLabel}` : '', formData.expectations].filter(Boolean).join('\n'),
         timezone: formData.timezone === 'other' ? (customTimezone.trim() || '') : formData.timezone,
         // A weekly timetable and a target class level belong to class requests.
         ...(isExam ? { interestedLevel: '', preferredSchedule: '' } : {}),
@@ -223,10 +228,10 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
         body: JSON.stringify(payload),
       });
 
-      let result: any = null;
+      let result: { message?: string; error?: string } | null = null;
       try {
         result = await response.json();
-      } catch (_) {
+      } catch {
         // Non-JSON or empty body (e.g., 404 HTML from dev server) — ignore
       }
 
@@ -254,7 +259,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
         });
         setCustomTimezone('');
         setCurrentStep(1);
-        setInterest('');
+        setInterest(initialInterest ?? '');
       } else {
         setErrorMessage(
           (result && (result.message || result.error)) ||
@@ -277,7 +282,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
       setShowSuccessModal(false);
       setShowErrorModal(false);
       setErrorMessage('');
-      setInterest('');
+      setInterest(initialInterest ?? '');
       setCurrentStep(1);
     }
   };
@@ -1116,7 +1121,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
           <div className="modal-heading">
             <h2 id="demo-modal-title">{isExam ? 'Exam preparation' : 'Book a free demo class'}</h2>
             <p className="modal-subtitle">
-              {isExam
+              {offerLabel ? offerLabel : isExam
                 ? 'Mock exams and corrections, without classes'
                 : 'A free trial class with a native teacher'}
             </p>
@@ -1164,7 +1169,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose }) 
             <button
               type="button"
               className="btn-secondary"
-              onClick={currentStep > 1 ? handlePrevious : () => setInterest('')}
+              onClick={currentStep > 1 ? handlePrevious : initialInterest ? handleCloseModal : () => setInterest('')}
               disabled={isLoading}
             >
               <LeftOutlined /> {currentStep > 1 ? 'Previous' : 'Back'}

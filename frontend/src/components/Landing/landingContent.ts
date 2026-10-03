@@ -33,7 +33,7 @@ export interface LandingCopy {
   announce: { tag: string; text: string; link: string };
   statsLabel: string;
   langSuggest: { text: string; link: string; dismiss: string };
-  nav: { programs: string; method: string; simulator: string; platform: string; reviews: string; faq: string; signIn: string; demo: string; menu: string; close: string; language: string };
+  nav: { programs: string; method: string; simulator: string; pricing: string; platform: string; reviews: string; faq: string; signIn: string; demo: string; menu: string; close: string; language: string };
   hero: {
     eyebrow: string; before: string; accent: string; after: string; sub: string;
     ctaPrimary: string; ctaSecondary: string;
@@ -41,7 +41,7 @@ export interface LandingCopy {
     cardResult: { label: string; scoreLabel: string; level: string; nclc: string };
     cardLive: { title: string; sub: string };
     cardExaminer: string;
-    imageAlt: string;
+    imageAlt: string; photoTitle: string; photoCaption: string;
   };
   marquee: { label: string };
   stats: { value: number; suffix: string; label: string }[];
@@ -100,7 +100,7 @@ const en: LandingCopy = {
   announce: { tag: 'New', text: 'TCF Canada speaking & writing simulator with an AI examiner.', link: 'See how it works' },
   statsLabel: 'Learn French with Natives in numbers',
   langSuggest: { text: 'Cette page existe aussi en français.', link: 'Voir en français', dismiss: 'Close' },
-  nav: { programs: 'Programs', method: 'Method', simulator: 'Exam simulator', platform: 'Platform', reviews: 'Reviews', faq: 'FAQ', signIn: 'Sign in', demo: 'Book a free demo', menu: 'Open menu', close: 'Close menu', language: 'Language' },
+  nav: { programs: 'Programs', method: 'Method', simulator: 'Exam simulator', pricing: 'Pricing', platform: 'Platform', reviews: 'Reviews', faq: 'FAQ', signIn: 'Sign in', demo: 'Book a free demo', menu: 'Open menu', close: 'Close menu', language: 'Language' },
   hero: {
     eyebrow: 'TEF Canada · TCF Canada · DELF · DALF',
     before: 'Learn French with',
@@ -116,7 +116,9 @@ const en: LandingCopy = {
     cardResult: { label: 'Speaking · Mock exam', scoreLabel: 'Score', level: 'B2', nclc: 'CLB 8' },
     cardLive: { title: 'Live class in 10 min', sub: 'TCF Canada · Speaking' },
     cardExaminer: 'AI examiner · Task 2',
-    imageAlt: 'The Learn French with Natives student platform: marksheet with quiz scores, grades and progress',
+    imageAlt: 'Illustration of an adult learner writing “J’apprends le français” at a desk with French vocabulary cards and an online lesson.',
+    photoTitle: 'Confidence starts with conversation.',
+    photoCaption: 'Learn, practise and progress with a teacher.',
   },
   marquee: { label: 'Preparation for the exams that open doors' },
   stats: [
@@ -181,8 +183,8 @@ const en: LandingCopy = {
   },
   skills: {
     eyebrow: 'Complete preparation',
-    title: 'The four papers of the TCF and the TEF, all with us.',
-    sub: 'Reading, listening, writing and speaking: you prepare every paper of the TCF and TEF here, in the official format, and you see your level after each attempt. No other school or app to sign up for.',
+    title: 'The four papers of the TCF and the TEF, in one place.',
+    sub: 'Reading, listening, writing and speaking: prepare all four skills on one platform and track your level after each practice session.',
     items: [
       { code: 'CE', name: 'Compréhension écrite', label: 'Reading', desc: 'Authentic documents from A1 to C2, in exam conditions, with the full correction afterwards.', format: '39 questions · 60 minutes', score: 'Scored on 699 points' },
       { code: 'CO', name: 'Compréhension orale', label: 'Listening', desc: 'Timed audio series, played once like the real exam, with your result level by level.', format: '39 questions · 35 minutes', score: 'Scored on 699 points' },
@@ -299,7 +301,7 @@ const fr: LandingCopy = {
   announce: { tag: 'Nouveau', text: 'Simulateur d’expression orale et écrite du TCF Canada avec examinateur IA.', link: 'Découvrir' },
   statsLabel: 'Learn French with Natives en chiffres',
   langSuggest: { text: 'This page is also available in English.', link: 'View in English', dismiss: 'Fermer' },
-  nav: { programs: 'Programmes', method: 'Méthode', simulator: 'Simulateur', platform: 'Plateforme', reviews: 'Avis', faq: 'FAQ', signIn: 'Connexion', demo: 'Démo gratuite', menu: 'Ouvrir le menu', close: 'Fermer le menu', language: 'Langue' },
+  nav: { programs: 'Programmes', method: 'Méthode', simulator: 'Simulateur', pricing: 'Tarifs', platform: 'Plateforme', reviews: 'Avis', faq: 'FAQ', signIn: 'Connexion', demo: 'Démo gratuite', menu: 'Ouvrir le menu', close: 'Fermer le menu', language: 'Langue' },
   hero: {
     eyebrow: 'TEF Canada · TCF Canada · DELF · DALF',
     before: 'Apprenez le français avec des',
@@ -315,7 +317,9 @@ const fr: LandingCopy = {
     cardResult: { label: 'Expression orale · Examen blanc', scoreLabel: 'Score', level: 'B2', nclc: 'NCLC 8' },
     cardLive: { title: 'Cours en direct dans 10 min', sub: 'TCF Canada · Expression orale' },
     cardExaminer: 'Examinateur IA · Tâche 2',
-    imageAlt: 'La plateforme étudiante Learn French with Natives : bulletin de notes avec scores, mentions et progression',
+    imageAlt: 'Illustration d’un apprenant adulte écrivant « J’apprends le français » à un bureau avec des cartes de vocabulaire français et un cours en ligne.',
+    photoTitle: 'La confiance se construit en échangeant.',
+    photoCaption: 'Apprendre, pratiquer et progresser avec un professeur.',
   },
   marquee: { label: 'Préparation aux examens qui ouvrent les portes' },
   stats: [
@@ -380,8 +384,8 @@ const fr: LandingCopy = {
   },
   skills: {
     eyebrow: 'Préparation complète',
-    title: 'Les quatre épreuves du TCF et du TEF, uniquement avec nous.',
-    sub: 'Compréhension écrite et orale, expression écrite et orale : vous préparez toutes les épreuves du TCF et du TEF ici, au format officiel, et vous voyez votre niveau après chaque tentative. Aucune autre école ni application.',
+    title: 'Les quatre épreuves du TCF et du TEF, au même endroit.',
+    sub: 'Compréhension écrite et orale, expression écrite et orale : préparez les quatre compétences sur une seule plateforme et suivez votre niveau après chaque entraînement.',
     items: [
       { code: 'CE', name: 'Compréhension écrite', label: 'Lecture', desc: 'Des documents authentiques, du A1 au C2, en conditions réelles, avec la correction complète.', format: '39 questions · 60 minutes', score: 'Noté sur 699 points' },
       { code: 'CO', name: 'Compréhension orale', label: 'Écoute', desc: 'Des séries audio chronométrées, écoutées une seule fois comme le jour J, avec votre résultat par niveau.', format: '39 questions · 35 minutes', score: 'Noté sur 699 points' },

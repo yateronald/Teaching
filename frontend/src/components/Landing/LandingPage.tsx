@@ -13,6 +13,7 @@ import { TOPIC_PATHS, type TopicId } from './sitePages';
 import { TOPICS } from './topicContent';
 import SiteHeader, { SECTIONS } from './SiteHeader';
 import SiteFooter from './SiteFooter';
+import ExamPricing from './ExamPricing';
 import { useDemoModal, usePublicPage } from './publicPage';
 import './LandingPage.css';
 // Imported (not in public/) so their file names carry a content hash: browsers
@@ -24,6 +25,8 @@ import dashboard800 from '../../assets/landing/platform-dashboard-800.webp';
 import dashboard1400 from '../../assets/landing/platform-dashboard-1400.webp';
 import video1Poster from '../../assets/landing/video1-poster.webp';
 import video2Poster from '../../assets/landing/video2-poster.webp';
+import lesson720 from '../../assets/landing/french-study-hero-v2-720.webp';
+import lesson1200 from '../../assets/landing/french-study-hero-v2-1200.webp';
 
 // ============================================================
 // Public landing page (/, /fr/). Pre-rendered at build time: every section is
@@ -38,8 +41,7 @@ const PROGRAM_TOPICS: Record<string, TopicId[]> = {
   everyday: ['online', 'business', 'kids'],
 };
 // 720w is what a typical phone needs (about 380 px wide at 1.75x density).
-const HERO_SRCSET = `${marksheet720} 720w, ${marksheet960} 960w, ${marksheet1600} 1600w`;
-const HERO_SIZES = '(max-width: 900px) 92vw, 640px';
+const MARKSHEET_SRCSET = `${marksheet720} 720w, ${marksheet960} 960w, ${marksheet1600} 1600w`;
 // Portrait phone recordings: shown in a 9:16 player so the speaker is never cropped.
 const VIDEOS = [
   { src: '/assets/Video1.mp4', poster: video1Poster, duration: '1:04' },
@@ -53,7 +55,7 @@ const HOW_ICONS = [<CustomerServiceOutlined />, <CompassOutlined />, <TeamOutlin
 const NCLC_STEPS = [4, 5, 6, 7, 8, 9, 10];
 const CEFR = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-const formatNumber = (n: number, lang: Lang) => n.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-US').replace(/ /g, ' ');
+const formatNumber = (n: number, lang: Lang) => n.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-US').replace(/\u202f/g, '\u00a0');
 
 /** Counts up once when the element scrolls into view (renders the final value without JS). */
 function Counter({ value, suffix, lang }: { value: number; suffix: string; lang: Lang }) {
@@ -89,7 +91,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const other: Lang = lang === 'en' ? 'fr' : 'en';
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState('');
-  const { openDemo, modal } = useDemoModal();
+  const { openDemo, openExamOffer, modal } = useDemoModal();
   usePublicPage(lang);
   const [program, setProgram] = useState(0);
   const [quote, setQuote] = useState(0);
@@ -241,33 +243,23 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               </ul>
             </div>
 
-            <div className="lp-hero-visual">
-              <figure className="lp-frame">
-                <div className="lp-frame-bar" aria-hidden><i /><i /><i /><span>app.learnfrenchwithnatives.com</span></div>
+            <div className="lp-hero-visual lp-hero-editorial">
+              <figure className="lp-lesson-photo">
                 <img
-                  src={marksheet1600}
-                  srcSet={HERO_SRCSET}
-                  sizes={HERO_SIZES}
-                  width="1600"
+                  src={lesson1200}
+                  srcSet={`${lesson720} 720w, ${lesson1200} 1200w`}
+                  sizes="(max-width: 960px) 92vw, 560px"
+                  width="1200"
                   height="900"
                   alt={c.hero.imageAlt}
                   fetchPriority="high"
                   decoding="async"
                 />
+                <figcaption>
+                  <span aria-hidden><MessageOutlined /></span>
+                  <div><strong>{c.hero.photoTitle}</strong><p>{c.hero.photoCaption}</p></div>
+                </figcaption>
               </figure>
-              <div className="lp-float lp-float-result" aria-hidden>
-                <span className="lp-float-label">{c.hero.cardResult.label}</span>
-                <div className="lp-float-score"><strong>13</strong><span>/20</span><em>{c.hero.cardResult.level}</em><b>{c.hero.cardResult.nclc}</b></div>
-                <div className="lp-float-track">{NCLC_STEPS.map(s => <i key={s} className={s <= 8 ? 'is-on' : ''} />)}</div>
-              </div>
-              <div className="lp-float lp-float-live" aria-hidden>
-                <span className="lp-live-dot" />
-                <div><strong>{c.hero.cardLive.title}</strong><span>{c.hero.cardLive.sub}</span></div>
-              </div>
-              <div className="lp-float lp-float-examiner" aria-hidden>
-                <span className="lp-eq"><i /><i /><i /><i /><i /></span>
-                {c.hero.cardExaminer}
-              </div>
             </div>
           </div>
         </section>
@@ -405,7 +397,6 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
           </div>
         </section>
 
-        {/* ── Method ── */}
         {/* ── The four papers ── */}
         <section id="skills" className="lp-section lp-tint" aria-labelledby="lp-skills-title">
           <div className="lp-wrap">
@@ -440,6 +431,8 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             </div>
           </div>
         </section>
+
+        <ExamPricing lang={lang} onRequest={openExamOffer} onDemo={openDemo} />
 
         <section id="method" className="lp-section" aria-labelledby="lp-method-title">
           <div className="lp-wrap">
@@ -490,7 +483,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                 <img src={dashboard800} srcSet={`${dashboard800} 800w, ${dashboard1400} 1084w`} sizes="(max-width: 900px) 80vw, 520px" width="1084" height="795" alt={c.platform.altDashboard} loading="lazy" decoding="async" />
               </figure>
               <figure className="lp-shot is-front">
-                <img src={marksheet960} srcSet={HERO_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
+                <img src={marksheet960} srcSet={MARKSHEET_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
               </figure>
             </div>
           </div>

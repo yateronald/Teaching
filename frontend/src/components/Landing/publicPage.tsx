@@ -15,19 +15,21 @@ export function useDemoModal() {
   const [open, setOpen] = useState(false);
   // Mounted on first open and kept, so its success message can outlive the form.
   const [mounted, setMounted] = useState(false);
+  const [offer, setOffer] = useState<string>();
   useEffect(() => { if (open) setMounted(true); }, [open]);
   useEffect(() => {
     const idle = (window as Window & { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
     const id = idle ? idle(() => { loadDemoModal(); }) : window.setTimeout(() => { loadDemoModal(); }, 2500);
     return () => { if (!idle) window.clearTimeout(id); };
   }, []);
-  const openDemo = useCallback(() => setOpen(true), []);
+  const openDemo = useCallback(() => { setOffer(undefined); setOpen(true); }, []);
+  const openExamOffer = useCallback((label: string) => { setOffer(label); setOpen(true); }, []);
   const modal = (open || mounted) ? (
     <Suspense fallback={null}>
-      <DemoRequestModal isOpen={open} onClose={() => setOpen(false)} />
+      <DemoRequestModal key={offer ?? 'demo'} isOpen={open} onClose={() => setOpen(false)} initialInterest={offer ? 'exam' : undefined} offerLabel={offer} />
     </Suspense>
   ) : null;
-  return { openDemo, modal };
+  return { openDemo, openExamOffer, modal };
 }
 
 export function usePublicPage(lang: Lang) {
