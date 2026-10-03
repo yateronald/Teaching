@@ -14,6 +14,7 @@ import { TOPICS } from './topicContent';
 import SiteHeader, { SECTIONS } from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import ExamPricing from './ExamPricing';
+import { PRICING_COPY } from './examPlanContent';
 import { useDemoModal, usePublicPage } from './publicPage';
 import './LandingPage.css';
 // Imported (not in public/) so their file names carry a content hash: browsers
@@ -366,7 +367,8 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                   </li>
                 ))}
               </ul>
-              <button type="button" className="lp-btn lp-btn-light" onClick={openDemo}>{c.simulator.cta}<ArrowRightOutlined /></button>
+              <p className="lp-sim-sub">{c.simulator.accessNote}</p>
+              <button type="button" className="lp-btn lp-btn-light" onClick={() => openExamOffer(PRICING_COPY[lang].demoRequestLabel)}>{c.simulator.cta}<ArrowRightOutlined /></button>
             </div>
             <figure className="lp-report" data-reveal aria-label={c.simulator.report.title}>
               <header className="lp-report-head">

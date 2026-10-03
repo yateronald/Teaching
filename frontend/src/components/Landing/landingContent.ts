@@ -50,7 +50,7 @@ export interface LandingCopy {
     eyebrow: string; title: string; sub: string;
     features: { title: string; desc: string }[];
     report: { title: string; scoreLabel: string; level: string; nclc: string; criteria: [string, number][]; next: string; track: string };
-    disclaimer: string; cta: string;
+    disclaimer: string; cta: string; accessNote: string;
   };
   skills: {
     eyebrow: string; title: string; sub: string;
@@ -179,7 +179,8 @@ const en: LandingCopy = {
       next: 'Next milestone: CLB 9, 1 point to go', track: 'CLB',
     },
     disclaimer: 'Practice estimate. Official scores are awarded by certified examiners.',
-    cta: 'Try it during your free demo',
+    cta: 'Request demo access',
+    accessNote: 'Try the writing and speaking simulations before you buy. Contact the administrators: they will provide your demo access, with no purchase required beforehand.',
   },
   skills: {
     eyebrow: 'Complete preparation',
@@ -380,7 +381,8 @@ const fr: LandingCopy = {
       next: 'Prochain palier : NCLC 9, encore 1 point', track: 'NCLC',
     },
     disclaimer: 'Estimation d’entraînement. Le score officiel est attribué par des correcteurs habilités.',
-    cta: 'L’essayer pendant ma démo gratuite',
+    cta: 'Demander un accès démo',
+    accessNote: 'Testez les simulations d’expression écrite et orale avant d’acheter. Contactez les administrateurs : ils vous fourniront un accès démo, sans achat préalable.',
   },
   skills: {
     eyebrow: 'Préparation complète',

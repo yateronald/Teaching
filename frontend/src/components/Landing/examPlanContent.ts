@@ -42,6 +42,10 @@ export const PRICING_COPY = {
     creditNote: 'Les tests de compréhension écrite et orale sont inclus dans chaque forfait. Les crédits IA indiqués sont réservés aux entraînements interactifs d’expression écrite et orale, avec correction ou bilan personnalisé.',
     note: 'Ces forfaits concernent la préparation autonome. Pour des cours en direct avec un professeur, réservez une démo et recevez un programme personnalisé.',
     teacherCta: 'Découvrir les cours en direct',
+    demoTitle: 'Testez avant d’acheter.',
+    demoText: 'Contactez les administrateurs pour obtenir un accès de démonstration aux simulations, notamment en expression écrite et orale. Ils vous fourniront les accès au système, sans achat préalable.',
+    demoCta: 'Contacter les administrateurs',
+    demoRequestLabel: 'Demande d’accès démo — simulations d’expression écrite et orale, avant achat',
     imageAlt: 'Illustration d’une apprenante préparant son examen avec un cahier, un ordinateur et un casque audio.',
   },
   en: {
@@ -62,6 +66,10 @@ export const PRICING_COPY = {
     creditNote: 'Reading and listening practice tests are included in every plan. The AI credits shown apply to interactive writing and speaking practice, with corrections or personalised feedback.',
     note: 'These plans cover independent preparation. For live classes with a teacher, book a demo and receive a personal study plan.',
     teacherCta: 'Explore live classes',
+    demoTitle: 'Try before you buy.',
+    demoText: 'Contact the administrators to request demo access to the simulations, particularly writing and speaking. They will provide access to the system, with no purchase required beforehand.',
+    demoCta: 'Contact the administrators',
+    demoRequestLabel: 'Demo access request — writing and speaking simulations, before purchase',
     imageAlt: 'Illustration of a learner preparing for an exam with a notebook, laptop and headphones.',
   },
 };

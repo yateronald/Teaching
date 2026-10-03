@@ -28,7 +28,7 @@ assert.equal(formatPlanPrice(14.99, 'CAD', 'en'), 'CA$14.99');
 assert.equal(formatPlanPrice(10.99, 'USD', 'en'), 'US$10.99');
 assert.equal(formatPlanPrice(39500, 'CFA', 'en'), 'F CFA 39,500');
 for (const lang of ['en', 'fr']) {
-  for (const key of ['reading', 'listening', 'writing', 'speaking', 'readingDetail', 'listeningDetail', 'writingDetail', 'speakingDetail', 'includedShort', 'sequences', 'creditUnit', 'expand', 'collapse']) {
+  for (const key of ['reading', 'listening', 'writing', 'speaking', 'readingDetail', 'listeningDetail', 'writingDetail', 'speakingDetail', 'includedShort', 'sequences', 'creditUnit', 'expand', 'collapse', 'demoTitle', 'demoText', 'demoCta', 'demoRequestLabel']) {
     assert.ok(PRICING_COPY[lang][key]?.length > 0, `${lang}: missing ${key}`);
   }
 }
@@ -40,6 +40,12 @@ if (process.argv.includes('--built')) {
     const methodIndex = html.indexOf('id="method"');
     assert.ok(skillsIndex >= 0 && skillsIndex < pricingIndex && pricingIndex < methodIndex, `${lang}: incorrect section order`);
     const pricingHtml = html.slice(pricingIndex, methodIndex);
+    assert.ok(pricingHtml.includes(PRICING_COPY[lang].demoTitle), `${lang}: demo access information missing`);
+    assert.ok(pricingHtml.includes(PRICING_COPY[lang].demoText), `${lang}: administrators must provide demo access before purchase`);
+    assert.ok(pricingHtml.indexOf('class="lp-exam-demo"') < pricingHtml.indexOf('class="lp-pricing-grid"'), `${lang}: demo access must be explained before the paid plans`);
+    const demoHtml = pricingHtml.slice(pricingHtml.indexOf('class="lp-exam-demo"'), pricingHtml.indexOf('class="lp-pricing-toolbar"'));
+    assert.ok(demoHtml.includes(`<button type="button" class="lp-btn lp-btn-ghost">${PRICING_COPY[lang].demoCta}`), `${lang}: contacting administrators must use the exam request modal button`);
+    assert.ok(!html.includes('href="mailto:support@learnfrenchwithnatives.com?subject='), `${lang}: exam demo requests must not open an email draft`);
     assert.equal((pricingHtml.match(/class="lp-price-card/g) || []).length, 3);
     const cardHtml = pricingHtml.slice(pricingHtml.indexOf('class="lp-pricing-grid"'), pricingHtml.indexOf('class="lp-pricing-credit-note"'));
     assert.equal((cardHtml.match(/<details class="lp-price-details">/g) || []).length, 3, `${lang}: each plan must have closed details by default`);

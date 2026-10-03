@@ -29,6 +29,14 @@ export default function ExamPricing({ lang, onRequest, onDemo }: Props) {
           </figure>
         </div>
 
+        <aside className="lp-exam-demo" aria-labelledby="lp-exam-demo-title" data-reveal>
+          <div>
+            <h3 id="lp-exam-demo-title">{c.demoTitle}</h3>
+            <p>{c.demoText}</p>
+          </div>
+          <button type="button" className="lp-btn lp-btn-ghost" onClick={() => onRequest(c.demoRequestLabel)}>{c.demoCta}<ArrowRightOutlined /></button>
+        </aside>
+
         <div className="lp-pricing-toolbar" data-reveal>
           <p>{c.currency}</p>
           <div className="lp-currency" role="group" aria-label={c.currency}>
