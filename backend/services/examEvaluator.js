@@ -772,5 +772,7 @@ function legacyCriteria(report) {
 module.exports = {
   isConfigured, evaluateTask, buildReport, legacyFeedback, legacyCriteria,
   analyzeWav, wordCount, copyRatio, locate,
-  CRITERIA, EO_TASKS, EE_TASKS, SCORING_VERSION, TEXT_MODEL: ai.modelsFor('text')[0],
+  CRITERIA, EO_TASKS, EE_TASKS, SCORING_VERSION,
 };
+// The newest text model of the engine in use (the administrator may switch engines while the server runs).
+Object.defineProperty(module.exports, 'TEXT_MODEL', { enumerable: true, get: () => ai.modelsFor('text')[0] });

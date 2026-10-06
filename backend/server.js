@@ -193,6 +193,8 @@ app.use('/api/resources', resourceRoutes);
 app.use('/api/schedules', scheduleRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
+// Which AI engine the platform uses: Gemini Developer API or Google Cloud Vertex AI
+app.use('/api/admin/ai-engine', require('./routes/aiEngine'));
 app.use('/api/demo-requests', demoRequestRoutes);
 
 app.use('/api/notifications', require('./routes/notifications'));
@@ -287,6 +289,9 @@ app.use((req, res) => {
 // --- Socket.IO: authenticated real-time layer for live classes ---
 // (JWT on every connection, server-side permissions; see services/meetingRealtime.js)
 require('./services/meetingRealtime').attachMeetingRealtime(io, database);
+
+// --- Oral-exam examiner relay (Vertex AI engine): single-use tickets, see services/liveRelay.js ---
+require('./services/liveRelay').attach(server, { isOriginAllowed });
 
 // --- Quiz Auto-Reconciliation (auto-submit + auto-grade) ---
 const AUTO_RECONCILE_INTERVAL_MS = 60 * 1000; // 1 minute
@@ -474,6 +479,9 @@ async function reconcileOverdueQuizzes(db) {
 async function startServer() {
     try {
         await database.initialize();
+
+        // The AI engine chosen by the administrator (Gemini Developer API by default)
+        await require('./services/aiEngineChoice').init(database);
 
         const attendanceService = new AttendanceService(database);
         

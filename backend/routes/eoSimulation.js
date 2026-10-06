@@ -9,14 +9,16 @@ const { checkExamAccess, hasAnyActiveAssignmentForCategory } = require('../servi
 const evaluator = require('../services/examEvaluator');
 const { hasColumn } = require('../services/schemaFeatures');
 const examinerService = require('../services/eoExaminer');
+const { relayUrlFor } = require('../services/liveRelay');
 const { examinerFor } = examinerService;
 
 // ============================================================
 // EXPRESSION ORALE — TCF Canada simulation
 //
 // The browser talks to the AI examiner over Gemini Live, but never sees the API
-// key: for every task it receives a single-use ephemeral token whose model,
-// voice and examiner instructions are locked here, on the server.
+// key: for every task it receives a single-use credential whose model, voice and
+// examiner instructions are locked here, on the server — an ephemeral token on
+// the Developer API, a ticket for this server's relay on Vertex AI (liveRelay.js).
 // The candidate's microphone is recorded (WAV, 16 kHz mono) and uploaded after
 // each task to a private folder outside /uploads; the recordings are used for
 // the evaluation only, then deleted.
@@ -131,7 +133,7 @@ async function loadT1Points(db, tacheId) {
 // GET /eo-simulation/config — kept for older clients; no secret in it anymore.
 // ============================================================
 router.get('/config', (req, res) => {
-  res.json({ liveModel: examinerService.LIVE_MODEL, firstName: req.user.first_name, studentName: `${req.user.first_name} ${req.user.last_name}` });
+  res.json({ liveModel: examinerService.liveModels()[0], firstName: req.user.first_name, studentName: `${req.user.first_name} ${req.user.last_name}` });
 });
 
 // ============================================================
@@ -223,13 +225,17 @@ router.post('/:id/live-token', async (req, res) => {
     const instructions = examinerService.examinerInstructions(n, { firstName: req.user.first_name, examiner, sujet: safeSujet, points });
     // `attempt` picks the model, newest first: the browser moves to the next one when a model
     // refuses the session (older clients send `fallback: true` for the second one).
-    const models = examinerService.LIVE_MODELS;
+    const models = examinerService.liveModels();
     const asked = Number.isInteger(req.body?.attempt) ? req.body.attempt : (req.body?.fallback ? 1 : 0);
     const attempt = Math.max(0, Math.min(models.length - 1, asked));
     const model = models[attempt];
-    const token = await examinerService.createLiveToken({ model, voice: examiner.voice, instructions, silenceMs: examinerService.SILENCE_MS[n] });
+    // Developer API: an ephemeral token for Google's endpoint. Vertex AI: a ticket for this server's relay.
+    const { token, wsUrl } = await examinerService.openSession(
+      { model, voice: examiner.voice, instructions, silenceMs: examinerService.SILENCE_MS[n] },
+      { userId: req.user.id, relayUrl: relayUrlFor(req) },
+    );
     // The end-of-task tool cannot be locked into the token; the client declares it in its setup.
-    res.json({ token, model, attempt, models: models.length, wsUrl: examinerService.WS_URL, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK });
+    res.json({ token, model, attempt, models: models.length, wsUrl, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK });
   } catch (error) {
     console.error('POST /eo-simulation/:id/live-token error:', error.message);
     res.status(502).json({ error: 'La connexion avec l’examinateur n’a pas pu être préparée.' });

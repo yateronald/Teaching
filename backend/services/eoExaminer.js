@@ -1,19 +1,21 @@
 // ============================================================
 // The AI examiner of the TCF Canada oral test (Gemini Live).
 //
-// Instructions and voice are built here and locked into a single-use ephemeral
-// token, so the browser can neither read the API key nor change what the
-// examiner says or does. The examiner only runs the current task: moving on is the
+// Instructions and voice are built here and locked on the server, so the
+// browser can neither read the API key nor change what the examiner says or
+// does. On the Developer API they are locked into a single-use ephemeral token;
+// on Vertex AI (no ephemeral tokens) into a single-use ticket for the server's
+// relay (liveRelay.js). The examiner only runs the current task: moving on is the
 // platform's job. When the candidate confirms they have finished early, the
 // examiner closes in one sentence and calls `terminer_tache`; the client then
 // moves to the next task itself.
 // ============================================================
 const { GoogleGenAI, Modality } = require('@google/genai');
-const { API_KEYS, modelsFor, keyOrder } = require('./aiModels');
+const ai = require('./aiModels');
+const liveRelay = require('./liveRelay');
 
-// Newest first. The browser asks for the next one when a model refuses the session.
-const LIVE_MODELS = modelsFor('live');
-const LIVE_MODEL = LIVE_MODELS[0];
+// Newest first, on the engine in use. The browser asks for the next one when a model refuses the session.
+const liveModels = () => ai.modelsFor('live');
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained';
 const END_TASK = 'terminer_tache';
 
@@ -126,41 +128,45 @@ const END_TASK_TOOL = {
   }],
 };
 
-async function createLiveToken({ model, voice, instructions, silenceMs }) {
-  if (!API_KEYS.length) throw Object.assign(new Error('GEMINI_API_KEY is not configured'), { status: 503 });
+/** The examiner's session, the same on both engines. */
+function sessionConfig({ model, voice, instructions, silenceMs }) {
+  return {
+    responseModalities: [Modality.AUDIO],
+    // Reasoning Live models refuse a session without a thinking level;
+    // low keeps the examiner's replies quick.
+    ...(/thinking/.test(model) ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}),
+    speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+    systemInstruction: { parts: [{ text: instructions }] },
+    inputAudioTranscription: {},
+    outputAudioTranscription: {},
+    realtimeInputConfig: {
+      automaticActivityDetection: {
+        startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
+        endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
+        prefixPaddingMs: 200,
+        silenceDurationMs: silenceMs,
+      },
+      activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
+    },
+  };
+}
+
+/** Developer API: a single-use ephemeral token with the session locked in. */
+async function createLiveToken(session) {
+  const { keys } = ai.getEngine('developer');
+  if (!keys.length) throw Object.assign(new Error('GEMINI_API_KEY is not configured'), { status: 503 });
   let lastErr;
   // A different key first each time: live sessions are spread over all the projects.
-  for (const k of keyOrder()) {
+  for (const k of ai.keyOrder('developer')) {
     try {
-      const ai = new GoogleGenAI({ apiKey: API_KEYS[k], httpOptions: { apiVersion: 'v1alpha' } });
+      const client = new GoogleGenAI({ apiKey: keys[k], httpOptions: { apiVersion: 'v1alpha' } });
       const now = Date.now();
-      const token = await ai.authTokens.create({
+      const token = await client.authTokens.create({
         config: {
           uses: 1,
           expireTime: new Date(now + 20 * 60e3).toISOString(),
           newSessionExpireTime: new Date(now + 2 * 60e3).toISOString(),
-          liveConnectConstraints: {
-            model,
-            config: {
-              responseModalities: [Modality.AUDIO],
-              // Reasoning Live models refuse a session without a thinking level;
-              // low keeps the examiner's replies quick.
-              ...(/thinking/.test(model) ? { thinkingConfig: { thinkingLevel: 'LOW' } } : {}),
-              speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
-              systemInstruction: { parts: [{ text: instructions }] },
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-              realtimeInputConfig: {
-                automaticActivityDetection: {
-                  startOfSpeechSensitivity: 'START_SENSITIVITY_LOW',
-                  endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
-                  prefixPaddingMs: 200,
-                  silenceDurationMs: silenceMs,
-                },
-                activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
-              },
-            },
-          },
+          liveConnectConstraints: { model: session.model, config: sessionConfig(session) },
           lockAdditionalFields: [],
         },
       });
@@ -172,4 +178,41 @@ async function createLiveToken({ model, voice, instructions, silenceMs }) {
   throw lastErr;
 }
 
-module.exports = { LIVE_MODEL, LIVE_MODELS, WS_URL, END_TASK, END_TASK_TOOL, SILENCE_MS, examinerFor, examinerInstructions, createLiveToken };
+/** Vertex AI: the setup message the relay sends upstream (raw Live protocol, end-of-task tool included). */
+function vertexSetup(session) {
+  const c = sessionConfig(session);
+  return {
+    setup: {
+      model: ai.getEngine('vertex').liveModel(session.model),
+      generationConfig: {
+        responseModalities: c.responseModalities,
+        speechConfig: c.speechConfig,
+        ...(c.thinkingConfig ? { thinkingConfig: c.thinkingConfig } : {}),
+      },
+      systemInstruction: c.systemInstruction,
+      tools: [END_TASK_TOOL],
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      realtimeInputConfig: c.realtimeInputConfig,
+    },
+  };
+}
+
+/**
+ * Everything the browser needs to open one examiner session on the engine in
+ * use: `{ token, wsUrl }`. `relayUrl` is this server's public relay address.
+ */
+async function openSession(session, { userId, relayUrl }) {
+  if (ai.activeEngine() === 'vertex') {
+    const vertex = ai.getEngine('vertex');
+    if (!vertex.liveReady) throw Object.assign(new Error('Vertex AI Live is not configured'), { status: 503 });
+    const token = liveRelay.issueTicket({ userId, setup: vertexSetup(session), upstream: vertex.liveUpstream() });
+    return { token, wsUrl: relayUrl };
+  }
+  return { token: await createLiveToken(session), wsUrl: WS_URL };
+}
+
+module.exports = {
+  liveModels, WS_URL, END_TASK, END_TASK_TOOL, SILENCE_MS,
+  examinerFor, examinerInstructions, sessionConfig, createLiveToken, vertexSetup, openSession,
+};

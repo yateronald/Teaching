@@ -6,12 +6,16 @@ const ai = require('./aiModels');
 
 class AIQuizService {
     constructor() {
-        this.models = ai.modelsFor('text');
         if (ai.isConfigured()) {
-            console.log(`🤖 AI Quiz Service initialized (models: ${this.models.join(' → ')}, keys available: ${ai.API_KEYS.length})`);
+            console.log(`🤖 AI Quiz Service initialized (engine: ${ai.activeEngine()}, models: ${ai.modelsFor('text').join(' → ')})`);
         } else {
-            console.warn('⚠️  AI Quiz Service: GEMINI_API_KEY not set — AI quiz generation disabled');
+            console.warn('⚠️  AI Quiz Service: the AI engine is not configured — AI quiz generation disabled');
         }
+    }
+
+    /** The text models of the engine in use, newest first. */
+    get models() {
+        return ai.modelsFor('text');
     }
 
     get isConfigured() {
@@ -147,7 +151,7 @@ RULES:
 
         try {
             // Newest model first; the other key, then the previous models when it is busy (aiModels.js).
-            const { result, model } = await ai.withFallback('text', async (client, model) => {
+            const { result, model, engine } = await ai.withFallback('text', async (client, model) => {
                 const response = await client.models.generateContent({
                     model,
                     contents: dynamicPrompt,
@@ -172,7 +176,7 @@ RULES:
                     totalQuestions, singleChoiceCount, multipleChoiceCount, yesNoCount, totalPoints
                 });
             }, { label: 'AI quiz' });
-            console.log(`✅ AI Quiz: Generated ${result.questions.length} questions successfully via ${model}`);
+            console.log(`✅ AI Quiz: Generated ${result.questions.length} questions successfully via ${model} (${engine})`);
             return result;
         } catch (error) {
             const status = ai.statusOf(error);

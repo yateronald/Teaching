@@ -21,14 +21,35 @@ const VOICE_OPTIONS = [
     { name: 'Zephyr', label: 'Zephyr — Light, airy', gender: 'female' },
 ];
 
+/**
+ * Raw 16-bit PCM from a speech answer. Most models send bare PCM; some (the 3.8
+ * TTS models on Vertex AI) send a whole WAV file, whose header is dropped here
+ * so it is not played as a click once our own header is added.
+ */
+function pcmFrom(base64) {
+    const buf = Buffer.from(base64, 'base64');
+    if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return buf;
+    let off = 12;
+    while (off + 8 <= buf.length) {
+        const id = buf.toString('ascii', off, off + 4);
+        const len = buf.readUInt32LE(off + 4);
+        if (id === 'data') return buf.subarray(off + 8, Math.min(buf.length, off + 8 + len));
+        off += 8 + len + (len % 2);
+    }
+    return buf.subarray(44);
+}
+
 class TTSService {
     constructor() {
-        this.models = ai.modelsFor('tts');
         if (ai.isConfigured()) {
-            console.log(`🎙️ TTS Service initialized (models: ${this.models.join(' → ')}, keys available: ${ai.API_KEYS.length})`);
+            console.log(`🎙️ TTS Service initialized (engine: ${ai.activeEngine()}, models: ${ai.modelsFor('tts').join(' → ')})`);
         } else {
-            console.warn('⚠️  TTS Service: GEMINI_API_KEY not set — TTS disabled');
+            console.warn('⚠️  TTS Service: the AI engine is not configured — TTS disabled');
         }
+    }
+
+    get models() {
+        return ai.modelsFor('tts');
     }
 
     get isConfigured() {
@@ -55,25 +76,8 @@ class TTSService {
         console.log(`🎙️ TTS: Generating audio for ${transcript.length} chars with voice "${voiceName}"...`);
 
         try {
-            // Newest model first; the other key, then the previous models when it is busy (aiModels.js).
-            const { result: pcmBuffer, model } = await ai.withFallback('tts', async (client, model) => {
-                const response = await client.models.generateContent({
-                    model,
-                    contents: [{ parts: [{ text: transcript }] }],
-                    config: {
-                        responseModalities: ['AUDIO'],
-                        speechConfig: {
-                            voiceConfig: {
-                                prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' },
-                            },
-                        },
-                    },
-                });
-                const audioData = (response.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data)?.inlineData.data;
-                if (!audioData) throw ai.badAnswer('No audio data in TTS response');
-                return Buffer.from(audioData, 'base64');
-            }, { label: 'TTS' });
-            console.log(`✅ TTS: Generated ${pcmBuffer.length} bytes of PCM audio via ${model}`);
+            const { pcm: pcmBuffer, model, engine } = await this.synthesize(transcript, voiceName);
+            console.log(`✅ TTS: Generated ${pcmBuffer.length} bytes of PCM audio via ${model} (${engine})`);
             return pcmBuffer;
         } catch (error) {
             const status = ai.statusOf(error);
@@ -82,6 +86,33 @@ class TTSService {
             if (status === 400) throw new Error('The text could not be converted to speech. Check the transcript and the voice.');
             throw new Error('The voice service is busy right now. Please try again in a minute.');
         }
+    }
+
+    // --------------------------------------------------------
+    // The speech request itself, with the model's own errors (the admin
+    // engine test uses it on either engine). Returns { pcm, model, engine }.
+    // --------------------------------------------------------
+    async synthesize(transcript, voiceName = 'Kore', { engine, onFailure } = {}) {
+        // Newest model first; the other key, then the previous models when it is busy (aiModels.js).
+        const { result: pcm, model, engine: used } = await ai.withFallback('tts', async (client, model) => {
+            const response = await client.models.generateContent({
+                model,
+                // The role is required by Vertex AI and accepted by the Developer API.
+                contents: [{ role: 'user', parts: [{ text: transcript }] }],
+                config: {
+                    responseModalities: ['AUDIO'],
+                    speechConfig: {
+                        voiceConfig: {
+                            prebuiltVoiceConfig: { voiceName: voiceName || 'Kore' },
+                        },
+                    },
+                },
+            });
+            const audioData = (response.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data)?.inlineData.data;
+            if (!audioData) throw ai.badAnswer('No audio data in TTS response');
+            return pcmFrom(audioData);
+        }, { label: 'TTS', engine, onFailure });
+        return { pcm, model, engine: used };
     }
 
     // --------------------------------------------------------

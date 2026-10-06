@@ -33,6 +33,7 @@ import {
     ThunderboltOutlined,
     ApartmentOutlined,
     GlobalOutlined,
+    RobotOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -111,6 +112,7 @@ const NAV: Record<Role, NavGroup[]> = {
             label: 'System',
             items: [
                 { key: '/app/monitoring', icon: <LineChartOutlined />, label: 'Monitoring', needs: 'monitoring' },
+                { key: '/app/ai-engine', icon: <RobotOutlined />, label: 'AI engine' },
                 { key: '/app/settings', icon: <SettingOutlined />, label: 'Settings' },
             ],
         },
@@ -235,6 +237,7 @@ const TITLES: Record<string, string> = {
     '/timetable': 'Teacher Timetable',
     '/attendance': 'Attendance',
     '/settings': 'Settings',
+    '/ai-engine': 'AI engine',
     '/monitoring': 'Website Monitoring',
     '/admin-resources': 'Resources',
     '/exam-preparation': 'Exam Preparation',

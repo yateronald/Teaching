@@ -44,6 +44,7 @@ const Profile = lazy(() => import('./components/Common/Profile'));
 const BatchInsightsAdmin = lazy(() => import('./components/Admin/BatchInsightsAdmin'));
 const AdminTimetable = lazy(() => import('./components/Admin/AdminTimetable'));
 const AdminSettings = lazy(() => import('./components/Admin/AdminSettings'));
+const AdminAIEngine = lazy(() => import('./components/Admin/AdminAIEngine'));
 const AdminResources = lazy(() => import('./components/Admin/AdminResources'));
 const ExamPreparation = lazy(() => import('./components/Admin/ExamPreparation'));
 const MeetingList = lazy(() => import('./components/Meeting/MeetingList'));
@@ -162,6 +163,11 @@ export function SiteRoutes() {
                 <Route path="settings" element={
                   <ProtectedRoute requiredRole="admin">
                     <AdminSettings />
+                  </ProtectedRoute>
+                } />
+                <Route path="ai-engine" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AdminAIEngine />
                   </ProtectedRoute>
                 } />
                 <Route path="admin-resources" element={
