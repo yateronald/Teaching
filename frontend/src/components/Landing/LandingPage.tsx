@@ -26,8 +26,8 @@ import dashboard800 from '../../assets/landing/platform-dashboard-800.webp';
 import dashboard1400 from '../../assets/landing/platform-dashboard-1400.webp';
 import video1Poster from '../../assets/landing/video1-poster.webp';
 import video2Poster from '../../assets/landing/video2-poster.webp';
-import lesson720 from '../../assets/landing/french-study-hero-v2-720.webp';
-import lesson1200 from '../../assets/landing/french-study-hero-v2-1200.webp';
+import lesson720 from '../../assets/landing/french-study-hero-indian-v4-720.webp';
+import lesson1200 from '../../assets/landing/french-study-hero-indian-v4-1200.webp';
 
 // ============================================================
 // Public landing page (/, /fr/). Pre-rendered at build time: every section is

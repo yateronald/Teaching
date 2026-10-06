@@ -53,7 +53,7 @@ if (process.argv.includes('--built')) {
     for (const key of ['reading', 'listening', 'writing', 'speaking', 'includedShort', 'sequences', 'creditUnit']) {
       assert.equal(cardHtml.split(PRICING_COPY[lang][key]).length - 1, 6, `${lang}: ${key} must be preserved in every plan`);
     }
-    assert.ok(html.includes('french-study-hero-v2-'), `${lang}: new hero missing`);
+    assert.ok(html.includes('french-study-hero-indian-v4-'), `${lang}: corrected Indian learner hero missing`);
     console.log(`${lang}: all four skills in each pricing card, correct section order and new hero pre-rendered.`);
   }
 }
