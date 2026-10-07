@@ -1,8 +1,12 @@
 // Audio for the oral exam: one ExamAudio per simulation (microphone, recording,
-// playback), one LiveExaminer per task connection (Gemini Live over an
-// ephemeral token issued by our backend — the API key never reaches the browser).
+// playback), one LiveExaminer per task connection (Gemini Live over a
+// single-use credential issued by our backend — the API key never reaches the
+// browser). The exchange is kept robust by: a steady audio stream (one frame
+// every 80 ms, always), a playback buffer against late chunks, a microphone
+// guarded against the examiner's own voice for its whole turn, and safety nets
+// for a stalled microphone, a lost end of turn and an unanswered candidate.
 import type { DialogueTurn } from './examModel';
-import { NoiseGate, VoiceDetector, type RoomReport } from './voiceDetector';
+import { FRAME_MS, NoiseGate, VoiceDetector, type RoomReport } from './voiceDetector';
 
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
@@ -41,7 +45,19 @@ registerProcessor('xs-downsampler', XsDownsampler);
 type FrameListener = (pcm: Int16Array, rms: number, voiced: boolean) => void;
 
 /** Frames above the barge-in level needed before the candidate counts as talking over the examiner. */
-const BARGE_IN_FRAMES = 3; // 240 ms
+const BARGE_IN_FRAMES = 4; // 320 ms
+/**
+ * The examiner's voice reaches the browser in chunks, sometimes faster than it
+ * plays, sometimes late (measured: up to 0.3 s behind on the Developer API).
+ * The first chunk of a turn waits this long so the next ones arrive in time;
+ * after a cut, the wait grows (up to MAX_BUFFER) for the rest of the exam.
+ */
+const START_BUFFER = 0.25;
+const MAX_BUFFER = 0.6;
+/** After the examiner's last sound, the room still echoes it: the microphone stays guarded this long. */
+const ECHO_TAIL = 0.35;
+/** To talk over the examiner, the candidate must be this much louder than the examiner's echo (≈ +5 dB). */
+const ECHO_MARGIN = 1.8;
 
 export class ExamAudio {
   ctx: AudioContext | null = null;
@@ -55,6 +71,15 @@ export class ExamAudio {
   private playing = new Set<AudioBufferSourceNode>();
   private playhead = 0;
   private loudFrames = 0;
+  private buffer = START_BUFFER;
+  /** Something of the current examiner turn has been scheduled: a chunk finding nothing queued is a cut. */
+  private turnStarted = false;
+  /** How loud the examiner's voice comes back through the microphone (decays between turns). */
+  private echoLevel = 0;
+  /** Set by LiveExaminer while the examiner holds the floor, from its first sound to the end of its turn. */
+  examinerTurn = false;
+  /** Cuts in the examiner's voice so far (each one made the buffer longer). */
+  underruns = 0;
   level = 0;
   /** Learns the room and the candidate's voice; calibrated by the device check. */
   readonly detector = new VoiceDetector();
@@ -65,6 +90,9 @@ export class ExamAudio {
     const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new Ctx();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
+    // The browser may pause the audio (another app takes the sound, a headset is
+    // plugged in): take it back at once, or the examiner would stop hearing the candidate.
+    this.ctx.onstatechange = () => this.resume();
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     });
@@ -79,15 +107,24 @@ export class ExamAudio {
       this.level = rms;
       let voiced: boolean;
       let examinerOnly = false;
-      if (this.speaking) {
-        // The examiner is speaking: the microphone may hear them through the
-        // speakers. Only a sustained voice close to the candidate's own level
-        // counts as the candidate talking over them; the room and the echo do
-        // not teach the detector anything.
-        this.loudFrames = rms >= this.detector.bargeInLevel ? this.loudFrames + 1 : 0;
+      if (this.guarded) {
+        // The examiner holds the floor: the microphone may hear them through the
+        // speakers, including in the short gaps between their chunks and in the
+        // room's echo after their last word. Only a sustained voice close to the
+        // candidate's own level, and clearly above that echo, counts as the
+        // candidate talking over them; the room and the echo do not teach the
+        // detector anything.
+        const threshold = Math.max(this.detector.bargeInLevel, this.echoLevel * ECHO_MARGIN);
+        if (rms >= threshold) {
+          this.loudFrames++;
+        } else {
+          this.loudFrames = 0;
+          this.echoLevel = Math.max(rms, this.echoLevel * 0.97);
+        }
         voiced = this.loudFrames >= BARGE_IN_FRAMES;
         examinerOnly = !voiced;
       } else {
+        this.echoLevel *= 0.9;
         this.loudFrames = 0;
         voiced = this.detector.push(rms, peak);
       }
@@ -160,10 +197,20 @@ export class ExamAudio {
     return encodeWav(chunks, INPUT_RATE);
   }
 
-  get speaking() { return this.playing.size > 0; }
+  /** The examiner's voice is audible (queued audio, then the room's echo for a moment). */
+  get speaking() {
+    const ctx = this.ctx;
+    // A paused audio context plays nothing (and its clock stands still).
+    if (!ctx || ctx.state !== 'running') return false;
+    return ctx.currentTime < this.playhead + ECHO_TAIL;
+  }
+
+  /** The microphone is guarded against the examiner's voice: while it is audible, and for its whole turn. */
+  get guarded() { return this.speaking || this.examinerTurn; }
 
   play(pcm: Uint8Array) {
     if (!this.ctx || !this.out) return;
+    if (this.ctx.state !== 'running') this.ctx.resume().catch(() => {});
     const view = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength);
     const samples = new Float32Array(pcm.byteLength / 2);
     for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
@@ -173,17 +220,39 @@ export class ExamAudio {
     src.buffer = buffer;
     src.connect(this.out);
     const now = this.ctx.currentTime;
-    const at = Math.max(now + 0.04, this.playhead);
+    let at = this.playhead;
+    if (at < now + 0.02) {
+      // Nothing queued: either a new turn starts, or the voice fell behind (a
+      // cut). Either way, let a little audio build up before playing again;
+      // after a cut, a little more for the rest of the exam.
+      if (this.turnStarted) {
+        this.underruns++;
+        this.buffer = Math.min(MAX_BUFFER, this.buffer + 0.1);
+      }
+      at = now + this.buffer;
+    }
+    this.turnStarted = true;
     src.start(at);
     this.playhead = at + buffer.duration;
     this.playing.add(src);
     src.onended = () => this.playing.delete(src);
   }
 
+  /** The examiner's turn is over: the next chunk starts a new turn (not a cut). */
+  endTurn() {
+    this.turnStarted = false;
+  }
+
   stopPlayback() {
     this.playing.forEach(s => { try { s.stop(); } catch { /* already stopped */ } });
     this.playing.clear();
     this.playhead = 0;
+    this.turnStarted = false;
+  }
+
+  /** Brings the audio back after the browser paused it (device change, phone call, tab in the background). */
+  resume() {
+    if (this.ctx && this.ctx.state !== 'running' && this.ctx.state !== 'closed') this.ctx.resume().catch(() => {});
   }
 
   /** A short two-note chime to check the speakers. */
@@ -262,9 +331,30 @@ export interface LiveCallbacks {
   /** The examiner called the end-of-task tool: the candidate confirmed they have finished. */
   onEndRequested?: (reason: string) => void;
   onClose?: (unexpected: boolean, reason: string) => void;
+  /** The microphone stopped (true) or started again (false) delivering sound. */
+  onMicStall?: (stalled: boolean) => void;
 }
 
-export interface LiveTools { tools?: unknown[]; endTool?: string }
+/**
+ * `silenceMs`: the silence after which the server ends the candidate's turn (set with the session).
+ * `askRepeat`: an unanswered utterance makes the examiner ask the candidate to repeat (dialogue tasks;
+ * not in a monologue, where a long pause is the candidate thinking).
+ */
+export interface LiveTools { tools?: unknown[]; endTool?: string; silenceMs?: number; askRepeat?: boolean }
+
+// ── Safety nets of the exchange (measured on both engines, see EOExam) ──
+/** No microphone frame for this long: the stream is kept going with silence, and the audio woken up. */
+const STALL_MS = 400;
+/** The examiner's turn is taken as over when nothing of it has come for this long and nothing plays. */
+const STUCK_TURN_MS = 6000;
+/** A candidate utterance at least this long that the examiner leaves unanswered… */
+const UTTERANCE_MS = 800;
+/** …is handed over to the examiner (end of the audio stream) this long after the server's own end-of-turn silence… */
+const FLUSH_AFTER_MS = 2500;
+/** …and, still unanswered after this long, the examiner asks the candidate to repeat. */
+const REPEAT_AFTER_MS = 9000;
+/** Cue for that last case (cf. backend/services/eoExaminer.js). */
+export const INAUDIBLE_CUE = '[INAUDIBLE]';
 
 /** One Gemini Live connection for one task. */
 export class LiveExaminer {
@@ -275,7 +365,20 @@ export class LiveExaminer {
   private turnDone = false;
   private held = false;
   private drainTimer: number | null = null;
+  private watchTimer: number | null = null;
   private gate = new NoiseGate();
+  private silenceMs = 1500;
+  private askRepeat = true;
+  private lastSentAt = 0;
+  private lastExaminerAt = 0;
+  /** The candidate's voice since the examiner last spoke, and when it was last heard. */
+  private utteranceMs = 0;
+  private voiceAt = 0;
+  private flushed = false;
+  private reprompted = false;
+  private stalled = false;
+  /** When the platform last sent the examiner a cue (EOExam spaces its own cues from it). */
+  lastCueAt = 0;
   turns: DialogueTurn[] = [];
   private audio: ExamAudio;
   private cb: LiveCallbacks;
@@ -289,6 +392,8 @@ export class LiveExaminer {
 
   connect(token: string, wsUrl: string, model: string, options: LiveTools = {}): Promise<void> {
     this.endTool = options.endTool || '';
+    if (options.silenceMs) this.silenceMs = options.silenceMs;
+    this.askRepeat = options.askRepeat !== false;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${wsUrl}?access_token=${encodeURIComponent(token)}`);
       ws.binaryType = 'arraybuffer';
@@ -303,7 +408,9 @@ export class LiveExaminer {
           settled = true;
           window.clearTimeout(timeout);
           this.ws = ws;
+          this.lastSentAt = Date.now();
           this.unsubscribe = this.audio.onFrame((pcm, _rms, voiced) => this.forward(pcm, voiced));
+          this.watchTimer = window.setInterval(() => this.watch(), 100);
           resolve();
           return;
         }
@@ -321,7 +428,9 @@ export class LiveExaminer {
 
   /** System messages (e.g. [DÉBUT], [SILENCE]) — the examiner is told they never come from the candidate. */
   sendText(text: string) {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ realtimeInput: { text } }));
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ realtimeInput: { text } }));
+    this.lastCueAt = Date.now();
   }
 
   /**
@@ -349,22 +458,86 @@ export class LiveExaminer {
     this.unsubscribe?.();
     this.unsubscribe = null;
     if (this.drainTimer) { window.clearInterval(this.drainTimer); this.drainTimer = null; }
+    if (this.watchTimer) { window.clearInterval(this.watchTimer); this.watchTimer = null; }
     if (this.speaking) { this.speaking = false; this.cb.onExaminerSpeaking?.(false); }
+    this.audio.examinerTurn = false;
+    if (this.stalled) { this.stalled = false; this.cb.onMicStall?.(false); }
     this.ws = null;
   }
 
+  /**
+   * One frame goes out for every frame of the microphone, always: the
+   * examiner's end-of-turn detection needs a steady stream. (Measured on both
+   * engines: when the stream stops after the candidate's question, the examiner
+   * never answers; as soon as silence flows again, it does.)
+   */
   private forward(pcm: Int16Array, voiced: boolean) {
     const ws = this.ws;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const t = Date.now();
+    this.lastSentAt = t;
+    if (this.stalled) { this.stalled = false; this.cb.onMicStall?.(false); }
     if (this.held) { this.sendAudio(ws, new Int16Array(pcm.length)); return; }
-    // While the examiner speaks, only the candidate talking over them goes
-    // through (ExamAudio decides: sustained, close to their own voice level), so
-    // the echo of the examiner's voice never cuts them off.
-    if ((this.speaking || this.audio.speaking) && !voiced) { this.gate = new NoiseGate(); return; }
+    // While the examiner holds the floor, only the candidate talking over them
+    // goes through (ExamAudio decides: sustained, close to their own voice, above
+    // the echo); everything else is silence, so the examiner's own voice coming
+    // back through the microphone never cuts them off.
+    if ((this.speaking || this.audio.guarded) && !voiced) {
+      this.gate = new NoiseGate();
+      this.sendAudio(ws, new Int16Array(pcm.length));
+      return;
+    }
     // Otherwise the room between the candidate's words is sent as silence: the
     // examiner hears a clean pause and answers on time, even in a noisy room.
-    const frame = this.gate.push(pcm, voiced);
-    if (frame) this.sendAudio(ws, frame);
+    const frame = this.gate.push(pcm, voiced) || new Int16Array(pcm.length);
+    if (voiced) {
+      if (!this.utteranceMs) { this.flushed = false; this.reprompted = false; }
+      this.utteranceMs += FRAME_MS;
+      this.voiceAt = t;
+    }
+    this.sendAudio(ws, frame);
+  }
+
+  /** Every 100 ms: the safety nets that keep the exchange going. */
+  private watch() {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const t = Date.now();
+
+    // The microphone stopped delivering frames (audio paused by the browser,
+    // device unplugged): silence keeps the stream going, so the examiner still
+    // hears the end of the candidate's turn, and the audio is woken up.
+    const gap = t - this.lastSentAt;
+    if (gap > STALL_MS) {
+      const missing = Math.min(12, Math.floor(gap / FRAME_MS));
+      for (let i = 0; i < missing; i++) this.sendAudio(ws, new Int16Array(FRAME));
+      this.lastSentAt = t;
+      this.audio.resume();
+      if (!this.stalled) { this.stalled = true; this.cb.onMicStall?.(true); }
+    }
+
+    // A turn of the examiner whose end never came (a lost message): the
+    // candidate gets the floor back instead of being muted for good.
+    if (this.speaking && !this.turnDone && !this.audio.speaking && t - this.lastExaminerAt > STUCK_TURN_MS) {
+      this.turnDone = true;
+      this.audio.endTurn();
+      this.waitForDrain();
+    }
+
+    // The candidate spoke, then stopped, and the examiner has not answered:
+    // first the end of their turn is handed over explicitly (the server answers
+    // within seconds), then the examiner asks them to repeat.
+    if (this.utteranceMs >= UTTERANCE_MS && !this.speaking && !this.audio.guarded && !this.held) {
+      const quiet = t - this.voiceAt;
+      if (!this.flushed && quiet > this.silenceMs + FLUSH_AFTER_MS) {
+        this.flushed = true;
+        ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); // the next frame opens the stream again
+      }
+      if (this.askRepeat && !this.reprompted && quiet > REPEAT_AFTER_MS) {
+        this.reprompted = true;
+        this.sendText(INAUDIBLE_CUE);
+      }
+    }
   }
 
   private sendAudio(ws: WebSocket, frame: Int16Array) {
@@ -397,6 +570,9 @@ export class LiveExaminer {
     if (sc.outputTranscription?.text) this.append('examiner', sc.outputTranscription.text);
     (sc.modelTurn?.parts || []).forEach(p => {
       if (p.inlineData?.data) {
+        // The examiner answers: what the candidate said has been heard.
+        this.lastExaminerAt = Date.now();
+        this.utteranceMs = 0;
         this.turnDone = false;
         this.setSpeaking(true);
         this.audio.play(fromBase64(p.inlineData.data));
@@ -404,11 +580,13 @@ export class LiveExaminer {
     });
     if (sc.turnComplete) {
       this.turnDone = true;
+      this.audio.endTurn();
       this.waitForDrain();
     }
   }
 
   private setSpeaking(on: boolean) {
+    this.audio.examinerTurn = on;
     if (this.speaking === on) return;
     this.speaking = on;
     this.cb.onExaminerSpeaking?.(on);

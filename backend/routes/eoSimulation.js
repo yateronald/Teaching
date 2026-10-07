@@ -235,7 +235,11 @@ router.post('/:id/live-token', async (req, res) => {
       { userId: req.user.id, relayUrl: relayUrlFor(req) },
     );
     // The end-of-task tool cannot be locked into the token; the client declares it in its setup.
-    res.json({ token, model, attempt, models: models.length, wsUrl, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK });
+    res.json({
+      token, model, attempt, models: models.length, wsUrl, tools: [examinerService.END_TASK_TOOL], endTool: examinerService.END_TASK,
+      // The silence that ends the candidate's turn: the browser's safety nets are timed on it.
+      silenceMs: examinerService.SILENCE_MS[n],
+    });
   } catch (error) {
     console.error('POST /eo-simulation/:id/live-token error:', error.message);
     res.status(502).json({ error: 'La connexion avec l’examinateur n’a pas pu être préparée.' });

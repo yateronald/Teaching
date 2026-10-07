@@ -2,11 +2,13 @@
 class ApiEndpoints {
   ApiEndpoints._();
 
-  // Production API: https://api.learnfrenchwithnatives.com/api
-  static const String baseUrl = 'https://api.learnfrenchwithnatives.com/api';
-  static const String webBaseUrl = 'https://api.learnfrenchwithnatives.com/api';
-  static const String socketUrl = 'https://api.learnfrenchwithnatives.com';
-  static const String webSocketUrl = 'https://api.learnfrenchwithnatives.com';
+  // The API address comes from the build environment, like VITE_API_BASE_URL on
+  // the web. Without it, the production API. For a local backend:
+  //   flutter run --dart-define=API_BASE_URL=http://localhost:5000/api --dart-define=SOCKET_URL=http://localhost:5000
+  static const String baseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'https://api.learnfrenchwithnatives.com/api');
+  static const String webBaseUrl = baseUrl;
+  static const String socketUrl = String.fromEnvironment('SOCKET_URL', defaultValue: 'https://api.learnfrenchwithnatives.com');
+  static const String webSocketUrl = socketUrl;
   static const String liveKitUrl = 'wss://livekit.learnfrenchwithnatives.com';
 
   // ── Auth ──

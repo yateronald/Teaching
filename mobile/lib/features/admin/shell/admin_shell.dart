@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/localization/translations.dart';
 import '../../../core/navigation/space_shell.dart';
 import '../../teacher/profile/screens/profile_settings_screen.dart';
+import '../ai_engine/ai_engine_screen.dart';
 import '../common/admin_nav.dart';
 import '../companies/companies_screen.dart';
 import '../common/admin_state.dart';
@@ -60,6 +61,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       label: _t('Suivi du site', 'Monitoring'),
       visible: (ref) => ref.watch(authNotifierProvider).user?.mayViewMonitoring ?? false,
     ),
+    SpaceNavItem(section: 'system', icon: Icons.smart_toy_outlined, label: _t('Moteur d’IA', 'AI engine')),
     SpaceNavItem(section: 'system', icon: Icons.settings_outlined, label: _t('Paramètres', 'Settings')),
     SpaceNavItem(section: 'account', icon: Icons.manage_accounts_outlined, label: (lang) => AppTranslations.tr('nav_profile', lang: lang)),
   ];
@@ -95,8 +97,9 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         const AdminResourcesScreen(), // 7
         const AdminExamPrepScreen(), // 8
         const MonitoringScreen(), // 9, only reachable with the monitoring key
-        const AdminSettingsScreen(), // 10
-        const ProfileSettingsScreen(), // 11
+        const AiEngineScreen(), // 10
+        const AdminSettingsScreen(), // 11
+        const ProfileSettingsScreen(), // 12
       ],
     );
   }

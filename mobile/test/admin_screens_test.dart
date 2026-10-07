@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/core/api/api_client.dart';
 import 'package:mobile/core/auth/token_storage.dart';
 import 'package:mobile/core/navigation/space_shell.dart';
+import 'package:mobile/features/admin/ai_engine/ai_engine_screen.dart';
 import 'package:mobile/features/admin/attendance/attendance_screen.dart';
 import 'package:mobile/features/admin/batches/batches_screen.dart';
 import 'package:mobile/features/admin/common/admin_kit.dart';
@@ -291,6 +292,7 @@ class _FakeAdminApi extends ApiClient {
       ],
       'eo': [],
     },
+    '/admin/ai-engine': aiEngine(),
     '/admin/settings': {
       'settings': [
         {'setting_key': 'code_length', 'setting_value': '6', 'updated_at': '2026-09-01T10:00:00Z'},
@@ -338,6 +340,77 @@ class _FakeAdminApi extends ApiClient {
     },
   };
 
+  /// GET /admin/ai-engine: the Developer API in use, its last test failed (long error text).
+  static Map<String, dynamic> aiEngine({String active = 'developer'}) => {
+        'active': active,
+        'selected': active,
+        'since': active == 'developer' ? null : '2026-10-06T21:53:00Z',
+        'changedBy': active == 'developer' ? null : 'Ronald Yate',
+        'engines': [
+          {
+            'id': 'developer',
+            'configured': true,
+            'liveReady': true,
+            'issues': [],
+            'keys': 10,
+            'project': null,
+            'location': null,
+            'models': {
+              'text': ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
+              'tts': ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview'],
+              'live': ['gemini-3.8-live', 'gemini-3.8-live-extended-thinking', 'gemini-3.1-flash-live-preview', 'gemini-2.5-flash-native-audio-latest'],
+            },
+            'lastTest': {
+              'engine': 'developer',
+              'at': '2026-10-06T21:40:00Z',
+              'ok': false,
+              'checks': [
+                {'id': 'text', 'ok': false, 'ms': 90000, 'error': 'The text models did not answer within 90 s — gemini-3.8-flash: busy (503) ×10 · gemini-3.7-flash: busy (503) ×10 · gemini-3.6-flash: over quota (429) ×4'},
+                {'id': 'voice', 'ok': true, 'ms': 2970, 'model': 'gemini-3.8-flash-tts', 'detail': '3.2 s of speech'},
+                {'id': 'examiner', 'ok': true, 'ms': 2120, 'model': 'gemini-3.8-live', 'detail': 'The examiner spoke (ephemeral token)'},
+              ],
+            },
+          },
+          {
+            'id': 'vertex',
+            'configured': true,
+            'liveReady': true,
+            'issues': [],
+            'keys': 1,
+            'project': '403858147746',
+            'location': 'us-central1',
+            'models': {
+              'text': ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
+              'tts': ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview'],
+              'live': ['gemini-3.8-live', 'gemini-live-2.5-flash-native-audio'],
+            },
+            'lastTest': null,
+          },
+        ],
+        'history': active == 'developer'
+            ? []
+            : [
+                {'id': 1, 'engine': 'vertex', 'previous_engine': 'developer', 'created_at': '2026-10-06T21:53:00Z', 'changed_by': 'Ronald Yate'},
+              ],
+      };
+
+  static final Map<String, dynamic> _posts = {
+    '/admin/ai-engine/test': {
+      'engine': 'vertex',
+      'at': '2026-10-06T21:52:00Z',
+      'ok': true,
+      'checks': [
+        {'id': 'text', 'ok': true, 'ms': 3519, 'model': 'gemini-3.8-flash', 'detail': 'Answered « prêt »'},
+        {'id': 'voice', 'ok': true, 'ms': 2205, 'model': 'gemini-3.8-flash-tts', 'detail': '3.2 s of speech'},
+        {'id': 'examiner', 'ok': true, 'ms': 2334, 'model': 'gemini-3.8-live', 'detail': 'The examiner spoke (relayed by this server)'},
+      ],
+    },
+  };
+
+  static final Map<String, dynamic> _puts = {
+    '/admin/ai-engine': aiEngine(active: 'vertex'),
+  };
+
   Response<T> _ok<T>(String path, dynamic data) => Response<T>(requestOptions: RequestOptions(path: path), statusCode: 200, data: data as T);
 
   /// The query of the last request to each path.
@@ -353,13 +426,13 @@ class _FakeAdminApi extends ApiClient {
   @override
   Future<Response<T>> post<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options, ProgressCallback? onSendProgress}) async {
     sent[path] = data;
-    return _ok<T>(path, <String, dynamic>{'ok': true, 'created': 1});
+    return _ok<T>(path, _posts[path] ?? <String, dynamic>{'ok': true, 'created': 1});
   }
 
   @override
   Future<Response<T>> put<T>(String path, {dynamic data, Map<String, dynamic>? queryParameters, Options? options}) async {
     sent[path] = data;
-    return _ok<T>(path, <String, dynamic>{'ok': true});
+    return _ok<T>(path, _puts[path] ?? <String, dynamic>{'ok': true});
   }
 
   @override
@@ -428,6 +501,7 @@ void main() {
     'student results': () => const StudentResultsScreen(studentId: 9),
     'monitoring': () => const MonitoringScreen(),
     'settings': () => const AdminSettingsScreen(),
+    'AI engine': () => const AiEngineScreen(),
   };
 
   for (final (size, lang) in [(_phone, 'en'), (_phone, 'fr'), (_tablet, 'fr')]) {
@@ -749,6 +823,43 @@ void main() {
     expect(find.textContaining('[image]'), findsNothing, reason: 'the image slot is not printed');
     expect(find.textContaining('|'), findsNothing, reason: 'no raw table syntax');
     expect(find.textContaining('Livraison offerte'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AI engine: a test shows each check on the engine tested', (tester) async {
+    final api = await _show(tester, const AiEngineScreen(), size: const Size(360, 4000));
+    expect(find.text('In use: Google AI Developer'), findsOneWidget);
+    expect(find.text('Some checks failed'), findsOneWidget, reason: 'the last test of the Developer API');
+    expect(find.text('Every check passed'), findsNothing);
+    await tester.tap(find.text('Run test').at(1)); // Vertex AI
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/ai-engine/test'], {'engine': 'vertex'});
+    expect(find.text('Every check passed'), findsOneWidget);
+    expect(find.text('3.5 s'), findsOneWidget, reason: 'the text check of Vertex AI');
+    expect(find.textContaining('The examiner spoke (relayed by this server)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('AI engine: switching asks first, and cancelling sends nothing', (tester) async {
+    final api = await _show(tester, const AiEngineScreen(), size: const Size(360, 4000));
+    await tester.tap(find.text('Use this engine'));
+    await tester.pumpAndSettle();
+    expect(find.text('Switch the platform to Google Cloud Vertex AI?'), findsOneWidget);
+    expect(find.textContaining('Usage is billed to the Google Cloud project 403858147746'), findsOneWidget);
+    expect(find.textContaining('has not been tested since the page was opened'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/ai-engine'], isNull, reason: 'nothing changes without a confirmation');
+    expect(find.text('In use: Google AI Developer'), findsOneWidget);
+
+    await tester.tap(find.text('Use this engine'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Switch'));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/ai-engine'], {'engine': 'vertex'});
+    expect(find.text('In use: Google Cloud Vertex AI'), findsOneWidget);
+    expect(find.textContaining('Ronald Yate'), findsWidgets, reason: 'who switched, in the summary and the history');
+    expect(find.text('Use this engine'), findsOneWidget, reason: 'now offered on the Developer API card');
     expect(tester.takeException(), isNull);
   });
 

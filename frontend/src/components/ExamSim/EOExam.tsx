@@ -15,8 +15,9 @@ import { clock, errorText, type DialogueTurn, type ExamReport as Report } from '
 
 // ============================================================
 // EXPRESSION ORALE — TCF Canada. Three tasks with an AI examiner over Gemini
-// Live (ephemeral tokens, instructions locked server-side). Every transition is
-// driven by one ticker reading refs, so no timer ever acts on stale state.
+// Live (single-use credentials, instructions locked server-side). Every
+// transition is driven by one ticker reading refs, so no timer ever acts on
+// stale state.
 // ============================================================
 
 interface Session {
@@ -40,6 +41,7 @@ const TASKS = [
 ];
 const SILENCE_NUDGE_MS = { 1: 11000, 2: 12000, 3: 15000 } as Record<number, number>;
 const WRAP_BANNER = 'Temps écoulé : l’examinateur conclut la tâche.';
+const MIC_STALL_BANNER = 'Votre microphone ne transmet plus de son : vérifiez qu’il est branché et autorisé, puis continuez.';
 const BETWEEN_SECONDS = 8;
 // Safety net: if the examiner starts talking about the next task anyway, the platform moves on at once.
 const NEXT_TASK_TALK: Record<number, RegExp> = {
@@ -115,6 +117,8 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
   const voiceMsRef = useRef(0);
   const calibRef = useRef<{ step: Calib; samples: number[] }>({ step: 'noise', samples: [] });
   const endClockRef = useRef<EndClock>(freshClock());
+  /** Since when the microphone has delivered no sound (0 = it does). */
+  const micStallRef = useRef(0);
 
   const go = (p: Phase) => { phaseRef.current = p; setPhase(p); };
   const toStage = (s: Stage) => { stageRef.current = s; setStage(s); };
@@ -283,7 +287,7 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
     const attempt = async (index: number) => {
       const res = await post(`/eo-simulation/${s.simulationId}/live-token`, JSON.stringify({ tache: n, sujet, attempt: index }), { retry5xx: true });
       if (!res.ok) throw new Error(await errorText(res, 'La connexion avec l’examinateur n’a pas pu être préparée.'));
-      const { token, model, models, wsUrl, tools, endTool } = await res.json();
+      const { token, model, models, wsUrl, tools, endTool, silenceMs } = await res.json();
       if (Number.isInteger(models) && models > 0) modelCount = models;
       const live = new LiveExaminer(audio, {
         onExaminerSpeaking: (on) => {
@@ -311,9 +315,11 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
           if (taskRef.current === n && phaseRef.current === 'task' && !endPendingRef.current) endPendingRef.current = Date.now();
         },
         onClose: (unexpected) => { if (unexpected && liveRef.current === live) handleDrop(n); },
+        onMicStall: (stalled) => { micStallRef.current = stalled ? Date.now() : 0; },
       });
       live.turns = turnsRef.current[n];
-      await live.connect(token, wsUrl, model, { tools, endTool });
+      // Task 3 is a monologue: a long pause is the candidate thinking, not a question the examiner missed.
+      await live.connect(token, wsUrl, model, { tools, endTool, silenceMs, askRepeat: n !== 3 });
       return live;
     };
     try {
@@ -491,6 +497,9 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       // The examiner's last words are still playing when the tool call arrives: they are heard to the end.
       if ((since > 400 && !audioRef.current?.speaking) || since > 10000) { finishEarly(n); return; }
     }
+    // The microphone has delivered no sound for a while: the candidate must know, the examiner cannot hear them.
+    if (micStallRef.current && t - micStallRef.current > 2500) setBanner(MIC_STALL_BANNER);
+    else if (!micStallRef.current) setBanner(b => (b === MIC_STALL_BANNER ? '' : b));
     if (st === 'live') {
       const quiet = t - voiceAtRef.current;
       const live = liveRef.current;
@@ -516,7 +525,8 @@ export default function EOExam({ open, onClose, partieId, onCreditConsumed, onOu
       if (endClock.upAt) return;
       const nudge = nudgesRef.current;
       // After the announcement of the end, the examiner has already invited the candidate to go on.
-      if (live && !endClock.warned && !examinerTalking && quiet > SILENCE_NUDGE_MS[n] && nudge.count < 3 && t - nudge.at > 20000) {
+      // Never right after another cue (e.g. the examiner was just asked to have the candidate repeat).
+      if (live && !endClock.warned && !examinerTalking && quiet > SILENCE_NUDGE_MS[n] && nudge.count < 3 && t - nudge.at > 20000 && t - live.lastCueAt > 8000) {
         live.sendText('[SILENCE]');
         nudgesRef.current = { count: nudge.count + 1, at: t };
       }

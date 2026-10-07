@@ -13,8 +13,9 @@ class AdminTab {
   static const resources = 7;
   static const examPrep = 8;
   static const monitoring = 9;
-  static const settings = 10;
-  static const profile = 11;
+  static const aiEngine = 10;
+  static const settings = 11;
+  static const profile = 12;
 }
 
 /// Something another screen asked to open once its tab is shown, e.g. the
