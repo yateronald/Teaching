@@ -2,7 +2,9 @@
 // feedback, the mistakes coming back at the end, then the results.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, SoundOutlined, StarFilled } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
+import { CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, LockOutlined, PlayCircleFilled, SoundOutlined, StarFilled, UnorderedListOutlined } from '@ant-design/icons';
+import { AUTOSTART } from '../paths';
 import { chime, hasRecording, setMuted, stop as stopAudio } from '../audio';
 import { isGraded, tx, type Lang, type Step } from '../types';
 import { UI } from '../ui';
@@ -32,7 +34,11 @@ interface Props {
   onDemo?: () => void;
   /** Final assessment: no second chance, no explanations until the end. */
   exam?: boolean;
+  /** The other lessons of the course, reachable without leaving the player. */
+  menu?: { title: string; items: PlayerMenuItem[] };
 }
+
+export interface PlayerMenuItem { id: string; label: string; sub: string; href: string; current: boolean; done: boolean; locked?: boolean }
 
 const modeOf = (s: Step): StepMode => {
   if (s.kind === 'dialogue') return s.lines.some(l => 'choose' in l) ? 'inline' : 'self';
@@ -71,7 +77,7 @@ export function playableSteps(steps: Step[]): Step[] {
     .map(s => (s.kind === 'mcq' && s.audio && s.listen && !hasRecording(s.audio, s.voice) ? { ...s, listen: false } : s));
 }
 
-export default function Player({ steps: rawSteps, lang, seed, title, onExit, onFinish, onDemo, exam = false }: Props) {
+export default function Player({ steps: rawSteps, lang, seed, title, onExit, onFinish, onDemo, exam = false, menu }: Props) {
   const steps = useMemo(() => playableSteps(rawSteps), [rawSteps]);
   const ui = UI[lang].player;
   const [queue, setQueue] = useState<QueueItem[]>(() => steps.map((step, index) => ({ step, index, retry: false })));
@@ -81,6 +87,7 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
   const [xp, setXp] = useState(0);
   const [combo, setCombo] = useState(0);
   const [sound, setSound] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
   const handle = useRef<StepHandle | null>(null);
   const inlineScore = useRef<number | null>(null);
   const first = useRef<Map<number, number>>(new Map());
@@ -181,8 +188,48 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
           )}
         </AnimatePresence>
         <span className="lx-xp" aria-label={`${xp} ${ui.xp}`}><StarFilled /> <motion.b key={xp} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>{xp}</motion.b></span>
+        {menu && (
+          <button type="button" className={`lx-icon-btn${menuOpen ? ' is-on' : ''}`} onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lx-pmenu" aria-label={ui.lessonsMenu} title={ui.lessonsMenu}><UnorderedListOutlined /></button>
+        )}
         <button type="button" className={`lx-icon-btn${sound ? '' : ' is-off'}`} onClick={() => setSound(s => !s)} aria-pressed={sound} aria-label={sound ? ui.soundOn : ui.soundOff} title={sound ? ui.soundOn : ui.soundOff}><SoundOutlined /></button>
       </header>
+
+      <AnimatePresence>
+        {menu && menuOpen && (
+          <>
+            <motion.div key="scrim" className="lx-pmenu-scrim" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMenuOpen(false)} />
+            <motion.nav key="menu" id="lx-pmenu" className="lx-pmenu" aria-label={ui.lessonsMenu} initial={{ x: 40, opacity: 0 }} animate={{ x: 0, opacity: 1 }} exit={{ x: 40, opacity: 0 }} transition={{ duration: 0.22 }}>
+              <div className="lx-pmenu-head">
+                <p>{ui.lessonsMenu}</p>
+                <strong>{menu.title}</strong>
+                <button type="button" className="lx-icon-btn" onClick={() => setMenuOpen(false)} aria-label={ui.exit}><CloseOutlined /></button>
+              </div>
+              <ol>
+                {menu.items.map(it => (
+                  <li key={it.id} className={`${it.current ? 'is-current' : ''}${it.done ? ' is-done' : ''}${it.locked ? ' is-locked' : ''}`}>
+                    {it.current ? (
+                      <span className="lx-pmenu-item" aria-current="page">
+                        <span className="lx-pmenu-ico"><PlayCircleFilled /></span>
+                        <span><small>{it.sub} · {ui.inProgress}</small>{it.label}</span>
+                      </span>
+                    ) : (
+                      <Link
+                        to={it.href}
+                        state={it.locked ? undefined : AUTOSTART}
+                        className="lx-pmenu-item"
+                        onClick={e => { if (pos > 0 && !window.confirm(ui.exitConfirm)) { e.preventDefault(); return; } stopAudio(); setMenuOpen(false); }}
+                      >
+                        <span className="lx-pmenu-ico">{it.done ? <CheckCircleFilled /> : it.locked ? <LockOutlined /> : <PlayCircleFilled />}</span>
+                        <span><small>{it.sub}</small>{it.label}</span>
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </motion.nav>
+          </>
+        )}
+      </AnimatePresence>
 
       <main className="lx-pstage">
         <AnimatePresence mode="wait">

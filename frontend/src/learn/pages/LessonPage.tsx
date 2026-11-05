@@ -2,13 +2,13 @@
 // objectives, summary, vocabulary) is pre-rendered for search engines and
 // revision; the interactive player opens over it.
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RiseOutlined } from '@ant-design/icons';
 import NotFound from '../../components/Landing/NotFound';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath } from '../catalog';
-import { finalPath, hubPath, lessonPath } from '../paths';
+import { finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, PASS_MARK, recordLesson, REVIEW_MARK, useProgress, type BadgeId } from '../progress';
 import { lessonJsonLd } from '../schema';
 import { Crumbs, LearnShell, LevelChip, TeacherCta, useDemo, useMounted } from '../shell';
@@ -77,6 +77,18 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
   }, [lesson.id, next, course, lang, afterHref, ladder]);
 
   const start = () => { setRun(n => n + 1); setPhase('play'); };
+
+  // Arriving from “Start the course”, a lesson in the list or “Next lesson”:
+  // the player opens at once. The state is cleared so a reload shows the page.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const autostart = hasAutostart(location.state);
+  useEffect(() => {
+    if (!autostart || !mounted || locked) return;
+    navigate(location.pathname, { replace: true, state: null });
+    start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autostart, mounted, locked, lesson.id]);
 
   const t = ui.ladder;
   const end = (() => {
@@ -173,6 +185,18 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
             onExit={() => setPhase('intro')}
             onFinish={finish}
             onDemo={() => { setPhase('intro'); openDemo(); }}
+            menu={{
+              title: tx(course.title, lang),
+              items: lessons.map((x, i) => ({
+                id: x.id,
+                label: tx(x.title, lang),
+                sub: ladder && x.level ? t.level(x.level) : l.lessonOf(i + 1, lessons.length),
+                href: lessonPath(course, x, lang),
+                current: x.id === lesson.id,
+                done: mounted && !!p.lessons[x.id],
+                locked: ladder && mounted && i > ladderState(p, course.id).unlocked,
+              })),
+            }}
           />
         </Overlay>
       )}

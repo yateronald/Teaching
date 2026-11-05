@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRightOutlined, CloseOutlined } from '@ant-design/icons';
 import { chime, stop as stopAudio } from '../audio';
-import { lessonPath } from '../paths';
+import { AUTOSTART, lessonPath } from '../paths';
 import { recordCourseTest } from '../progress';
 import { LEVELS, type CourseMeta, type Lang, type Lesson, type Level, type McqStep } from '../types';
 import { UI } from '../ui';
@@ -104,7 +104,7 @@ export default function AdaptiveTest({ lang, course, lessons, onClose }: { lang:
             <p>{t.resultText}</p>
             <div className="lp-hero-ctas">
               {lesson && (
-                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => { onClose(); navigate(lessonPath(course, lesson, lang)); }}>
+                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => { onClose(); navigate(lessonPath(course, lesson, lang), { state: AUTOSTART }); }}>
                   {t.startAt(lvl)}<ArrowRightOutlined />
                 </button>
               )}

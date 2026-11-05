@@ -3,7 +3,7 @@
 // cards, breadcrumbs, the teacher call to action).
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, ReadOutlined, RightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, PlayCircleFilled, ReadOutlined, RightOutlined } from '@ant-design/icons';
 import SEO from '../components/SEO/SEO';
 import SiteHeader from '../components/Landing/SiteHeader';
 import SiteFooter from '../components/Landing/SiteFooter';
@@ -11,6 +11,7 @@ import { PATHS } from '../components/Landing/landingContent';
 import { useDemoModal, usePublicPage } from '../components/Landing/publicPage';
 import { CATEGORIES, imageUrl } from './categories';
 import { coursePath } from './catalog';
+import { AUTOSTART } from './paths';
 import { useProgress, courseDone } from './progress';
 import { tx, type CourseMeta, type Lang } from './types';
 import { UI } from './ui';
@@ -81,7 +82,7 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
   const passed = mounted && p.finals[course.id]?.passed;
   const cat = CATEGORIES.find(c => c.id === course.category)!;
   return (
-    <Link to={coursePath(course, lang)} className={`lx-course-card${compact ? ' is-compact' : ''}`}>
+    <article className={`lx-course-card${compact ? ' is-compact' : ''}`}>
       <div className="lx-cc-img">
         <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="640" height="360" />
         <LevelChip level={course.level} size="sm" />
@@ -90,12 +91,12 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
       </div>
       <div className="lx-cc-body">
         <p className="lx-cc-cat">{tx(cat.name, lang)}</p>
-        <h3>{tx(course.title, lang)}</h3>
+        <h3><Link to={coursePath(course, lang)} className="lx-stretch">{tx(course.title, lang)}</Link></h3>
         {!compact && <p className="lx-cc-sub">{tx(course.subtitle, lang)}</p>}
         <div className="lx-cc-meta">
           <span><ReadOutlined /> {ui.lessons(course.lessonCount)}</span>
           <span><ClockCircleOutlined /> {ui.minutes(course.minutes)}</span>
-          <span className="lx-cc-go">{done ? ui.continue : ui.start}<ArrowRightOutlined /></span>
+          <Link to={coursePath(course, lang)} state={AUTOSTART} className="lx-cc-start" aria-label={`${done ? ui.continue : ui.start} : ${tx(course.title, lang)}`}><PlayCircleFilled />{done ? ui.continue : ui.start}</Link>
         </div>
         {done > 0 && (
           <div className="lx-cc-progress" aria-label={`${done}/${course.lessonCount}`}>
@@ -103,7 +104,7 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
           </div>
         )}
       </div>
-    </Link>
+    </article>
   );
 }
 

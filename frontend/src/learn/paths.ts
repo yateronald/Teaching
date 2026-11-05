@@ -17,6 +17,10 @@ export { LEARN_BASE, categoryPath, coursePath };
 export const PLACEMENT_SLUG: Record<Lang, string> = { en: 'french-level-test', fr: 'test-de-niveau' };
 export const PROGRESS_SLUG: Record<Lang, string> = { en: 'my-progress', fr: 'ma-progression' };
 
+/** Link state: open the lesson player straight away (one click from a course to the exercise). */
+export const AUTOSTART = { autostart: true } as const;
+export const hasAutostart = (state: unknown) => !!(state as { autostart?: boolean } | null)?.autostart;
+
 export const hubPath = (lang: Lang) => LEARN_BASE[lang];
 export const placementPath = (lang: Lang) => `${LEARN_BASE[lang]}${PLACEMENT_SLUG[lang]}/`;
 export const progressPath = (lang: Lang) => `${LEARN_BASE[lang]}${PROGRESS_SLUG[lang]}/`;

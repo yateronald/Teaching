@@ -1,14 +1,14 @@
 // A course (/learn/<path>/<course>/): what you will learn, its lessons, the
 // final assessment and the certificate.
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRightOutlined, AudioOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CommentOutlined, CustomerServiceOutlined,
-  DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, TrophyOutlined,
+  DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath, coursesOf } from '../catalog';
-import { finalPath, hubPath, lessonPath } from '../paths';
+import { AUTOSTART, finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, useProgress } from '../progress';
 import { courseJsonLd } from '../schema';
 import { CourseCard, Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell';
@@ -54,7 +54,7 @@ function Ladder({ lang, course, lessons, onTest }: { lang: Lang; course: CourseM
           const state = passed ? 'is-done' : current ? 'is-current' : locked ? 'is-locked' : 'is-open';
           return (
             <li key={lvl} className={state}>
-              <Link to={lessonPath(course, lesson, lang)} className="lx-ladder-row">
+              <Link to={lessonPath(course, lesson, lang)} state={locked ? undefined : AUTOSTART} className="lx-ladder-row">
                 <span className="lx-ladder-lvl"><b>{lvl}</b><small>{ui.hub.levelNames[lvl]}</small></span>
                 <div>
                   <p className="lx-ladder-status">
@@ -68,7 +68,7 @@ function Ladder({ lang, course, lessons, onTest }: { lang: Lang; course: CourseM
                     <span>{ui.steps(lesson.steps.length)}</span>
                   </div>
                 </div>
-                <span className="lx-round-arrow" aria-hidden>{locked ? <LockOutlined /> : <ArrowRightOutlined />}</span>
+                <span className="lx-round-arrow" aria-hidden>{locked ? <LockOutlined /> : <PlayCircleFilled />}</span>
               </Link>
             </li>
           );
@@ -95,6 +95,14 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   // "Take the adaptive test" links from a locked level land on #test.
   const location = useLocation();
   useEffect(() => { if (course.ladder && location.hash === '#test' && lessons.length) setTesting(true); }, [course.ladder, location.hash, lessons.length]);
+  // “Start” on a course card: go straight to the lesson to do now, player open.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!hasAutostart(location.state) || !mounted || !lessons.length) return;
+    const target = course.ladder ? ladderNext : next;
+    if (target) navigate(lessonPath(course, target, lang), { replace: true, state: AUTOSTART });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, mounted, lessons.length]);
   const st = course.ladder && mounted ? ladderState(p, course.id) : null;
   const ladderNext = course.ladder ? lessons.find(l => l.level === LEVELS[st?.current ?? 0]) : undefined;
 
@@ -117,18 +125,34 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                 <>
                   {!st?.tested && !st?.passed.size && <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => setTesting(true)}>{ui.ladder.testStart}<ArrowRightOutlined /></button>}
                   {ladderNext && (
-                    <Link to={lessonPath(course, ladderNext, lang)} className={`lp-btn lp-btn-lg ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost' : 'lp-btn-primary'}`}>
+                    <Link to={lessonPath(course, ladderNext, lang)} state={AUTOSTART} className={`lp-btn lp-btn-lg ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost' : 'lp-btn-primary'}`}>
                       {st?.tested || st?.passed.size ? ui.ladder.continueAt(ladderNext.level!) : ui.ladder.startAt('A1')}<ArrowRightOutlined />
                     </Link>
                   )}
                 </>
               ) : next && (
-                <Link to={lessonPath(course, next, lang)} className="lp-btn lp-btn-primary lp-btn-lg">
+                <Link to={lessonPath(course, next, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary lp-btn-lg">
                   {doneIds.length === 0 ? c.startCourse : doneIds.length === lessons.length ? c.restart : c.continueCourse}<ArrowRightOutlined />
                 </Link>
               )}
-              {!course.ladder && <a href="#syllabus" className="lp-btn lp-btn-ghost lp-btn-lg"><ReadOutlined />{c.syllabus}</a>}
             </div>
+            {!course.ladder && lessons.length > 0 && (
+              <ol className="lx-hero-lessons" aria-label={c.syllabus}>
+                {lessons.map((l, i) => {
+                  const done = doneIds.includes(l.id);
+                  return (
+                    <li key={l.id} className={done ? 'is-done' : ''}>
+                      <Link to={lessonPath(course, l, lang)} state={AUTOSTART}>
+                        <span className="lx-hero-lesson-n" aria-hidden>{done ? <CheckCircleFilled /> : i + 1}</span>
+                        <span className="lx-hero-lesson-t">{tx(l.title, lang)}</span>
+                        <span className="lx-hero-lesson-m">{ui.minutes(l.minutes)}</span>
+                        <PlayCircleFilled className="lx-hero-lesson-p" aria-hidden />
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
             {mounted && doneIds.length > 0 && (
               <div className="lx-course-progress">
                 <span>{c.yourProgress}</span>
@@ -151,15 +175,6 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
         </div>
       </section>
 
-      <section className="lp-section lp-tint" aria-labelledby="lx-outcomes">
-        <div className="lp-wrap">
-          <h2 id="lx-outcomes" className="lx-h2">{c.outcomes}</h2>
-          <ul className="lx-outcomes">
-            {course.outcomes.map((o, i) => <li key={i}><span>{String(i + 1).padStart(2, '0')}</span>{tx(o, lang)}</li>)}
-          </ul>
-        </div>
-      </section>
-
       <section className="lp-section" id="syllabus" aria-labelledby="lx-syllabus">
         <div className="lp-wrap lx-cat-layout">
           {course.ladder ? <Ladder lang={lang} course={course} lessons={lessons} onTest={() => setTesting(true)} /> : (
@@ -171,7 +186,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                 const kinds = [...new Set(l.steps.map(s => s.kind))].filter(k => k !== 'concept');
                 return (
                   <li key={l.id} className={rec ? 'is-done' : ''}>
-                    <Link to={lessonPath(course, l, lang)} className="lx-lesson-row">
+                    <Link to={lessonPath(course, l, lang)} state={AUTOSTART} className="lx-lesson-row">
                       <span className="lx-lesson-n">{rec ? <CheckCircleFilled /> : i + 1}</span>
                       <div>
                         <h3>{tx(l.title, lang)}</h3>
@@ -183,7 +198,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                           {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
                         </div>
                       </div>
-                      <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>
+                      <span className="lx-round-arrow is-play" aria-hidden><PlayCircleFilled /></span>
                     </Link>
                   </li>
                 );
@@ -210,8 +225,17 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
         </div>
       </section>
 
+      <section className="lp-section lp-tint" aria-labelledby="lx-outcomes">
+        <div className="lp-wrap">
+          <h2 id="lx-outcomes" className="lx-h2">{c.outcomes}</h2>
+          <ul className="lx-outcomes">
+            {course.outcomes.map((o, i) => <li key={i}><span>{String(i + 1).padStart(2, '0')}</span>{tx(o, lang)}</li>)}
+          </ul>
+        </div>
+      </section>
+
       {others.length > 0 && (
-        <section className="lp-section lp-tint" aria-labelledby="lx-others">
+        <section className="lp-section" aria-labelledby="lx-others">
           <div className="lp-wrap">
             <h2 id="lx-others" className="lx-h2">{c.otherCourses}</h2>
             <ul className="lx-grid">{others.map(o => <li key={o.id}><CourseCard course={o} lang={lang} /></li>)}</ul>

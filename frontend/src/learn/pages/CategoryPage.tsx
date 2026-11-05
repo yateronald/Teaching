@@ -1,10 +1,10 @@
 // One learning path (/learn/french-grammar/…): its courses, level by level.
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, ReadOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, PlayCircleFilled, ReadOutlined } from '@ant-design/icons';
 import { TOPIC_PATHS } from '../../components/Landing/sitePages';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath, coursesOf } from '../catalog';
-import { hubPath, placementPath } from '../paths';
+import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { courseDone, useProgress } from '../progress';
 import { categoryJsonLd } from '../schema';
 import { categoryLevelPath, categoryLevels } from '../levels';
@@ -58,11 +58,11 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                 const done = mounted ? courseDone(p, c.id, c.lessonCount) : 0;
                 return (
                   <li key={c.id} className="lx-rise" style={{ animationDelay: `${i * 0.05}s` }}>
-                    <Link to={coursePath(c, lang)} className="lx-row">
+                    <div className="lx-row">
                       <img src={imageUrl(c.image, 640)} alt="" loading="lazy" width="640" height="360" />
                       <div className="lx-row-body">
                         <div className="lx-row-top"><LevelChip level={c.level} size="sm" />{c.popular && <span className="lx-tag">{ui.popular}</span>}</div>
-                        <h3>{tx(c.title, lang)}</h3>
+                        <h3><Link to={coursePath(c, lang)} className="lx-stretch">{tx(c.title, lang)}</Link></h3>
                         <p>{tx(c.subtitle, lang)}</p>
                         <div className="lx-row-meta">
                           <span><ReadOutlined /> {ui.lessons(c.lessonCount)}</span>
@@ -70,8 +70,8 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                           {done > 0 && <span className="lx-row-done">{done}/{c.lessonCount} {ui.done.toLowerCase()}</span>}
                         </div>
                       </div>
-                      <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>
-                    </Link>
+                      <Link to={coursePath(c, lang)} state={AUTOSTART} className="lx-row-start"><PlayCircleFilled />{done > 0 ? ui.continue : ui.start}</Link>
+                    </div>
                   </li>
                 );
               })}

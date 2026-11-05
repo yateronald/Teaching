@@ -6,6 +6,7 @@ import { motion } from 'motion/react';
 import { ArrowRightOutlined, ClockCircleOutlined, CloseCircleFilled, RedoOutlined, StarFilled, TrophyFilled } from '@ant-design/icons';
 import type { BadgeId } from '../progress';
 import { TeacherCta } from '../shell';
+import { AUTOSTART } from '../paths';
 import type { Lang } from '../types';
 import { UI } from '../ui';
 import { Rich } from './common';
@@ -82,7 +83,7 @@ export default function EndScreen({ lang, outcome, badges, nextHref, nextLabel, 
         )}
         <div className="lx-end-actions">
           {verdict?.tone === 'almost' && <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={onRetry}><RedoOutlined />{e.retry}</button>}
-          {nextHref ? <Link to={nextHref} className={`lp-btn lp-btn-lg ${verdict?.tone === 'almost' ? 'lp-btn-ghost' : 'lp-btn-primary'}`}>{nextLabel ?? e.next}<ArrowRightOutlined /></Link> : null}
+          {nextHref ? <Link to={nextHref} state={AUTOSTART} className={`lp-btn lp-btn-lg ${verdict?.tone === 'almost' ? 'lp-btn-ghost' : 'lp-btn-primary'}`}>{nextLabel ?? e.next}<ArrowRightOutlined /></Link> : null}
           {verdict?.tone !== 'almost' && <button type="button" className="lp-btn lp-btn-ghost" onClick={onRetry}><RedoOutlined />{e.retry}</button>}
           <Link to={courseHref} className="lx-link">{e.toCourse}</Link>
         </div>
