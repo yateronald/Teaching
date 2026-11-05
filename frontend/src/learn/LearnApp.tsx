@@ -6,6 +6,7 @@ import { resolveLearnPath } from './paths';
 import type { Lang } from './types';
 import HubPage from './pages/HubPage';
 import CategoryPage from './pages/CategoryPage';
+import LevelPage, { ladderCoursesFor } from './pages/LevelPage';
 import CoursePage from './pages/CoursePage';
 import LessonPage from './pages/LessonPage';
 import FinalPage from './pages/FinalPage';
@@ -20,6 +21,7 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'placement': return <PlacementPage lang={route.lang} />;
     case 'progress': return <ProgressPage lang={route.lang} />;
     case 'category': return <CategoryPage lang={route.lang} category={route.category} />;
+    case 'level': return <LevelPage key={`${route.level}-${route.category?.id ?? 'all'}`} lang={route.lang} level={route.level} category={route.category} />;
     case 'course': return <CoursePage key={route.course.id} lang={route.lang} course={route.course} />;
     case 'lesson': return <LessonPage key={route.course.id} lang={route.lang} course={route.course} lessonSlug={route.lessonSlug} />;
     case 'final': return <FinalPage key={route.course.id} lang={route.lang} course={route.course} />;
@@ -32,4 +34,6 @@ export async function prepareForPath(pathname: string) {
   const route = resolveLearnPath(pathname);
   if ((route.type === 'course' || route.type === 'lesson' || route.type === 'final') && hasCourseContent(route.course.id)) await loadLessons(route.course.id);
   if (route.type === 'placement') await loadPlacement();
+  // Level pages list the lesson of each levelled course at that level.
+  if (route.type === 'level') await Promise.all(ladderCoursesFor(route.level, route.category).map(c => loadLessons(c.id)));
 }

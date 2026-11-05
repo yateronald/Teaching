@@ -786,6 +786,16 @@ p.lx-ladder-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6
   .lx-ladder-lvl small { display: none; }
 }
 
+/* ── Level pages ── */
+.lx-level-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.lx-level-nav a { display: inline-grid; place-items: center; min-width: 48px; padding: 8px 12px; border: 1px solid var(--blue-line); border-radius: 10px; background: #fff; font-family: var(--display); font-weight: 800; color: var(--blue); transition: background 0.2s, color 0.2s; }
+.lx-level-nav a:hover { background: var(--blue-soft); }
+.lx-level-nav a.is-on { background: var(--blue); border-color: var(--blue); color: #fff; }
+.lx-level-cando { margin-bottom: 30px; padding: 20px 22px; border-left: 4px solid var(--blue); border-radius: 0 var(--radius) var(--radius) 0; background: var(--blue-soft); }
+.lx-level-cando p { margin-top: 8px; color: var(--text); }
+p.lx-level-from { margin: 0 0 2px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--subtle); }
+.lx-level-courses { margin-top: 40px; }
+
 @media print {
   body * { visibility: hidden !important; }
   #lx-certificate, #lx-certificate * { visibility: visible !important; }

@@ -7,6 +7,7 @@ import { coursePath, coursesOf } from '../catalog';
 import { hubPath, placementPath } from '../paths';
 import { courseDone, useProgress } from '../progress';
 import { categoryJsonLd } from '../schema';
+import { categoryLevelPath, categoryLevels } from '../levels';
 import { Crumbs, LearnShell, LevelChip, useDemo, useMounted } from '../shell';
 import { tx, type CategoryMeta, type Lang } from '../types';
 import { UI } from '../ui';
@@ -38,6 +39,11 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
               <span><ClockCircleOutlined /> {ui.minutes(total)}</span>
               <span><CheckOutlined /> {ui.free} · {ui.noSignup}</span>
             </p>
+            {categoryLevels(category).length > 0 && (
+              <nav className="lx-level-nav" aria-label={ui.levelPage.byLevel}>
+                {categoryLevels(category).map(l => <Link key={l} to={categoryLevelPath(category, l, lang)}>{l}</Link>)}
+              </nav>
+            )}
           </div>
           <figure className="lx-cat-img"><img src={imageUrl(category.image)} alt="" width="1200" height="675" fetchPriority="high" /></figure>
         </div>

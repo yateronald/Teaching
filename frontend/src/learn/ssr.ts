@@ -9,6 +9,7 @@ import { CATEGORIES, categoryPath } from './categories';
 import { COURSES, coursePath } from './catalog';
 import { finalPath, hubPath, lessonPath, placementPath, progressPath } from './paths';
 import { LEVELS, type Lang, type Lesson } from './types';
+import { allLevelPages, categoryLevelPath, levelPath } from './levels';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
 
@@ -46,6 +47,7 @@ export function learnPages(): LearnPage[] {
   both(placementPath, '0.8');
   both(progressPath, '0.1', false);
   CATEGORIES.forEach(cat => both(l => categoryPath(cat, l), '0.8'));
+  allLevelPages().forEach(({ level, category }) => both(l => (category ? categoryLevelPath(category, level, l) : levelPath(level, l)), '0.7'));
   COURSES.forEach(c => {
     const lessons = modules[`./content/courses/${c.id}.ts`]?.default;
     if (!lessons) return;

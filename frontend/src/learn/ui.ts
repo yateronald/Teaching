@@ -84,6 +84,26 @@ const en = {
     sideText: 'Free courses are a great start. With a teacher you get a plan, live practice and personal correction.',
   },
 
+  levelPage: {
+    metaTitle: (lvl: string, name: string) => `Free French Courses, Level ${lvl} (${name}) | Learn French with Natives`,
+    metaTitleCat: (cat: string, lvl: string) => `${cat}, Level ${lvl}: Free Lessons | Learn French with Natives`,
+    metaDescription: (lvl: string, n: number) => `${n} free interactive French courses and lessons at level ${lvl}: native audio, exercises with instant feedback, speaking practice. No sign-up.`,
+    eyebrow: 'French by level',
+    h1: (lvl: string, name: string) => `Free French courses, level ${lvl} (${name})`,
+    h1Cat: (cat: string, lvl: string) => `${cat}, level ${lvl}`,
+    canDo: (lvl: string) => `What you can do at ${lvl}`,
+    lessonsTitle: (lvl: string) => `Exam lessons at level ${lvl}`,
+    lessonsSub: 'Each levelled course (TCF, TEF) has one full lesson per level.',
+    coursesTitle: (lvl: string) => `Courses at level ${lvl}`,
+    fromCourse: 'From the course',
+    items: (n: number) => `${n} ${n > 1 ? 'courses and lessons' : 'course'}`,
+    otherLevels: 'Other levels',
+    allLevels: 'All courses at this level',
+    byLevel: 'By level',
+    notSure: 'Not sure of your level?',
+    notSureText: 'Take the free level test: about ten minutes, an instant estimate and the courses that suit you.',
+  },
+
   course: {
     metaTitle: (title: string, level: string) => `${title} (${level}): Free Interactive French Course | Learn French with Natives`,
     outcomes: 'What you will be able to do',
@@ -416,6 +436,26 @@ const fr: UiCopy = {
     relatedLink: 'Voir nos cours',
     sideTitle: 'Progressez plus vite avec un professeur natif',
     sideText: 'Les cours gratuits sont un excellent départ. Avec un professeur, vous avez un plan, de la pratique en direct et une correction personnalisée.',
+  },
+
+  levelPage: {
+    metaTitle: (lvl: string, name: string) => `Cours de français gratuits niveau ${lvl} (${name}) | Learn French with Natives`,
+    metaTitleCat: (cat: string, lvl: string) => `${cat}, niveau ${lvl} : leçons gratuites | Learn French with Natives`,
+    metaDescription: (lvl: string, n: number) => `${n} cours et leçons de français interactifs et gratuits au niveau ${lvl} : audio natif, exercices corrigés immédiatement, pratique de l’oral. Sans inscription.`,
+    eyebrow: 'Le français par niveau',
+    h1: (lvl: string, name: string) => `Cours de français gratuits, niveau ${lvl} (${name})`,
+    h1Cat: (cat: string, lvl: string) => `${cat}, niveau ${lvl}`,
+    canDo: (lvl: string) => `Ce que vous savez faire au niveau ${lvl}`,
+    lessonsTitle: (lvl: string) => `Leçons d’examen au niveau ${lvl}`,
+    lessonsSub: 'Chaque cours par niveaux (TCF, TEF) compte une leçon complète par niveau.',
+    coursesTitle: (lvl: string) => `Cours de niveau ${lvl}`,
+    fromCourse: 'Du cours',
+    items: (n: number) => `${n} ${n > 1 ? 'cours et leçons' : 'cours'}`,
+    otherLevels: 'Autres niveaux',
+    allLevels: 'Tous les cours de ce niveau',
+    byLevel: 'Par niveau',
+    notSure: 'Vous ne connaissez pas votre niveau ?',
+    notSureText: 'Faites le test de niveau gratuit : une dizaine de minutes, une estimation immédiate et les cours qui vous conviennent.',
   },
 
   course: {

@@ -150,3 +150,16 @@ export function placementJsonLd(lang: Lang) {
     ],
   };
 }
+
+/** A level page: the courses and lessons of one CEFR level (optionally one path). */
+export function levelJsonLd(o: { lang: Lang; path: string; name: string; description: string; items: { name: string; path: string }[]; trail: [string, string][] }) {
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      ORG,
+      { '@type': 'CollectionPage', url: abs(o.path), name: o.name, description: o.description, inLanguage: o.lang },
+      { '@type': 'ItemList', itemListElement: o.items.map((it, i) => ({ '@type': 'ListItem', position: i + 1, name: it.name, url: abs(it.path) })) },
+      crumbs(o.trail),
+    ],
+  };
+}
