@@ -4,6 +4,12 @@ import { MailOutlined } from '@ant-design/icons';
 import { BRAND_LOGO, CONTACT_EMAIL, LANDING, PATHS, type Lang } from './landingContent';
 import { TOPIC_PATHS, type TopicId } from './sitePages';
 import { TOPICS } from './topicContent';
+import { LEARN_HOME } from '../../learn/entry';
+
+const LEARN_LINKS: Record<Lang, [string, string][]> = {
+  en: [['Free French courses', '/learn/'], ['Free level test', '/learn/french-level-test/']],
+  fr: [['Cours de français gratuits', '/fr/apprendre/'], ['Test de niveau gratuit', '/fr/apprendre/test-de-niveau/']],
+};
 
 const COURSE_TOPICS: TopicId[] = ['online', 'business', 'kids'];
 
@@ -42,6 +48,7 @@ const SiteFooter: React.FC<Props> = ({ lang, sectionBase = '', onDemo }) => {
             <ul>
               {COURSE_TOPICS.map(id => <li key={id}><Link to={TOPIC_PATHS[id][lang]}>{TOPICS[lang][id].name}</Link></li>)}
               {f.courseLinks.map(x => <li key={x.label}><a href={href(x.href)}>{x.label}</a></li>)}
+              {LEARN_LINKS[lang].map(([label, to]) => <li key={to}><Link to={to} className={to === LEARN_HOME[lang] ? 'lp-footer-learn' : undefined}>{label}</Link></li>)}
             </ul>
           </nav>
           <nav aria-label={f.company}>

@@ -7,11 +7,17 @@ import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES, type PublicPage } from './components/Landing/sitePages';
 import { SiteRoutes } from './App';
 
+import { learnPages, prepareLearn } from './learn/ssr';
+
 export { PUBLIC_PAGES };
+
+/** The free courses: registered before rendering, listed for the pre-render and the sitemap. */
+export function prepare(): string[] { return prepareLearn(); }
+export const LEARN_PAGES = () => learnPages();
 
 // Rendered through the same routes as in the browser, so the browser can take
 // the HTML over as it is (main.tsx hydrates it) instead of drawing it again.
-export function render(page: PublicPage): string {
+export function render(page: Pick<PublicPage, 'path'>): string {
   return renderToString(
     <HelmetProvider>
       <MemoryRouter initialEntries={[page.path]}>

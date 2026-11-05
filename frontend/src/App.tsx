@@ -7,6 +7,9 @@ import LandingPage from './components/Landing/LandingPage';
 import TopicPage from './components/Landing/TopicPage';
 import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES } from './components/Landing/sitePages';
+// The free courses (/learn/, /fr/apprendre/): a doorway here, the space itself
+// downloads on demand (src/learn/entry.tsx).
+import LearnEntry from './learn/entry';
 
 // Everything behind /login and /app (antd, authentication, the app's
 // translations) lives in AppShell and is downloaded only when needed: the
@@ -86,6 +89,8 @@ export function SiteRoutes() {
               {/* Public pages: no antd, no authentication, pre-rendered. */}
               <Route path="/" element={<LandingPage lang="en" />} />
               <Route path="/fr" element={<LandingPage lang="fr" />} />
+              <Route path="/learn/*" element={<LearnEntry lang="en" />} />
+              <Route path="/fr/apprendre/*" element={<LearnEntry lang="fr" />} />
               {PUBLIC_PAGES.filter(p => p.topic).map(p => (
                 <Route key={p.path} path={p.path} element={<TopicPage key={p.path} topic={p.topic!} lang={p.lang} />} />
               ))}

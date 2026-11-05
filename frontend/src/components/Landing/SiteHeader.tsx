@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CloseOutlined, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant-design/icons';
 import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
+import { LEARN_HOME } from '../../learn/entry';
+
+const LEARN_LABEL: Record<Lang, string> = { en: 'Free courses', fr: 'Cours gratuits' };
 
 // Sections of the home page, in the order of the navigation.
 export const SECTIONS = ['programs', 'simulator', 'pricing', 'platform', 'reviews', 'faq'] as const;
@@ -52,6 +55,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
   }, [menuOpen]);
 
   const demo = () => { setMenuOpen(false); onDemo(); };
+  const learnActive = typeof alternates[lang] === 'string' && alternates[lang].startsWith(LEARN_HOME[lang]);
   const navItems = SECTIONS.map(id => ({ id, label: c.nav[id], href: `${sectionBase}#${id}` }));
   const langSwitch = (
     <div className="lp-lang" role="group" aria-label={c.nav.language}>
@@ -74,6 +78,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
           </Link>
           <nav className="lp-nav" aria-label="Main">
             {navItems.map(n => <a key={n.id} href={n.href} className={active === n.id ? 'is-active' : ''}>{n.label}</a>)}
+            <Link to={LEARN_HOME[lang]} className={`lp-nav-learn${learnActive ? ' is-active' : ''}`}>{LEARN_LABEL[lang]}</Link>
           </nav>
           <div className="lp-header-end">
             {langSwitch}
@@ -89,6 +94,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
       <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen} style={{ '--lp-menu-top': `${menuTop}px` } as React.CSSProperties}>
         <nav aria-label="Mobile">
           {navItems.map(n => <a key={n.id} href={n.href} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
+          <Link to={LEARN_HOME[lang]} onClick={() => setMenuOpen(false)} className="lp-mobile-learn">{LEARN_LABEL[lang]}<RightOutlined /></Link>
         </nav>
         <div className="lp-mobile-foot">
           {langSwitch}

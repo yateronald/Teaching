@@ -5,6 +5,8 @@
 //                                  (the list is PUBLIC_PAGES in src/components/Landing/sitePages.ts)
 //   dist/404.html                → "page not found", sent by nginx with a 404 status
 //                                  for unknown addresses (deploy/serve-real-404.sh)
+//   dist/learn/…, dist/fr/apprendre/… → the free courses: hub, paths, courses,
+//                                  lessons, level test (src/learn/ssr.ts)
 //   dist/sitemap.xml             → every page with its hreflang alternates, dated with this build
 //
 // Search engines, social networks and AI crawlers then receive the full page,
@@ -51,7 +53,7 @@ function sitemap(pages, date) {
     <loc>${SITE}${p.path}</loc>
     <lastmod>${date}</lastmod>
     <changefreq>weekly</changefreq>
-    <priority>${p.topic ? '0.8' : '1.0'}</priority>
+    <priority>${p.priority ?? (p.topic ? '0.8' : '1.0')}</priority>
 ${alternates}
   </url>`;
   }).join('\n');
@@ -74,7 +76,11 @@ async function main() {
     build: { ssr: 'src/entry-prerender.tsx', outDir: cache, emptyOutDir: true, copyPublicDir: false },
     ssr: { noExternal: true },
   });
-  const { render, renderNotFound, PUBLIC_PAGES } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
+  const { render, renderNotFound, PUBLIC_PAGES, prepare, LEARN_PAGES } = await import(pathToFileURL(path.join(cache, 'entry-prerender.js')).href);
+  // The free courses: their content is registered before anything renders.
+  for (const w of prepare()) console.warn(`  ⚠ learn: ${w}`);
+  const learn = LEARN_PAGES();
+  const pages = [...PUBLIC_PAGES, ...learn];
 
   // data-page tells index.html which address a file was made for: served for
   // any other address (the signed-in app), its content is hidden. The 404 page
@@ -90,7 +96,7 @@ async function main() {
   };
 
   // Render everything first: either all pages are written, or none.
-  const outputs = PUBLIC_PAGES.map(page => ({
+  const outputs = pages.map(page => ({
     ...page,
     file: fileFor(page.path),
     html: toHtml(render(page), page.lang, page.path, page.path),
@@ -116,9 +122,10 @@ async function main() {
     await fs.mkdir(path.dirname(target), { recursive: true });
     await fs.writeFile(target, out.html);
   }
-  await fs.writeFile(path.join(dist, 'sitemap.xml'), sitemap(PUBLIC_PAGES, new Date().toISOString().slice(0, 10)));
+  await fs.writeFile(path.join(dist, 'sitemap.xml'), sitemap(pages.filter(p => p.sitemap !== false), new Date().toISOString().slice(0, 10)));
   await fs.rm(cache, { recursive: true, force: true });
-  console.log(`✓ Pre-rendered ${outputs.length} pages (${outputs.map(o => o.path).join(', ')}) and sitemap.xml in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  const listed = outputs.filter(o => !o.path.includes('/learn/') && !o.path.includes('/apprendre/')).map(o => o.path).join(', ');
+  console.log(`✓ Pre-rendered ${outputs.length} pages (${listed}, and ${learn.length} free-course pages) and sitemap.xml in ${((Date.now() - started) / 1000).toFixed(1)}s`);
 }
 
 main().catch(err => {

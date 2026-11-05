@@ -1,0 +1,241 @@
+import { b, type Lesson } from '../../types';
+
+const lessons: Lesson[] = [
+  {
+    id: 'spelling-accents-1',
+    slug: { en: 'what-accents-do', fr: 'a-quoi-servent-les-accents' },
+    title: b('What each accent does', 'À quoi sert chaque accent'),
+    summary: b('The five French accents and what they change: é, è, ê, à, ù, ç, ë.', 'Les cinq accents du français et ce qu’ils changent : é, è, ê, à, ù, ç, ë.'),
+    objectives: [b('Pronounce é, è and ê correctly', 'Prononcer correctement é, è et ê'), b('Know when accents change the meaning', 'Savoir quand un accent change le sens'), b('Use the cedilla ç', 'Utiliser la cédille ç')],
+    minutes: 12,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('Five signs, three jobs', 'Cinq signes, trois rôles'),
+        body: b('French accents either **change the sound** (é, è), **distinguish two words** (a / à, ou / où), or **remember a lost letter** (forêt comes from the old forest).', 'Les accents servent à **changer le son** (é, è), à **distinguer deux mots** (a / à, ou / où) ou à **garder la trace d’une lettre disparue** (forêt vient de l’ancien forest).'),
+        table: {
+          head: [b('Accent', 'Accent'), b('Name', 'Nom'), b('Example', 'Exemple')],
+          rows: [['é', b('acute', 'aigu'), 'été, café'], ['è à ù', b('grave', 'grave'), 'père, là, où'], ['ê â î ô û', b('circumflex', 'circonflexe'), 'fête, château, île'], ['ç', b('cedilla', 'cédille'), 'garçon, français'], ['ë ï', b('diaeresis', 'tréma'), 'Noël, maïs']],
+        },
+      },
+      {
+        kind: 'concept',
+        title: b('é [e] or è / ê [ɛ]', 'é [e] ou è / ê [ɛ]'),
+        body: b('**é** is closed: smile slightly, like in “café”. **è** and **ê** are open: drop your jaw, like in “père” and “fête”.', '**é** est fermé : on sourit légèrement, comme dans « café ». **è** et **ê** sont ouverts : on ouvre la bouche, comme dans « père » et « fête ».'),
+        examples: [{ fr: 'le café, l’été, la télé', tr: 'é: closed sound' }, { fr: 'le père, la mère, très', tr: 'è: open sound' }, { fr: 'la fête, la tête, la forêt', tr: 'ê: open sound' }],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Listen. Which word do you hear?', 'Écoutez. Quel mot entendez-vous ?'),
+        audio: 'la fête',
+        listen: true,
+        options: ['la fête', 'la fée', 'le fait', 'la faite'],
+        answer: 0,
+      },
+      {
+        kind: 'categorize',
+        prompt: b('Closed é or open è / ê?', 'é fermé ou è / ê ouvert ?'),
+        buckets: [b('é (closed)', 'é (fermé)'), b('è / ê (open)', 'è / ê (ouvert)')],
+        items: [{ text: 'bébé', bucket: 0 }, { text: 'étudiant', bucket: 0 }, { text: 'école', bucket: 0 }, { text: 'frère', bucket: 1 }, { text: 'fenêtre', bucket: 1 }, { text: 'problème', bucket: 1 }],
+      },
+      {
+        kind: 'concept',
+        variant: 'trap',
+        title: b('Accents that change the meaning', 'Les accents qui changent le sens'),
+        examples: [{ fr: 'Il a un chat. / Il va à Paris.', tr: 'a = has · à = to' }, { fr: 'Thé ou café ? / Où habites-tu ?', tr: 'ou = or · où = where' }, { fr: 'Il est là. / La maison.', tr: 'là = there · la = the' }, { fr: 'Je suis sûr. / Le livre est sur la table.', tr: 'sûr = sure · sur = on' }],
+      },
+      {
+        kind: 'fill',
+        prompt: b('Add the accent if needed.', 'Ajoutez l’accent si nécessaire.'),
+        text: 'Tu habites ___ ? Ici ___ là-bas ?',
+        answers: [['où'], ['ou']],
+        choices: [['ou', 'où'], ['ou', 'où']],
+        tr: 'Where do you live? Here or over there?',
+        strict: true,
+      },
+      {
+        kind: 'concept',
+        title: b('The cedilla: c sounds like s', 'La cédille : le c chante comme un s'),
+        body: b('Before **a, o, u**, the letter c sounds [k]: café, comme. To make it sound [s], add a cedilla: **ç**a, gar**ç**on, re**ç**u. Before e and i, c already sounds [s]: ce, ici.', 'Devant **a, o, u**, le c se prononce [k] : café, comme. Pour qu’il se prononce [s], on ajoute une cédille : **ç**a, gar**ç**on, re**ç**u. Devant e et i, le c se prononce déjà [s] : ce, ici.'),
+        examples: [{ fr: 'un garçon, une leçon', tr: 'a boy, a lesson' }, { fr: 'nous commençons', tr: 'we start' }],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Which spelling is correct?', 'Quelle orthographe est correcte ?'),
+        options: ['une leçon', 'une lecon', 'une lesson', 'une leçcon'],
+        answer: 0,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Write what you hear. Accents count!', 'Écrivez ce que vous entendez. Les accents comptent !'),
+        text: 'Mon frère est très content.',
+        strict: true,
+      },
+      {
+        kind: 'speak',
+        prompt: b('Say the contrast: closed, then open.', 'Dites le contraste : fermé, puis ouvert.'),
+        text: 'Le café de mon père est très près.',
+        tr: 'My father’s café is very close.',
+      },
+    ],
+    notes: {
+      points: [
+        b('é = closed [e] (café); è, ê = open [ɛ] (père, fête).', 'é = [e] fermé (café) ; è, ê = [ɛ] ouvert (père, fête).'),
+        b('Accents that change meaning: a / à, ou / où, la / là, sur / sûr.', 'Accents qui changent le sens : a / à, ou / où, la / là, sur / sûr.'),
+        b('ç before a, o, u to keep the [s] sound: garçon, ça, reçu.', 'ç devant a, o, u pour garder le son [s] : garçon, ça, reçu.'),
+        b('The circumflex often marks a lost s: forêt (forest), hôpital (hospital).', 'L’accent circonflexe marque souvent un s disparu : forêt, hôpital.'),
+      ],
+      vocab: [['l’été', b('summer', 'saison chaude')], ['la fête', b('party', 'célébration')], ['le garçon', b('boy', 'enfant masculin')], ['où', b('where', 'interrogation de lieu')], ['là', b('there', 'à cet endroit')]],
+    },
+  },
+  {
+    id: 'spelling-accents-2',
+    slug: { en: 'one-sound-several-spellings', fr: 'un-son-plusieurs-graphies' },
+    title: b('One sound, several spellings', 'Un son, plusieurs graphies'),
+    summary: b('Write [o], [e] and [ɛ̃] correctly: o / au / eau, é / er / ez, in / ain / ein.', 'Écrire correctement [o], [e] et [ɛ̃] : o / au / eau, é / er / ez, in / ain / ein.'),
+    objectives: [b('Recognise the spellings of [o]', 'Reconnaître les graphies de [o]'), b('Choose between é, er, ez at the end of a word', 'Choisir entre é, er, ez en fin de mot'), b('Write the nasal [ɛ̃]', 'Écrire la nasale [ɛ̃]')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('[o]: o, au, eau', '[o] : o, au, eau'),
+        body: b('The same sound can be written in three common ways. Reading a lot is the best way to remember which word takes which.', 'Le même son s’écrit de trois façons courantes. Lire beaucoup est le meilleur moyen de retenir quel mot prend quelle graphie.'),
+        examples: [{ fr: 'un vélo, une moto', tr: 'o' }, { fr: 'jaune, une auto, chaud', tr: 'au' }, { fr: 'un gâteau, beau, l’eau', tr: 'eau', note: b('-eau is very often a noun ending: un bureau, un manteau.', '-eau est une terminaison de nom très fréquente : un bureau, un manteau.') }],
+      },
+      {
+        kind: 'categorize',
+        prompt: b('Sort by spelling.', 'Classez selon la graphie.'),
+        buckets: ['o', 'au', 'eau'],
+        items: [{ text: 'stylo', bucket: 0 }, { text: 'photo', bucket: 0 }, { text: 'restaurant', bucket: 1 }, { text: 'autobus', bucket: 1 }, { text: 'chapeau', bucket: 2 }, { text: 'bateau', bucket: 2 }],
+      },
+      {
+        kind: 'concept',
+        title: b('[e] at the end: é, er, ez, et', '[e] en fin de mot : é, er, ez, et'),
+        body: b('**-er**: infinitive (parler) · **-é**: past participle (parlé) · **-ez**: vous (parlez) · **-et**: some nouns (un ticket, un jouet). Test for the verb: replace with **vendre / vendu** — if “vendre” fits, write -er; if “vendu” fits, write -é.', '**-er** : infinitif (parler) · **-é** : participe passé (parlé) · **-ez** : vous (parlez) · **-et** : certains noms (un ticket, un jouet). Test pour le verbe : remplacez par **vendre / vendu** — si « vendre » convient, écrivez -er ; si « vendu » convient, écrivez -é.'),
+        examples: [{ fr: 'Je vais manger. (je vais vendre → -er)' }, { fr: 'J’ai mangé. (j’ai vendu → -é)' }, { fr: 'Vous mangez. (vous → -ez)' }],
+      },
+      {
+        kind: 'fill',
+        prompt: b('-er, -é or -ez?', '-er, -é ou -ez ?'),
+        text: 'Hier, j’ai regard___ un film. Ce soir, je vais regard___ la télé. Et vous, vous regard___ quoi ?',
+        answers: [['é'], ['er'], ['ez']],
+        choices: [['er', 'é', 'ez'], ['er', 'é', 'ez'], ['er', 'é', 'ez']],
+        strict: true,
+      },
+      {
+        kind: 'concept',
+        title: b('[ɛ̃]: in, im, ain, ein, un', '[ɛ̃] : in, im, ain, ein, un'),
+        examples: [{ fr: 'le vin, le jardin', tr: 'in' }, { fr: 'important, simple', tr: 'im (before p and b)' }, { fr: 'le pain, la main', tr: 'ain' }, { fr: 'plein, la peinture', tr: 'ein' }, { fr: 'lundi, un', tr: 'un (often pronounced like in today)' }],
+      },
+      {
+        kind: 'concept',
+        variant: 'tip',
+        title: b('m before p and b', 'm devant p et b'),
+        body: b('Before **p** and **b**, n becomes **m**: i**m**portant, e**m**ployé, ca**m**pagne, no**m**bre. Only exception you will meet: bonbon.', 'Devant **p** et **b**, le n devient **m** : i**m**portant, e**m**ployé, ca**m**pagne, no**m**bre. Seule exception courante : bonbon.'),
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Which spelling is correct?', 'Quelle orthographe est correcte ?'),
+        options: ['la campagne', 'la canpagne', 'la campaigne', 'la kampagne'],
+        answer: 0,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Write what you hear.', 'Écrivez ce que vous entendez.'),
+        text: 'Il fait beau et chaud au jardin.',
+        strict: true,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Write what you hear.', 'Écrivez ce que vous entendez.'),
+        text: 'Vous allez manger du pain demain.',
+        strict: true,
+        voice: 'm',
+      },
+    ],
+    notes: {
+      points: [
+        b('[o]: o (vélo), au (jaune), eau (gâteau); -eau is a frequent noun ending.', '[o] : o (vélo), au (jaune), eau (gâteau) ; -eau est une terminaison de nom fréquente.'),
+        b('[e] in verbs: -er infinitive, -é participle, -ez with vous. Test: vendre / vendu.', '[e] dans les verbes : -er infinitif, -é participe, -ez avec vous. Test : vendre / vendu.'),
+        b('[ɛ̃]: in, im, ain, ein; m before p and b (important, nombre).', '[ɛ̃] : in, im, ain, ein ; m devant p et b (important, nombre).'),
+      ],
+      vocab: [['le gâteau', b('cake', 'pâtisserie')], ['le pain', b('bread', 'aliment de base')], ['la campagne', b('countryside', 'hors de la ville')], ['important', b('important', 'qui compte')]],
+    },
+  },
+  {
+    id: 'spelling-accents-3',
+    slug: { en: 'typing-accents-and-dictation', fr: 'taper-les-accents-et-dictee' },
+    title: b('Typing accents and dictation practice', 'Taper les accents et s’entraîner en dictée'),
+    summary: b('How to type French accents on any keyboard or phone, then three dictations to put it all together.', 'Comment taper les accents français sur tous les claviers et téléphones, puis trois dictées pour tout mettre en pratique.'),
+    objectives: [b('Type accents on Windows, Mac and phone', 'Taper les accents sur Windows, Mac et téléphone'), b('Write dictated sentences without accent mistakes', 'Écrire des phrases dictées sans faute d’accent'), b('Proofread your accents', 'Relire vos accents')],
+    minutes: 12,
+    steps: [
+      {
+        kind: 'concept',
+        variant: 'tip',
+        title: b('Typing accents on any device', 'Taper les accents sur n’importe quel appareil'),
+        points: [
+          b('**Phone**: keep your finger on the letter (e, a, c…) and slide to the accent.', '**Téléphone** : laissez le doigt appuyé sur la lettre (e, a, c…) et glissez vers l’accent.'),
+          b('**Mac**: hold the key down, then choose the number shown (e then 2 for é).', '**Mac** : maintenez la touche enfoncée, puis choisissez le numéro proposé (e puis 2 pour é).'),
+          b('**Windows**: add the “Canadian Multilingual” or “French” keyboard, or use the US-International layout (’ then e = é).', '**Windows** : ajoutez le clavier « Canadien multilingue » ou « Français », ou la disposition États-Unis international (’ puis e = é).'),
+          b('**In the TCF and TEF on computer**: accent buttons are shown on screen, like in these exercises.', '**Au TCF et au TEF sur ordinateur** : des boutons d’accents s’affichent à l’écran, comme dans ces exercices.'),
+        ],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Which sentence has no accent mistake?', 'Quelle phrase n’a aucune faute d’accent ?'),
+        options: ['Où est la bibliothèque ?', 'Ou est la bibliotheque ?', 'Où est la bibliothéque ?', 'Ou ést la bibliothèque ?'],
+        answer: 0,
+      },
+      {
+        kind: 'fill',
+        prompt: b('Write the missing words with their accents.', 'Écrivez les mots manquants avec leurs accents.'),
+        text: 'En ___ (summer), nous allons à la ___ (party) de mon ___ (brother).',
+        answers: [['été'], ['fête'], ['frère']],
+        strict: true,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Dictation 1.', 'Dictée 1.'),
+        text: 'Le garçon a reçu une leçon de français.',
+        strict: true,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Dictation 2.', 'Dictée 2.'),
+        text: 'Ma mère préfère le thé à la crème.',
+        strict: true,
+        voice: 'f2',
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Dictation 3.', 'Dictée 3.'),
+        text: 'Il est déjà là, près de la fenêtre.',
+        strict: true,
+        voice: 'm',
+      },
+      {
+        kind: 'concept',
+        variant: 'exam',
+        title: b('Do accents count in exams?', 'Les accents comptent-ils à l’examen ?'),
+        body: b('In the TCF, TEF and DELF writing papers, spelling is part of the “linguistic” criteria. One forgotten accent will not make you fail, but dozens will lower your grade. Keep two minutes at the end to reread **only the accents**.', 'À l’écrit du TCF, du TEF et du DELF, l’orthographe fait partie des critères linguistiques. Un accent oublié ne vous fera pas échouer, mais des dizaines feront baisser votre note. Gardez deux minutes à la fin pour relire **uniquement les accents**.'),
+      },
+      {
+        kind: 'speak',
+        prompt: b('Read aloud.', 'Lisez à voix haute.'),
+        text: 'Où est la bibliothèque ? Elle est là-bas, près de l’hôpital.',
+        tr: 'Where is the library? It’s over there, near the hospital.',
+      },
+    ],
+    notes: {
+      points: [
+        b('Phone: long-press the letter. Mac: hold the key. Windows: add a French or Canadian Multilingual keyboard.', 'Téléphone : appui long sur la lettre. Mac : maintenir la touche. Windows : ajouter un clavier français ou canadien multilingue.'),
+        b('Exams on computer show accent buttons on screen.', 'Les examens sur ordinateur affichent des boutons d’accents.'),
+        b('Final check: reread only the accents for two minutes.', 'Relecture finale : deux minutes uniquement pour les accents.'),
+      ],
+      vocab: [['la bibliothèque', b('library', 'lieu des livres')], ['l’hôpital', b('hospital', 'lieu de soins')], ['déjà', b('already', 'avant maintenant')], ['près de', b('near', 'à côté de')]],
+    },
+  },
+];
+
+export default lessons;

@@ -4,6 +4,7 @@ import { HelmetProvider } from 'react-helmet-async'
 import './index.css'
 import App from './App.tsx'
 import { brandingUtils } from './utils/branding'
+import { isLearnPath, preloadLearn } from './learn/entry'
 
 const Boot = () => {
   useEffect(() => {
@@ -34,8 +35,9 @@ const tree = (
 // drawing it a second time, so it appears as soon as the HTML arrives.
 // Everything else (the signed-in app, the 404 page) is drawn by React.
 const page = document.documentElement.dataset.page
-if (page && page !== '*' && location.pathname.replace(/\/?$/, '/') === page && container.firstElementChild) {
-  hydrateRoot(container, tree)
-} else {
-  createRoot(container).render(tree)
-}
+const hydrate = page && page !== '*' && location.pathname.replace(/\/?$/, '/') === page && container.firstElementChild
+const start = () => (hydrate ? hydrateRoot(container, tree) : createRoot(container).render(tree))
+// A learning page needs its code and its course before React can take over
+// the pre-rendered HTML; the page stays visible meanwhile.
+if (isLearnPath(location.pathname)) preloadLearn(location.pathname).then(start, start)
+else start()

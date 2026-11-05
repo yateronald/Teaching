@@ -1,0 +1,222 @@
+import { b, type Lesson } from '../../types';
+
+const lessons: Lesson[] = [
+  {
+    id: 'small-talk-1',
+    slug: { en: 'breaking-the-ice', fr: 'briser-la-glace' },
+    title: b('Breaking the ice', 'Briser la glace'),
+    summary: b('Start a conversation with a neighbour, a colleague or a stranger, and keep it going with follow-up questions.', 'Engager la conversation avec un voisin, un collègue ou un inconnu, et la faire durer avec des questions de relance.'),
+    objectives: [b('Open a conversation naturally', 'Ouvrir une conversation naturellement'), b('Talk about the weather and the news', 'Parler de la météo et de l’actualité'), b('Ask follow-up questions', 'Poser des questions de relance')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('Easy openers', 'Des phrases pour commencer'),
+        body: b('The weather, the place you are in, or something you share are the safest topics.', 'La météo, le lieu où l’on se trouve ou ce que l’on partage sont les sujets les plus sûrs.'),
+        examples: [{ fr: 'Il fait vraiment beau aujourd’hui, hein ?', tr: 'The weather is really nice today, isn’t it?' }, { fr: 'Vous venez souvent ici ?', tr: 'Do you come here often?' }, { fr: 'Vous êtes nouveau dans l’immeuble ?', tr: 'Are you new in the building?' }, { fr: 'Quel froid ce matin !', tr: 'So cold this morning!' }],
+      },
+      {
+        kind: 'concept',
+        variant: 'tip',
+        title: b('Keep it going: ask back', 'Faire durer : relancer'),
+        body: b('Answer, then return the question: **Et vous ?**, **Et toi ?**. Show interest with **Ah bon ?**, **C’est vrai ?**, **Ça doit être…**', 'Répondez, puis renvoyez la question : **Et vous ?**, **Et toi ?**. Montrez votre intérêt avec **Ah bon ?**, **C’est vrai ?**, **Ça doit être…**'),
+        examples: [{ fr: 'Ah bon ? Vous travaillez dans quoi ?', tr: 'Really? What do you do?' }, { fr: 'Ça doit être passionnant !', tr: 'That must be fascinating!' }],
+      },
+      {
+        kind: 'dialogue',
+        title: b('In the lift', 'Dans l’ascenseur'),
+        scene: b('You meet a new neighbour in your building in Montréal.', 'Vous croisez une nouvelle voisine dans votre immeuble à Montréal.'),
+        speakers: [{ name: 'Voisine', voice: 'f', side: 'l' }, { name: 'Vous', voice: 'm', side: 'r' }],
+        lines: [
+          { s: 0, fr: 'Bonjour ! Quel froid ce matin, hein ?', tr: 'Hello! So cold this morning, eh?' },
+          { s: 1, choose: { options: ['Oui, moins vingt ! Vous êtes nouvelle dans l’immeuble ?', 'Oui. Au revoir.', 'Le froid est une saison.'], answer: 0 } },
+          { s: 0, fr: 'Oui, je viens d’emménager au quatrième. Je m’appelle Nadia.', tr: 'Yes, I’ve just moved in on the fourth floor. I’m Nadia.' },
+          { s: 1, choose: { options: ['Enchanté, Nadia ! Moi, c’est Samuel, j’habite au deuxième.', 'Je m’appelle au deuxième.', 'Enchanté. Pourquoi ?'], answer: 0 } },
+          { s: 0, fr: 'Ravie de vous rencontrer ! Vous habitez ici depuis longtemps ?', tr: 'Nice to meet you! Have you lived here long?' },
+          { s: 1, choose: { options: ['Depuis trois ans. Si vous avez besoin de quoi que ce soit, n’hésitez pas !', 'Depuis l’ascenseur.', 'Pendant trois ans demain.'], answer: 0 } },
+        ],
+      },
+      {
+        kind: 'match',
+        prompt: b('Match each reaction with its use.', 'Associez chaque réaction à son usage.'),
+        pairs: [['Ah bon ?', b('surprise', 'surprise')], ['Ça doit être difficile.', b('empathy', 'empathie')], ['Moi aussi !', b('agreement', 'accord')], ['Et vous ?', b('returning the question', 'renvoyer la question')]],
+      },
+      {
+        kind: 'order',
+        prompt: b('Build a follow-up question.', 'Construisez une question de relance.'),
+        tr: 'And you, how long have you been living in Canada?',
+        words: ['Et', 'vous,', 'vous', 'habitez', 'au', 'Canada', 'depuis', 'combien', 'de', 'temps', '?'],
+      },
+      {
+        kind: 'concept',
+        variant: 'culture',
+        title: b('Topics to avoid at first', 'Les sujets à éviter au début'),
+        body: b('With people you do not know well, French speakers avoid asking about **salary**, **age**, **religion** or **politics**. In Québec, people are often very friendly and quickly switch to **tu**.', 'Avec des personnes peu connues, on évite de parler de **salaire**, d’**âge**, de **religion** ou de **politique**. Au Québec, les gens sont souvent très chaleureux et passent vite au **tu**.'),
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Which question is appropriate with a new colleague?', 'Quelle question convient avec un nouveau collègue ?'),
+        options: ['Tu as passé un bon week-end ?', 'Tu gagnes combien ?', 'Tu as quel âge exactement ?', 'Tu votes pour qui ?'],
+        answer: 0,
+      },
+      {
+        kind: 'speak',
+        prompt: b('Start a conversation.', 'Engagez la conversation.'),
+        text: 'Il fait vraiment beau aujourd’hui ! Vous venez souvent dans ce parc ?',
+        tr: 'The weather is really nice today! Do you often come to this park?',
+      },
+    ],
+    notes: {
+      points: [
+        b('Openers: the weather, the place, something shared (Quel froid ! Vous venez souvent ici ?).', 'Pour commencer : la météo, le lieu, un point commun (Quel froid ! Vous venez souvent ici ?).'),
+        b('Keep it going: Et vous ? Ah bon ? C’est vrai ? Ça doit être…', 'Faire durer : Et vous ? Ah bon ? C’est vrai ? Ça doit être…'),
+        b('Avoid salary, age, religion, politics with people you barely know.', 'Évitez salaire, âge, religion, politique avec des personnes peu connues.'),
+      ],
+      vocab: [['emménager', b('to move in', 's’installer dans un logement')], ['ravi(e) de vous rencontrer', b('nice to meet you', 'enchanté')], ['depuis combien de temps', b('for how long', 'durée')], ['n’hésitez pas', b('don’t hesitate', 'faites-le sans crainte')]],
+    },
+  },
+  {
+    id: 'small-talk-2',
+    slug: { en: 'tastes-and-hobbies', fr: 'gouts-et-loisirs' },
+    title: b('Talking about tastes and hobbies', 'Parler de ses goûts et loisirs'),
+    summary: b('Say what you like, love, don’t mind or hate, and talk about your free time.', 'Dire ce que vous aimez, adorez, ce qui vous est égal ou ce que vous détestez, et parler de votre temps libre.'),
+    objectives: [b('Express preferences with nuance', 'Exprimer ses préférences avec nuance'), b('Use faire du / de la and jouer au / à la', 'Utiliser faire du / de la et jouer au / à la'), b('React to someone’s tastes', 'Réagir aux goûts de quelqu’un')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('From love to hate', 'De l’amour à la haine'),
+        table: { head: [b('Expression', 'Expression'), b('Meaning', 'Sens')], rows: [['J’adore…', '❤❤❤'], ['J’aime bien…', '❤❤'], ['Ça me plaît.', '❤'], ['Ça m’est égal.', '='], ['Je n’aime pas trop…', '✗'], ['Je déteste… / J’ai horreur de…', '✗✗']] },
+        examples: [{ fr: 'J’adore cuisiner pour mes amis.', tr: 'I love cooking for my friends.' }, { fr: 'Le foot, ça m’est égal.', tr: 'I don’t care about football.' }, { fr: 'J’ai horreur de me lever tôt.', tr: 'I hate getting up early.' }],
+      },
+      {
+        kind: 'concept',
+        variant: 'trap',
+        title: b('Faire du sport, jouer au foot', 'Faire du sport, jouer au foot'),
+        body: b('**Faire de** + activity: faire **du** vélo, **de la** natation, **du** yoga. **Jouer à** + game or team sport: jouer **au** foot, **aux** cartes. **Jouer de** + instrument: jouer **de la** guitare, **du** piano.', '**Faire de** + activité : faire **du** vélo, **de la** natation, **du** yoga. **Jouer à** + jeu ou sport collectif : jouer **au** foot, **aux** cartes. **Jouer de** + instrument : jouer **de la** guitare, **du** piano.'),
+      },
+      {
+        kind: 'fill',
+        prompt: b('Complete.', 'Complétez.'),
+        text: 'Le week-end, je joue ___ basket et ma sœur joue ___ violon.',
+        answers: [['au'], ['du']],
+        choices: [['au', 'du', 'de la'], ['au', 'du', 'de la']],
+      },
+      {
+        kind: 'categorize',
+        prompt: b('Faire du / de la or jouer au / à la?', 'Faire du / de la ou jouer au / à la ?'),
+        buckets: [b('faire du / de la…', 'faire du / de la…'), b('jouer au / aux…', 'jouer au / aux…')],
+        items: [{ text: 'ski', bucket: 0 }, { text: 'randonnée', bucket: 0 }, { text: 'yoga', bucket: 0 }, { text: 'tennis', bucket: 1 }, { text: 'échecs', bucket: 1 }, { text: 'hockey', bucket: 1 }],
+      },
+      {
+        kind: 'dialogue',
+        title: b('After work', 'Après le travail'),
+        scene: b('Two colleagues talk during a break.', 'Deux collègues discutent pendant la pause.'),
+        speakers: [{ name: 'Marc', voice: 'm2', side: 'l' }, { name: 'Vous', voice: 'f2', side: 'r' }],
+        lines: [
+          { s: 0, fr: 'Tu fais quoi, toi, le soir après le travail ?', tr: 'What do you do in the evening after work?' },
+          { s: 1, choose: { options: ['Je fais du yoga deux fois par semaine. Et toi ?', 'Je joue du yoga. Et toi ?', 'Je fais au yoga.'], answer: 0 } },
+          { s: 0, fr: 'Moi, je joue au hockey dans une équipe du quartier.', tr: 'I play hockey on a neighbourhood team.' },
+          { s: 1, choose: { options: ['C’est vrai ? Ça doit être intense !', 'Ça m’est égal ton hockey.', 'Je déteste toi.'], answer: 0 } },
+          { s: 0, fr: 'Oui, j’adore ça ! Tu devrais venir voir un match.', tr: 'Yes, I love it! You should come and watch a game.' },
+        ],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Listen. What does Inès think about running?', 'Écoutez. Que pense Inès de la course à pied ?'),
+        audio: 'La course à pied ? Bof, ça ne me dit rien. Par contre, la natation, j’adore, j’y vais tous les dimanches.',
+        listen: true,
+        voice: 'f2',
+        options: [b('She doesn’t like it; she prefers swimming', 'Elle n’aime pas ; elle préfère la natation'), b('She loves it', 'Elle adore'), b('She runs every Sunday', 'Elle court tous les dimanches'), b('She hates swimming', 'Elle déteste la natation')],
+        answer: 0,
+      },
+      {
+        kind: 'speak',
+        prompt: b('Talk about your free time.', 'Parlez de votre temps libre.'),
+        text: 'J’adore faire de la randonnée, mais j’ai horreur du froid !',
+        tr: 'I love hiking, but I hate the cold!',
+      },
+    ],
+    notes: {
+      points: [
+        b('Scale: j’adore > j’aime bien > ça me plaît > ça m’est égal > je n’aime pas trop > je déteste / j’ai horreur de.', 'Échelle : j’adore > j’aime bien > ça me plaît > ça m’est égal > je n’aime pas trop > je déteste / j’ai horreur de.'),
+        b('faire du / de la + activity; jouer au / aux + game; jouer du / de la + instrument.', 'faire du / de la + activité ; jouer au / aux + jeu ; jouer du / de la + instrument.'),
+        b('React: C’est vrai ? Ça doit être…, Moi aussi ! Moi non plus.', 'Réagir : C’est vrai ? Ça doit être…, Moi aussi ! Moi non plus.'),
+      ],
+      vocab: [['les loisirs', b('hobbies', 'activités de temps libre')], ['ça m’est égal', b('I don’t mind', 'cela m’est indifférent')], ['j’ai horreur de', b('I hate', 'je déteste')], ['la natation', b('swimming', 'sport aquatique')]],
+    },
+  },
+  {
+    id: 'small-talk-3',
+    slug: { en: 'inviting-accepting-declining', fr: 'inviter-accepter-refuser' },
+    title: b('Inviting, accepting and declining', 'Inviter, accepter et refuser'),
+    summary: b('Make an invitation, accept warmly, decline politely with a reason, and suggest another time.', 'Faire une invitation, accepter chaleureusement, refuser poliment avec une raison, et proposer un autre moment.'),
+    objectives: [b('Invite with ça te dit de… ? / tu veux… ?', 'Inviter avec ça te dit de… ? / tu veux… ?'), b('Accept and decline politely', 'Accepter et refuser poliment'), b('Suggest another date', 'Proposer une autre date')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('Inviting', 'Inviter'),
+        examples: [{ fr: 'Ça te dit d’aller au cinéma samedi ?', tr: 'Do you fancy going to the cinema on Saturday?' }, { fr: 'Tu veux venir dîner à la maison ?', tr: 'Do you want to come for dinner?' }, { fr: 'On pourrait prendre un verre après le travail ?', tr: 'We could have a drink after work?' }, { fr: 'Je voudrais vous inviter à mon anniversaire.', tr: 'I’d like to invite you to my birthday (formal).' }],
+      },
+      {
+        kind: 'categorize',
+        prompt: b('Accepting or declining?', 'Accepter ou refuser ?'),
+        buckets: [b('Accept', 'Accepter'), b('Decline', 'Refuser')],
+        items: [{ text: 'Avec plaisir !', bucket: 0 }, { text: 'Bonne idée, je suis partant !', bucket: 0 }, { text: 'Volontiers.', bucket: 0 }, { text: 'Désolé, je ne suis pas libre.', bucket: 1 }, { text: 'Ça ne va pas être possible.', bucket: 1 }, { text: 'Malheureusement, j’ai déjà quelque chose.', bucket: 1 }],
+      },
+      {
+        kind: 'concept',
+        variant: 'tip',
+        title: b('Declining politely: three steps', 'Refuser poliment : trois étapes'),
+        body: b('**Thank** (c’est gentil), **apologise with a reason** (malheureusement, je travaille ce soir), **suggest another time** (on se fait ça la semaine prochaine ?).', '**Remercier** (c’est gentil), **s’excuser avec une raison** (malheureusement, je travaille ce soir), **proposer un autre moment** (on se fait ça la semaine prochaine ?).'),
+        examples: [{ fr: 'C’est gentil, mais malheureusement je travaille samedi. On se fait ça dimanche ?', tr: 'That’s kind, but unfortunately I’m working on Saturday. Shall we do it on Sunday?' }],
+      },
+      {
+        kind: 'order',
+        prompt: b('Decline politely.', 'Refusez poliment.'),
+        tr: 'That’s kind, but I’m not free this evening.',
+        words: ['C’est', 'gentil,', 'mais', 'je', 'ne', 'suis', 'pas', 'libre', 'ce', 'soir.'],
+      },
+      {
+        kind: 'dialogue',
+        title: b('An invitation', 'Une invitation'),
+        scene: b('A friend calls you.', 'Un ami vous appelle.'),
+        speakers: [{ name: 'Yanis', voice: 'm', side: 'l' }, { name: 'Vous', voice: 'f', side: 'r' }],
+        lines: [
+          { s: 0, fr: 'Salut ! Ça te dit de venir à un concert vendredi soir ?', tr: 'Hi! Do you fancy coming to a concert on Friday evening?' },
+          { s: 1, choose: { options: ['Oh, c’est gentil, mais vendredi je travaille tard. Samedi, c’est possible ?', 'Non.', 'Oui, je travaille tard vendredi.'], answer: 0 } },
+          { s: 0, fr: 'Samedi, il y a un autre concert, en plein air. Vingt heures, ça te va ?', tr: 'On Saturday there’s another concert, outdoors. Is 8 p.m. OK?' },
+          { s: 1, choose: { options: ['Parfait, avec plaisir ! On se retrouve où ?', 'Désolée, avec plaisir.', 'Ça ne va pas être possible, parfait !'], answer: 0 } },
+          { s: 0, fr: 'Devant l’entrée du parc, à dix-neuf heures quarante-cinq.', tr: 'In front of the park entrance, at 7:45 p.m.' },
+        ],
+      },
+      {
+        kind: 'write',
+        prompt: b('Reply to an invitation.', 'Répondez à une invitation.'),
+        task: b('Your colleague Julie invites you to her housewarming party on Saturday. You can’t go. Write a friendly message (40–60 words): thank her, explain why, suggest another time.', 'Votre collègue Julie vous invite à sa pendaison de crémaillère samedi. Vous ne pouvez pas y aller. Écrivez un message amical (40 à 60 mots) : remerciez-la, expliquez pourquoi, proposez un autre moment.'),
+        min: 40,
+        max: 60,
+        checklist: [b('Thank her', 'Remercier'), b('Give a reason (malheureusement…)', 'Donner une raison (malheureusement…)'), b('Suggest another time', 'Proposer un autre moment'), b('A friendly closing (bises, à bientôt)', 'Une formule amicale (bises, à bientôt)')],
+        phrases: ['Merci beaucoup pour l’invitation !', 'Malheureusement,', 'je ne pourrai pas venir', 'Est-ce qu’on pourrait', 'À bientôt !', 'Bises,'],
+        model: 'Salut Julie,\n\nMerci beaucoup pour ton invitation, c’est vraiment gentil ! Malheureusement, je ne pourrai pas venir samedi : mes parents arrivent du Cameroun ce week-end. Est-ce qu’on pourrait prendre un café la semaine prochaine ? J’ai hâte de voir ton nouvel appartement !\n\nBises,\nAmina',
+      },
+      {
+        kind: 'speak',
+        prompt: b('Accept the invitation.', 'Acceptez l’invitation.'),
+        text: 'Avec plaisir ! C’est très gentil de m’inviter.',
+        tr: 'With pleasure! It’s very kind of you to invite me.',
+      },
+    ],
+    notes: {
+      points: [
+        b('Invite: Ça te dit de… ? Tu veux… ? On pourrait… ?', 'Inviter : Ça te dit de… ? Tu veux… ? On pourrait… ?'),
+        b('Accept: Avec plaisir ! Volontiers. Je suis partant(e) !', 'Accepter : Avec plaisir ! Volontiers. Je suis partant(e) !'),
+        b('Decline: thank + reason (malheureusement…) + another time.', 'Refuser : remercier + raison (malheureusement…) + autre moment.'),
+      ],
+      vocab: [['ça te dit de… ?', b('do you fancy…?', 'as-tu envie de… ?')], ['volontiers', b('gladly', 'avec plaisir')], ['malheureusement', b('unfortunately', 'hélas')], ['être partant', b('to be up for it', 'être d’accord pour participer')], ['la pendaison de crémaillère', b('housewarming party', 'fête dans un nouveau logement')]],
+    },
+  },
+];
+
+export default lessons;

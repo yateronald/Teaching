@@ -728,3 +728,53 @@ body:has(.lp) { min-width: 0; }
   .lp-skills-foot { flex-direction: column; align-items: flex-start; gap: 18px; padding: 20px; }
   .lp-skills-foot .lp-btn { width: 100%; justify-content: center; }
 }
+
+/* ── Free courses (home section + header link) ── */
+.lp-nav-learn { position: relative; padding: 8px 12px; border-radius: 8px; font-size: 14.5px; font-weight: 650; color: var(--blue) !important; }
+.lp-nav-learn::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--red); vertical-align: 1px; }
+.lp-nav-learn:hover { background: var(--blue-soft); }
+.lp-mobile-learn { color: var(--blue) !important; font-weight: 700; }
+.lp-footer-learn { font-weight: 650; }
+.lp-learn { background: linear-gradient(180deg, var(--paper) 0%, #fff 100%); border-top: 1px solid var(--line-soft); }
+.lp-learn-head { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; align-items: end; margin-bottom: 36px; }
+.lp-learn-head h2 { margin-top: 14px; font-family: var(--display); font-size: clamp(30px, 3.7vw, 46px); font-weight: 800; line-height: 1.1; letter-spacing: -0.032em; }
+.lp-learn-head p:not(.lp-eyebrow) { margin-top: 14px; max-width: 640px; font-size: 17px; line-height: 1.65; color: var(--muted); }
+.lp-learn-head ul { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 18px 0 0; padding: 0; list-style: none; font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.lp-learn-head li { display: inline-flex; align-items: center; gap: 8px; }
+.lp-learn-head li span { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: var(--blue-soft); color: var(--blue); font-size: 13px; }
+.lp-learn-ctas { display: flex; flex-wrap: wrap; gap: 12px; justify-content: flex-end; }
+.lp-learn-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.lp-learn-tile { position: relative; display: block; overflow: hidden; aspect-ratio: 4 / 5; border-radius: 16px; background: var(--paper-2); box-shadow: var(--shadow-sm); transition: transform 0.25s, box-shadow 0.25s; }
+.lp-learn-tile:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
+.lp-learn-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.lp-learn-tile:hover img { transform: scale(1.05); }
+.lp-learn-tile::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(11, 23, 51, 0) 35%, rgba(11, 23, 51, 0.85) 100%); }
+.lp-learn-tile-body { position: absolute; left: 14px; right: 14px; bottom: 14px; z-index: 1; display: flex; flex-direction: column; gap: 2px; color: #fff; }
+.lp-learn-tile-body strong { font-family: var(--display); font-size: 16.5px; font-weight: 800; letter-spacing: -0.015em; line-height: 1.2; }
+.lp-learn-tile-body em { font-style: normal; font-size: 12.5px; color: #d5ddf0; }
+.lp-learn-arrow { position: absolute; top: 12px; right: 12px; z-index: 1; display: grid !important; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255, 255, 255, 0.92); color: var(--blue); font-size: 12px; opacity: 0; transform: translateY(-4px); transition: opacity 0.2s, transform 0.2s; }
+.lp-learn-tile:hover .lp-learn-arrow { opacity: 1; transform: none; }
+@media (max-width: 1100px) { .lp-nav-learn::before { display: none; } }
+@media (max-width: 960px) {
+  .lp-learn-head { grid-template-columns: 1fr; }
+  .lp-learn-ctas { justify-content: flex-start; }
+  .lp-learn-grid { grid-template-columns: repeat(2, 1fr); }
+  .lp-learn-tile { aspect-ratio: 4 / 3; }
+}
+.lp-nav-learn { white-space: nowrap; }
+/* Navigation labels never wrap ("Exam simulator" on one line); the header end
+   (language, sign in, demo) never shrinks. */
+.lp-nav { min-width: 0; }
+.lp-nav a { white-space: nowrap; }
+.lp-header-end { flex-shrink: 0; }
+.lp-header-end .lp-btn, .lp-signin { white-space: nowrap; }
+/* With the free-courses link, the narrowest desktop widths keep the essentials;
+   the two hidden anchors stay in the mobile menu and the footer. */
+/* The header is wider than the page content so that the whole menu fits on
+   large screens; below, the least essential anchors are hidden (they stay in
+   the mobile menu and the footer). Breakpoints measured on the English labels,
+   the longest. */
+.lp-wrap.lp-header-row { max-width: 1340px; }
+@media (max-width: 1340px) { .lp-nav a[href$="#platform"] { display: none; } }
+@media (max-width: 1240px) { .lp-nav a[href$="#faq"] { display: none; } }
+@media (max-width: 1150px) { .lp-nav a[href$="#reviews"] { display: none; } }

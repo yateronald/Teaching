@@ -1,0 +1,217 @@
+import { b, type Lesson } from '../../types';
+
+const lessons: Lesson[] = [
+  {
+    id: 'spelling-homophones-1',
+    slug: { en: 'a-or-a-et-or-est', fr: 'a-ou-a-et-ou-est' },
+    title: b('a / à and et / est', 'a / à et et / est'),
+    summary: b('Two pairs that cause countless mistakes, and the replacement test that solves them.', 'Deux paires responsables d’innombrables fautes, et le test de remplacement qui les résout.'),
+    objectives: [b('Tell a (verb) from à (preposition)', 'Distinguer a (verbe) et à (préposition)'), b('Tell et (and) from est (is)', 'Distinguer et (conjonction) et est (verbe)'), b('Apply the replacement test', 'Appliquer le test de remplacement')],
+    minutes: 12,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('The replacement test', 'Le test du remplacement'),
+        body: b('Homophones sound the same, so your ear cannot help. Replace the word with another one: if the sentence still works, you have found the right spelling.', 'Les homophones se prononcent pareil : l’oreille ne peut pas aider. Remplacez le mot par un autre : si la phrase fonctionne encore, vous avez trouvé la bonne orthographe.'),
+        table: {
+          head: [b('Word', 'Mot'), b('Nature', 'Nature'), b('Test', 'Test')],
+          rows: [['a', b('verb avoir', 'verbe avoir'), b('replace with **avait**', 'remplacer par **avait**')], ['à', b('preposition', 'préposition'), b('avait does not work', 'avait ne marche pas')], ['est', b('verb être', 'verbe être'), b('replace with **était**', 'remplacer par **était**')], ['et', b('“and”', 'conjonction'), b('replace with **et puis**', 'remplacer par **et puis**')]],
+        },
+        examples: [{ fr: 'Il a faim. → Il avait faim. ✓ a', tr: '' }, { fr: 'Il va à Paris. → Il va avait Paris. ✗ à', tr: '' }, { fr: 'Elle est contente. → Elle était contente. ✓ est', tr: '' }, { fr: 'Paul et Marie → Paul et puis Marie ✓ et', tr: '' }],
+      },
+      {
+        kind: 'fill',
+        prompt: b('a or à?', 'a ou à ?'),
+        text: 'Ma sœur ___ un rendez-vous ___ dix heures ___ la mairie.',
+        answers: [['a'], ['à'], ['à']],
+        choices: [['a', 'à'], ['a', 'à'], ['a', 'à']],
+        strict: true,
+      },
+      {
+        kind: 'fill',
+        prompt: b('et or est?', 'et ou est ?'),
+        text: 'Le restaurant ___ fermé le lundi ___ le mardi.',
+        answers: [['est'], ['et']],
+        choices: [['et', 'est'], ['et', 'est']],
+        strict: true,
+      },
+      {
+        kind: 'categorize',
+        prompt: b('a or à in each sentence?', 'a ou à dans chaque phrase ?'),
+        buckets: ['a', 'à'],
+        items: [{ text: 'Elle … deux chats.', bucket: 0 }, { text: 'Il … oublié ses clés.', bucket: 0 }, { text: 'On … raison.', bucket: 0 }, { text: 'Je pense … toi.', bucket: 1 }, { text: 'une tasse … café', bucket: 1 }, { text: 'Nous habitons … Ottawa.', bucket: 1 }],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Which sentence is correct?', 'Quelle phrase est correcte ?'),
+        options: ['Mon frère est grand et sportif.', 'Mon frère et grand est sportif.', 'Mon frère est grand est sportif.', 'Mon frère et grand et sportif.'],
+        answer: 0,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Write the sentence.', 'Écrivez la phrase.'),
+        text: 'Elle a un cours à midi et elle est en retard.',
+        strict: true,
+      },
+      {
+        kind: 'speak',
+        prompt: b('Read it aloud: they sound the same!', 'Lisez à voix haute : ils se prononcent pareil !'),
+        text: 'Il a un chat à la maison, et il est content.',
+        tr: 'He has a cat at home, and he is happy.',
+      },
+    ],
+    notes: {
+      points: [
+        b('**a** = verb avoir (→ avait); **à** = preposition (avait does not fit).', '**a** = verbe avoir (→ avait) ; **à** = préposition (avait ne convient pas).'),
+        b('**est** = verb être (→ était); **et** = and (→ et puis).', '**est** = verbe être (→ était) ; **et** = conjonction (→ et puis).'),
+      ],
+      vocab: [['avait', b('had (test for a)', 'test pour a')], ['était', b('was (test for est)', 'test pour est')], ['et puis', b('and then (test for et)', 'test pour et')]],
+    },
+  },
+  {
+    id: 'spelling-homophones-2',
+    slug: { en: 'son-sont-on-ont-ces-ses', fr: 'son-sont-on-ont-ces-ses' },
+    title: b('son / sont, on / ont, ces / ses', 'son / sont, on / ont, ces / ses'),
+    summary: b('Three more pairs, each with its own test: étaient, il, and the possessive.', 'Trois autres paires, chacune avec son test : étaient, il, et le possessif.'),
+    objectives: [b('Tell son from sont', 'Distinguer son et sont'), b('Tell on from ont', 'Distinguer on et ont'), b('Tell ces from ses', 'Distinguer ces et ses')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('Three tests', 'Trois tests'),
+        table: {
+          head: [b('Pair', 'Paire'), b('Test', 'Test'), b('Example', 'Exemple')],
+          rows: [['sont / son', b('sont → **étaient**; son → **mon**', 'sont → **étaient** ; son → **mon**'), 'Ils sont là. / Son livre.'], ['ont / on', b('ont → **avaient**; on → **il**', 'ont → **avaient** ; on → **il**'), 'Ils ont faim. / On mange.'], ['ses / ces', b('ses = his / her (→ **mes**); ces = these (→ **ces… -là**)', 'ses = à lui / à elle (→ **mes**) ; ces = démonstratif (→ **ces… -là**)'), 'Il range ses affaires. / Ces chaussures sont belles.']],
+        },
+      },
+      {
+        kind: 'fill',
+        prompt: b('son or sont?', 'son ou sont ?'),
+        text: 'Ses parents ___ venus avec ___ petit frère.',
+        answers: [['sont'], ['son']],
+        choices: [['son', 'sont'], ['son', 'sont']],
+        strict: true,
+      },
+      {
+        kind: 'fill',
+        prompt: b('on or ont?', 'on ou ont ?'),
+        text: 'Les enfants ___ faim : ___ va préparer le dîner.',
+        answers: [['ont'], ['on']],
+        choices: [['on', 'ont'], ['on', 'ont']],
+        strict: true,
+      },
+      {
+        kind: 'fill',
+        prompt: b('ces or ses?', 'ces ou ses ?'),
+        text: 'Regarde ___ montagnes ! Julie a oublié ___ lunettes de soleil.',
+        answers: [['ces'], ['ses']],
+        choices: [['ces', 'ses'], ['ces', 'ses']],
+        strict: true,
+      },
+      {
+        kind: 'categorize',
+        prompt: b('Verb or not a verb?', 'Verbe ou pas verbe ?'),
+        buckets: [b('Verb (sont, ont)', 'Verbe (sont, ont)'), b('Not a verb (son, on)', 'Pas un verbe (son, on)')],
+        items: [{ text: 'Ils … partis.', bucket: 0 }, { text: 'Elles … gagné.', bucket: 0 }, { text: '… sac est rouge.', bucket: 1 }, { text: '… dit que c’est vrai.', bucket: 1 }, { text: 'Ils … raison.', bucket: 0 }, { text: '… ordinateur est neuf.', bucket: 1 }],
+      },
+      {
+        kind: 'mcq',
+        prompt: b('Find the sentence with no mistake.', 'Trouvez la phrase sans faute.'),
+        options: ['Ils ont pris leurs vélos et sont partis.', 'Ils on pris leurs vélos et son partis.', 'Ils ont pris leurs vélos et son partis.', 'Ils on pris leurs vélos et sont partis.'],
+        answer: 0,
+      },
+      {
+        kind: 'dictation',
+        prompt: b('Write the sentence.', 'Écrivez la phrase.'),
+        text: 'On dit que ses amis sont partis.',
+        strict: true,
+        voice: 'm',
+      },
+    ],
+    notes: {
+      points: [
+        b('**sont** (→ étaient) ≠ **son** (→ mon).', '**sont** (→ étaient) ≠ **son** (→ mon).'),
+        b('**ont** (→ avaient) ≠ **on** (→ il).', '**ont** (→ avaient) ≠ **on** (→ il).'),
+        b('**ses** = his / her (→ mes) ≠ **ces** = these (→ ces…-là).', '**ses** = à lui / à elle (→ mes) ≠ **ces** = démonstratif (→ ces…-là).'),
+      ],
+      vocab: [['étaient', b('were (test for sont)', 'test pour sont')], ['avaient', b('had (test for ont)', 'test pour ont')], ['mes', b('my (test for ses)', 'test pour ses')]],
+    },
+  },
+  {
+    id: 'spelling-homophones-3',
+    slug: { en: 'ou-or-ou-and-proofreading', fr: 'ou-ou-et-relecture' },
+    title: b('ou / où, ce / se, and proofreading', 'ou / où, ce / se, et la relecture'),
+    summary: b('The last frequent pairs, then a real text to correct as you would in an exam.', 'Les dernières paires fréquentes, puis un vrai texte à corriger comme à l’examen.'),
+    objectives: [b('Tell ou from où and ce from se', 'Distinguer ou / où et ce / se'), b('Proofread a text for homophones', 'Relire un texte pour les homophones'), b('Build a checklist for exams', 'Construire une liste de vérification pour l’examen')],
+    minutes: 13,
+    steps: [
+      {
+        kind: 'concept',
+        title: b('ou / où, ce / se', 'ou / où, ce / se'),
+        table: {
+          head: [b('Pair', 'Paire'), b('Test', 'Test')],
+          rows: [['ou / où', b('ou = or (→ **ou bien**); où = place or time', 'ou = choix (→ **ou bien**) ; où = lieu ou temps')], ['ce / se', b('se goes with a verb (se lever); ce = this / it (ce livre, c’est)', 'se accompagne un verbe pronominal (se lever) ; ce = démonstratif (ce livre, ce que)')]],
+        },
+        examples: [{ fr: 'Tu préfères le thé ou le café ?', tr: 'ou = or' }, { fr: 'La ville où je suis né.', tr: 'où = where' }, { fr: 'Il se réveille tôt.', tr: 'se + verb' }, { fr: 'Ce matin, ce café est froid.', tr: 'ce = this' }],
+      },
+      {
+        kind: 'fill',
+        prompt: b('ou or où?', 'ou ou où ?'),
+        text: 'Je ne sais pas ___ il habite : à Laval ___ à Longueuil ?',
+        answers: [['où'], ['ou']],
+        choices: [['ou', 'où'], ['ou', 'où']],
+        strict: true,
+      },
+      {
+        kind: 'fill',
+        prompt: b('ce or se?', 'ce ou se ?'),
+        text: 'Ils ___ promènent ___ soir dans le parc.',
+        answers: [['se'], ['ce']],
+        choices: [['ce', 'se'], ['ce', 'se']],
+        strict: true,
+      },
+      {
+        kind: 'concept',
+        variant: 'exam',
+        title: b('Your homophone checklist', 'Votre liste de vérification'),
+        body: b('Before handing in a text, run through the pairs one by one: **a/à · et/est · son/sont · on/ont · ces/ses · ou/où · ce/se**. Two minutes of checking can save several points.', 'Avant de rendre un texte, passez les paires une par une : **a/à · et/est · son/sont · on/ont · ces/ses · ou/où · ce/se**. Deux minutes de vérification peuvent faire gagner plusieurs points.'),
+      },
+      {
+        kind: 'mcq',
+        prompt: b('This message has one mistake. Which word?', 'Ce message contient une faute. Quel mot ?'),
+        doc: { title: b('Message', 'Message'), text: 'Salut Inès ! On a réservé une table à 20 h au restaurant où on est allés le mois dernier. Tes amis son invités aussi. À ce soir !' },
+        options: ['son', 'où', 'à', 'est'],
+        answer: 0,
+        explain: b('“Tes amis **sont** invités” (→ étaient invités).', '« Tes amis **sont** invités » (→ étaient invités).'),
+      },
+      {
+        kind: 'mcq',
+        prompt: b('This message has one mistake. Which word?', 'Ce message contient une faute. Quel mot ?'),
+        doc: { title: b('Email', 'Courriel'), text: 'Bonjour, mon fils et malade aujourd’hui et ne pourra pas venir à l’école. Il a de la fièvre. Merci de votre compréhension.' },
+        options: ['et', 'a', 'à', 'de'],
+        answer: 0,
+        explain: b('“Mon fils **est** malade” (→ était malade).', '« Mon fils **est** malade » (→ était malade).'),
+      },
+      {
+        kind: 'write',
+        prompt: b('Proofread and rewrite.', 'Relisez et réécrivez.'),
+        task: b('Rewrite this text and correct the 6 homophone mistakes:\n\n“Mes voisins on un chien qui et très gentil. Il se promène ce matin a 7 heures dans le parc ou nous jouons. Son maîtres son très sympathiques.”', 'Réécrivez ce texte en corrigeant les 6 fautes d’homophones :\n\n« Mes voisins on un chien qui et très gentil. Il se promène ce matin a 7 heures dans le parc ou nous jouons. Son maîtres son très sympathiques. »'),
+        min: 20,
+        max: 50,
+        checklist: [b('on → ont', 'on → ont'), b('et → est', 'et → est'), b('a → à', 'a → à'), b('ou → où', 'ou → où'), b('son maîtres son → ses maîtres sont', 'son maîtres son → ses maîtres sont')],
+        model: 'Mes voisins ont un chien qui est très gentil. Il se promène ce matin à 7 heures dans le parc où nous jouons. Ses maîtres sont très sympathiques.',
+        modelNote: b('“Son maîtres” is also wrong: maîtres is plural, so the possessive is **ses**.', '« Son maîtres » est aussi faux : maîtres est au pluriel, donc le possessif est **ses**.'),
+      },
+    ],
+    notes: {
+      points: [
+        b('**ou** = or (→ ou bien); **où** = place / time.', '**ou** = choix (→ ou bien) ; **où** = lieu / temps.'),
+        b('**se** + verb (se lever); **ce** = this / that (ce livre, ce que).', '**se** + verbe (se lever) ; **ce** = démonstratif (ce livre, ce que).'),
+        b('Exam checklist: a/à · et/est · son/sont · on/ont · ces/ses · ou/où · ce/se.', 'Liste d’examen : a/à · et/est · son/sont · on/ont · ces/ses · ou/où · ce/se.'),
+      ],
+      vocab: [['ou bien', b('or else (test for ou)', 'test pour ou')], ['où', b('where', 'lieu')], ['se promener', b('to go for a walk', 'marcher pour le plaisir')]],
+    },
+  },
+];
+
+export default lessons;

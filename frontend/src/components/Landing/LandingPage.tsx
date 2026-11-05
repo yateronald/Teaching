@@ -12,6 +12,7 @@ import { landingJsonLd } from './landingSchema';
 import { TOPIC_PATHS, type TopicId } from './sitePages';
 import { TOPICS } from './topicContent';
 import SiteHeader, { SECTIONS } from './SiteHeader';
+import LearnTeaser from './LearnTeaser';
 import SiteFooter from './SiteFooter';
 import ExamPricing from './ExamPricing';
 import { PRICING_COPY } from './examPlanContent';
@@ -351,6 +352,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             ))}
           </div>
         </section>
+
+        {/* ── Free courses ── */}
+        <LearnTeaser lang={lang} />
 
         {/* ── Simulator ── */}
         <section id="simulator" className="lp-section lp-dark" aria-labelledby="lp-sim-title">
