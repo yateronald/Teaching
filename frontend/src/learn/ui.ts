@@ -28,14 +28,14 @@ const en = {
   popular: 'Popular',
 
   hub: {
-    metaTitle: 'Free French Courses Online: 57 Interactive Courses from A1 to C2 | Learn French with Natives',
-    metaDescription: 'Learn French for free with 57 interactive courses: beginner French, grammar, spelling, listening, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. No sign-up.',
+    metaTitle: 'Free French Courses Online: 65 Interactive Courses from A1 to C2 | Learn French with Natives',
+    metaDescription: 'Learn French for free with 65 interactive courses: beginner French, grammar, spelling, listening, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. No sign-up.',
     eyebrow: 'Free French courses',
     title: ['Learn French by doing,', 'one lesson at a time.'],
-    sub: 'Fifty-seven interactive courses written by our teachers, from your very first words to C2 level in TCF and TEF Canada. You listen to native voices, speak, build sentences and get instant feedback. Free, with no account.',
+    sub: 'Sixty-five interactive courses written by our teachers, from your very first words to C2 level in TCF and TEF Canada. You listen to native voices, speak, build sentences and get instant feedback. Free, with no account.',
     ctaTest: 'Find my level: free test',
     ctaBrowse: 'Browse the courses',
-    stats: [['57', 'courses'], ['201', 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'no sign-up']] as [string, string][],
+    stats: [['65', 'courses'], ['225', 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'no sign-up']] as [string, string][],
     continueTitle: 'Pick up where you left off',
     continueCta: 'Resume',
     pathsEyebrow: 'Learning paths',
@@ -76,7 +76,7 @@ const en = {
     faqEyebrow: 'Questions',
     faqTitle: 'About the free courses',
     faq: [
-      ['Are the courses really free?', 'Yes. All 57 courses, the level test and the certificates are free, with no account and no card. We offer them so you can discover our teaching method; if you want to go faster, our teachers offer paid live classes and exam preparation.'],
+      ['Are the courses really free?', 'Yes. All 65 courses, the level test and the certificates are free, with no account and no card. We offer them so you can discover our teaching method; if you want to go faster, our teachers offer paid live classes and exam preparation.'],
       ['Do I need to create an account?', 'No. Your progress, scores and certificates are saved in this browser. If you change device or clear your browser data, your progress starts again.'],
       ['Which level should I start with?', 'Take the free level test (about 10 minutes): it estimates your CEFR level and recommends the courses that fit you. Complete beginners can start directly with “First Steps in French”.'],
       ['Do these courses prepare for the TCF Canada and the TEF Canada?', 'Yes: five levelled courses for each exam (listening, reading, writing, speaking, grammar and vocabulary), each from A1 to C2, with exam-style questions and tasks. To reach a precise CLB target, our teachers add full timed simulations and personal correction.'],
@@ -115,7 +115,7 @@ const en = {
   },
 
   course: {
-    metaTitle: (title: string, level: string) => `${title} (${level}): Free Interactive French Course | Learn French with Natives`,
+    metaTitle: (title: string, level: string) => `${title}${title.includes(`(${level})`) ? '' : ` (${level})`}: Free Interactive French Course | Learn French with Natives`,
     outcomes: 'What you will be able to do',
     syllabus: 'Lessons',
     startCourse: 'Start the course',
@@ -221,6 +221,7 @@ const en = {
     chooseWords: 'Tap the words in order',
     tapToMatch: 'Tap a French word, then its meaning',
     tapItem: 'Tap an item, then its category',
+    tapItemListen: 'Tap a word to hear it, then tap its category',
     dictation: 'Write what you hear',
     flip: 'Tap the card to see the meaning',
     knew: 'I knew it',
@@ -394,14 +395,14 @@ const fr: UiCopy = {
   popular: 'Populaire',
 
   hub: {
-    metaTitle: 'Cours de français gratuits en ligne : 57 cours interactifs du A1 au C2 | Learn French with Natives',
-    metaDescription: 'Apprenez le français gratuitement avec 57 cours interactifs : débutant, grammaire, orthographe, compréhension orale, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Sans inscription.',
+    metaTitle: 'Cours de français gratuits en ligne : 65 cours interactifs du A1 au C2 | Learn French with Natives',
+    metaDescription: 'Apprenez le français gratuitement avec 65 cours interactifs : débutant, grammaire, orthographe, compréhension orale, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Sans inscription.',
     eyebrow: 'Cours de français gratuits',
     title: ['Apprenez le français en pratiquant,', 'une leçon à la fois.'],
-    sub: 'Cinquante-sept cours interactifs écrits par nos professeurs, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix natives, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.',
+    sub: 'Soixante-cinq cours interactifs écrits par nos professeurs, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix natives, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.',
     ctaTest: 'Connaître mon niveau : test gratuit',
     ctaBrowse: 'Voir les cours',
-    stats: [['57', 'cours'], ['201', 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'sans inscription']],
+    stats: [['65', 'cours'], ['225', 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'sans inscription']],
     continueTitle: 'Reprenez là où vous en étiez',
     continueCta: 'Reprendre',
     pathsEyebrow: 'Parcours',
@@ -442,7 +443,7 @@ const fr: UiCopy = {
     faqEyebrow: 'Questions',
     faqTitle: 'À propos des cours gratuits',
     faq: [
-      ['Les cours sont-ils vraiment gratuits ?', 'Oui. Les 57 cours, le test de niveau et les certificats sont gratuits, sans compte ni carte bancaire. Nous les proposons pour vous faire découvrir notre méthode ; pour aller plus vite, nos professeurs proposent des cours en direct et des préparations aux examens payants.'],
+      ['Les cours sont-ils vraiment gratuits ?', 'Oui. Les 65 cours, le test de niveau et les certificats sont gratuits, sans compte ni carte bancaire. Nous les proposons pour vous faire découvrir notre méthode ; pour aller plus vite, nos professeurs proposent des cours en direct et des préparations aux examens payants.'],
       ['Faut-il créer un compte ?', 'Non. Votre progression, vos scores et vos certificats sont enregistrés dans ce navigateur. Si vous changez d’appareil ou effacez les données du navigateur, votre progression repart de zéro.'],
       ['Par quel niveau commencer ?', 'Passez le test de niveau gratuit (environ 10 minutes) : il estime votre niveau du CECR et vous recommande les cours adaptés. Les grands débutants peuvent commencer directement par « Premiers pas en français ».'],
       ['Ces cours préparent-ils au TCF Canada et au TEF Canada ?', 'Oui : cinq cours par niveaux pour chaque examen (compréhension orale, compréhension écrite, expression écrite, expression orale, grammaire et vocabulaire), chacun du A1 au C2, avec des questions et des tâches type examen. Pour atteindre un NCLC précis, nos professeurs ajoutent des simulations complètes chronométrées et une correction personnalisée.'],
@@ -481,7 +482,7 @@ const fr: UiCopy = {
   },
 
   course: {
-    metaTitle: (title, level) => `${title} (${level}) : cours de français interactif gratuit | Learn French with Natives`,
+    metaTitle: (title, level) => `${title}${title.includes(`(${level})`) ? '' : ` (${level})`} : cours de français interactif gratuit | Learn French with Natives`,
     outcomes: 'Ce que vous saurez faire',
     syllabus: 'Leçons',
     startCourse: 'Commencer le cours',
@@ -587,6 +588,7 @@ const fr: UiCopy = {
     chooseWords: 'Touchez les mots dans l’ordre',
     tapToMatch: 'Touchez un mot français, puis son sens',
     tapItem: 'Touchez un élément, puis sa catégorie',
+    tapItemListen: 'Touchez un mot pour l’écouter, puis touchez sa catégorie',
     dictation: 'Écrivez ce que vous entendez',
     flip: 'Touchez la carte pour voir le sens',
     knew: 'Je savais',

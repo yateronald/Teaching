@@ -17,6 +17,14 @@ export interface Progress {
   placement?: { level: Level; score: number; at: number };
   /** Adaptive test of a levelled course: the level it placed the learner at. */
   courseTests?: Record<string, { level: Level; at: number }>;
+  /** Mini-games: best score and number of games played. */
+  games?: Record<string, { best: number; plays: number; at: number }>;
+  /** Story episodes: stars earned (1 to 3). */
+  story?: Record<string, number>;
+  /** Voice of the learner's character in the story. */
+  storyVoice?: 'f' | 'm';
+  /** Word of the day: today's attempts, and the winning streak. */
+  daily?: { day: string; guesses: string[]; won: boolean; streak: number; lastWin?: string; wins: number };
   /** Name printed on certificates. */
   name?: string;
   last?: { path: string; title: string; course: string; at: number };
@@ -159,6 +167,28 @@ export function ladderState(p: Progress, courseId: string): LadderState {
   let current = unlocked;
   for (let i = fromTest; i <= unlocked; i++) if (!passed.has(i)) { current = i; break; }
   return { unlocked, passed, current, tested };
+}
+
+// ── Games ──
+/** Records a game result; returns whether it is a new best score. */
+export function recordGame(id: string, score: number, xp: number): boolean {
+  const p = load();
+  const prev = p.games?.[id];
+  const best = Math.max(prev?.best ?? 0, score);
+  save(withDay({ ...p, games: { ...(p.games ?? {}), [id]: { best, plays: (prev?.plays ?? 0) + 1, at: Date.now() } }, xp: p.xp + xp }));
+  return !prev || score > prev.best;
+}
+
+export function recordEpisode(id: string, stars: number, xp: number) {
+  const p = load();
+  save(withDay({ ...p, story: { ...(p.story ?? {}), [id]: Math.max(p.story?.[id] ?? 0, stars) }, xp: p.xp + xp }));
+}
+
+export function setStoryVoice(v: 'f' | 'm') { save({ ...load(), storyVoice: v }); }
+
+export function saveDaily(d: NonNullable<Progress['daily']>, xp = 0) {
+  const p = load();
+  save(withDay({ ...p, daily: d, xp: p.xp + xp }));
 }
 
 export function addXp(n: number) { const p = load(); save(withDay({ ...p, xp: p.xp + n })); }

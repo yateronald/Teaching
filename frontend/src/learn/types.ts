@@ -105,6 +105,8 @@ export interface CategorizeStep {
   prompt: T;
   buckets: T[];
   items: { text: string; bucket: number }[];
+  /** An ear exercise: each item is heard when it is touched. */
+  listen?: boolean;
   explain?: T;
 }
 

@@ -6,10 +6,13 @@
 //   /learn/french-level-test/                 /fr/apprendre/test-de-niveau/
 //   /learn/my-progress/                       /fr/apprendre/ma-progression/
 //   /learn/level/b2/                          /fr/apprendre/niveau/b2/
+//   /learn/games/                             /fr/apprendre/jeux/
+//   /learn/games/le-or-la/                    /fr/apprendre/jeux/le-ou-la/
 //   /learn/tcf-canada/level-b2/               /fr/apprendre/tcf-canada/niveau-b2/
 import { CATEGORIES, LEARN_BASE, categoryPath } from './categories';
 import { COURSES, coursePath } from './catalog';
 import { categoryLevels, LEVEL_SLUG, levelFromSlug } from './levels';
+import { GAMES, GAMES_SLUG, type GameMeta } from './games/meta';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
 export { LEARN_BASE, categoryPath, coursePath };
@@ -35,6 +38,8 @@ export type LearnRoute =
   | { type: 'progress'; lang: Lang }
   | { type: 'category'; lang: Lang; category: CategoryMeta }
   | { type: 'level'; lang: Lang; level: Level; category?: CategoryMeta }
+  | { type: 'games'; lang: Lang }
+  | { type: 'game'; lang: Lang; game: GameMeta }
   | { type: 'course'; lang: Lang; category: CategoryMeta; course: CourseMeta }
   | { type: 'lesson'; lang: Lang; category: CategoryMeta; course: CourseMeta; lessonSlug: string }
   | { type: 'final'; lang: Lang; category: CategoryMeta; course: CourseMeta }
@@ -47,6 +52,11 @@ export function resolveLearnPath(pathname: string): LearnRoute {
   if (rest.length === 0) return { type: 'hub', lang };
   if (rest.length === 1 && rest[0] === PLACEMENT_SLUG[lang]) return { type: 'placement', lang };
   if (rest.length === 1 && rest[0] === PROGRESS_SLUG[lang]) return { type: 'progress', lang };
+  if (rest[0] === GAMES_SLUG[lang]) {
+    if (rest.length === 1) return { type: 'games', lang };
+    const game = rest.length === 2 ? GAMES.find(x => x.slug[lang] === rest[1]) : undefined;
+    return game ? { type: 'game', lang, game } : { type: 'none', lang };
+  }
   if (rest[0] === LEVEL_SLUG[lang]) {
     const level = rest.length === 2 ? levelFromSlug(rest[1]) : undefined;
     return level ? { type: 'level', lang, level } : { type: 'none', lang };

@@ -10,6 +10,10 @@ import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { useProgress } from '../progress';
 import { hubJsonLd } from '../schema';
 import { LEVEL_COPY, coursesAtLevel, levelPath } from '../levels';
+import { G } from '../games/copy';
+import { GAMES, gamesPath } from '../games/meta';
+import { GameCard } from './GamesHubPage';
+import '../games/games.css';
 import { CourseCard, LearnShell, useDemo, useMounted } from '../shell';
 import { LEVELS, tx, type Lang, type Level } from '../types';
 import { UI } from '../ui';
@@ -130,6 +134,22 @@ export default function HubPage({ lang }: { lang: Lang }) {
             <h2 id="lx-pop-title">{h.popularTitle}</h2>
           </header>
           <ul className="lx-grid is-four">{popular.map(c => <li key={c.id}><CourseCard course={c} lang={lang} compact /></li>)}</ul>
+        </div>
+      </section>
+
+      {/* ── Games ── */}
+      <section className="lp-section lp-tint" aria-labelledby="lx-games-title">
+        <div className="lp-wrap">
+          <header className="lp-head is-left lx-all-head">
+            <div>
+              <p className="lp-eyebrow">{G[lang].hubEyebrow}</p>
+              <h2 id="lx-games-title">{G[lang].hubTitle.join(' ')}</h2>
+            </div>
+            <Link to={gamesPath(lang)} className="lp-btn lp-btn-ghost">{G[lang].backToGames}<ArrowRightOutlined /></Link>
+          </header>
+          <ul className="gx-gcards">
+            {GAMES.map((x, i) => <li key={x.id} className={i === 0 ? 'is-wide' : ''}><GameCard game={x} lang={lang} wide={i === 0} /></li>)}
+          </ul>
         </div>
       </section>
 
@@ -265,7 +285,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
           <header className="lp-head is-left">
             <p className="lp-eyebrow">{h.faqEyebrow}</p>
             <h2 id="lx-faq-title">{h.faqTitle}</h2>
-            <p className="lx-faq-time"><ClockCircleOutlined /> {lang === 'fr' ? '57 cours · 201 leçons · de 40 à 95 min par cours' : '57 courses · 201 lessons · 40 to 95 min per course'}</p>
+            <p className="lx-faq-time"><ClockCircleOutlined /> {lang === 'fr' ? '65 cours · 225 leçons · de 40 à 95 min par cours' : '65 courses · 225 lessons · 40 to 95 min per course'}</p>
           </header>
           <div className="lp-faq-list">
             {h.faq.map(([qq, a], i) => (

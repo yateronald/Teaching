@@ -327,6 +327,18 @@ export const COURSES: CourseMeta[] = [
     outcomes: [b('Choose qui or que', 'Choisir qui ou que'), b('Use où and dont', 'Employer où et dont'), b('Use ce qui and ce que', 'Employer ce qui et ce que'), b('Use lequel after a preposition', 'Employer lequel après une préposition')],
   }),
 
+  c({
+    id: 'essential-verbs', category: 'grammar', level: 'A1 → A2', levels: ['A1', 'A2'], minutes: 40, popular: true,
+    slug: { en: '50-essential-french-verbs', fr: 'les-50-verbes-essentiels' },
+    title: b('The 50 Essential Verbs', 'Les 50 verbes essentiels'),
+    subtitle: b('The verbs you need every day, grouped by families, with their present tense.', 'Les verbes dont vous avez besoin tous les jours, regroupés par familles, avec leur présent.'),
+    description: b(
+      'Fifty verbs cover most of what you say in a day. This course teaches them in three steps: the ten pillars (être, avoir, aller, faire, dire, pouvoir, vouloir, savoir, venir, devoir), twenty regular -er verbs with their small traps (j’achète, j’appelle, nous mangeons), and twenty irregular verbs learned by families (prendre, partir, finir, attendre).',
+      'Cinquante verbes couvrent l’essentiel de ce que vous dites dans une journée. Ce cours les enseigne en trois étapes : les dix piliers (être, avoir, aller, faire, dire, pouvoir, vouloir, savoir, venir, devoir), vingt verbes réguliers en -er avec leurs petits pièges (j’achète, j’appelle, nous mangeons), et vingt verbes irréguliers appris par familles (prendre, partir, finir, attendre).',
+    ),
+    outcomes: [b('Conjugate the ten most used verbs', 'Conjuguer les dix verbes les plus employés'), b('Conjugate any regular -er verb', 'Conjuguer tout verbe régulier en -er'), b('Conjugate twenty common irregular verbs', 'Conjuguer vingt verbes irréguliers courants'), b('Choose between savoir and connaître', 'Choisir entre savoir et connaître')],
+  }),
+
   // ── Spelling ──────────────────────────────────────────────────────────────
   c({
     id: 'spelling-accents', category: 'spelling', level: 'A1', levels: ['A1'], minutes: 37,
@@ -454,6 +466,17 @@ export const COURSES: CourseMeta[] = [
 
   // ── Listening ─────────────────────────────────────────────────────────────
   c({
+    id: 'listening-a1', category: 'listening', level: 'A1', levels: ['A1'], minutes: 38, popular: true,
+    slug: { en: 'first-listening-practice-a1', fr: 'premieres-ecoutes-a1' },
+    title: b('First Listening Practice (A1)', 'Premières écoutes (A1)'),
+    subtitle: b('Short, slow, everyday recordings to start understanding spoken French.', 'Des enregistrements courts, lents et quotidiens pour commencer à comprendre le français parlé.'),
+    description: b(
+      'Your first listening course. People introduce themselves, order in a café, ask their way: short recordings by native voices, with questions in your own language. You learn to catch the anchor words instead of trying to understand everything, and to hear the difference between close numbers and directions.',
+      'Votre premier cours de compréhension orale. Des personnes se présentent, commandent au café, demandent leur chemin : de courts enregistrements de voix natives, avec des questions dans votre langue. Vous apprenez à saisir les mots repères au lieu de vouloir tout comprendre, et à entendre la différence entre des nombres et des directions proches.',
+    ),
+    outcomes: [b('Understand simple introductions', 'Comprendre des présentations simples'), b('Catch orders and prices', 'Saisir des commandes et des prix'), b('Follow simple directions', 'Suivre des directions simples'), b('Tell close numbers apart', 'Distinguer des nombres proches')],
+  }),
+  c({
     id: 'listening-a2', category: 'listening', level: 'A2', levels: ['A2'], minutes: 37,
     slug: { en: 'french-listening-a2', fr: 'comprehension-orale-a2' },
     title: b('Listening A2: Everyday French', 'Compréhension orale A2 : le français du quotidien'),
@@ -561,6 +584,40 @@ export const COURSES: CourseMeta[] = [
       b('Recognise the main features of the Québec accent', 'Reconnaître les grands traits de l’accent québécois'),
       b('Handle everyday situations in Québec', 'Vous débrouiller dans les situations du quotidien au Québec'),
     ],
+  }),
+
+  c({
+    id: 'survival-dialogues', category: 'conversation', level: 'A1', levels: ['A1'], minutes: 37, popular: true,
+    slug: { en: 'survival-french-dialogues', fr: 'dialogues-de-survie' },
+    title: b('Survival Dialogues', 'Dialogues de survie'),
+    subtitle: b('The sentences that get you out of trouble when you understand almost nothing.', 'Les phrases qui vous sortent d’affaire quand vous ne comprenez presque rien.'),
+    description: b(
+      'The emergency kit of spoken French. Say that you do not understand and ask people to repeat or slow down, order and buy with ten words (and the magic of “ça”), explain that you are lost or that you have lost something, and give the key information when you call 911.',
+      'La trousse de secours du français parlé. Dites que vous ne comprenez pas et faites répéter ou ralentir, commandez et achetez avec dix mots (et la magie de « ça »), expliquez que vous êtes perdu ou que vous avez perdu quelque chose, et donnez les informations clés quand vous appelez le 911.',
+    ),
+    outcomes: [b('Ask people to repeat and slow down', 'Faire répéter et faire ralentir'), b('Order and buy with a tiny vocabulary', 'Commander et acheter avec très peu de mots'), b('Ask for help and explain a problem', 'Demander de l’aide et expliquer un problème'), b('Call 911 in French', 'Appeler le 911 en français')],
+  }),
+  c({
+    id: 'settling-in-canada', category: 'conversation', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 42, popular: true,
+    slug: { en: 'settling-in-canada-in-french', fr: 's-installer-au-canada-en-francais' },
+    title: b('Settling in Canada: Housing, Papers, Health', 'S’installer au Canada : logement, papiers, santé'),
+    subtitle: b('The French of your first weeks: lease, health card, school and daycare.', 'Le français de vos premières semaines : bail, carte d’assurance maladie, école et garderie.'),
+    description: b(
+      'The practical French newcomers need most. Read a rental ad, visit an apartment and understand your lease; apply for your social insurance number, your health card and your driving licence; find a doctor, use walk-in clinics, enrol a child at school and understand messages from the daycare. With the vocabulary used in Québec and the phrases to say at a counter.',
+      'Le français pratique dont les nouveaux arrivants ont le plus besoin. Lire une annonce, visiter un logement et comprendre son bail ; demander son numéro d’assurance sociale, sa carte d’assurance maladie et son permis de conduire ; trouver un médecin, utiliser les cliniques sans rendez-vous, inscrire un enfant à l’école et comprendre les messages de la garderie. Avec le vocabulaire employé au Québec et les phrases à dire au guichet.',
+    ),
+    outcomes: [b('Rent a home and understand a lease', 'Louer un logement et comprendre un bail'), b('Apply for official documents', 'Demander ses documents officiels'), b('Get health care', 'Se faire soigner'), b('Deal with school and daycare', 'Échanger avec l’école et la garderie')],
+  }),
+  c({
+    id: 'false-friends', category: 'conversation', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 39,
+    slug: { en: 'french-english-false-friends', fr: 'faux-amis-anglais-francais' },
+    title: b('French–English False Friends', 'Les faux amis anglais-français'),
+    subtitle: b('Actuellement, librairie, excité: the words that do not mean what you think.', 'Actuellement, librairie, excité : ces mots qui ne veulent pas dire ce que vous croyez.'),
+    description: b(
+      'English speakers recognise thousands of French words, and a few dozen of them are traps. Learn the false friends of everyday life (actuellement, librairie, attendre, monnaie), of work and school (assister, éventuellement, passer un examen), and the famous embarrassing ones (excité, préservatif, embrasser), each with the right way to say what you meant.',
+      'Les anglophones reconnaissent des milliers de mots français, et quelques dizaines sont des pièges. Apprenez les faux amis du quotidien (actuellement, librairie, attendre, monnaie), du travail et de l’école (assister, éventuellement, passer un examen), et les erreurs gênantes célèbres (excité, préservatif, embrasser), avec à chaque fois la bonne façon de dire ce que vous vouliez dire.',
+    ),
+    outcomes: [b('Recognise thirty common false friends', 'Reconnaître trente faux amis courants'), b('Say what you really mean', 'Dire ce que vous voulez vraiment dire'), b('Avoid misunderstandings at work', 'Éviter les malentendus au travail'), b('Avoid embarrassing mistakes', 'Éviter les erreurs gênantes')],
   }),
 
   // ── TCF Canada: five levelled courses, one per skill (A1 → C2) ─────────────
@@ -729,6 +786,17 @@ export const COURSES: CourseMeta[] = [
 
   // ── DELF & DALF ───────────────────────────────────────────────────────────
   c({
+    id: 'delf-a2', category: 'delf-dalf', level: 'A2', levels: ['A2'], minutes: 43, offer: 'DELF A2',
+    slug: { en: 'delf-a2-preparation', fr: 'preparation-delf-a2' },
+    title: b('DELF A2: Pass the 4 Papers', 'DELF A2 : réussir les 4 épreuves'),
+    subtitle: b('Format, marking and practice for listening, reading, writing and speaking.', 'Format, barème et entraînement pour l’oral, les écrits, la production écrite et la production orale.'),
+    description: b(
+      'The DELF A2 is often the first French diploma, and it is valid for life. Understand the four papers and the marking (50/100, with at least 5/25 per paper), practise on announcements, messages and everyday documents, write the two texts of the writing paper with model answers, and prepare the three parts of the speaking test.',
+      'Le DELF A2 est souvent le premier diplôme de français, et il est valable à vie. Comprenez les quatre épreuves et le barème (50/100, avec au moins 5/25 par épreuve), entraînez-vous sur des annonces, des messages et des documents du quotidien, rédigez les deux textes de la production écrite avec des modèles, et préparez les trois parties de l’oral.',
+    ),
+    outcomes: [b('Know the format and the pass mark', 'Connaître le format et la note de réussite'), b('Understand announcements and short texts', 'Comprendre annonces et textes courts'), b('Write the two 60-word texts', 'Rédiger les deux textes de 60 mots'), b('Prepare the three parts of the oral', 'Préparer les trois parties de l’oral')],
+  }),
+  c({
     id: 'delf-b1', category: 'delf-dalf', level: 'B1', levels: ['B1'], minutes: 42, offer: 'DELF',
     slug: { en: 'delf-b1-preparation', fr: 'preparation-delf-b1' },
     title: b('DELF B1: Pass the 4 Papers', 'DELF B1 : réussir les 4 épreuves'),
@@ -804,6 +872,28 @@ export const COURSES: CourseMeta[] = [
       b('Answer the classic interview questions', 'Répondre aux questions classiques d’entretien'),
       b('Take part in a meeting with confidence', 'Participer à une réunion avec assurance'),
     ],
+  }),
+  c({
+    id: 'customer-service-french', category: 'business', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 39, popular: true, offer: 'Français professionnel',
+    slug: { en: 'french-for-customer-service', fr: 'francais-du-service-a-la-clientele' },
+    title: b('French for Customer Service', 'Le français du service à la clientèle'),
+    subtitle: b('Welcome, help, handle a complaint, the phone and the checkout.', 'Accueillir, aider, gérer une plainte, le téléphone et la caisse.'),
+    description: b(
+      'For jobs in shops, restaurants and call centres. Learn the professional phrases to welcome a customer and offer your help, to listen, apologise and solve a complaint, and to answer the phone and run a checkout in French, with the words to avoid and the Canadian vocabulary (débit, argent comptant).',
+      'Pour les emplois en magasin, en restauration et en centre d’appels. Apprenez les formules professionnelles pour accueillir un client et proposer votre aide, pour écouter, vous excuser et résoudre une plainte, et pour répondre au téléphone et tenir une caisse en français, avec les mots à éviter et le vocabulaire canadien (débit, argent comptant).',
+    ),
+    outcomes: [b('Welcome and guide a customer', 'Accueillir et orienter un client'), b('Handle a complaint calmly', 'Gérer une plainte avec calme'), b('Answer the phone professionally', 'Répondre au téléphone de façon professionnelle'), b('Handle payment at the checkout', 'Gérer le paiement à la caisse')],
+  }),
+  c({
+    id: 'healthcare-french', category: 'business', level: 'B1', levels: ['B1'], minutes: 42, offer: 'Français pour la santé',
+    slug: { en: 'french-for-healthcare-workers', fr: 'francais-pour-les-metiers-de-la-sante' },
+    title: b('French for Healthcare Workers', 'Le français pour les métiers de la santé'),
+    subtitle: b('Welcome a patient, explain care, reassure and give a handover report.', 'Accueillir un patient, expliquer un soin, rassurer et faire un rapport de relève.'),
+    description: b(
+      'For nurses, orderlies and care assistants who work, or want to work, in French. Ask the key assessment questions (where, since when, how much), announce and explain a procedure, reassure an anxious patient, read a care note, give a handover report to a colleague and speak with a family.',
+      'Pour les infirmières, les préposés aux bénéficiaires et les aides-soignants qui travaillent, ou veulent travailler, en français. Posez les questions d’évaluation essentielles (où, depuis quand, à quel point), annoncez et expliquez un soin, rassurez un patient inquiet, lisez une note au dossier, faites un rapport de relève à un collègue et parlez avec une famille.',
+    ),
+    outcomes: [b('Question a patient about pain', 'Questionner un patient sur sa douleur'), b('Explain a procedure and give instructions', 'Expliquer un soin et donner des consignes'), b('Reassure with the right words', 'Rassurer avec les bons mots'), b('Give and understand a handover report', 'Faire et comprendre un rapport de relève')],
   }),
 ];
 

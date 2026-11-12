@@ -4,6 +4,8 @@ import { NO_AUDIO, audioKey, normalizeForAudio } from './audio';
 import { CATEGORIES } from './categories';
 import { COURSES } from './catalog';
 import { PLACEMENT } from './content/placement';
+import { CAST, EPISODES, playerLines } from './games/story';
+import { DAILY_WORDS, GENDER_NOUNS, PAIR_DECKS, numberCall, withArticle } from './games/words';
 import type { Lesson, Step, Voice } from './types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
@@ -22,6 +24,7 @@ function stepPhrases(s: Step, add: (text: string, voice?: Voice) => void, image:
       break;
     case 'order': add(s.words.join(' ')); break;
     case 'match': s.pairs.forEach(p => add(p[0])); break;
+    case 'categorize': if (s.listen) s.items.forEach(it => add(it.text)); break;
     case 'dictation': add(s.text, s.voice); break;
     case 'speak': add(s.text); break;
     case 'dialogue':
@@ -56,5 +59,21 @@ export function collectMedia() {
   }
   PLACEMENT.forEach(q => q.audio && add(q.audio));
   ['un croissant', 'une croissant', 'des croissant'].forEach(t => add(t));
+
+  // ── Games ──
+  images.add('games-hero');
+  for (const ep of EPISODES) {
+    images.add(ep.image);
+    for (const bt of ep.beats) {
+      if (bt.k === 'scene') images.add(bt.image);
+      if (bt.k === 'say' || bt.k === 'listen') add(bt.fr, CAST[bt.who].voice);
+    }
+    // The learner's lines, in both voices.
+    playerLines(ep).forEach(l => { add(l, 'f'); add(l, 'm'); });
+  }
+  GENDER_NOUNS.forEach(([noun, g]) => add(withArticle(noun, g)));
+  for (let n = 0; n <= 100; n++) add(numberCall(n));
+  PAIR_DECKS.forEach(d => d.words.forEach(([fr]) => add(fr)));
+  DAILY_WORDS.forEach(w => add(w.ex));
   return { audio: [...audio.values()], images: [...images] };
 }

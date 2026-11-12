@@ -2,7 +2,7 @@
 // sorting into categories, and the explorable picture.
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
 import { motion, LayoutGroup, AnimatePresence } from 'motion/react';
-import { CheckOutlined } from '@ant-design/icons';
+import { CheckOutlined, SoundOutlined } from '@ant-design/icons';
 import { speak } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type CategorizeStep, type HotspotStep, type MatchStep, type OrderStep } from '../types';
@@ -187,8 +187,14 @@ export const Categorize = forwardRef<StepHandle, StepProps<CategorizeStep>>(func
           const b = bucketAt(p.clientX, p.clientY);
           if (b !== null) place(it.id, b);
         }}
-        onClick={() => (placed ? unplace(it.id) : setSel(s => (s === it.id ? null : it.id)))}
+        onClick={() => {
+          if (placed) { unplace(it.id); return; }
+          if (step.listen) speak(it.text);
+          // In an ear exercise a second touch plays the word again: it stays selected.
+          setSel(s => (s === it.id && !step.listen ? null : it.id));
+        }}
       >
+        {step.listen && <SoundOutlined className="lx-word-sound" aria-hidden />}
         {it.text}
       </motion.button>
     );
@@ -197,7 +203,7 @@ export const Categorize = forwardRef<StepHandle, StepProps<CategorizeStep>>(func
   return (
     <div className="lx-cat">
       <h2 className="lx-prompt"><Rich text={tx(step.prompt, lang)} /></h2>
-      <p className="lx-sub">{ui.tapItem}</p>
+      <p className="lx-sub">{step.listen ? ui.tapItemListen : ui.tapItem}</p>
       <LayoutGroup id={seed}>
         <div className="lx-cat-pool">{items.filter(it => where[it.id] === undefined).map(it => chip(it, false))}</div>
         <div className={`lx-cat-buckets is-${step.buckets.length}`}>

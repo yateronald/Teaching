@@ -10,6 +10,7 @@ import { COURSES, coursePath } from './catalog';
 import { finalPath, hubPath, lessonPath, placementPath, progressPath } from './paths';
 import { LEVELS, type Lang, type Lesson } from './types';
 import { allLevelPages, categoryLevelPath, levelPath } from './levels';
+import { GAMES, gamePath, gamesPath } from './games/meta';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
 
@@ -46,6 +47,8 @@ export function learnPages(): LearnPage[] {
   both(hubPath, '0.9');
   both(placementPath, '0.8');
   both(progressPath, '0.1', false);
+  both(gamesPath, '0.8');
+  GAMES.forEach(g => both(l => gamePath(g, l), '0.7'));
   CATEGORIES.forEach(cat => both(l => categoryPath(cat, l), '0.8'));
   allLevelPages().forEach(({ level, category }) => both(l => (category ? categoryLevelPath(category, level, l) : levelPath(level, l)), '0.7'));
   COURSES.forEach(c => {

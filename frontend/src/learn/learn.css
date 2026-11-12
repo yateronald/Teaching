@@ -467,6 +467,7 @@
 .lx-word-ghost { height: 46px; padding: 0 16px; border-radius: 12px; background: #ece6da; color: transparent; font-size: 17px; font-weight: 650; line-height: 46px; white-space: nowrap; }
 .lx-word { position: relative; z-index: 1; height: 46px; padding: 0 16px; border: 2px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font-size: 17px; font-weight: 650; white-space: nowrap; box-shadow: 0 3px 0 var(--line); cursor: pointer; touch-action: none; }
 .lx-word:hover:not(:disabled) { border-color: var(--blue-line); }
+.lx-word-sound { margin-right: 7px; color: var(--blue); font-size: 15px; }
 .lx-word.is-selected { border-color: var(--blue); background: var(--blue-soft); box-shadow: 0 3px 0 var(--blue); }
 .lx-word.is-ok { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); box-shadow: 0 3px 0 var(--ok); }
 .lx-word.is-no { border-color: var(--no); background: var(--no-soft); color: var(--no); box-shadow: 0 3px 0 var(--no); }

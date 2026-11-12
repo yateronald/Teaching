@@ -8,6 +8,7 @@
 //   node scripts/learn-media.mjs --audio      audio only
 //   node scripts/learn-media.mjs --video      the hub video (Veo)
 //   node scripts/learn-media.mjs --only key1,key2 --force   regenerate some pictures
+//   node scripts/learn-media.mjs --audio --max-words 3 --before 2026-11-12T07:50   new takes of the short phrases recorded before that time
 //
 // Output: public/learn/img/<key>.webp (+ -640.webp), public/learn/audio/<key>.mp3,
 // public/learn/video/hub.mp4, src/learn/audio-manifest.json, src/learn/image-versions.json.
@@ -17,7 +18,7 @@ import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +33,10 @@ const args = process.argv.slice(2);
 const has = f => args.includes(f);
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1].split(',') : null;
 const force = has('--force');
+// Short phrases are the ones the voice can misread: they can be recorded again in bulk.
+const maxWords = has('--max-words') ? Number(args[args.indexOf('--max-words') + 1]) : 0;
+const before = has('--before') ? new Date(args[args.indexOf('--before') + 1]).getTime() : Date.now();
+const wordCount = t => t.split(/[\s’'-]+/).filter(w => /\p{L}/u.test(w)).length;
 const doImages = has('--images') || (!has('--audio') && !has('--video'));
 const doAudio = has('--audio') || (!has('--images') && !has('--video'));
 const doVideo = has('--video');
@@ -154,7 +159,8 @@ async function genAudio({ key, text, voice }) {
       return await ai.models.generateContent({
         model: TTS_MODELS[ttsModel],
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[voice] || 'Kore' } } } },
+        // The language is stated: without it a short word (« dire », « la rue ») can be read as English.
+        config: { responseModalities: ['AUDIO'], speechConfig: { languageCode: 'fr-FR', voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[voice] || 'Kore' } } } },
       });
     } catch (e) {
       if (/404|not found/i.test(String(e.message)) && ttsModel < TTS_MODELS.length - 1) { ttsModel++; throw new Error(`model fallback to ${TTS_MODELS[ttsModel]}`); }
@@ -174,7 +180,11 @@ async function genAudio({ key, text, voice }) {
 
 if (doAudio) {
   await fs.mkdir(AUDIO_DIR, { recursive: true });
-  const todo = media.audio.filter(a => force || !existsSync(path.join(AUDIO_DIR, `${a.key}.mp3`)));
+  const todo = media.audio.filter(a => {
+    const f = path.join(AUDIO_DIR, `${a.key}.mp3`);
+    if (force || !existsSync(f)) return true;
+    return maxWords > 0 && wordCount(a.text) <= maxWords && statSync(f).mtimeMs < before;
+  });
   console.log(`Audio to generate: ${todo.length}`);
   const r = await pool(todo, 2, genAudio);
   console.log(`✓ audio: ${r.done} generated, ${r.failed} failed (model ${TTS_MODELS[ttsModel]})`);

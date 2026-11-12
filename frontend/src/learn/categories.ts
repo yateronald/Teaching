@@ -115,7 +115,7 @@ export const CATEGORIES: CategoryMeta[] = [
     slug: { en: 'delf-dalf', fr: 'delf-dalf' },
     name: b('DELF & DALF', 'DELF et DALF'),
     tag: b('Diplomas for life', 'Des diplômes à vie'),
-    tagline: b('Pass the DELF B1, the DELF B2 and the DALF C1.', 'Réussir le DELF B1, le DELF B2 et le DALF C1.'),
+    tagline: b('Pass the DELF A2, B1, B2 and the DALF C1.', 'Réussir le DELF A2, B1, B2 et le DALF C1.'),
     description: b(
       'The official French diplomas never expire. Learn how each paper is marked, write the essays examiners expect, and build the structured argument that the B2 and C1 levels require.',
       'Les diplômes officiels de français sont valables à vie. Découvrez comment chaque épreuve est notée, rédigez les textes qu’attendent les examinateurs et construisez l’argumentation structurée exigée aux niveaux B2 et C1.',

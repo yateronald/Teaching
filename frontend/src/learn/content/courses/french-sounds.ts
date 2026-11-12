@@ -48,6 +48,7 @@ const lessons: Lesson[] = [
       {
         kind: 'categorize',
         prompt: b('u [y] or ou [u]? Listen to each word.', 'u [y] ou ou [u] ? Écoutez chaque mot.'),
+        listen: true,
         buckets: ['u [y]', 'ou [u]'],
         items: [{ text: 'bus', bucket: 0 }, { text: 'jus', bucket: 0 }, { text: 'sucre', bucket: 0 }, { text: 'cours', bucket: 1 }, { text: 'soupe', bucket: 1 }, { text: 'jour', bucket: 1 }],
       },
@@ -120,6 +121,7 @@ const lessons: Lesson[] = [
       {
         kind: 'categorize',
         prompt: b('Sort by sound.', 'Classez selon le son.'),
+        listen: true,
         buckets: ['[ɑ̃] an', '[ɔ̃] on', '[ɛ̃] in'],
         items: [{ text: 'maman', bucket: 0 }, { text: 'dimanche', bucket: 0 }, { text: 'ballon', bucket: 1 }, { text: 'pont', bucket: 1 }, { text: 'jardin', bucket: 2 }, { text: 'demain', bucket: 2 }],
       },

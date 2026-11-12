@@ -18,5 +18,22 @@ for (const c of COURSES) {
   const slugs = new Set(ls.map(l => l.slug.en)); if (slugs.size !== ls.length) console.log('dup slug', c.id);
   if (Math.abs(mins - c.minutes) > 0) console.log(`minutes ${c.id}: lessons ${mins} vs catalog ${c.minutes}`);
 }
-console.log({ courses: COURSES.length, lessons, steps, kinds, pages: ssr.learnPages().length });
+// ── Games ──
+const W = await vite.ssrLoadModule('/src/learn/games/words.ts');
+const S = await vite.ssrLoadModule('/src/learn/games/story.ts');
+const dup = (arr, what) => { const seen = new Set(); arr.forEach(x => { if (seen.has(x)) console.log(`duplicate ${what}:`, x); seen.add(x); }); };
+W.DAILY_WORDS.forEach(w => { const k = W.dailyKey(w); if (!/^[A-Z]{5}$/.test(k)) console.log('BAD daily word (5 letters A-Z):', w.w, k); if (!w.ex || !w.def || !w.tr) console.log('daily word incomplete:', w.w); });
+dup(W.DAILY_WORDS.map(W.dailyKey), 'daily word');
+dup(W.GENDER_NOUNS.map(n => n[0]), 'gender noun');
+W.GENDER_NOUNS.forEach(([n]) => { if (/^[aeiouhéèêâîôûœ]/i.test(n)) console.log('gender noun starts with a vowel or h:', n); });
+W.PAIR_DECKS.forEach(d => { if (d.words.length !== 8) console.log('pair deck is not 8 words:', d.id); dup(d.words.map(w => w[0]), `pair word in ${d.id}`); });
+for (let n = 0; n <= 100; n++) if (!W.frNumber(n)) console.log('no French for number', n);
+let beats = 0;
+S.EPISODES.forEach(ep => ep.beats.forEach(bt => {
+  beats++;
+  if ((bt.k === 'say' || bt.k === 'listen') && !S.CAST[bt.who]) console.log('unknown character', ep.id, bt.who);
+  if (bt.k === 'choice' && new Set(bt.options).size !== 3) console.log('choice options not distinct', ep.id, bt.options[0]);
+  if (bt.k === 'build' && bt.extra?.some(x => bt.words.includes(x))) console.log('build: extra word is also a right word', ep.id, bt.words.join(' '));
+}));
+console.log({ courses: COURSES.length, lessons, steps, kinds, pages: ssr.learnPages().length, games: { dailyWords: W.DAILY_WORDS.length, genderNouns: W.GENDER_NOUNS.length, pairDecks: W.PAIR_DECKS.length, storyBeats: beats } });
 await vite.close();

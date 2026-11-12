@@ -7,8 +7,8 @@ import { TOPICS } from './topicContent';
 import { LEARN_HOME } from '../../learn/entry';
 
 const LEARN_LINKS: Record<Lang, [string, string][]> = {
-  en: [['Free French courses', '/learn/'], ['Free level test', '/learn/french-level-test/']],
-  fr: [['Cours de français gratuits', '/fr/apprendre/'], ['Test de niveau gratuit', '/fr/apprendre/test-de-niveau/']],
+  en: [['Free French courses', '/learn/'], ['Free level test', '/learn/french-level-test/'], ['French games', '/learn/games/']],
+  fr: [['Cours de français gratuits', '/fr/apprendre/'], ['Test de niveau gratuit', '/fr/apprendre/test-de-niveau/'], ['Jeux de français', '/fr/apprendre/jeux/']],
 };
 
 const COURSE_TOPICS: TopicId[] = ['online', 'business', 'kids'];

@@ -12,6 +12,8 @@ import LessonPage from './pages/LessonPage';
 import FinalPage from './pages/FinalPage';
 import PlacementPage from './pages/PlacementPage';
 import ProgressPage from './pages/ProgressPage';
+import GamesHubPage from './pages/GamesHubPage';
+import GamePage from './pages/GamePage';
 
 export default function LearnApp({ lang: _lang }: { lang: Lang }) {
   const { pathname } = useLocation();
@@ -20,6 +22,8 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'hub': return <HubPage lang={route.lang} />;
     case 'placement': return <PlacementPage lang={route.lang} />;
     case 'progress': return <ProgressPage lang={route.lang} />;
+    case 'games': return <GamesHubPage lang={route.lang} />;
+    case 'game': return <GamePage key={route.game.id} lang={route.lang} game={route.game} />;
     case 'category': return <CategoryPage lang={route.lang} category={route.category} />;
     case 'level': return <LevelPage key={`${route.level}-${route.category?.id ?? 'all'}`} lang={route.lang} level={route.level} category={route.category} />;
     case 'course': return <CoursePage key={route.course.id} lang={route.lang} course={route.course} />;

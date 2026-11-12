@@ -163,3 +163,24 @@ export function levelJsonLd(o: { lang: Lang; path: string; name: string; descrip
     ],
   };
 }
+
+/** A game page (or the games hub, with its list of games). */
+export function gameJsonLd(o: { lang: Lang; path: string; name: string; description: string; trail: [string, string][]; level?: string; items?: { name: string; path: string }[] }) {
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      ORG,
+      {
+        '@type': o.items ? 'CollectionPage' : ['WebPage', 'LearningResource'],
+        url: abs(o.path),
+        name: o.name,
+        description: o.description,
+        inLanguage: o.lang,
+        isAccessibleForFree: true,
+        ...(o.items ? {} : { learningResourceType: 'Game', teaches: 'French', educationalLevel: o.level, provider: { '@id': ORG['@id'] } }),
+      },
+      ...(o.items ? [{ '@type': 'ItemList', itemListElement: o.items.map((it, i) => ({ '@type': 'ListItem', position: i + 1, name: it.name, url: abs(it.path) })) }] : []),
+      crumbs(o.trail),
+    ],
+  };
+}
