@@ -2,12 +2,16 @@
 // recognition, animated dialogues, flashcards and guided writing.
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence, type PanInfo } from 'motion/react';
-import { AudioOutlined, CheckCircleFilled, CheckOutlined, EditOutlined, PauseCircleFilled, PlayCircleOutlined, ReloadOutlined, RetweetOutlined, SoundOutlined, StopOutlined, TranslationOutlined } from '@ant-design/icons';
+import { AudioOutlined, CheckCircleFilled, CheckOutlined, EditOutlined, FileTextOutlined, PhoneFilled, PauseCircleFilled, PlayCircleOutlined, ReloadOutlined, RetweetOutlined, SoundOutlined, StopOutlined, TranslationOutlined } from '@ant-design/icons';
 import { chime, hasRecording, isMuted, speak, stop as stopAudio } from '../audio';
 import { gloss, tx, type DialogueChoice, type DialogueLine, type DialogueStep, type FlashcardsStep, type SpeakStep, type WriteStep } from '../types';
 import { UI } from '../ui';
 import { AccentKeys, AudioButton, Rich, RichBlock, seededShuffle, speechSupported, useSpeech, wordDiff } from './common';
 import type { StepHandle, StepProps } from './stepTypes';
+// English translations of the flashcards' example sentences (shown on English pages).
+import EXAMPLES from '../content/example-translations.json';
+
+const EXAMPLE_EN = EXAMPLES as Record<string, string>;
 
 // ── Speaking ───────────────────────────────────────────────────────────────
 
@@ -123,6 +127,8 @@ export const Dialogue = forwardRef<StepHandle, StepProps<DialogueStep>>(function
   const [wrongPick, setWrongPick] = useState<number | null>(null);
   const [firstTry, setFirstTry] = useState<Record<number, boolean>>({});
   const [showTr, setShowTr] = useState(lang === 'en');
+  // A phone call is only heard: its text appears once the call is over.
+  const [reveal, setReveal] = useState(!step.call);
   const [auto, setAuto] = useState(true);
   const cancel = useRef({ cancelled: false });
   const end = useRef<HTMLDivElement | null>(null);
@@ -164,6 +170,7 @@ export const Dialogue = forwardRef<StepHandle, StepProps<DialogueStep>>(function
   useEffect(() => {
     if (finished) {
       if (choices.length) onScore?.(choices.filter(i => firstTry[i]).length / choices.length);
+      if (step.call) window.setTimeout(() => setReveal(true), 600);
       onReady(true);
     } else onReady(false);
   }, [finished]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -193,10 +200,13 @@ export const Dialogue = forwardRef<StepHandle, StepProps<DialogueStep>>(function
     <div className="lx-dialogue">
       <header className="lx-dlg-head">
         <div>
+          {step.call && <span className="lx-call-badge"><PhoneFilled aria-hidden /> {ui.callLive}</span>}
           <h2>{tx(step.title, lang)}</h2>
           {step.scene && <p>{tx(step.scene, lang)}</p>}
+          {step.call && !reveal && <p className="lx-call-hint">{ui.callHint}</p>}
         </div>
         <div className="lx-dlg-tools">
+          {step.call && <button type="button" className={`lx-toggle${reveal ? ' is-on' : ''}`} onClick={() => setReveal(r => !r)} aria-pressed={reveal}><FileTextOutlined /> {ui.callTranscript}</button>}
           <button type="button" className={`lx-toggle${showTr ? ' is-on' : ''}`} onClick={() => setShowTr(s => !s)} aria-pressed={showTr}><TranslationOutlined /> {ui.dialogueTranslate}</button>
           <button type="button" className="lx-toggle" onClick={() => { setAuto(true); setShown(0); setTimeout(() => run(0), 50); }}><RetweetOutlined /> {ui.replay}</button>
         </div>
@@ -207,13 +217,16 @@ export const Dialogue = forwardRef<StepHandle, StepProps<DialogueStep>>(function
           if (isChoice(line) && answers[i] === undefined) return null;
           const text = textOf(i);
           const tr = isChoice(line) ? undefined : gloss(line.tr, lang);
+          const hidden = !reveal && !isChoice(line);
           return (
             <motion.div key={i} className={`lx-bubble-row is-${spk.side}`} initial={{ opacity: 0, y: 14, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }}>
               <span className="lx-avatar" aria-hidden>{spk.name.charAt(0)}</span>
               <div className={`lx-bubble${isChoice(line) ? ' is-mine' : ''}`}>
                 <span className="lx-bubble-name">{spk.name}</span>
-                <button type="button" onClick={() => speak(text, { voice: spk.voice })}>{text}</button>
-                {showTr && tr && <em>{tr}</em>}
+                {hidden
+                  ? <button type="button" className="lx-voice-msg" onClick={() => speak(text, { voice: spk.voice })} aria-label={ui.callLine}><SoundOutlined />{Array.from({ length: Math.min(18, 5 + Math.round(text.length / 6)) }, (_, k) => <i key={k} />)}</button>
+                  : <button type="button" onClick={() => speak(text, { voice: spk.voice })}>{text}</button>}
+                {!hidden && showTr && tr && <em>{tr}</em>}
               </div>
             </motion.div>
           );
@@ -293,6 +306,7 @@ export const Flashcards = forwardRef<StepHandle, StepProps<FlashcardsStep>>(func
                   <span className="lx-card-kicker">{lang === 'en' ? 'EN' : 'Sens'}</span>
                   <strong>{gloss(step.cards[current].tr, lang) || tx(step.cards[current].tr as never, 'en')}</strong>
                   {step.cards[current].ex && <p><Rich text={step.cards[current].ex!} /></p>}
+                  {lang === 'en' && step.cards[current].ex && EXAMPLE_EN[step.cards[current].ex!] && <em className="lx-card-ex-tr">{EXAMPLE_EN[step.cards[current].ex!]}</em>}
                 </div>
               </motion.div>
             </motion.div>

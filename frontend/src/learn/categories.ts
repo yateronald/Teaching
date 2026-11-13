@@ -1,4 +1,4 @@
-// The eight learning paths of the free courses. Small on purpose: the home page
+// The learning paths of the free courses. Small on purpose: the home page
 // imports it for its "Free courses" section without pulling in the courses.
 import { b, type CategoryMeta, type Lang } from './types';
 import versions from './image-versions.json';
@@ -56,6 +56,19 @@ export const CATEGORIES: CategoryMeta[] = [
       'Comprendre le français parlé est la compétence la plus difficile pour les apprenants. Entraînez-vous sur des enregistrements de voix natives : messages et annonces au A2, chroniques radio et interviews au B1. Chaque audio est suivi de questions et de sa transcription.',
     ),
     image: 'cat-listening',
+    topic: 'online',
+  },
+  {
+    id: 'reading',
+    slug: { en: 'french-reading', fr: 'comprehension-ecrite' },
+    name: b('Reading', 'Compréhension écrite'),
+    tag: b('Read with ease', 'Lisez avec aisance'),
+    tagline: b('Real documents, the news and great short stories.', 'Des documents réels, l’actualité et de grandes nouvelles.'),
+    description: b(
+      'Reading is half of the TCF and TEF, and a daily need: signs, letters, emails, the news. Train on documents laid out like the real thing at A1 and A2, articles and headlines at B1, and short extracts of great French short stories at B2 and C1, with questions that teach you where to look.',
+      'La lecture représente la moitié du TCF et du TEF, et un besoin de tous les jours : panneaux, lettres, courriels, actualité. Entraînez-vous sur des documents présentés comme les vrais au A1 et au A2, des articles et des titres au B1, et de courts extraits de grandes nouvelles françaises au B2 et au C1, avec des questions qui vous apprennent où chercher.',
+    ),
+    image: 'cat-reading',
     topic: 'online',
   },
   {

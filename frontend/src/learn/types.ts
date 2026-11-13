@@ -20,12 +20,25 @@ export type Gloss = string | { en: string; fr: string };
 export type Level = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export const LEVELS: Level[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-export type CategoryId = 'beginner' | 'grammar' | 'spelling' | 'listening' | 'pronunciation' | 'conversation' | 'tcf' | 'tef-quebec' | 'delf-dalf' | 'business';
+export type CategoryId = 'beginner' | 'grammar' | 'spelling' | 'listening' | 'reading' | 'pronunciation' | 'conversation' | 'tcf' | 'tef-quebec' | 'delf-dalf' | 'business';
 
 /** A voice for generated audio: two women, two men. */
 export type Voice = 'f' | 'm' | 'f2' | 'm2';
 
 // ── Steps ──────────────────────────────────────────────────────────────────
+
+/**
+ * How a reading document looks on screen, so that it resembles the real thing:
+ * a sign, a menu, text messages, an email, a letter, a classified ad, a
+ * pharmacy label, a receipt, a newspaper article or the page of a book.
+ */
+export type DocLook = 'notice' | 'menu' | 'sms' | 'email' | 'letter' | 'ad' | 'label' | 'receipt' | 'article' | 'page';
+
+/**
+ * A reading document. In `text`, a blank line starts a paragraph, a new line a
+ * line, and “left | right” makes a two-column row (a dish and its price).
+ */
+export interface Doc { title?: T; text: string; source?: T; look?: DocLook }
 
 export interface ConceptStep {
   kind: 'concept';
@@ -53,7 +66,7 @@ export interface McqStep {
   voice?: Voice;
   image?: string;
   /** A reading document, exam style. */
-  doc?: { title?: T; text: string; source?: T };
+  doc?: Doc;
   options: T[];
   /** Index of the right option. Options are shuffled on screen unless `fixedOrder`. */
   answer: number;
@@ -136,6 +149,8 @@ export interface DialogueStep {
   scene?: T;
   speakers: { name: string; voice: Voice; side: 'l' | 'r' }[];
   lines: (DialogueLine | DialogueChoice)[];
+  /** A phone call: the lines are only heard; their text appears at the end of the call. */
+  call?: boolean;
 }
 
 export interface FlashcardsStep {

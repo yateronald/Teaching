@@ -7,7 +7,7 @@ import { speak } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type Lang, type ConceptStep, type ConjugateStep, type DictationStep, type FillStep, type McqStep } from '../types';
 import { UI } from '../ui';
-import { AccentKeys, AudioButton, Rich, RichBlock, compare, normalize, seededShuffle, wordDiff } from './common';
+import { AccentKeys, AudioButton, DocBody, Rich, RichBlock, compare, normalize, seededShuffle, wordDiff } from './common';
 import type { StepHandle, StepProps } from './stepTypes';
 
 const rise = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 } };
@@ -163,9 +163,9 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
         <p className="lx-q-fr"><AudioButton text={step.audio} voice={step.voice} lang={lang} size="sm" /><span>{step.audio}</span></p>
       )}
       {step.doc && (
-        <article className="lx-doc">
+        <article className={`lx-doc${step.doc.look ? ` is-${step.doc.look}` : ''}`}>
           <header><FileTextOutlined aria-hidden />{step.doc.title ? tx(step.doc.title, lang) : 'Document'}</header>
-          <RichBlock text={step.doc.text} />
+          <DocBody text={step.doc.text} />
           {step.doc.source && <footer>{tx(step.doc.source, lang)}</footer>}
         </article>
       )}

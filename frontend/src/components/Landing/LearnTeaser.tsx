@@ -10,17 +10,17 @@ const COPY = {
   en: {
     eyebrow: 'Free courses',
     title: 'Start learning now, for free',
-    sub: '65 interactive courses written by our teachers, from your first words to C2 in TCF and TEF Canada: native audio, speaking practice, instant feedback and certificates. No account needed.',
+    sub: '75 interactive courses written by our teachers, from your first words to C2 in TCF and TEF Canada: native audio, speaking practice, instant feedback and certificates. No account needed.',
     points: ['Native French audio', 'Speak and get feedback', 'Certificates of completion'],
-    all: 'See the 65 courses',
+    all: 'See the 75 courses',
     test: 'Free level test',
   },
   fr: {
     eyebrow: 'Cours gratuits',
     title: 'Commencez à apprendre maintenant, gratuitement',
-    sub: '65 cours interactifs écrits par nos professeurs, de vos premiers mots jusqu’au C2 du TCF et du TEF Canada : audio natif, pratique de l’oral, correction immédiate et certificats. Sans compte.',
+    sub: '75 cours interactifs écrits par nos professeurs, de vos premiers mots jusqu’au C2 du TCF et du TEF Canada : audio natif, pratique de l’oral, correction immédiate et certificats. Sans compte.',
     points: ['Audio en français natif', 'Parlez et recevez un retour', 'Certificats de réussite'],
-    all: 'Voir les 65 cours',
+    all: 'Voir les 75 cours',
     test: 'Test de niveau gratuit',
   },
 };

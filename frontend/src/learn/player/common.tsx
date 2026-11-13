@@ -29,6 +29,27 @@ export function RichBlock({ text, className }: { text: string; className?: strin
   );
 }
 
+/**
+ * A document's text: paragraphs (blank line), lines (new line) and two-column
+ * rows written “Soupe du jour | 6,50 $”.
+ */
+export function DocBody({ text }: { text: string }) {
+  return (
+    <div className="lx-doc-body">
+      {text.split(/\n\s*\n/).map((para, i) => (
+        <p key={i}>
+          {para.split('\n').map((line, j) => {
+            const cells = line.split(' | ');
+            return cells.length > 1
+              ? <span key={j} className="lx-doc-row">{cells.map((c, k) => <span key={k}><Rich text={c} /></span>)}</span>
+              : <span key={j} className="lx-doc-line"><Rich text={line} /></span>;
+          })}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function AudioButton({ text, voice = 'f', lang, size = 'md', slow = false, label }: { text: string; voice?: Voice; lang: Lang; size?: 'sm' | 'md' | 'lg'; slow?: boolean; label?: string }) {
   const playing = usePlaying(text, voice);
   const ui = UI[lang].player;

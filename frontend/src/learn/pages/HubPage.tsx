@@ -285,7 +285,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
           <header className="lp-head is-left">
             <p className="lp-eyebrow">{h.faqEyebrow}</p>
             <h2 id="lx-faq-title">{h.faqTitle}</h2>
-            <p className="lx-faq-time"><ClockCircleOutlined /> {lang === 'fr' ? '65 cours · 225 leçons · de 40 à 95 min par cours' : '65 courses · 225 lessons · 40 to 95 min per course'}</p>
+            <p className="lx-faq-time"><ClockCircleOutlined /> {lang === 'fr' ? '75 cours · 255 leçons · de 33 à 95 min par cours' : '75 courses · 255 lessons · 33 to 95 min per course'}</p>
           </header>
           <div className="lp-faq-list">
             {h.faq.map(([qq, a], i) => (

@@ -194,6 +194,28 @@ export const COURSES: CourseMeta[] = [
     outcomes: [b('Make and answer phone calls', 'Passer et répondre à des appels'), b('Book, move and cancel appointments', 'Prendre, déplacer et annuler un rendez-vous'), b('Handle basic banking', 'Faire des démarches bancaires simples'), b('Send letters and parcels', 'Envoyer lettres et colis')],
   }),
 
+  c({
+    id: 'cooking-french', category: 'beginner', level: 'A2', levels: ['A2'], minutes: 38,
+    slug: { en: 'cooking-in-french', fr: 'cuisiner-en-francais' },
+    title: b('Cooking in French', 'Cuisiner en français'),
+    subtitle: b('Quantities, recipe verbs and table talk, one recipe at a time.', 'Les quantités, les verbes des recettes et les mots de la table, une recette à la fois.'),
+    description: b(
+      'Grammar through recipes. Make crêpes to learn quantities and the partitive (du, de la, des… and de), cook a vegetable soup to master the verbs of cooking and the imperative, then sit at the table: describe tastes, compliment the cook, refuse politely and discover the classics of Québec cooking, from tourtière to pouding chômeur. You finish by writing your own recipe.',
+      'La grammaire par les recettes. Préparez des crêpes pour apprendre les quantités et le partitif (du, de la, des… et de), cuisinez une soupe aux légumes pour maîtriser les verbes de la cuisine et l’impératif, puis passez à table : décrivez les goûts, complimentez le cuisinier, refusez poliment et découvrez les classiques de la cuisine québécoise, de la tourtière au pouding chômeur. Vous terminez en écrivant votre propre recette.',
+    ),
+    outcomes: [b('Say quantities and use the partitive', 'Dire les quantités et utiliser le partitif'), b('Follow and give instructions in the imperative', 'Suivre et donner des consignes à l’impératif'), b('Describe tastes and compliment a meal', 'Décrire des goûts et complimenter un repas'), b('Write a recipe', 'Écrire une recette')],
+  }),
+  c({
+    id: 'kids-french', category: 'beginner', level: 'A1', levels: ['A1'], minutes: 33, offer: 'Cours de français pour enfants',
+    slug: { en: 'french-for-kids', fr: 'le-francais-pour-les-enfants' },
+    title: b('French for Kids (ages 6 to 10)', 'Le français pour les enfants (6 à 10 ans)'),
+    subtitle: b('Colours, animals, numbers and school: short, playful lessons to do with a parent.', 'Les couleurs, les animaux, les nombres et l’école : des leçons courtes et ludiques à faire avec un parent.'),
+    description: b(
+      'A first French course for children aged 6 to 10, to do with a parent. Very short steps, pictures and native voices: say hello and your name, learn colours and farm animals (and what they say in French), count to twelve with a traditional rhyme, talk about family and toys, then the words of school and feelings, ending with a conversation with a new friend at break time. A short note guides the parent in each lesson.',
+      'Un premier cours de français pour les enfants de 6 à 10 ans, à faire avec un parent. Des étapes très courtes, des images et des voix natives : dire bonjour et son prénom, apprendre les couleurs et les animaux de la ferme (et ce qu’ils disent en français), compter jusqu’à douze avec une comptine traditionnelle, parler de sa famille et de ses jouets, puis les mots de l’école et des émotions, jusqu’à une conversation avec un nouvel ami à la récré. Une courte note guide le parent dans chaque leçon.',
+    ),
+    outcomes: [b('Say hello and introduce yourself', 'Dire bonjour et se présenter'), b('Know colours, animals and numbers to 12', 'Connaître les couleurs, les animaux et les nombres jusqu’à 12'), b('Talk about family, toys and school', 'Parler de sa famille, de ses jouets et de l’école'), b('Say how you feel', 'Dire comment on se sent')],
+  }),
   // ── Grammar ───────────────────────────────────────────────────────────────
   c({
     id: 'articles-gender', category: 'grammar', level: 'A1', levels: ['A1'], minutes: 40,
@@ -507,6 +529,62 @@ export const COURSES: CourseMeta[] = [
     ],
   }),
 
+  c({
+    id: 'quebec-mystery', category: 'listening', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 40, popular: true,
+    slug: { en: 'the-old-quebec-mystery', fr: 'le-mystere-du-vieux-quebec' },
+    title: b('The Old Québec Mystery: a Detective Story', 'Le mystère du Vieux-Québec : une enquête en français'),
+    subtitle: b('A painting vanishes. Listen to the witnesses, catch the lies and find the thief.', 'Un tableau disparaît. Écoutez les témoins, repérez les mensonges et trouvez le voleur.'),
+    description: b(
+      'A listening course in the form of a detective story in six chapters. A painting worth 800,000 dollars disappears from a gallery in Old Québec the night before an auction. As the inspector’s assistant, you listen to the witness, question three suspects, check an alibi in a phone call and find how the thief got the alarm code. Every clue is a listening exercise: times, places, the passé composé and the imparfait of an alibi. In the last chapter, you name the culprit and lead the final interview.',
+      'Un cours de compréhension orale sous forme d’enquête policière en six chapitres. Un tableau de 800 000 dollars disparaît d’une galerie du Vieux-Québec la veille d’une vente aux enchères. Assistant de l’inspectrice, vous écoutez le témoin, interrogez trois suspects, vérifiez un alibi au téléphone et découvrez comment le voleur a obtenu le code de l’alarme. Chaque indice est un exercice d’écoute : heures, lieux, passé composé et imparfait d’un alibi. Au dernier chapitre, vous désignez le coupable et menez l’interrogatoire final.',
+    ),
+    outcomes: [b('Understand times, places and actions in a statement', 'Comprendre heures, lieux et actions dans un témoignage'), b('Compare two versions of the same facts', 'Comparer deux versions des mêmes faits'), b('Use passé composé and imparfait in a story', 'Employer passé composé et imparfait dans un récit'), b('Write a short report', 'Rédiger un court rapport')],
+  }),
+  c({
+    id: 'phone-french', category: 'listening', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 39, popular: true,
+    slug: { en: 'french-on-the-phone', fr: 'le-francais-au-telephone' },
+    title: b('French on the Phone', 'Le français au téléphone'),
+    subtitle: b('Calls you only hear, as in real life: answer, spell, book, leave a message.', 'Des appels que vous entendez seulement, comme dans la vraie vie : répondre, épeler, réserver, laisser un message.'),
+    description: b(
+      'The phone is the most stressful situation for newcomers: no face, no gestures, fast voices. In this course the calls are only heard, and their text appears at the end. Learn the formulas of every call, spell your name without mistakes, understand phone numbers in Canada and in France, book an appointment at a clinic and a garage, find your way in automated menus, understand voicemails and leave a clear message yourself.',
+      'Le téléphone est la situation la plus stressante pour les nouveaux arrivants : pas de visage, pas de gestes, des voix rapides. Dans ce cours, les appels s’écoutent seulement, et leur texte apparaît à la fin. Apprenez les formules de chaque appel, épelez votre nom sans erreur, comprenez les numéros au Canada et en France, prenez rendez-vous dans une clinique et un garage, orientez-vous dans les serveurs vocaux, comprenez les messages vocaux et laissez vous-même un message clair.',
+    ),
+    outcomes: [b('Use the key phone formulas', 'Utiliser les formules clés du téléphone'), b('Spell and understand phone numbers', 'Épeler et comprendre des numéros'), b('Book an appointment by phone', 'Prendre rendez-vous au téléphone'), b('Understand and leave voicemails', 'Comprendre et laisser des messages vocaux')],
+  }),
+  // ── Reading ───────────────────────────────────────────────────────────────
+  c({
+    id: 'real-life-reading', category: 'reading', level: 'A1 → B1', levels: ['A1', 'A2', 'B1'], minutes: 39, popular: true,
+    slug: { en: 'reading-real-life-documents', fr: 'lire-la-vie-reelle' },
+    title: b('Reading Real Life: Signs, Menus, Letters', 'Lire la vie réelle : affiches, menus, courriers'),
+    subtitle: b('The documents of daily life, laid out like the real thing.', 'Les documents du quotidien, présentés comme les vrais.'),
+    description: b(
+      'Learn to read the documents you meet every day in a French-speaking country, shown as they really look: opening hours, signs, a restaurant menu and text messages at A1; a rental ad, a pharmacy label, a grocery receipt and a notice in your building at A2; an email from the school, a letter from your landlord and an email from human resources at B1. For each one you learn to find the request, the deadline and what happens if you do nothing, and you finish by answering the school in writing.',
+      'Apprenez à lire les documents que vous rencontrez chaque jour dans un pays francophone, présentés tels qu’ils sont : heures d’ouverture, panneaux, menu de restaurant et textos au A1 ; annonce de logement, étiquette de pharmacie, reçu d’épicerie et avis dans votre immeuble au A2 ; courriel de l’école, lettre du propriétaire et courriel des ressources humaines au B1. Pour chacun, vous apprenez à trouver la demande, la date limite et ce qui se passe si vous ne faites rien, et vous terminez en répondant à l’école par écrit.',
+    ),
+    outcomes: [b('Read signs, menus and messages', 'Lire panneaux, menus et messages'), b('Understand housing and health documents', 'Comprendre les documents de logement et de santé'), b('Find the request and the deadline in a letter', 'Trouver la demande et la date limite dans une lettre'), b('Write a short formal email', 'Écrire un court courriel formel')],
+  }),
+  c({
+    id: 'easy-news', category: 'reading', level: 'B1', levels: ['B1'], minutes: 39,
+    slug: { en: 'french-news-made-easy', fr: 'l-actualite-en-francais-facile' },
+    title: b('French News Made Easy', 'L’actualité en français facile'),
+    subtitle: b('Headlines, articles and radio news on everyday topics, written for learners.', 'Des titres, des articles et des nouvelles radio sur des sujets du quotidien, écrits pour les apprenants.'),
+    description: b(
+      'The bridge between B1 and the documents of the B2 exams. Decode the short style of headlines, read articles written for this course about the four-day week, a car-free town centre, screens before sleep and a news-in-brief story, and follow a radio bulletin. You learn to separate facts from opinions, to see who is speaking (selon, affirme, déplore), to understand the conditional journalists use for unconfirmed facts, and to write a summary.',
+      'Le pont entre le B1 et les documents des examens B2. Décodez le style court des titres, lisez des articles écrits pour ce cours sur la semaine de quatre jours, un centre-ville sans voitures, les écrans avant de dormir et un fait divers, et suivez un bulletin radio. Vous apprenez à distinguer les faits des opinions, à repérer qui parle (selon, affirme, déplore), à comprendre le conditionnel qu’emploient les journalistes pour les faits non confirmés, et à rédiger un résumé.',
+    ),
+    outcomes: [b('Understand headlines', 'Comprendre les titres'), b('Separate facts and opinions', 'Distinguer faits et opinions'), b('Understand the journalistic conditional', 'Comprendre le conditionnel journalistique'), b('Summarise an article', 'Résumer un article')],
+  }),
+  c({
+    id: 'classic-stories', category: 'reading', level: 'B2 → C1', levels: ['B2', 'C1'], minutes: 42,
+    slug: { en: 'great-french-short-stories', fr: 'grandes-nouvelles-de-la-litterature-francaise' },
+    title: b('Great French Short Stories', 'Les grandes nouvelles de la littérature française'),
+    subtitle: b('Maupassant and Daudet in short extracts, with the passé simple made simple.', 'Maupassant et Daudet en courts extraits, avec le passé simple rendu simple.'),
+    description: b(
+      'Three famous short stories in the public domain, read through short original extracts, summaries and questions: Maupassant’s “La Parure”, a cruel twist about appearances; Daudet’s “La Chèvre de monsieur Seguin”, a tale about freedom with two possible morals; and Daudet’s “La Dernière Classe”, the last French lesson in Alsace in 1871. You learn to recognise the passé simple, to tell background from events, to use the future in the past, and to write a nuanced, argued opinion at C1 level.',
+      'Trois nouvelles célèbres du domaine public, lues à travers de courts extraits originaux, des résumés et des questions : « La Parure » de Maupassant, une chute cruelle sur les apparences ; « La Chèvre de monsieur Seguin » de Daudet, un conte sur la liberté aux deux morales possibles ; et « La Dernière Classe » de Daudet, la dernière leçon de français en Alsace en 1871. Vous apprenez à reconnaître le passé simple, à distinguer le décor des événements, à employer le futur dans le passé et à rédiger un avis nuancé et argumenté de niveau C1.',
+    ),
+    outcomes: [b('Read 19th-century literary French', 'Lire le français littéraire du XIXe siècle'), b('Recognise the passé simple', 'Reconnaître le passé simple'), b('Interpret irony and morals', 'Interpréter l’ironie et la morale'), b('Write a nuanced opinion (C1)', 'Rédiger un avis nuancé (C1)')],
+  }),
   // ── Pronunciation ─────────────────────────────────────────────────────────
   c({
     id: 'french-sounds', category: 'pronunciation', level: 'A1', levels: ['A1'], minutes: 35,
@@ -620,6 +698,39 @@ export const COURSES: CourseMeta[] = [
     outcomes: [b('Recognise thirty common false friends', 'Reconnaître trente faux amis courants'), b('Say what you really mean', 'Dire ce que vous voulez vraiment dire'), b('Avoid misunderstandings at work', 'Éviter les malentendus au travail'), b('Avoid embarrassing mistakes', 'Éviter les erreurs gênantes')],
   }),
 
+  c({
+    id: 'spoken-french', category: 'conversation', level: 'B1', levels: ['B1'], minutes: 39, popular: true,
+    slug: { en: 'real-spoken-french', fr: 'le-vrai-francais-parle' },
+    title: b('Real Spoken French: What Natives Really Say', 'Le vrai français parlé : ce que disent vraiment les natifs'),
+    subtitle: b('J’sais pas, t’as vu, du coup, la flemme: understand people, not just the textbook.', 'J’sais pas, t’as vu, du coup, la flemme : comprenez les gens, pas seulement le manuel.'),
+    description: b(
+      'You understand your textbook but not the people around you? This course teaches how French is really spoken: the ne that disappears, the short forms (t’es, t’as, y a, j’suis), on instead of nous, the little words of conversation (ben, du coup, en fait, genre, bref), questions with intonation, familiar vocabulary (boulot, bouffer, un pote, la flemme), a little verlan and a few Québec words, with the register in which each one belongs.',
+      'Vous comprenez votre manuel mais pas les gens autour de vous ? Ce cours montre comment le français se parle vraiment : le ne qui disparaît, les formes courtes (t’es, t’as, y a, j’suis), on à la place de nous, les petits mots de la conversation (ben, du coup, en fait, genre, bref), les questions avec l’intonation, le vocabulaire familier (boulot, bouffer, un pote, la flemme), un peu de verlan et quelques mots québécois, avec le registre où chacun a sa place.',
+    ),
+    outcomes: [b('Understand fast, informal French', 'Comprendre le français rapide et familier'), b('Recognise the short spoken forms', 'Reconnaître les formes courtes de l’oral'), b('Use filler words naturally', 'Utiliser les petits mots avec naturel'), b('Choose the right register', 'Choisir le bon registre')],
+  }),
+  c({
+    id: 'french-idioms', category: 'conversation', level: 'B1 → B2', levels: ['B1', 'B2'], minutes: 40,
+    slug: { en: 'french-idioms-in-pictures', fr: 'les-expressions-imagees' },
+    title: b('French Idioms in Pictures', 'Les expressions imagées'),
+    subtitle: b('Poser un lapin, il pleut des cordes, être aux oiseaux: see the picture, guess the meaning.', 'Poser un lapin, il pleut des cordes, être aux oiseaux : voyez l’image, devinez le sens.'),
+    description: b(
+      'About fifty idioms that French speakers use every day, taught through their literal picture: you see what the words say (a rabbit on a chair, rain made of ropes), you guess what they mean, then you use them in context. Idioms of daily life, of food and animals, of work and strong feelings, and the colourful idioms of Québec. You finish by telling a story with three of them.',
+      'Une cinquantaine d’expressions que les francophones emploient chaque jour, enseignées par leur image littérale : vous voyez ce que disent les mots (un lapin sur une chaise, une pluie de cordes), vous devinez ce qu’ils veulent dire, puis vous les employez en contexte. Les expressions du quotidien, de la nourriture et des animaux, du travail et des émotions fortes, et les expressions colorées du Québec. Vous terminez en racontant une histoire avec trois d’entre elles.',
+    ),
+    outcomes: [b('Understand fifty common idioms', 'Comprendre cinquante expressions courantes'), b('Use idioms in the right situation', 'Employer les expressions dans la bonne situation'), b('Understand Québec idioms', 'Comprendre des expressions québécoises'), b('Tell a story with idioms', 'Raconter une histoire avec des expressions')],
+  }),
+  c({
+    id: 'school-parents', category: 'conversation', level: 'A2 → B1', levels: ['A2', 'B1'], minutes: 40, popular: true,
+    slug: { en: 'french-for-parents-your-childs-school', fr: 'l-ecole-de-mes-enfants' },
+    title: b('Your Child’s School in French', 'L’école de mes enfants'),
+    subtitle: b('Enrolment, school messages, a call from the school and the parent-teacher meeting.', 'L’inscription, les messages de l’école, un appel de l’école et la rencontre avec l’enseignant.'),
+    description: b(
+      'The French a parent needs, from the first day to the report card. Learn the school systems of Québec (from daycare to cégep) and France, enrol your child at the school office, understand the school calendar (journées pédagogiques, semaine de relâche), the notes in the homework diary and a call because your child is ill, write an absence note, then talk with the teacher: understand the report card, ask how to help at home and raise a concern politely.',
+      'Le français dont un parent a besoin, du premier jour jusqu’au bulletin. Découvrez les systèmes scolaires du Québec (de la garderie au cégep) et de la France, inscrivez votre enfant au secrétariat, comprenez le calendrier scolaire (journées pédagogiques, semaine de relâche), les mots dans l’agenda et un appel parce que votre enfant est malade, écrivez un mot d’absence, puis échangez avec l’enseignant : comprendre le bulletin, demander comment aider à la maison et exprimer une inquiétude poliment.',
+    ),
+    outcomes: [b('Understand the school system', 'Comprendre le système scolaire'), b('Enrol your child', 'Inscrire votre enfant'), b('Understand school messages and write an absence note', 'Comprendre les messages de l’école et écrire un mot d’absence'), b('Talk with the teacher', 'Échanger avec l’enseignant')],
+  }),
   // ── TCF Canada: five levelled courses, one per skill (A1 → C2) ─────────────
   c({
     id: 'tcf-listening', category: 'tcf', ladder: true, lessonCount: 6, level: 'A1 → C2', levels: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], minutes: 84, popular: true, offer: 'TCF Canada',

@@ -568,6 +568,7 @@
 .lx-card-face.is-back { transform: rotateY(180deg); background: var(--ink); border-color: var(--ink); }
 .lx-card-face.is-back strong { color: #fff; }
 .lx-card-face.is-back p { color: #c6cfe6; font-size: 15px; }
+.lx-card-face.is-back .lx-card-ex-tr { display: block; margin-top: 6px; color: #8f9cbd; font-size: 14px; font-style: italic; }
 .lx-card-kicker { position: absolute; top: 16px; left: 18px; font-size: 11.5px; font-weight: 800; letter-spacing: 0.12em; color: var(--subtle); }
 .is-back .lx-card-kicker { color: #8fa2d2; }
 .lx-deck-under { position: absolute; width: min(92%, 390px); height: 260px; border-radius: 22px; background: #fff; border: 1px solid var(--line); transform: translateY(14px) scale(0.96); z-index: 1; }
@@ -878,3 +879,45 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
   #lx-certificate, #lx-certificate * { visibility: visible !important; }
   #lx-certificate { position: fixed; inset: 0; margin: auto; width: 100%; max-width: 720px; height: fit-content; box-shadow: none; }
 }
+
+/* ── Real-looking documents (reading courses) ── */
+.lx-doc-line { display: block; }
+.lx-doc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; }
+.lx-doc-row > span:last-child { flex: none; font-weight: 650; text-align: right; }
+.lx-doc.is-notice { border: 3px solid var(--ink); background: #fffbea; }
+.lx-doc.is-notice .lx-doc-body { text-align: center; }
+.lx-doc.is-notice .lx-doc-row { max-width: 340px; margin: 0 auto; }
+.lx-doc.is-notice p:first-child { font-size: 21px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.lx-doc.is-menu { background: #fffaf2; }
+.lx-doc.is-menu p:first-child { font-family: Georgia, 'Times New Roman', serif; font-size: 22px; font-style: italic; text-align: center; }
+.lx-doc.is-menu .lx-doc-row { padding: 3px 0; border-bottom: 1px dotted #d8cdb8; }
+.lx-doc.is-sms { background: #f4f6fa; }
+.lx-doc.is-sms .lx-doc-body p { width: fit-content; max-width: 86%; padding: 9px 14px; border-radius: 18px 18px 18px 4px; background: #fff; box-shadow: 0 1px 2px rgba(15, 30, 60, 0.08); }
+.lx-doc.is-sms .lx-doc-body p:nth-child(even) { margin-left: auto !important; border-radius: 18px 18px 4px 18px; background: #dceaff; }
+.lx-doc.is-email p:first-child, .lx-doc.is-letter p:first-child { padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 13.5px !important; color: var(--muted) !important; }
+.lx-doc.is-letter .lx-doc-body, .lx-doc.is-page .lx-doc-body, .lx-doc.is-article .lx-doc-body { font-family: Georgia, 'Times New Roman', serif; }
+.lx-doc.is-ad { border: 2px dashed #c9bda6; background: #fffdf6; }
+.lx-doc.is-ad p:first-child { font-size: 19px; font-weight: 800; color: var(--blue); }
+.lx-doc.is-label { max-width: 460px; border: 2px solid #b9c6dd; background: #fff; }
+.lx-doc.is-label p:first-child { font-weight: 800; letter-spacing: 0.03em; }
+.lx-doc.is-receipt { max-width: 420px; background: #fff; }
+.lx-doc.is-receipt .lx-doc-body p { font-family: 'Courier New', ui-monospace, monospace; font-size: 14.5px !important; }
+.lx-doc.is-article p:first-child { font-size: 22px !important; font-weight: 700; line-height: 1.3 !important; }
+.lx-doc.is-article p:nth-child(2) { font-style: italic; color: var(--muted) !important; }
+.lx-doc.is-page { background: #fdfaf3; }
+.lx-doc.is-page .lx-doc-body p { text-align: justify; font-size: 17px !important; line-height: 1.8 !important; }
+.lx-doc.is-page .lx-doc-body p:first-child::first-letter { float: left; margin: 4px 8px 0 0; font-size: 46px; line-height: 0.9; color: var(--blue); }
+
+/* ── Phone calls (dialogues heard only) ── */
+.lx-call-badge { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 8px; padding: 4px 11px; border-radius: 99px; background: #e8f6ee; color: #17784a; font-size: 12.5px; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; }
+.lx-call-badge .anticon { animation: lx-ring 1.6s ease-in-out infinite; }
+@keyframes lx-ring { 0%, 60%, 100% { transform: rotate(0); } 10%, 30% { transform: rotate(-14deg); } 20%, 40% { transform: rotate(14deg); } }
+.lx-call-hint { font-weight: 600; color: var(--blue) !important; }
+.lx-bubble .lx-voice-msg { display: inline-flex; align-items: center; gap: 3px; min-height: 26px; color: var(--blue); }
+.is-r .lx-bubble .lx-voice-msg { color: #fff; }
+.lx-voice-msg .anticon { margin-right: 6px; font-size: 18px; }
+.lx-voice-msg i { width: 3px; height: 10px; border-radius: 2px; background: currentColor; opacity: 0.6; }
+.lx-voice-msg i:nth-child(3n) { height: 18px; }
+.lx-voice-msg i:nth-child(4n + 1) { height: 6px; }
+.lx-voice-msg i:nth-child(5n + 2) { height: 14px; }
+@media (prefers-reduced-motion: reduce) { .lx-call-badge .anticon { animation: none; } }
