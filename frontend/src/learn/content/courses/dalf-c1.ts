@@ -129,7 +129,7 @@ const lessons: Lesson[] = [
         },
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Common → formal.', 'Courant → soutenu.'),
         pairs: [['montrer', 'mettre en évidence'], ['augmenter', 'croître'], ['parler de', 'aborder'], ['empêcher', 'entraver'], ['important', 'considérable']],
       },

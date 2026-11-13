@@ -1,6 +1,6 @@
 // Activities where the learner moves things: sentence builder, matching,
 // sorting into categories, and the explorable picture.
-import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { motion, LayoutGroup, AnimatePresence } from 'motion/react';
 import { CheckOutlined, SoundOutlined } from '@ant-design/icons';
 import { speak } from '../audio';
@@ -85,13 +85,16 @@ export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match
   const [matched, setMatched] = useState<number[]>([]);
   const [wrong, setWrong] = useState<[number, number] | null>(null);
   const [mistakes, setMistakes] = useState(0);
+  // The side touched last: its tile has just been heard, so a match does not repeat it.
+  const lastSide = useRef<'l' | 'r'>('l');
   useImperativeHandle(ref, () => ({ check: () => null }), []);
 
   useEffect(() => {
     if (selL === null || selR === null) return;
     if (selL === selR) {
       setMatched(m => [...m, selL]);
-      speak(step.pairs[selL][0]);
+      // A meaning tile (English, or a French definition) is silent: the French word is heard once the pair is found.
+      if (lastSide.current === 'r' && !step.frBoth) speak(step.pairs[selL][0]);
     } else {
       setWrong([selL, selR]);
       setMistakes(n => n + 1);
@@ -99,7 +102,7 @@ export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match
     }
     setSelL(null);
     setSelR(null);
-  }, [selL, selR, step.pairs]);
+  }, [selL, selR, step.pairs, step.frBoth]);
 
   useEffect(() => {
     if (matched.length === step.pairs.length) {
@@ -118,11 +121,11 @@ export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match
   return (
     <div className="lx-match">
       <h2 className="lx-prompt"><Rich text={tx(step.prompt, lang) || ui.tapToMatch} /></h2>
-      <p className="lx-sub">{ui.tapToMatch}</p>
+      <p className="lx-sub">{step.frBoth ? ui.tapToMatchBoth : ui.tapToMatch}</p>
       <div className="lx-match-cols">
         <div>
           {left.map(({ i, text }) => (
-            <motion.button key={i} type="button" className={`lx-tile is-fr ${cls('l', i)}`} disabled={matched.includes(i)} onClick={() => { setSelL(i); speak(text); }}
+            <motion.button key={i} type="button" className={`lx-tile is-fr ${cls('l', i)}`} disabled={matched.includes(i)} onClick={() => { lastSide.current = 'l'; setSelL(i); speak(text); }}
               animate={cls('l', i) === 'is-wrong' ? { x: [0, -6, 6, -4, 4, 0] } : cls('l', i) === 'is-matched' ? { scale: [1, 1.05, 1] } : {}} transition={{ duration: 0.4 }}>
               {text}{matched.includes(i) && <CheckOutlined />}
             </motion.button>
@@ -130,7 +133,7 @@ export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match
         </div>
         <div>
           {right.map(({ i, text }) => (
-            <motion.button key={i} type="button" className={`lx-tile ${cls('r', i)}`} disabled={matched.includes(i)} onClick={() => setSelR(i)}
+            <motion.button key={i} type="button" className={`lx-tile${step.frBoth ? ' is-fr' : ''} ${cls('r', i)}`} disabled={matched.includes(i)} onClick={() => { lastSide.current = 'r'; setSelR(i); if (step.frBoth) speak(text); }}
               animate={cls('r', i) === 'is-wrong' ? { x: [0, -6, 6, -4, 4, 0] } : cls('r', i) === 'is-matched' ? { scale: [1, 1.05, 1] } : {}} transition={{ duration: 0.4 }}>
               {text}
             </motion.button>

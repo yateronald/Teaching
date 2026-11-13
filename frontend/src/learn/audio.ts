@@ -12,7 +12,7 @@ const AVAILABLE = new Set<string>((manifest as { keys: string[] }).keys);
 // Single words the voice mistakes for a homophone when said alone (checked by
 // transcription): it is given a spelling that sounds right. Only the audio
 // changes, never the text shown.
-const SAY_AS: Record<string, string> = { mes: 'mé', Y: 'i grec' };
+const SAY_AS: Record<string, string> = { mes: 'mé', Y: 'i grec', 'ouaf ouaf': 'Ouaf ! Ouaf !', croître: 'Croître.' };
 
 /** Words the voice cannot say alone without a mistake: no recording (no speaker button). */
 export const NO_AUDIO = new Set(['gris', 'pis', 'y a', 'si']);

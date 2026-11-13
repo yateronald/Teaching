@@ -39,7 +39,7 @@ const lessons: Lesson[] = [
         given: [0],
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Infinitive and subjunctive.', 'Infinitif et subjonctif.'),
         pairs: [['faire', 'que je fasse'], ['aller', 'que j’aille'], ['pouvoir', 'que je puisse'], ['savoir', 'que je sache'], ['avoir', 'que j’aie']],
       },

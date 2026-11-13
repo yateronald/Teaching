@@ -23,7 +23,7 @@ function stepPhrases(s: Step, add: (text: string, voice?: Voice) => void, image:
       if (s.image) image(s.image);
       break;
     case 'order': add(s.words.join(' ')); break;
-    case 'match': s.pairs.forEach(p => add(p[0])); break;
+    case 'match': s.pairs.forEach(p => { add(p[0]); if (s.frBoth && typeof p[1] === 'string') add(p[1]); }); break;
     case 'categorize': if (s.listen) s.items.forEach(it => add(it.text)); break;
     case 'dictation': add(s.text, s.voice); break;
     case 'speak': add(s.text); break;

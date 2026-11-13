@@ -111,6 +111,8 @@ export interface MatchStep {
   kind: 'match';
   prompt: T;
   pairs: [string, T][];
+  /** Both columns are French (masculine / feminine, familiar / standard…): each tile speaks its own words. */
+  frBoth?: boolean;
 }
 
 export interface CategorizeStep {

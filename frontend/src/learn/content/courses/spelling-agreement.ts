@@ -16,7 +16,7 @@ const lessons: Lesson[] = [
         table: { head: [b('Ending', 'Terminaison'), b('Plural', 'Pluriel'), b('Example', 'Exemple')], rows: [['-al', '-aux', 'un journal → des journ**aux**'], ['-eau, -au', '+ x', 'un gâteau → des gâteau**x**'], ['-eu', '+ x', 'un jeu → des jeu**x**'], ['-ou', '+ s (7 en -oux)', 'un trou → des trou**s** · un bijou → des bijou**x**'], ['-ail', '+ s (quelques -aux)', 'un détail → des détail**s** · un travail → des trav**aux**']] },
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Singular and plural.', 'Singulier et pluriel.'),
         pairs: [['un animal', 'des animaux'], ['un bureau', 'des bureaux'], ['un prix', 'des prix'], ['un cheveu', 'des cheveux'], ['un festival', 'des festivals']],
       },

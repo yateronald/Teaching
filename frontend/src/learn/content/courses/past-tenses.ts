@@ -30,7 +30,7 @@ const lessons: Lesson[] = [
         ],
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Infinitive and participle.', 'Infinitif et participe.'),
         pairs: [['voir', 'vu'], ['faire', 'fait'], ['prendre', 'pris'], ['boire', 'bu'], ['écrire', 'écrit']],
       },

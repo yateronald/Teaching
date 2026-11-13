@@ -44,7 +44,7 @@ const lessons: Lesson[] = [
         { fr: 'le chat', tr: 'the cat' }, { fr: 'le chien', tr: 'the dog' }, { fr: 'la vache', tr: 'the cow' }, { fr: 'le cheval', tr: 'the horse' },
         { fr: 'le lapin', tr: 'the rabbit' }, { fr: 'le cochon', tr: 'the pig' }, { fr: 'le canard', tr: 'the duck' }, { fr: 'le mouton', tr: 'the sheep' },
       ] }),
-      { kind: 'match', prompt: b('What does each animal say in French?', 'Que dit chaque animal en français ?'), pairs: [['le chat', 'miaou'], ['le chien', 'ouaf ouaf'], ['la vache', 'meuh'], ['le canard', 'coin-coin'], ['le coq', 'cocorico']] },
+      { kind: 'match', frBoth: true, prompt: b('What does each animal say in French?', 'Que dit chaque animal en français ?'), pairs: [['le chat', 'miaou'], ['le chien', 'ouaf ouaf'], ['la vache', 'meuh'], ['le canard', 'coin-coin'], ['le coq', 'cocorico']] },
       { kind: 'categorize', listen: true, prompt: b('Animal or colour? Touch a word to hear it.', 'Animal ou couleur ? Touche un mot pour l’écouter.'), buckets: [b('Animal', 'Animal'), b('Colour', 'Couleur')], items: [{ text: 'le chat', bucket: 0 }, { text: 'la vache', bucket: 0 }, { text: 'le lapin', bucket: 0 }, { text: 'rouge', bucket: 1 }, { text: 'jaune', bucket: 1 }, { text: 'vert', bucket: 1 }] },
       hear('f2', 'Le chat est noir.', b('What colour is the cat?', 'De quelle couleur est le chat ?'), [b('black', 'noir'), b('white', 'blanc'), b('orange', 'orange')]),
       { kind: 'speak', prompt: b('Say your favourite animal.', 'Dis ton animal préféré.'), text: 'Mon animal préféré, c’est le chien.', tr: 'My favourite animal is the dog.' },

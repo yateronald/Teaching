@@ -30,7 +30,7 @@ const lessons: Lesson[] = [
         ],
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Québec ↔ France.', 'Québec ↔ France.'),
         pairs: [['un char', 'une voiture'], ['magasiner', 'faire les magasins'], ['le souper', 'le dîner'], ['un dépanneur', 'une épicerie de quartier'], ['une blonde', 'une petite amie']],
       },
@@ -98,7 +98,7 @@ const lessons: Lesson[] = [
         examples: [{ fr: 'C’est-tu loin ?', tr: 'Is it far?' }, { fr: 'Vous êtes-tu prêts ?', tr: 'Are you ready?' }],
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Colloquial Québec ↔ standard French.', 'Québécois familier ↔ français standard.'),
         pairs: [['C’est-tu loin ?', 'Est-ce que c’est loin ?'], ['Chu fatigué.', 'Je suis fatigué.'], ['Y fait frette !', 'Il fait très froid !'], ['Ben oui !', 'Bien sûr !']],
       },

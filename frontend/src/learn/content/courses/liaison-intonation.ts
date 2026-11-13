@@ -105,7 +105,7 @@ const lessons: Lesson[] = [
         answer: 0,
       },
       {
-        kind: 'match',
+        kind: 'match', frBoth: true,
         prompt: b('Match the spoken form and the written form.', 'Associez la forme orale et la forme écrite.'),
         pairs: [['« y a »', 'il y a'], ['« t’es »', 'tu es'], ['« p’tit »', 'petit'], ['« chais pas »', 'je ne sais pas']],
       },
