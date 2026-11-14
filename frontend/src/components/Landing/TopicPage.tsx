@@ -13,6 +13,8 @@ import SiteHeader from './SiteHeader';
 import SiteFooter from './SiteFooter';
 import { useDemoModal, usePublicPage } from './publicPage';
 import './LandingPage.css';
+import { PromoProvider } from '../../promo/PromoProvider';
+import { PromoBar } from '../../promo/placements';
 import './TopicPage.css';
 
 // ============================================================
@@ -35,6 +37,7 @@ const TopicPage: React.FC<Props> = ({ topic, lang = 'en' }) => {
   const topicLink = (id: TopicId) => <Link key={id} to={TOPIC_PATHS[id][lang]}>{TOPICS[lang][id].name}</Link>;
 
   return (
+    <PromoProvider lang={lang}>
     <div className="lp tp" lang={lang}>
       <SEO
         lang={lang}
@@ -47,6 +50,7 @@ const TopicPage: React.FC<Props> = ({ topic, lang = 'en' }) => {
       />
       <a href="#main" className="lp-skip">{home.skip}</a>
 
+      <PromoBar />
       <SiteHeader lang={lang} alternates={TOPIC_PATHS[topic]} sectionBase={PATHS[lang]} onDemo={openDemo} />
 
       <main id="main">
@@ -228,6 +232,7 @@ const TopicPage: React.FC<Props> = ({ topic, lang = 'en' }) => {
 
       {modal}
     </div>
+    </PromoProvider>
   );
 };
 

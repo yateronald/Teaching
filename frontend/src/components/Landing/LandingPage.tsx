@@ -29,6 +29,8 @@ import video1Poster from '../../assets/landing/video1-poster.webp';
 import video2Poster from '../../assets/landing/video2-poster.webp';
 import lesson720 from '../../assets/landing/french-study-hero-indian-v4-720.webp';
 import lesson1200 from '../../assets/landing/french-study-hero-indian-v4-1200.webp';
+import { PromoProvider } from '../../promo/PromoProvider';
+import { PromoBar, PromoHome } from '../../promo/placements';
 
 // ============================================================
 // Public landing page (/, /fr/). Pre-rendered at build time: every section is
@@ -192,6 +194,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const q = c.reviews.quotes[quote];
 
   return (
+    <PromoProvider lang={lang}>
     <div className="lp" ref={rootRef} lang={lang}>
       <SEO
         lang={lang}
@@ -212,7 +215,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         </div>
       )}
 
-      {announce && (
+      <PromoBar fallback={announce && (
         <div className="lp-announce">
           <div className="lp-wrap">
             <span className="lp-announce-tag">{c.announce.tag}</span>
@@ -221,7 +224,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             <button type="button" className="lp-announce-close" onClick={closeAnnounce} aria-label={c.langSuggest.dismiss}><CloseOutlined /></button>
           </div>
         </div>
-      )}
+      )} />
 
       <SiteHeader lang={lang} alternates={PATHS} active={active} onDemo={openDemo} />
 
@@ -291,6 +294,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         </section>
 
         {/* ── Programs ── */}
+        {/* ── Live campaigns: upcoming groups and offers (nothing when none is live) ── */}
+        <PromoHome />
+
         <section id="programs" className="lp-section" aria-labelledby="lp-programs-title">
           <div className="lp-wrap">
             <header className="lp-head" data-reveal>
@@ -626,6 +632,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
 
       {modal}
     </div>
+    </PromoProvider>
   );
 };
 

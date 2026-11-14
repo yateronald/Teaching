@@ -9,6 +9,7 @@ import { finalPath, hubPath } from '../paths';
 import { recordFinal, setName, useProgress, type BadgeId } from '../progress';
 import { Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell';
 import { tx, type CourseMeta, type Lang, type Lesson, type Step } from '../types';
+import { audienceOfCategory } from '../../promo/model';
 import { UI } from '../ui';
 import { useLessons } from '../useLessons';
 import { seededShuffle } from '../player/common';
@@ -115,7 +116,7 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
           </div>
         </div>
       </section>
-      <div className="lp-wrap lx-final-cta"><TeacherCta lang={lang} offer={course.offer} /></div>
+      <div className="lp-wrap lx-final-cta"><TeacherCta lang={lang} offer={course.offer} audience={audienceOfCategory(course.category, course.id)} /></div>
       {phase === 'play' && (
         <Overlay>
           <Player key={run} exam steps={steps} lang={lang} seed={`final-${course.id}-${run}`} title={f.title} onExit={() => setPhase('intro')} onFinish={finish} />

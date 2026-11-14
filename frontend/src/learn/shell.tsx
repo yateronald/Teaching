@@ -15,6 +15,9 @@ import { AUTOSTART } from './paths';
 import { useProgress, courseDone } from './progress';
 import { tx, type CourseMeta, type Lang } from './types';
 import { UI } from './ui';
+import { PromoProvider } from '../promo/PromoProvider';
+import { PromoBar, PromoNudge } from '../promo/placements';
+import type { Audience } from '../promo/model';
 import '../components/Landing/LandingPage.css';
 import './learn.css';
 
@@ -41,16 +44,19 @@ export function LearnShell({ lang, alternates, seo, children, bare = false }: Sh
   const { openDemo, openExamOffer, modal } = useDemoModal();
   usePublicPage(lang);
   return (
+    <PromoProvider lang={lang} area="learn">
     <DemoCtx.Provider value={{ openDemo, openOffer: openExamOffer }}>
       <div className="lp lx" lang={lang}>
         <SEO lang={lang} title={seo.title} description={seo.description} path={seo.path} alternates={alternates} jsonLd={seo.jsonLd} noindex={seo.noindex} image={seo.image} />
         <a href="#main" className="lp-skip">{lang === 'fr' ? 'Aller au contenu' : 'Skip to content'}</a>
+        {!bare && <PromoBar />}
         {!bare && <SiteHeader lang={lang} alternates={alternates} sectionBase={PATHS[lang]} onDemo={openDemo} />}
         <main id="main">{children}</main>
         {!bare && <SiteFooter lang={lang} sectionBase={PATHS[lang]} onDemo={openDemo} />}
         {modal}
       </div>
     </DemoCtx.Provider>
+    </PromoProvider>
   );
 }
 
@@ -108,11 +114,16 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
   );
 }
 
-export function TeacherCta({ lang, offer, variant = 'general', compact = false }: { lang: Lang; offer?: string; variant?: 'general' | 'writing' | 'speaking'; compact?: boolean }) {
+/**
+ * The call to action beside the free courses. While a campaign is live (a
+ * group that starts soon, an offer), that campaign is shown here, the one that
+ * fits `audience` best; otherwise the invitation to a free demo class.
+ */
+export function TeacherCta({ lang, offer, variant = 'general', compact = false, audience = 'general' }: { lang: Lang; offer?: string; variant?: 'general' | 'writing' | 'speaking'; compact?: boolean; audience?: Audience }) {
   const { openDemo, openOffer } = useDemo();
   const c = UI[lang].cta;
   const [title, text, button] = offer ? c.exam(offer) : c[variant];
-  return (
+  const demo = (
     <aside className={`lx-tcta${compact ? ' is-compact' : ''}`}>
       <div className="lx-tcta-flag" aria-hidden><i /><i /><i /></div>
       <p className="lx-tcta-eyebrow">{UI[lang].end.ctaEyebrow}</p>
@@ -121,4 +132,5 @@ export function TeacherCta({ lang, offer, variant = 'general', compact = false }
       <button type="button" className="lp-btn lp-btn-light" onClick={() => (offer ? openOffer(offer) : openDemo())}>{button}<ArrowRightOutlined /></button>
     </aside>
   );
+  return <PromoNudge audience={audience} compact={compact} fallback={demo} />;
 }

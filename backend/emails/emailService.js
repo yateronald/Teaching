@@ -20,6 +20,7 @@ const { buildMeetingScheduledTemplate } = require('./templates/meetingScheduled'
 const { buildDemoScheduleStudentTemplate } = require('./templates/demoScheduleStudent');
 const { buildDemoScheduleTeacherTemplate } = require('./templates/demoScheduleTeacher');
 const { buildCompanyInviteTemplate, buildCompanyExpiryTemplate } = require('./templates/companyAccount');
+const { buildPromotionRegistrationTemplate } = require('./templates/promotionRegistration');
 
 // ─────────────────────────────────────────────────────────────────────────
 // Sender helper
@@ -222,6 +223,17 @@ async function sendCompanyExpiryNotice({ to, name, org, daysLeft, lang }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Marketing campaigns: the confirmation a visitor receives after registering
+// ─────────────────────────────────────────────────────────────────────────
+async function sendPromotionRegistrationConfirmation({ to, name, lang, promotion, waitlist }) {
+    const page = lang === 'fr' ? '/fr/offres/' : '/offers/';
+    const { subject, html, text } = buildPromotionRegistrationTemplate({
+        lang, name, promotion, waitlist, detailsUrl: `${APP_BASE}${page}?p=${encodeURIComponent(promotion.slug)}`,
+    });
+    return sendEmail({ from: getFromEmail(), to, subject, html, text });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Attendance access code (template builds its own subject/html/text)
 // ─────────────────────────────────────────────────────────────────────────
 async function sendAccessCodeEmail({ to, subject, html, text }) {
@@ -238,6 +250,7 @@ module.exports = {
     sendWelcomeEmail,
     sendCompanyInvite,
     sendCompanyExpiryNotice,
+    sendPromotionRegistrationConfirmation,
     sendAdminPasswordReset,
     sendQuizNotification,
     sendQuizReminder,

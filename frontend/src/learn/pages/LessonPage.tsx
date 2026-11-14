@@ -13,6 +13,7 @@ import { ladderState, PASS_MARK, recordLesson, REVIEW_MARK, useProgress, type Ba
 import { lessonJsonLd } from '../schema';
 import { Crumbs, LearnShell, LevelChip, TeacherCta, useDemo, useMounted } from '../shell';
 import { gloss, LEVELS, tx, type CourseMeta, type Lang, type Lesson } from '../types';
+import { audienceOfCategory } from '../../promo/model';
 import { UI } from '../ui';
 import { useLessons } from '../useLessons';
 import { AudioButton, Rich } from '../player/common';
@@ -169,7 +170,7 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
           </article>
           <aside className="lx-side">
             <figure className="lx-side-img"><img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="640" height="360" /></figure>
-            <TeacherCta lang={lang} offer={course.offer} variant={writes ? 'writing' : speaks ? 'speaking' : 'general'} compact />
+            <TeacherCta lang={lang} offer={course.offer} audience={audienceOfCategory(course.category, course.id)} variant={writes ? 'writing' : speaks ? 'speaking' : 'general'} compact />
           </aside>
         </div>
       </section>
@@ -215,6 +216,7 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
               onRetry={start}
               offer={course.offer}
               ctaVariant={writes ? 'writing' : speaks ? 'speaking' : 'general'}
+              audience={audienceOfCategory(course.category, course.id)}
             />
           </div>
         </Overlay>

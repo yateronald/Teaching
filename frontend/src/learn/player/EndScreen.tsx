@@ -8,6 +8,7 @@ import type { BadgeId } from '../progress';
 import { TeacherCta } from '../shell';
 import { AUTOSTART } from '../paths';
 import type { Lang } from '../types';
+import type { Audience } from '../../promo/model';
 import { UI } from '../ui';
 import { Rich } from './common';
 import { stepTitle, type PlayerOutcome } from './Player';
@@ -48,11 +49,13 @@ interface Props {
   onRetry: () => void;
   offer?: string;
   ctaVariant?: 'general' | 'writing' | 'speaking';
+  /** Who the course speaks to: picks the campaign shown beside the result. */
+  audience?: Audience;
   /** Levelled course: what this score means for the learner's level. */
   verdict?: { tone: 'up' | 'almost' | 'review'; text: string };
 }
 
-export default function EndScreen({ lang, outcome, badges, nextHref, nextLabel, courseHref, onRetry, offer, ctaVariant = 'general', verdict }: Props) {
+export default function EndScreen({ lang, outcome, badges, nextHref, nextLabel, courseHref, onRetry, offer, ctaVariant = 'general', audience = 'general', verdict }: Props) {
   const ui = UI[lang];
   const e = ui.end;
   const perfect = outcome.score >= 0.999;
@@ -106,7 +109,7 @@ export default function EndScreen({ lang, outcome, badges, nextHref, nextLabel, 
             </ul>
           )}
         </section>
-        <TeacherCta lang={lang} offer={offer} variant={ctaVariant} />
+        <TeacherCta lang={lang} offer={offer} variant={ctaVariant} audience={audience} />
       </div>
     </div>
   );

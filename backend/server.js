@@ -134,6 +134,13 @@ app.use('/api/site', (err, _req, res, next) => {
     return next();
 });
 
+// Same for the public marketing endpoints: small bodies only, and a beacon may say text/plain.
+app.use('/api/public/promotions', express.json({ limit: '8kb', type: ['application/json', 'text/plain'] }));
+app.use('/api/public/promotions', (err, _req, res, next) => {
+    if (err) return res.status(400).json({ error: 'Invalid request' });
+    return next();
+});
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
@@ -170,6 +177,9 @@ app.use('/api/auth/identify', limiter(15, 20, 'Too many attempts. Please wait a 
 app.use('/api/password-reset/request', limiter(15, 8, 'Too many reset requests. Please wait 15 minutes and try again.'));
 app.use('/api/password-reset', limiter(15, 40, 'Too many attempts. Please wait 15 minutes and try again.'));
 app.post('/api/demo-requests', limiter(60, 10, 'Too many requests. Please try again later.'));
+// Marketing campaigns: registrations are rare and typed by hand; views and clicks are beacons.
+app.post(/^\/api\/public\/promotions\/[^/]+\/register$/, limiter(60, 12, 'Too many registrations from this connection. Please try again later.'));
+app.use('/api/public/promotions/track', limiter(5, 300, 'Too many requests', { handler: (_req, res) => res.status(204).end() }));
 // The website beacon: generous enough for a real visitor reading several
 // pages, and silent when exceeded so a flood learns nothing from the answer.
 app.use('/api/site', limiter(5, 300, 'Too many requests', { handler: (_req, res) => res.status(204).end() }));
@@ -227,6 +237,10 @@ app.use('/api/eo-simulation', eoSimulationRoutes);
 app.use('/api/admin/organizations', require('./routes/organizations'));
 app.use('/api/org', require('./routes/orgPortal'));
 app.use('/api/public/org', require('./routes/orgPublic'));
+
+// Marketing campaigns: the administrator's console and what the public site shows
+app.use('/api/admin/promotions', require('./routes/promotions'));
+app.use('/api/public/promotions', require('./routes/promotionsPublic'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -1,0 +1,134 @@
+/* ============================================================
+   Marketing (admin console): campaigns, their editor, registrations,
+   figures and flyers. Built on the shared admin kit (Org.css, .og-*);
+   only what is specific to campaigns is here (.mk-*).
+   ============================================================ */
+
+/* A small picture of a campaign: its theme, its photo under the same veil as on the site. */
+.mk-thumb { position: relative; display: inline-flex; flex-shrink: 0; width: 46px; height: 46px; overflow: hidden; border-radius: 12px; background: linear-gradient(135deg, var(--pm-a, #1d4577), var(--pm-b, #0b1733)); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12); }
+.mk-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: 0.78; mix-blend-mode: luminosity; }
+.mk-thumb::after { content: ''; position: absolute; inset: 0; background: linear-gradient(160deg, color-mix(in srgb, var(--pm-a, #1d4577) 30%, transparent), color-mix(in srgb, var(--pm-b, #0b1733) 55%, transparent)); }
+.mk-thumb.is-md { width: 84px; height: 60px; border-radius: 14px; }
+.mk-thumb.pm-t-navy { --pm-a: #1d4577; --pm-b: #0b1733; }
+.mk-thumb.pm-t-bordeaux { --pm-a: #a83342; --pm-b: #4f121d; }
+.mk-thumb.pm-t-gold { --pm-a: #9c6609; --pm-b: #6f4405; }
+.mk-thumb.pm-t-forest { --pm-a: #1f7a59; --pm-b: #0c3526; }
+.mk-thumb.pm-t-plum { --pm-a: #6a45a3; --pm-b: #2a1849; }
+
+.mk-live { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: mk-pulse 1.8s infinite; }
+@keyframes mk-pulse { 50% { opacity: 0.35; } }
+.mk-new { display: inline-flex; margin-left: 8px; padding: 0 7px; border-radius: 999px; background: #1d4ed8; font-size: 10.5px; font-weight: 700; line-height: 18px; color: #fff; vertical-align: 1px; }
+
+/* Rows */
+.og-row.is-campaign { grid-template-columns: minmax(240px, 2.4fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1.2fr) minmax(130px, 1fr) 32px; }
+.og-row.is-registration { grid-template-columns: minmax(170px, 1.5fr) minmax(190px, 1.7fr) minmax(120px, 1fr) minmax(130px, 1fr) minmax(128px, auto); }
+.og-row.is-registration.is-fresh { background: color-mix(in srgb, #1d4ed8 4%, #fff); }
+.og-row.is-registration.is-fresh .og-cell-main > strong:first-child::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #1d4ed8; vertical-align: 1px; }
+@container og (max-width: 860px) {
+  .og-row.is-campaign, .og-row.is-registration { grid-template-columns: 1fr auto; }
+  .og-row.is-campaign > :last-child { display: none; }
+}
+.mk-status.ant-select { min-width: 122px; border: 1px solid var(--t-line); border-radius: 999px; background: var(--t-bg); }
+.mk-status .ant-select-selection-item { font-size: 12px; font-weight: 600; color: var(--t) !important; }
+.mk-status .ant-select-arrow { color: var(--t); }
+
+/* ── Editor ── */
+.mk-drawer .ant-drawer-body { padding: 0; background: var(--x-soft, #f8fafc); }
+.mk-editor { display: grid; grid-template-columns: minmax(0, 1fr) 400px; align-items: start; gap: 22px; padding: 20px 22px 28px; }
+.mk-kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mk-kinds .og-kind { align-items: flex-start; }
+.mk-kinds .og-kind-text em { font-size: 12px; font-style: normal; line-height: 1.4; color: var(--x-muted); }
+.mk-three { display: grid; grid-template-columns: 1fr 1fr 110px; gap: 12px; }
+.mk-optional { margin-left: 6px; font-size: 12px; font-style: normal; font-weight: 400; color: var(--x-subtle); }
+.mk-switch { display: inline-flex; align-items: center; gap: 10px; min-height: 32px; font-size: 12.5px; color: var(--x-muted); }
+.mk-themes { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-theme { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border: 1px solid var(--x-line); border-radius: 999px; background: #fff; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--x-ink); cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.mk-theme i { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, var(--pm-a), var(--pm-b)); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7); }
+.mk-theme:hover { border-color: var(--pm-a); }
+.mk-theme.is-on { border-color: var(--pm-a); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pm-a) 18%, transparent); }
+.mk-theme.pm-t-navy { --pm-a: #1d4577; --pm-b: #0b1733; }
+.mk-theme.pm-t-bordeaux { --pm-a: #a83342; --pm-b: #4f121d; }
+.mk-theme.pm-t-gold { --pm-a: #9c6609; --pm-b: #6f4405; }
+.mk-theme.pm-t-forest { --pm-a: #1f7a59; --pm-b: #0c3526; }
+.mk-theme.pm-t-plum { --pm-a: #6a45a3; --pm-b: #2a1849; }
+.mk-picture-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mk-pictures { display: flex; flex-direction: column; gap: 12px; max-height: 340px; padding: 12px; overflow-y: auto; border: 1px solid var(--x-line); border-radius: 12px; background: var(--x-soft); }
+.mk-pictures p { margin: 0 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--x-subtle); }
+.mk-pictures > div > div { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+.mk-pictures button { padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: 10px; background: none; aspect-ratio: 16 / 9; cursor: pointer; transition: transform 0.15s, border-color 0.15s; }
+.mk-pictures button img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mk-pictures button:hover { transform: scale(1.03); }
+.mk-pictures button.is-on { border-color: var(--x-accent); }
+.mk-preview { position: sticky; top: 20px; display: flex; flex-direction: column; gap: 12px; }
+.mk-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; color: var(--x-ink); }
+.mk-preview-note { margin: 0; font-size: 12px; line-height: 1.5; color: var(--x-subtle); }
+.mk-preview .pm-card:hover, .mk-preview-tab .pm-card:hover { transform: none; }
+.mk-preview .pm-stretch, .mk-preview .pm-cta, .mk-preview-tab .pm-stretch, .mk-preview-tab .pm-cta { cursor: default; }
+.mk-preview-tab { display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+@media (max-width: 1020px) {
+  .mk-editor { grid-template-columns: minmax(0, 1fr); }
+  .mk-preview { position: static; order: -1; max-width: 420px; }
+  .mk-three { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 620px) {
+  .mk-kinds { grid-template-columns: minmax(0, 1fr); }
+  .mk-editor { padding: 14px; }
+}
+
+/* ── One registration ── */
+.mk-contact { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-contact a { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid var(--x-line); border-radius: 999px; background: #fff; font-size: 13px; font-weight: 500; color: var(--x-ink); text-decoration: none; }
+.mk-contact a:hover { border-color: var(--x-accent); color: var(--x-accent); }
+.mk-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin: 0; }
+.mk-facts dt { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--x-subtle); }
+.mk-facts dd { margin: 2px 0 0; font-size: 13.5px; color: var(--x-ink); overflow-wrap: anywhere; }
+.mk-message { margin: 0; padding: 12px 14px; border-left: 3px solid var(--x-accent); border-radius: 0 10px 10px 0; background: var(--x-soft); font-size: 13.5px; line-height: 1.55; color: var(--x-text, #334155); white-space: pre-wrap; }
+
+/* ── Figures ── */
+.mk-places { display: flex; flex-direction: column; }
+.mk-place { display: grid; grid-template-columns: minmax(0, 1.8fr) 0.6fr 1fr 0.7fr; align-items: center; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--x-line-soft); font-size: 13px; }
+.mk-place:last-child { border-bottom: 0; }
+.mk-place.is-head { padding-block: 9px; background: var(--x-soft); font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--x-subtle); }
+.mk-place em { margin-left: 4px; font-size: 11.5px; font-style: normal; color: var(--x-subtle); }
+.mk-place-name { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mk-place-name strong { font-weight: 600; color: var(--x-ink); }
+.mk-place-name i { display: block; height: 6px; overflow: hidden; border-radius: 999px; background: var(--x-line-soft); }
+.mk-place-name b { display: block; height: 100%; border-radius: inherit; background: var(--x-accent); transform-origin: left; }
+.mk-days { display: grid; grid-template-columns: repeat(14, 1fr); align-items: end; gap: 5px; height: 170px; }
+.mk-day { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; }
+.mk-day i { display: block; width: 100%; max-width: 26px; border-radius: 6px 6px 2px 2px; background: color-mix(in srgb, var(--x-accent) 34%, #fff); transition: background 0.15s; }
+.mk-day i.has-reg { background: var(--x-accent); }
+.mk-day:hover i { background: var(--x-accent); }
+.mk-day-reg { min-height: 14px; font-size: 11px; font-weight: 700; line-height: 14px; color: var(--x-accent); font-variant-numeric: tabular-nums; }
+.mk-days-axis { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--x-line-soft); font-size: 11.5px; color: var(--x-subtle); }
+@container og (max-width: 860px) { .mk .og-grid > .og-card { grid-column: 1 / -1 !important; } }
+
+/* ── Flyers and link ── */
+.mk-flyers { display: flex; flex-direction: column; gap: 16px; }
+.mk-flyer-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; gap: 24px; }
+.mk-flyer-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 320px; padding: 22px; border-radius: 14px; background: repeating-conic-gradient(#eef1f5 0 25%, #f8fafc 0 50%) 0 0 / 22px 22px; }
+.mk-flyer-stage canvas { display: block; width: auto; max-width: 100%; height: auto; max-height: 620px; border-radius: 6px; box-shadow: 0 18px 44px -18px rgba(15, 23, 42, 0.5); }
+.mk-flyer-stage.is-story canvas, .mk-flyer-stage.is-a4 canvas { max-height: 680px; }
+.mk-flyer-wait { position: absolute; font-size: 13px; color: var(--x-subtle); }
+.mk-flyer-side { display: flex; flex-direction: column; gap: 16px; }
+.mk-formats { display: flex; flex-direction: column; gap: 6px; }
+.mk-formats button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 12px; border: 1px solid var(--x-line); border-radius: 12px; background: #fff; font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.mk-formats button:hover { border-color: var(--x-accent-line); }
+.mk-formats button.is-on { border-color: var(--x-accent); background: var(--x-accent-soft); }
+.mk-formats button > span { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.mk-formats strong { font-size: 13px; font-weight: 600; color: var(--x-ink); }
+.mk-formats em { font-size: 11.5px; font-style: normal; color: var(--x-subtle); }
+.mk-formats i { flex-shrink: 0; width: 26px; height: 26px; border: 2px solid var(--x-muted); border-radius: 4px; }
+.mk-formats i.is-story { width: 16px; height: 28px; margin-inline: 5px; }
+.mk-formats i.is-landscape { width: 30px; height: 17px; margin-inline: -2px; }
+.mk-formats i.is-a4 { width: 20px; height: 28px; margin-inline: 3px; }
+.mk-formats button.is-on i { border-color: var(--x-accent); background: color-mix(in srgb, var(--x-accent) 14%, #fff); }
+.mk-flyer-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mk-flyers code { padding: 1px 5px; border-radius: 5px; background: var(--x-line-soft); font-size: 11.5px; overflow-wrap: anywhere; }
+.mk-share { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.mk-qr { flex-shrink: 0; padding: 8px; border: 1px solid var(--x-line); border-radius: 14px; background: #fff; }
+.mk-qr-source { position: absolute; left: -9999px; top: 0; }
+.mk-share-main { display: flex; flex: 1; flex-direction: column; gap: 10px; min-width: 240px; }
+.mk-link { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 14px; border: 1px solid var(--x-line); border-radius: 12px; background: var(--x-soft); }
+.mk-link code { flex: 1; min-width: 0; padding: 0; background: none; font-size: 13px; color: var(--x-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1000px) { .mk-flyer-body { grid-template-columns: minmax(0, 1fr); } }

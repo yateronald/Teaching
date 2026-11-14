@@ -13,6 +13,7 @@ import { ladderState, useProgress } from '../progress';
 import { courseJsonLd } from '../schema';
 import { CourseCard, Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell';
 import { LEVELS, tx, type CourseMeta, type Lang, type Lesson, type StepKind } from '../types';
+import { audienceOfCategory } from '../../promo/model';
 import { UI } from '../ui';
 import { useLessons } from '../useLessons';
 import AdaptiveTest from './AdaptiveTest';
@@ -220,7 +221,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
           </div>
           )}
           <aside className="lx-side">
-            <TeacherCta lang={lang} offer={course.offer} compact />
+            <TeacherCta lang={lang} offer={course.offer} audience={audienceOfCategory(course.category, course.id)} compact />
           </aside>
         </div>
       </section>

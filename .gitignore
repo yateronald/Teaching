@@ -3,3 +3,7 @@
 backend/.env
 backend/.env.postgres
 frontend/.env
+
+# Local generated media and review artifacts
+/output/
+/videos/

@@ -34,6 +34,7 @@ import {
     ApartmentOutlined,
     GlobalOutlined,
     RobotOutlined,
+    NotificationOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,6 +42,7 @@ import NotificationBell from '../Notifications/NotificationBell';
 import useResponsive from '../../hooks/useResponsive';
 import { useActiveMeeting } from '../../hooks/useActiveMeeting';
 import useDemoAlerts from '../../hooks/useDemoAlerts';
+import usePromoAlerts from '../../hooks/usePromoAlerts';
 import MeetingLobbyWatcher from '../Meeting/MeetingLobbyWatcher';
 import OrgStateBanner from '../Org/OrgStateBanner';
 import { useTr } from '../../utils/useTr';
@@ -63,7 +65,7 @@ interface NavItem {
     /** Shown only when the account holds this extra key. */
     needs?: 'monitoring';
     /** Draws a live count on the entry (people waiting for an answer). */
-    counter?: 'demoRequests';
+    counter?: 'demoRequests' | 'registrations';
 }
 interface NavGroup { label: string; items: NavItem[]; }
 
@@ -97,6 +99,7 @@ const NAV: Record<Role, NavGroup[]> = {
                 { key: '/app/companies', icon: <BankOutlined />, label: 'Companies' },
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
                 { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
+                { key: '/app/marketing', icon: <NotificationOutlined />, label: 'Marketing', counter: 'registrations' },
                 { key: '/app/timetable', icon: <CalendarOutlined />, label: 'Teacher Timetable' },
                 { key: '/app/attendance', icon: <BarChartOutlined />, label: 'Attendance' },
             ],
@@ -295,6 +298,8 @@ const pageInfo = (pathname: string, role: Role, tr: Tr): PageInfo => {
     }
     if (/^\/companies\/\d+/.test(p)) return { title: 'Company', parent: { label: 'Companies', to: '/app/companies' } };
     if (p === '/companies') return { title: 'Companies' };
+    if (/^\/marketing\/\d+/.test(p)) return { title: 'Campaign', parent: { label: 'Marketing', to: '/app/marketing' } };
+    if (p === '/marketing') return { title: 'Marketing' };
     if (/^\/batches\/[^/]+\/insights/.test(p)) return { title: 'Batch Insights', parent: { label: 'Batch Management', to: '/app/batches' } };
     if (/^\/meeting\/[^/]+/.test(p)) return { title: 'Live Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };
     if (/^\/meeting-join\/[^/]+/.test(p)) return { title: 'Join Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };
@@ -532,6 +537,23 @@ const Layout: React.FC = () => {
         });
     });
 
+    // People who registered for a marketing campaign and wait for an answer (administrators only).
+    const promo = usePromoAlerts(isAdmin, (registration) => {
+        notice.open({
+            key: `promo-${registration.promotion_id}-${registration.full_name}`,
+            message: 'New registration',
+            description: `${registration.full_name} registered for “${registration.title}”.`,
+            icon: <NotificationOutlined style={{ color: '#1d4ed8' }} />,
+            placement: 'bottomRight',
+            duration: 8,
+            btn: (
+                <Button type="primary" size="small" onClick={() => { notice.destroy(`promo-${registration.promotion_id}-${registration.full_name}`); navigate(`/app/marketing/${registration.promotion_id}`); }}>
+                    Open
+                </Button>
+            ),
+        });
+    });
+
     const role: Role = isAdmin ? 'admin' : isTeacher ? 'teacher' : isOrgAdmin ? 'org_admin' : isCandidate ? 'candidate' : 'student';
     const meta = roleMetaFor(role, tr);
     const bilingual = role === 'candidate' || role === 'org_admin';
@@ -619,7 +641,7 @@ const Layout: React.FC = () => {
                 >
                     <Sidebar
                         groups={nav}
-                        counters={{ demoRequests: demo.waiting }}
+                        counters={{ demoRequests: demo.waiting, registrations: promo.waiting }}
                         role={role}
                         collapsed={false}
                         activeKey={activeKey}
@@ -638,7 +660,7 @@ const Layout: React.FC = () => {
             ) : (
                 <Sidebar
                     groups={nav}
-                    counters={{ demoRequests: demo.waiting }}
+                    counters={{ demoRequests: demo.waiting, registrations: promo.waiting }}
                     role={role}
                     collapsed={collapsed}
                     activeKey={activeKey}
