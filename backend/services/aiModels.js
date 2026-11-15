@@ -59,7 +59,9 @@ function developerEngine() {
     writing: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
     // Pictures (campaigns). Nano Banana 2 first: far more photographic.
     image: ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'],
-  }, { text: 'GEMINI_TEXT_MODELS', live: 'GEMINI_LIVE_MODELS', tts: 'GEMINI_TTS_MODELS', writing: 'GEMINI_WRITING_MODELS', image: 'GEMINI_IMAGE_MODELS' });
+    // The writers the administrator may pick for one AI request (the others follow if it cannot answer).
+    choices: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
+  }, { text: 'GEMINI_TEXT_MODELS', live: 'GEMINI_LIVE_MODELS', tts: 'GEMINI_TTS_MODELS', writing: 'GEMINI_WRITING_MODELS', image: 'GEMINI_IMAGE_MODELS', choices: 'GEMINI_WRITING_CHOICES' });
 
   const keySuffix = (name) => Number(name.slice('GEMINI_API_KEY'.length) || -1);
   const keys = [...new Set([
@@ -94,7 +96,11 @@ function vertexEngine() {
     // Pictures: Nano Banana 2 (checked 2026-11-15: no 3.8 Flash image model exists,
     // and the Pro image previews answer 404 here). The picture check runs on the text models.
     image: ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'],
-  }, { text: 'VERTEX_TEXT_MODELS', live: 'VERTEX_LIVE_MODELS', tts: 'VERTEX_TTS_MODELS', writing: 'VERTEX_WRITING_MODELS', image: 'VERTEX_IMAGE_MODELS' });
+    // The writers the administrator may pick (email campaigns). The Gemini 4 models were asked
+    // for on 2026-11-15; that day this project answered 404 for all three (no access yet), so a
+    // request that picks one is written by the next model and the administrator is told.
+    choices: ['gemini-3.8-flash', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen'],
+  }, { text: 'VERTEX_TEXT_MODELS', live: 'VERTEX_LIVE_MODELS', tts: 'VERTEX_TTS_MODELS', writing: 'VERTEX_WRITING_MODELS', image: 'VERTEX_IMAGE_MODELS', choices: 'VERTEX_WRITING_CHOICES' });
 
   const apiKey = String(process.env.VERTEX_API_KEY || process.env.GOOGLE_CLOUD_API_KEY || process.env.Google_cloud_key || '').trim();
   const project = String(process.env.VERTEX_PROJECT || '').trim();
@@ -197,6 +203,41 @@ function rest(e, model, k, err) {
       : status === 503 ? 20_000
         : 5_000;
   resting.set(restKey(e, model, k), Date.now() + ms);
+}
+
+// ── What each model did lately (shown next to the administrator's model choice) ──
+const health = new Map(); // "engine|model" → { state, at }
+function noteHealth(e, model, state) { health.set(`${e.id}|${model}`, { state, at: Date.now() }); }
+const stateOf = (status) => (status === 404 ? 'missing' : status === 429 || status === 503 ? 'busy' : 'error');
+/**
+ * 'ok' (answered lately), 'missing' (not found, or the project has no access),
+ * 'busy' (over quota or overloaded), 'error', or null (not tried lately).
+ * A "missing" is remembered 6 hours (access can be granted meanwhile), the rest 30 minutes.
+ */
+function modelState(engineId, model) {
+  const h = health.get(`${engine(engineId).id}|${model}`);
+  if (!h) return null;
+  const ttl = h.state === 'missing' ? 6 * 3600e3 : 30 * 60e3;
+  return Date.now() - h.at < ttl ? h.state : null;
+}
+/** One short call to see whether a model answers on an engine (the administrator's « Check »). */
+async function probeModel(engineId, model) {
+  const e = engine(engineId);
+  if (!e.clients.length) throw Object.assign(new Error(`The ${e.id} AI engine is not configured`), { status: 503 });
+  const started = Date.now();
+  try {
+    await e.clients[0].models.generateContent({
+      model,
+      contents: [{ role: 'user', parts: [{ text: 'Reply with one word: ready.' }] }],
+      config: { maxOutputTokens: 1000, temperature: 0 },
+    });
+    noteHealth(e, model, 'ok');
+    return { model, state: 'ok', ms: Date.now() - started };
+  } catch (err) {
+    const status = statusOf(err);
+    noteHealth(e, model, stateOf(status));
+    return { model, state: stateOf(status), status, ms: Date.now() - started, error: safeMessage(err).slice(0, 160) };
+  }
 }
 
 // ── Live models as a stand-in for generateContent ─────────────────────────
@@ -310,13 +351,16 @@ const SPEECH_ONLY = /native-audio/;
  * (with a short pause between the two rounds). The engine is the active one
  * when the call starts (or `options.engine`), for the whole call.
  * `onFailure(model, status)` hears each refusal (the admin engine test reports them).
+ * `prefer`: a model the administrator picked, tried first (skipped while it is
+ * known to be missing on this engine); the use's own models follow it.
  */
-async function withFallback(kind, call, { label = kind, unlimited = kind !== 'live', engine: engineId, onFailure } = {}) {
+async function withFallback(kind, call, { label = kind, unlimited = kind !== 'live', engine: engineId, onFailure, prefer } = {}) {
   const e = engine(engineId);
   if (!e.clients.length) throw Object.assign(new Error(`The ${e.id} AI engine is not configured`), { status: 503 });
   const liveClients = liveStandInsFor(e);
+  const picked = typeof prefer === 'string' && /^[a-z0-9][a-z0-9.-]{2,60}$/.test(prefer) && modelState(e.id, prefer) !== 'missing' ? [prefer] : [];
   const steps = [
-    ...e.models[kind].map(model => ({ model, live: false })),
+    ...[...picked, ...e.models[kind].filter(m => !picked.includes(m))].map(model => ({ model, live: false })),
     ...(unlimited && liveClients.length ? e.models.live.filter(m => kind === 'tts' || !SPEECH_ONLY.test(m)).map(model => ({ model, live: true })) : []),
   ];
   const order = keyOrder(e.id);
@@ -338,16 +382,23 @@ async function withFallback(kind, call, { label = kind, unlimited = kind !== 'li
         try {
           const result = await call(live ? liveClients[k] : e.clients[k], model);
           if (live) console.log(`ℹ️  ${label}: answered by ${model} (Live, ${e.id} key ${k + 1}) — the regular models are full or busy`);
+          else noteHealth(e, model, 'ok');
           return { result, model, engine: e.id };
         } catch (err) {
           lastErr = err;
           const status = statusOf(err);
+          if (!live && !err?.badAnswer) noteHealth(e, model, stateOf(status));
           // A bad request is ours, not the model's: every other model would refuse it too.
           if (status === 400 && !/model|thinking|not supported|unsupported|modalit/i.test(safeMessage(err))) throw err;
           if (err?.badAnswer) badAnswers.set(model, (badAnswers.get(model) || 0) + 1);
           rest(e, model, k, err);
           try { onFailure?.(model, status, err); } catch { /* diagnostics only */ }
           console.warn(`⚠️  ${label}: ${model} (${e.id} key ${k + 1}) unavailable — ${status || ''} ${safeMessage(err).slice(0, 120)}`);
+          // « Not found »: the model itself is missing, other keys would only be refused too.
+          if (status === 404 && !live) {
+            for (const other of order) rest(e, model, other, err);
+            break;
+          }
         }
       }
     }
@@ -371,7 +422,7 @@ const getEngine = (id) => ENGINES[id] || null;
 
 module.exports = {
   ENGINE_IDS, getEngine, activeEngine, setActiveEngine,
-  modelsFor, withFallback, isConfigured, statusOf, safeMessage, badAnswer, keyOrder,
+  modelsFor, withFallback, isConfigured, statusOf, safeMessage, badAnswer, keyOrder, modelState, probeModel,
   /** Developer API keys (the live examiner's ephemeral tokens). */
   API_KEYS: ENGINES.developer.keys,
 };

@@ -183,6 +183,12 @@ app.use('/api/public/promotions/track', limiter(5, 300, 'Too many requests', { h
 // The website beacon: generous enough for a real visitor reading several
 // pages, and silent when exceeded so a flood learns nothing from the answer.
 app.use('/api/site', limiter(5, 300, 'Too many requests', { handler: (_req, res) => res.status(204).end() }));
+// Email campaigns: opens and clicks come from people (and their mail programs' proxies);
+// unsubscribing and the Brevo events are rare.
+app.use('/api/public/email/u', limiter(15, 60, 'Too many requests. Please try again later.'));
+app.post(/^\/api\/public\/email\/form\/[^/]+$/, limiter(15, 20, 'Too many answers from this connection. Please try again later.'));
+app.use('/api/public/email/brevo', limiter(1, 600, 'Too many requests'));
+app.use('/api/public/email', limiter(5, 600, 'Too many requests'));
 
 // Every API request is timed for the monitoring space (route pattern only —
 // no user, no address, no body).
@@ -241,6 +247,10 @@ app.use('/api/public/org', require('./routes/orgPublic'));
 // Marketing campaigns: the administrator's console and what the public site shows
 app.use('/api/admin/promotions', require('./routes/promotions'));
 app.use('/api/public/promotions', require('./routes/promotionsPublic'));
+
+// Email campaigns: the administrator's console, and the links in the emails (tracking, unsubscribe)
+app.use('/api/admin/email-campaigns', require('./routes/emailCampaigns'));
+app.use('/api/public/email', require('./routes/emailPublic'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -524,6 +534,9 @@ async function startServer() {
         require('./middleware/apiMetrics').startApiMetrics(database);
         require('./services/analyticsService').startAnalyticsSweeper(database);
 
+        // Email campaigns go out in the background, at a steady pace
+        require('./services/emailCampaignSender').start(database);
+
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
         });
@@ -550,6 +563,7 @@ process.on('SIGINT', async () => {
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
     try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
+    try { require('./services/emailCampaignSender').stop(); } catch {}
     // The API timings of the last minute or two, before the restart loses them.
     try { await require('./middleware/apiMetrics').flush(database, { all: true }); } catch {}
     await database.close();
@@ -561,6 +575,7 @@ process.on('SIGTERM', async () => {
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
     try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
+    try { require('./services/emailCampaignSender').stop(); } catch {}
     // The API timings of the last minute or two, before the restart loses them.
     try { await require('./middleware/apiMetrics').flush(database, { all: true }); } catch {}
     await database.close();

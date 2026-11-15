@@ -892,13 +892,18 @@ Future<bool> confirmAdmin(
   required String message,
   required String confirmLabel,
   bool danger = true,
+  /// Something to fill in under the message (an address…).
+  Widget? content,
 }) async {
+  final text = Text(message, style: AppTypography.bodyMedium.copyWith(color: AppColors.text, height: 1.45));
   final ok = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Text(title, style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w800)),
-      content: Text(message, style: AppTypography.bodyMedium.copyWith(color: AppColors.text, height: 1.45)),
+      content: content == null
+          ? text
+          : Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [text, const SizedBox(height: 14), content]),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(ctx.isFrench ? 'Annuler' : 'Cancel')),
         FilledButton(

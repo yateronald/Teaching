@@ -22,6 +22,10 @@ export function useDemoModal() {
     const id = idle ? idle(() => { loadDemoModal(); }) : window.setTimeout(() => { loadDemoModal(); }, 2500);
     return () => { if (!idle) window.clearTimeout(id); };
   }, []);
+  // A link with ?demo=1 (an email's « Book my trial class ») opens the form at once.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('demo') === '1') { setOffer(undefined); setOpen(true); }
+  }, []);
   const openDemo = useCallback(() => { setOffer(undefined); setOpen(true); }, []);
   const openExamOffer = useCallback((label: string) => { setOffer(label); setOpen(true); }, []);
   const modal = (open || mounted) ? (

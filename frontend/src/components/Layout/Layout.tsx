@@ -35,6 +35,7 @@ import {
     GlobalOutlined,
     RobotOutlined,
     NotificationOutlined,
+    MailOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -100,6 +101,7 @@ const NAV: Record<Role, NavGroup[]> = {
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
                 { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
                 { key: '/app/marketing', icon: <NotificationOutlined />, label: 'Marketing', counter: 'registrations' },
+                { key: '/app/emails', icon: <MailOutlined />, label: 'Email campaigns' },
                 { key: '/app/timetable', icon: <CalendarOutlined />, label: 'Teacher Timetable' },
                 { key: '/app/attendance', icon: <BarChartOutlined />, label: 'Attendance' },
             ],
@@ -300,6 +302,8 @@ const pageInfo = (pathname: string, role: Role, tr: Tr): PageInfo => {
     if (p === '/companies') return { title: 'Companies' };
     if (/^\/marketing\/\d+/.test(p)) return { title: 'Campaign', parent: { label: 'Marketing', to: '/app/marketing' } };
     if (p === '/marketing') return { title: 'Marketing' };
+    if (/^\/emails\/\d+/.test(p)) return { title: 'Email', parent: { label: tr('Email campaigns', 'Campagnes email'), to: '/app/emails' } };
+    if (p === '/emails') return { title: tr('Email campaigns', 'Campagnes email') };
     if (/^\/batches\/[^/]+\/insights/.test(p)) return { title: 'Batch Insights', parent: { label: 'Batch Management', to: '/app/batches' } };
     if (/^\/meeting\/[^/]+/.test(p)) return { title: 'Live Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };
     if (/^\/meeting-join\/[^/]+/.test(p)) return { title: 'Join Meeting', parent: { label: 'Live Meetings', to: '/app/meetings' } };

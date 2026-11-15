@@ -26,6 +26,9 @@ export const TOPIC_PATHS: Record<TopicId, Record<Lang, string>> = {
 /** The page that lists the live campaigns (src/promo/OffersPage.tsx). */
 export const OFFERS_PATHS: Record<Lang, string> = { en: '/offers/', fr: '/fr/offres/' };
 
+/** The form of an email campaign (src/promo/EmailFormPage.tsx), opened from an email with ?t=… */
+export const FORM_PATHS: Record<Lang, string> = { en: '/form/', fr: '/fr/formulaire/' };
+
 export interface PublicPage {
   path: string;
   lang: Lang;
@@ -33,6 +36,10 @@ export interface PublicPage {
   topic?: TopicId;
   /** The offers page. */
   offers?: boolean;
+  /** The form of an email campaign (src/promo/EmailFormPage.tsx): pre-rendered, never indexed. */
+  form?: boolean;
+  /** false: left out of the sitemap. */
+  sitemap?: boolean;
   /** Weight in the sitemap (defaults: 1.0 for the home page, 0.8 for a topic page). */
   priority?: string;
   /** The same page in each language (hreflang). */
@@ -45,4 +52,6 @@ export const PUBLIC_PAGES: PublicPage[] = [
   ...LANGS.map(lang => ({ path: PATHS[lang], lang, alternates: PATHS })),
   ...TOPIC_IDS.flatMap(topic => LANGS.map(lang => ({ path: TOPIC_PATHS[topic][lang], lang, topic, alternates: TOPIC_PATHS[topic] }))),
   ...LANGS.map(lang => ({ path: OFFERS_PATHS[lang], lang, offers: true, priority: '0.7', alternates: OFFERS_PATHS })),
+  // The page an email's form button opens (?t=…): a file of its own, so it answers whatever the server's rules for unknown addresses.
+  ...LANGS.map(lang => ({ path: FORM_PATHS[lang], lang, form: true, sitemap: false, alternates: FORM_PATHS })),
 ];

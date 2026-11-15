@@ -160,9 +160,13 @@ class BrevoEmailService {
             throw new Error('Brevo service not initialized');
         }
         
+        // quiet: bulk sending (email campaigns) does not log every address.
+        const quiet = mailOptions.quiet === true;
         try {
-            console.log(`📧 Brevo: Sending email to ${mailOptions.to}`);
-            console.log(`📧 Subject: ${mailOptions.subject}`);
+            if (!quiet) {
+                console.log(`📧 Brevo: Sending email to ${mailOptions.to}`);
+                console.log(`📧 Subject: ${mailOptions.subject}`);
+            }
             
             // Parse sender
             const sender = this.parseEmailAddress(mailOptions.from || {
@@ -227,11 +231,21 @@ class BrevoEmailService {
                 sendSmtpEmail.replyTo = this.parseEmailAddress(mailOptions.replyTo);
             }
             
+            // Extra headers (List-Unsubscribe…) and tags (to find a campaign's emails in Brevo and its webhooks)
+            if (mailOptions.headers && typeof mailOptions.headers === 'object') {
+                sendSmtpEmail.headers = mailOptions.headers;
+            }
+            if (Array.isArray(mailOptions.tags) && mailOptions.tags.length) {
+                sendSmtpEmail.tags = mailOptions.tags;
+            }
+
             // Send email
             const result = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
-            
-            console.log(`✅ Brevo: Email sent successfully`);
-            console.log(`📧 Message ID: ${result.messageId}`);
+
+            if (!quiet) {
+                console.log(`✅ Brevo: Email sent successfully`);
+                console.log(`📧 Message ID: ${result.messageId}`);
+            }
             
             return {
                 messageId: result.messageId,
@@ -239,13 +253,18 @@ class BrevoEmailService {
             };
             
         } catch (error) {
-            console.error('❌ Brevo email send failed:', error.message);
-            
-            if (error.response && error.response.body) {
-                console.error('Error details:', JSON.stringify(error.response.body, null, 2));
+            if (!quiet) {
+                console.error('❌ Brevo email send failed:', error.message);
+                if (error.response && error.response.body) {
+                    console.error('Error details:', JSON.stringify(error.response.body, null, 2));
+                }
             }
-            
-            throw new Error(`Brevo email failed: ${error.message}`);
+
+            // The HTTP status and Brevo's own reason travel with the error (a 400 is never worth a retry).
+            const failure = new Error(`Brevo email failed: ${error.message}`);
+            failure.status = error.status || (error.response && error.response.status) || null;
+            failure.reason = (error.response && error.response.body && error.response.body.message) || null;
+            throw failure;
         }
     }
     

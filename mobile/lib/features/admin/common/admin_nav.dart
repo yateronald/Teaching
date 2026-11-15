@@ -9,14 +9,15 @@ class AdminTab {
   static const batches = 3;
   static const demoRequests = 4;
   static const marketing = 5;
-  static const timetable = 6;
-  static const attendance = 7;
-  static const resources = 8;
-  static const examPrep = 9;
-  static const monitoring = 10;
-  static const aiEngine = 11;
-  static const settings = 12;
-  static const profile = 13;
+  static const emails = 6;
+  static const timetable = 7;
+  static const attendance = 8;
+  static const resources = 9;
+  static const examPrep = 10;
+  static const monitoring = 11;
+  static const aiEngine = 12;
+  static const settings = 13;
+  static const profile = 14;
 }
 
 /// Something another screen asked to open once its tab is shown, e.g. the

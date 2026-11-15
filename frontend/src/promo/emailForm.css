@@ -1,0 +1,57 @@
+/* The form of an email campaign (/form/, /fr/formulaire/): in the email's colours. */
+.ef {
+  --ef-primary: #1d4577; --ef-button-text: #ffffff; --ef-heading: #0b1733; --ef-band: #0b1733; --ef-band-text: #ffffff;
+  --ef-accent: #f2b632; --ef-soft: #edf1f5; --ef-page: #f2f4f7; --ef-radius: 16px; --ef-button-radius: 10px;
+  --ef-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; --ef-heading-font: var(--ef-font);
+  min-height: 100vh; background: var(--ef-page); font-family: var(--ef-font); color: #1b2333;
+}
+.ef-top { display: flex; justify-content: center; padding: 22px 16px 14px; }
+.ef-brand { display: inline-flex; align-items: center; gap: 10px; color: #0b1733; text-decoration: none; }
+.ef-brand img { width: 40px; height: 40px; border-radius: 8px; }
+.ef-brand span { display: flex; flex-direction: column; line-height: 1.1; }
+.ef-brand b { font-size: 15px; font-weight: 800; }
+.ef-brand i { font-size: 13px; font-style: normal; font-weight: 700; color: #a83342; }
+.ef-main { display: flex; justify-content: center; padding: 0 16px 48px; }
+.ef-card { width: 100%; max-width: 600px; overflow: hidden; border: 1px solid #e3e7ee; border-radius: var(--ef-radius); background: #fff; box-shadow: 0 18px 40px -26px rgba(11, 23, 51, 0.4); }
+.ef-band { padding: 32px 36px 28px; background: var(--ef-band); color: var(--ef-band-text); }
+.ef-band::before { content: ''; display: block; width: 44px; height: 4px; margin-bottom: 16px; border-radius: 4px; background: var(--ef-accent); }
+.ef-eyebrow { margin: 0 0 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.85; }
+.ef-band h1 { margin: 0; font-family: var(--ef-heading-font); font-size: 28px; line-height: 1.22; font-weight: 800; letter-spacing: -0.4px; color: var(--ef-band-text); }
+.ef-body { padding: 28px 36px 34px; }
+.ef-body h2 { margin: 0 0 8px; font-family: var(--ef-heading-font); font-size: 21px; line-height: 1.3; color: var(--ef-heading); }
+.ef-lead { margin: 0 0 22px; font-size: 16px; line-height: 1.6; color: #3b4558; }
+.ef-muted { margin: 0 0 20px; font-size: 15px; line-height: 1.6; color: #5b6578; }
+.ef-note { margin: 0 0 18px; padding: 10px 14px; border-radius: 10px; background: var(--ef-soft); font-size: 14px; line-height: 1.5; color: #1b2333; }
+.ef-note.is-preview { background: #fff7ed; color: #9a3412; }
+.ef-field { margin-bottom: 18px; }
+.ef-label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 7px; font-size: 14.5px; font-weight: 700; color: #1b2333; }
+.ef-label em { flex-shrink: 0; font-size: 12px; font-style: normal; font-weight: 500; color: #8a93a5; }
+.ef-field input:not([type='radio']):not([type='checkbox']), .ef-field select, .ef-field textarea {
+  box-sizing: border-box; width: 100%; min-height: 48px; padding: 12px 14px; border: 1.5px solid #d6dbe5; border-radius: 10px; background: #fff;
+  font: inherit; font-size: 16px; color: #1b2333; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ef-field textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+.ef-field input:focus, .ef-field select:focus, .ef-field textarea:focus { outline: none; border-color: var(--ef-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ef-primary) 18%, transparent); }
+.ef-field.has-error input, .ef-field.has-error select, .ef-field.has-error textarea, .ef-field.has-error .ef-choices { border-color: #d92d20; }
+.ef-error { margin: 6px 0 0; font-size: 13px; color: #b42318; }
+.ef-choices { display: flex; flex-direction: column; gap: 8px; border-radius: 12px; }
+.ef-choice { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 14px; border: 1.5px solid #d6dbe5; border-radius: 10px; cursor: pointer; font-size: 15.5px; transition: border-color 0.15s, background 0.15s; }
+.ef-choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--ef-primary); }
+.ef-choice.is-on { border-color: var(--ef-primary); background: color-mix(in srgb, var(--ef-primary) 7%, #fff); }
+.ef-button {
+  display: inline-flex; align-items: center; justify-content: center; width: 100%; min-height: 52px; margin-top: 6px; padding: 14px 22px;
+  border: 2px solid var(--ef-primary); border-radius: var(--ef-button-radius); background: var(--ef-primary); color: var(--ef-button-text);
+  font: inherit; font-size: 16px; font-weight: 700; text-decoration: none; cursor: pointer; transition: filter 0.15s;
+}
+.ef-button:hover { filter: brightness(1.06); }
+.ef-button:disabled { opacity: 0.7; cursor: default; }
+.ef-button.is-outline { background: transparent; color: var(--ef-primary); }
+.ef-problem { margin: 4px 0 10px; padding: 10px 14px; border-radius: 10px; background: #fef3f2; font-size: 14px; color: #b42318; }
+.ef-privacy { margin: 14px 0 0; font-size: 12.5px; line-height: 1.5; text-align: center; color: #8a93a5; }
+.ef-done { display: flex; align-items: center; justify-content: center; width: 56px; height: 56px; margin: 0 0 16px; border-radius: 50%; background: #e3f5ec; font-size: 26px; font-weight: 800; color: #0f8a5f; }
+.ef-trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+@media (max-width: 560px) {
+  .ef-band { padding: 26px 22px 22px; }
+  .ef-band h1 { font-size: 24px; }
+  .ef-body { padding: 22px 20px 26px; }
+}

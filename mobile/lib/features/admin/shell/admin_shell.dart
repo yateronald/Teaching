@@ -13,6 +13,7 @@ import '../attendance/attendance_screen.dart';
 import '../batches/batches_screen.dart';
 import '../dashboard/admin_dashboard_screen.dart';
 import '../demo_requests/demo_requests_screen.dart';
+import '../emails/emails_screen.dart';
 import '../exam_prep/exam_prep_screen.dart';
 import '../marketing/marketing_screen.dart';
 import '../monitoring/monitoring_screen.dart';
@@ -58,6 +59,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       label: _t('Marketing', 'Marketing'),
       badge: (ref) => ref.watch(newPromoRegistrationsProvider),
     ),
+    SpaceNavItem(section: 'management', icon: Icons.mail_outline, label: _t('Campagnes email', 'Email campaigns')),
     SpaceNavItem(section: 'management', icon: Icons.calendar_month_outlined, label: _t('Emploi du temps', 'Teacher timetable')),
     SpaceNavItem(section: 'management', icon: Icons.fact_check_outlined, label: _t('Présences', 'Attendance')),
     SpaceNavItem(section: 'content', icon: Icons.folder_open_outlined, label: _t('Ressources', 'Resources')),
@@ -102,14 +104,15 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         const BatchesScreen(), // 3
         const DemoRequestsScreen(), // 4
         const MarketingScreen(), // 5
-        const TimetableScreen(), // 6
-        const AttendanceScreen(), // 7
-        const AdminResourcesScreen(), // 8
-        const AdminExamPrepScreen(), // 9
-        const MonitoringScreen(), // 10, only reachable with the monitoring key
-        const AiEngineScreen(), // 11
-        const AdminSettingsScreen(), // 12
-        const ProfileSettingsScreen(), // 13
+        const EmailsScreen(), // 6
+        const TimetableScreen(), // 7
+        const AttendanceScreen(), // 8
+        const AdminResourcesScreen(), // 9
+        const AdminExamPrepScreen(), // 10
+        const MonitoringScreen(), // 11, only reachable with the monitoring key
+        const AiEngineScreen(), // 12
+        const AdminSettingsScreen(), // 13
+        const ProfileSettingsScreen(), // 14
       ],
     );
   }

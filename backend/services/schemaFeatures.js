@@ -14,6 +14,7 @@ const MIGRATION_HINT = {
   site_visits: 'backend/database/run-site-monitoring-migration.js',
   'site_visits.area': 'backend/database/run-learning-analytics-migration.js',
   learn_events: 'backend/database/run-learning-analytics-migration.js',
+  email_campaigns: 'backend/database/run-email-campaigns-migration.js',
 };
 
 async function probe(db, key, sql, params, hint) {

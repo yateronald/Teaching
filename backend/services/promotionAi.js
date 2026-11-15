@@ -637,10 +637,11 @@ async function campaignImage(db, { prompt: rawPrompt, theme, title, userId }) {
         await db.run(
             'INSERT INTO promotion_images (key, created_by, model, prompt, large, small) VALUES ($1, $2, $3, $4, $5, $6)',
             [key, userId || null, picture.model, scene, large, small]);
-        // Pictures made but never used by a campaign are forgotten after a week.
-        db.run(`DELETE FROM promotion_images i
+        // Pictures made but never used by a campaign (marketing or email) are forgotten after a week.
+        require('./schemaFeatures').hasTable(db, 'email_campaigns').then(emails => db.run(`DELETE FROM promotion_images i
                  WHERE i.created_at < CURRENT_TIMESTAMP - INTERVAL '7 days'
-                   AND NOT EXISTS (SELECT 1 FROM promotions p WHERE p.image_key = i.key)`).catch(() => { /* housekeeping only */ });
+                   AND NOT EXISTS (SELECT 1 FROM promotions p WHERE p.image_key = i.key)
+                   ${emails ? 'AND NOT EXISTS (SELECT 1 FROM email_campaigns e WHERE e.image_key = i.key)' : ''}`)).catch(() => { /* housekeeping only */ });
         return {
             image_key: key,
             model: picture.model,
@@ -672,4 +673,6 @@ module.exports = {
     draftCampaign, campaignImage, loadImage, status, AiError,
     // For tests.
     toFields, frenchTypography, localToIso, isoToLocal, userPrompt, PICTURE_KEYS, SYSTEM, SCHEMA, KEY_RE,
+    // Shared with the email campaigns' writer.
+    plain, cut, briefOf, zoneOf, unavailable,
 };

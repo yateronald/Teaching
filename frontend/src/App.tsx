@@ -12,6 +12,7 @@ import { PUBLIC_PAGES } from './components/Landing/sitePages';
 import LearnEntry from './learn/entry';
 // The offers page (live campaigns): pre-rendered like the other public pages.
 import OffersPage from './promo/OffersPage';
+import EmailFormPage from './promo/EmailFormPage';
 
 // Everything behind /login and /app (antd, authentication, the app's
 // translations) lives in AppShell and is downloaded only when needed: the
@@ -66,6 +67,9 @@ const CompanyDetail = lazy(() => import('./components/Admin/Companies/CompanyDet
 // Marketing: campaigns shown on the public site, and who registered.
 const Marketing = lazy(() => import('./components/Admin/Marketing/Marketing'));
 const CampaignDetail = lazy(() => import('./components/Admin/Marketing/CampaignDetail'));
+// Email campaigns: emails to students, candidates, trial requests and registrations.
+const EmailCampaigns = lazy(() => import('./components/Admin/Emails/EmailCampaigns'));
+const EmailDetail = lazy(() => import('./components/Admin/Emails/EmailDetail'));
 const OrgDashboard = lazy(() => import('./components/Org/OrgDashboard'));
 const OrgLearners = lazy(() => import('./components/Org/OrgLearners'));
 const OrgLearnerDetail = lazy(() => import('./components/Org/OrgLearnerDetail'));
@@ -102,6 +106,11 @@ export function SiteRoutes() {
 
               {PUBLIC_PAGES.filter(p => p.offers).map(p => (
                 <Route key={p.path} path={p.path} element={<OffersPage lang={p.lang} />} />
+              ))}
+
+              {/* The form an email campaign's button opens (?t=…). */}
+              {PUBLIC_PAGES.filter(p => p.form).map(p => (
+                <Route key={p.path} path={p.path} element={<EmailFormPage lang={p.lang} />} />
               ))}
 
               {/* The signed-in app. */}
@@ -204,6 +213,8 @@ export function SiteRoutes() {
                 <Route path="companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetail /></ProtectedRoute>} />
                 <Route path="marketing" element={<ProtectedRoute requiredRole="admin"><Marketing /></ProtectedRoute>} />
                 <Route path="marketing/:id" element={<ProtectedRoute requiredRole="admin"><CampaignDetail /></ProtectedRoute>} />
+                <Route path="emails" element={<ProtectedRoute requiredRole="admin"><EmailCampaigns /></ProtectedRoute>} />
+                <Route path="emails/:id" element={<ProtectedRoute requiredRole="admin"><EmailDetail /></ProtectedRoute>} />
 
                 {/* Company space (company managers) */}
                 <Route path="org" element={<ProtectedRoute requiredRole="org_admin"><OrgDashboard /></ProtectedRoute>} />
