@@ -12,7 +12,7 @@ import { PromoCard } from '../../../promo/parts';
 import { COPY } from '../../../promo/copy';
 import {
   AUDIENCE_LABEL, KIND_HINT, KIND_LABEL, PICTURES, SEATS_DISPLAY_LABEL, blankCampaign, fieldsOf, seatsIn, seatsOnline, toPublic,
-  type AiDraft, type Campaign, type CampaignFields, type SeatsDisplay,
+  type AiDraft, type Campaign, type CampaignFields,
 } from './marketingModel';
 import CampaignAi, { AiPictureMaker } from './CampaignAi';
 import '../../Org/Org.css';
@@ -101,8 +101,8 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
   const seats = seatsIn(f, online);
   const preview = useMemo(() => toPublic(f, { slug: campaign?.slug, seats_online: online }), [f, campaign, online]);
   // The very words of the site, in the language being edited.
-  const seen = !seats.shown ? (seats.full ? `“${COPY[lang].full}”` : 'nothing about the seats')
-    : `“${seats.full ? COPY[lang].full : seats.showLeft ? COPY[lang].seatsOf(seats.left ?? 0, seats.limit) : COPY[lang].groupOf(seats.limit)}”`;
+  const seen = seats.full ? `“${COPY[lang].full}”` : seats.shown ? `“${COPY[lang].seatsOf(seats.left ?? 0, seats.limit)}”` : 'nothing about the seats';
+  const display = f.seats_display === 'never' ? 'never' : 'auto';
 
   const save = async (status?: 'draft' | 'published') => {
     setBusy(status || 'save');
@@ -216,9 +216,9 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
                   : 'Give the group a number of seats first.'}</small></div>
             </div>
             <div className="og-field"><label>Seats left on the site</label>
-              <Segmented block value={f.seats_display} disabled={!f.seat_limit} onChange={v => set({ seats_display: v as SeatsDisplay })}
-                options={(Object.keys(SEATS_DISPLAY_LABEL) as SeatsDisplay[]).map(k => ({ value: k, label: SEATS_DISPLAY_LABEL[k].name }))} />
-              <small>{SEATS_DISPLAY_LABEL[f.seats_display].text}{f.seat_limit ? <> Visitors see now: <strong>{seen}</strong>.</> : null}</small></div>
+              <Segmented block value={display} disabled={!f.seat_limit} onChange={v => set({ seats_display: v as 'auto' | 'never' })}
+                options={(['auto', 'never'] as const).map(k => ({ value: k, label: SEATS_DISPLAY_LABEL[k].name }))} />
+              <small>{SEATS_DISPLAY_LABEL[display].text}{f.seat_limit ? <> Visitors see now: <strong>{seen}</strong>.</> : null}</small></div>
           </section>
 
           {/* 4 ── Price */}

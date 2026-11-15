@@ -34,14 +34,13 @@ export function Countdown({ promo, lang, variant = 'boxes' }: { promo: Promotion
   );
 }
 
-/** "4 of 12 seats left", with a bar that fills as the group does. While many
- *  seats are still free, only the size of the group: "Small group · 12 seats max". */
+/** "4 of 12 seats left", with a bar that fills as the group does (the seats
+ *  taken outside the site included). */
 export function Seats({ promo, lang, bare = false }: { promo: Promotion; lang: Lang; bare?: boolean }) {
   const c = COPY[lang];
   if (promo.full) return <p className="pm-seats is-full"><TeamOutlined aria-hidden />{c.full}</p>;
   if (!promo.seats) return null;
-  const { left, limit, show_left: showLeft = true } = promo.seats;
-  if (!showLeft) return <div className="pm-seats is-group"><span><TeamOutlined aria-hidden />{c.groupOf(limit)}</span></div>;
+  const { left, limit } = promo.seats;
   const low = left <= Math.max(2, Math.ceil(limit * 0.25));
   return (
     <div className={`pm-seats${low ? ' is-low' : ''}`}>

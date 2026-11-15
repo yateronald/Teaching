@@ -25,7 +25,7 @@ export interface CampaignFields {
   seat_limit: number | null;
   /** People registered outside the site (phone, WhatsApp, in person): real seats, counted as taken. */
   seats_offline: number;
-  /** How the site shows the seats left: "auto" once few remain (the size of the group before), always, or never. */
+  /** Whether the site shows the seats left: "auto" (and "always", its older twin) or "never". */
   seats_display: SeatsDisplay;
   price_regular: number | null; price_promo: number | null;
   currency: string;
@@ -179,10 +179,7 @@ function wordsIn(c: CampaignFields, lang: Lang): PromoWords {
   };
 }
 
-/** In "auto", the count shows from this number of seats left: 40 % of the group, and never fewer than 3 (as on the server). */
-export const seatsAlertAt = (limit: number) => Math.max(3, Math.ceil(limit * 0.4));
-
-/** The seats of a campaign: registered on the site, outside it, in all, what is left, and whether the site says how many. */
+/** The seats of a campaign: registered on the site, outside it, in all, what is left, and whether the site shows them. */
 export function seatsIn(c: Pick<CampaignFields, 'seat_limit' | 'seats_offline' | 'seats_display'>, online = 0) {
   const limit = c.seat_limit || 0;
   const offline = limit ? Math.max(0, c.seats_offline || 0) : 0;
@@ -192,14 +189,13 @@ export function seatsIn(c: Pick<CampaignFields, 'seat_limit' | 'seats_offline' |
     limit, online, offline, taken, left,
     full: !!limit && taken >= limit,
     shown: !!limit && c.seats_display !== 'never',
-    showLeft: !!limit && (c.seats_display === 'always' || (c.seats_display === 'auto' && (left ?? 0) <= seatsAlertAt(limit))),
   };
 }
 
-export const SEATS_DISPLAY_LABEL: Record<SeatsDisplay, { name: string; text: string }> = {
-  auto: { name: 'When few remain', text: 'Recommended. “Small group · 8 seats max” while many are free, then “3 of 8 seats left” once the group fills up.' },
-  always: { name: 'Always', text: 'The number left is always shown, even when the group has just opened.' },
-  never: { name: 'Never', text: 'Nothing about the seats. The waiting list still opens when the group is full.' },
+/** The two choices of the editor ("always" is an older twin of "auto"). */
+export const SEATS_DISPLAY_LABEL: Record<'auto' | 'never', { name: string; text: string }> = {
+  auto: { name: 'Show the seats left', text: '“12 of 40 seats left”, with a bar that fills as people register, on the site or outside it.' },
+  never: { name: 'Hide them', text: 'Nothing about the seats. The waiting list still opens when the group is full.' },
 };
 
 /** A campaign as the public site receives it: what previews and flyers draw.
@@ -210,7 +206,7 @@ export function toPublic(c: CampaignFields, extra: { slug?: string; seats_online
     slug: extra.slug || 'preview', kind: c.kind, audience: c.audience, level: c.level, theme: c.theme, image: c.image_key,
     text: { en: wordsIn(c, 'en'), fr: wordsIn(c, 'fr') },
     class_starts_on: c.class_starts_on, class_ends_on: c.class_ends_on, teacher: c.teacher_name,
-    seats: seats.shown ? { limit: seats.limit, left: seats.left ?? 0, show_left: seats.showLeft } : null,
+    seats: seats.shown ? { limit: seats.limit, left: seats.left ?? 0 } : null,
     full: seats.full,
     price: c.price_regular !== null || c.price_promo !== null ? { regular: c.price_regular, promo: c.price_promo, currency: c.currency } : null,
     ends_at: c.ends_at, countdown: !!(c.show_countdown && c.ends_at),

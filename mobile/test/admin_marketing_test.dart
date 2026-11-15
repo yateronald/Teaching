@@ -610,20 +610,29 @@ void main() {
     });
   }
 
-  test('the site says the size of the group while many seats are free, the seats left once it fills up', () {
-    expect(seatsAlertAt(8), 4);
-    expect(seatsAlertAt(4), 3, reason: 'never fewer than 3');
-    expect(seatsAlertAt(20), 8);
-    expect(campaignSeatsLine(seated(), false), 'Small group · 8 seats max', reason: 'never “8 of 8 seats left”');
-    expect(campaignSeatsLine(seated(), true), 'Petit groupe · 8 places max');
-    expect(campaignSeatsLine(seated(online: 1, offline: 3), false), '4 of 8 seats left', reason: 'the seats taken outside the site count');
+  test('the site says how many seats are left out of the group, and how full it is', () {
+    expect(campaignSeatsLine(seated(limit: 40, offline: 20), false), '20 of 40 seats left', reason: 'the seats taken outside the site count');
+    expect(campaignSeatsLine(seated(limit: 40, offline: 20), true), '20 places restantes sur 40');
+    expect(seated(limit: 40, offline: 20).seatsRatio, 0.5, reason: 'the bar is half full');
+    expect(campaignSeatsLine(seated(), false), '8 of 8 seats left');
+    expect(seated().seatsRatio, 0);
+    expect(campaignSeatsLine(seated(online: 1, offline: 3), false), '4 of 8 seats left');
     expect(campaignSeatsLine(seated(online: 2, offline: 5), true), 'Dernière place disponible');
     expect(campaignSeatsLine(seated(online: 3, offline: 5), false), 'Group full: waiting list open');
-    expect(campaignSeatsLine(seated(display: 'always'), false), '8 of 8 seats left');
+    expect(seated(online: 3, offline: 5).seatsRatio, 1);
+    expect(campaignSeatsLine(seated(display: 'always', offline: 2), false), '6 of 8 seats left', reason: 'the older twin of auto');
     expect(campaignSeatsLine(seated(display: 'never', offline: 6), false), isNull);
     expect(campaignSeatsLine(seated(display: 'never', offline: 8), false), 'Group full: waiting list open', reason: 'a full group says so even then');
-    expect(campaignSeatsLine(seated(limit: 30), true), 'Limité à 30 places');
     expect(campaignSeatsLine(Campaign({..._campaign(), 'seat_limit': null}), false), isNull);
+  });
+
+  testWidgets('the preview shows the bar of the site, filled as the group is', (tester) async {
+    await _show(tester, CampaignPreview(campaign: seated(limit: 40, offline: 20), fr: false), size: const Size(1024, 1400));
+    expect(find.text('20 of 40 seats left'), findsOneWidget);
+    final bar = tester.widget<LinearProgressIndicator>(find.descendant(of: find.byKey(const Key('campaign-preview-seats-bar')), matching: find.byType(LinearProgressIndicator)));
+    expect(bar.value, 0.5);
+    await _show(tester, CampaignPreview(campaign: seated(display: 'never', offline: 2), fr: false), size: const Size(1024, 1400));
+    expect(find.byKey(const Key('campaign-preview-seats-bar')), findsNothing, reason: 'hidden seats, no bar');
   });
 
   test('a campaign from a server before the seats outside the site still reads right', () {
@@ -662,7 +671,7 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('campaign-seats-offline')), 300, scrollable: _panelScroll());
-    expect(find.textContaining('Visitors see now: “Small group · 8 seats max”'), findsOneWidget);
+    expect(find.textContaining('Visitors see now: “6 of 8 seats left”'), findsOneWidget);
 
     await tester.enterText(find.byKey(const Key('campaign-seats-offline')), '9');
     await tester.pumpAndSettle();

@@ -16,32 +16,24 @@ const campaignAudiences = ['general', 'beginner', 'conversation', 'tcf', 'tef', 
 const campaignCurrencies = ['CAD', 'USD', 'EUR'];
 const registrationStatuses = ['new', 'contacted', 'confirmed', 'waitlist', 'cancelled'];
 
-/// How the site shows the seats left: once few remain (the size of the group
-/// before), always, or never.
+/// Whether the site shows the seats left: « auto » (and « always », its older
+/// twin) or « never ».
 const campaignSeatsDisplays = ['auto', 'always', 'never'];
 
-/// In « auto », the count shows from this number of seats left: 40 % of the
-/// group, and never fewer than 3 (as on the server).
-int seatsAlertAt(int limit) {
-  final n = (limit * 0.4).ceil();
-  return n < 3 ? 3 : n;
-}
+/// The two choices of the editor.
+const campaignSeatsChoices = ['auto', 'never'];
 
-String seatsDisplayLabel(String display, bool fr) => switch (display) {
-  'always' => fr ? 'Toujours' : 'Always',
-  'never' => fr ? 'Jamais' : 'Never',
-  _ => fr ? 'Quand il en reste peu (recommandé)' : 'When few remain (recommended)',
-};
+String seatsDisplayLabel(String display, bool fr) => display == 'never'
+    ? (fr ? 'Les masquer' : 'Hide them')
+    : (fr ? 'Afficher les places restantes' : 'Show the seats left');
 
-String seatsDisplayHint(String display, bool fr) => switch (display) {
-  'always' => fr ? 'Le nombre de places restantes est toujours affiché, même à l’ouverture du groupe.' : 'The number left is always shown, even when the group has just opened.',
-  'never' => fr
-      ? 'Rien sur les places. La liste d’attente s’ouvre quand même quand le groupe est complet.'
-      : 'Nothing about the seats. The waiting list still opens when the group is full.',
-  _ => fr
-      ? '« Petit groupe · 8 places max » tant qu’il y a de la place, puis « 3 places restantes sur 8 » quand le groupe se remplit.'
-      : '“Small group · 8 seats max” while many are free, then “3 of 8 seats left” once the group fills up.',
-};
+String seatsDisplayHint(String display, bool fr) => display == 'never'
+    ? (fr
+          ? 'Rien sur les places. La liste d’attente s’ouvre quand même quand le groupe est complet.'
+          : 'Nothing about the seats. The waiting list still opens when the group is full.')
+    : (fr
+          ? '« 12 places restantes sur 40 », avec une barre qui se remplit à chaque inscription, sur le site ou hors du site.'
+          : '“12 of 40 seats left”, with a bar that fills as people register, on the site or outside it.');
 
 String kindLabel(String kind, bool fr) => switch (kind) {
   'offer' => fr ? 'Offre spéciale' : 'Special offer',
@@ -348,11 +340,12 @@ class Campaign {
   int get seatsOnline => raw['seats_online'] == null ? seatsTaken : J.i(raw['seats_online']);
   int? get seatsLeft => raw['seats_left'] == null ? null : J.i(raw['seats_left']);
 
-  /// The site says how many seats are left; otherwise only the size of the group.
-  bool get showSeatsLeft {
+  /// How full the group is, from 0 to 1 (the seats taken outside the site included).
+  double get seatsRatio {
     final limit = seatLimit;
-    if (limit == null || !showSeats) return false;
-    return seatsDisplay == 'always' || (seatsLeft ?? limit) <= seatsAlertAt(limit);
+    if (limit == null || limit <= 0) return 0;
+    final taken = limit - (seatsLeft ?? limit);
+    return taken <= 0 ? 0 : (taken >= limit ? 1 : taken / limit);
   }
   int get waitlist => J.i(raw['waitlist']);
   DateTime? get lastRegistrationAt => J.date(raw['last_registration_at']);
@@ -384,13 +377,8 @@ String? campaignSeatsLine(Campaign c, bool fr) {
   if (c.full) return fr ? 'Groupe complet : liste d’attente ouverte' : 'Group full: waiting list open';
   if (!c.showSeats) return null;
   final left = c.seatsLeft ?? limit;
-  if (c.showSeatsLeft) {
-    if (left == 1) return fr ? 'Dernière place disponible' : 'Last seat left';
-    return fr ? '$left places restantes sur $limit' : '$left of $limit seats left';
-  }
-  return limit <= 15
-      ? (fr ? 'Petit groupe · $limit places max' : 'Small group · $limit seats max')
-      : (fr ? 'Limité à $limit places' : 'Limited to $limit seats');
+  if (left == 1) return fr ? 'Dernière place disponible' : 'Last seat left';
+  return fr ? '$left places restantes sur $limit' : '$left of $limit seats left';
 }
 
 /// The words of the button, as the site writes them; null when there is no button.

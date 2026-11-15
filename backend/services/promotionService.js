@@ -17,12 +17,11 @@ const REGISTRATION_STATUSES = ['new', 'contacted', 'confirmed', 'waitlist', 'can
 /** Registrations that hold a seat. */
 const SEATED = ['new', 'contacted', 'confirmed'];
 /**
- * How the seats left are shown: "auto" only when few remain (otherwise the
- * size of the group, « Petit groupe · 8 places max »), "always", or "never".
+ * Whether the site shows the seats: "auto" (and "always", its older twin) shows
+ * « 12 places restantes sur 40 » with a bar that fills as the group does;
+ * "never" shows nothing (a full group still says so).
  */
 const SEATS_DISPLAY = ['auto', 'always', 'never'];
-/** In "auto", the count shows from this number of seats left: 40 % of the group, and never fewer than 3. */
-const seatsAlertAt = (limit) => Math.max(3, Math.ceil(limit * 0.4));
 /** Where a campaign can be seen or clicked on the site. */
 const PLACEMENTS = ['bar', 'home', 'flash', 'learn', 'offers', 'link'];
 const LANGS = ['en', 'fr'];
@@ -240,10 +239,8 @@ function publicShape(p) {
         slug: p.slug, kind: p.kind, audience: p.audience, level: p.level, theme: p.theme, image: p.image_key,
         text: { en: wordsIn(p, 'en'), fr: wordsIn(p, 'fr') },
         class_starts_on: p.class_starts || null, class_ends_on: p.class_ends || null, teacher: p.teacher_name,
-        // show_left: whether to say « 3 places left » or, while many remain, the size of the group.
-        seats: p.seat_limit && seats.display !== 'never'
-            ? { limit: p.seat_limit, left: seats.left, show_left: seats.display === 'always' || seats.left <= seatsAlertAt(p.seat_limit) }
-            : null,
+        // The seats left out of the group, those taken outside the site included.
+        seats: p.seat_limit && seats.display !== 'never' ? { limit: p.seat_limit, left: seats.left } : null,
         full,
         price: p.price_regular !== null || p.price_promo !== null
             ? { regular: num(p.price_regular), promo: num(p.price_promo), currency: p.currency }
@@ -257,7 +254,7 @@ function publicShape(p) {
 
 module.exports = {
     KINDS, STATUSES, AUDIENCES, THEMES, CURRENCIES, REGISTRATION_MODES, REGISTRATION_STATUSES, SEATED, PLACEMENTS, LANGS,
-    SEATS_DISPLAY, seatsAlertAt, seatsOf,
+    SEATS_DISPLAY, seatsOf,
     COLUMNS, COUNTS_JOIN,
     ready, clean, stateOf, slugify, freeSlug, wordsIn, adminShape, publicShape, text, longText,
 };

@@ -162,6 +162,20 @@ class CampaignPreview extends StatelessWidget {
                       if (campaignSeatsLine(c, fr) case final seats?) _fact(Icons.event_seat_outlined, seats, onLight),
                     ],
                   ),
+                  // The bar of the site: it fills as the group does.
+                  if (c.seatLimit != null && c.showSeats && !c.full) ...[
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      key: const Key('campaign-preview-seats-bar'),
+                      borderRadius: BorderRadius.circular(99),
+                      child: LinearProgressIndicator(
+                        value: c.seatsRatio,
+                        minHeight: 5,
+                        backgroundColor: Colors.white.withValues(alpha: 0.2),
+                        valueColor: AlwaysStoppedAnimation(t.accent),
+                      ),
+                    ),
+                  ],
                   if (points.isNotEmpty) ...[
                     const SizedBox(height: 10),
                     for (final p in points)

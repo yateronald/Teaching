@@ -513,8 +513,8 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
           AdminSelect<String>(
             key: const Key('campaign-seats-display'),
             label: fr ? 'Places restantes sur le site' : 'Seats left on the site',
-            value: _seatsDisplay,
-            options: [for (final d in campaignSeatsDisplays) FilterOption(d, seatsDisplayLabel(d, fr))],
+            value: _seatsDisplay == 'never' ? 'never' : 'auto',
+            options: [for (final d in campaignSeatsChoices) FilterOption(d, seatsDisplayLabel(d, fr))],
             onChanged: (v) => setState(() => _seatsDisplay = v ?? 'auto'),
           ),
           _Hint(

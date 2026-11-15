@@ -20,8 +20,6 @@ interface Copy {
   weeks: (n: number) => string;
   seatsLeft: (n: number) => string;
   seatsOf: (left: number, limit: number) => string;
-  /** The size of the group, while many seats are still free. */
-  groupOf: (limit: number) => string;
   full: string;
   endsIn: string;
   lastDay: string;
@@ -77,7 +75,6 @@ export const COPY: Record<Lang, Copy> = {
     weeks: n => `${n} weeks`,
     seatsLeft: n => (n === 1 ? 'Last seat' : `${n} seats left`),
     seatsOf: (left, limit) => (left === 1 ? 'Last seat left' : `${left} of ${limit} seats left`),
-    groupOf: limit => (limit <= 15 ? `Small group · ${limit} seats max` : `Limited to ${limit} seats`),
     full: 'Group full: waiting list open',
     endsIn: 'Registration closes in',
     lastDay: 'Last day to register',
@@ -160,7 +157,6 @@ export const COPY: Record<Lang, Copy> = {
     weeks: n => `${n} semaines`,
     seatsLeft: n => (n === 1 ? 'Dernière place' : `${n} places restantes`),
     seatsOf: (left, limit) => (left === 1 ? 'Dernière place disponible' : `${left} places restantes sur ${limit}`),
-    groupOf: limit => (limit <= 15 ? `Petit groupe · ${limit} places max` : `Limité à ${limit} places`),
     full: 'Groupe complet : liste d’attente ouverte',
     endsIn: 'Fin des inscriptions dans',
     lastDay: 'Dernier jour pour s’inscrire',
