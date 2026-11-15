@@ -24,7 +24,7 @@ const PLACES: { key: 'place_bar' | 'place_home' | 'place_flash' | 'place_learn';
   { key: 'place_home', name: 'Home page', text: 'A card in the “Upcoming groups and current offers” section.' },
   { key: 'place_learn', name: 'Free courses', text: 'Beside the lessons and at the end of each one, for learners it fits.' },
   { key: 'place_bar', name: 'Top bar', text: 'One line across the top of every public page, with the time left.' },
-  { key: 'place_flash', name: 'Flash pop-up', text: 'Comes to the visitor once per visit, after a few seconds.' },
+  { key: 'place_flash', name: 'Flash pop-up', text: 'Once per visit, when the visitor shows interest: 30 s of reading, a second page, half a long page, or about to leave. On phones, a card from the bottom.' },
 ];
 
 interface Props {

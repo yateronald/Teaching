@@ -6,8 +6,10 @@
 // Nothing of this is in the pre-rendered HTML: campaigns change by the hour,
 // so they arrive after the page, without moving its content.
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PromoCtx, type Area, type PromoApi } from './context';
 import { loadPromotions, registeredSlugs, rememberRegistered, track, type Lang, type Placement, type Promotion } from './model';
+import { notePage } from './visit';
 
 const PromoSheet = lazy(() => import('./PromoSheet'));
 const PromoFlash = lazy(() => import('./PromoFlash'));
@@ -17,6 +19,10 @@ export function PromoProvider({ lang, area = 'site', children }: { lang: Lang; a
   const [loaded, setLoaded] = useState(false);
   const [registered, setRegistered] = useState<string[]>([]);
   const [sheet, setSheet] = useState<{ promo: Promotion; placement: Placement } | null>(null);
+  const { pathname } = useLocation();
+
+  // The visit goes on from page to page: the flash comes when the visitor shows interest.
+  useEffect(() => { notePage(pathname); }, [pathname]);
 
   // After the page is drawn and idle: campaigns never compete with its content.
   useEffect(() => {

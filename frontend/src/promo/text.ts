@@ -20,20 +20,26 @@ export function ctaLabel(p: Promotion, lang: Lang): string {
   return wordsOf(p, lang).cta || c.cta[p.kind];
 }
 
-/** Time left, re-read every second on the last day and every half minute before. */
+/** Time left, re-read every second (the countdowns show the seconds). Each
+ *  tick lands on the turn of the second, so every countdown of the page moves
+ *  together; a hidden tab is not woken up for nothing. */
 export function useTimeLeft(endsAt: string | null): TimeLeft | null {
   const [left, setLeft] = useState<TimeLeft | null>(() => timeLeft(endsAt));
   useEffect(() => {
     setLeft(timeLeft(endsAt));
     if (!endsAt) return;
     let timer = 0;
+    const next = () => 1000 - (Date.now() % 1000) + 5;
     const tick = () => {
       const now = timeLeft(endsAt);
       setLeft(now);
-      if (now) timer = window.setTimeout(tick, now.days >= 1 ? 30_000 : 1000);
+      if (now) timer = window.setTimeout(tick, document.hidden ? 15_000 : next());
     };
-    timer = window.setTimeout(tick, 1000);
-    return () => window.clearTimeout(timer);
+    // Back on the tab: the right time at once.
+    const onShow = () => { if (!document.hidden) { window.clearTimeout(timer); tick(); } };
+    timer = window.setTimeout(tick, next());
+    document.addEventListener('visibilitychange', onShow);
+    return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', onShow); };
   }, [endsAt]);
   return left;
 }

@@ -451,7 +451,13 @@ void main() {
     await tester.enterText(find.byKey(const Key('campaign-title-en')), 'DELF B2 group – February');
     await tester.scrollUntilVisible(find.byKey(const Key('campaign-seats')), 300, scrollable: _panelScroll());
     await tester.enterText(find.byKey(const Key('campaign-seats')), '12');
+    // Done typing: the field lets go, or it keeps pulling the list back to its cursor.
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
     await tester.scrollUntilVisible(find.byKey(const Key('campaign-theme-gold')), 300, scrollable: _panelScroll());
+    // A little further, so the swatch is clear of the buttons under the list.
+    await tester.drag(_panelScroll(), const Offset(0, -200));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('campaign-theme-gold')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('campaign-save-publish')));

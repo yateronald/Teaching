@@ -74,6 +74,12 @@
 .pm-count-boxes { display: inline-flex; gap: 6px; }
 .pm-count-boxes span { display: inline-flex; flex-direction: column; align-items: center; min-width: 52px; padding: 7px 8px 6px; border-radius: 11px; background: rgba(255, 255, 255, 0.14); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .pm-count-boxes b { font-family: var(--pm-display); font-size: 22px; font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; }
+/* Four boxes (days to seconds) on a narrow picture: a little smaller. */
+@media (max-width: 420px) {
+  .pm-count.has-days .pm-count-boxes { gap: 5px; }
+  .pm-count.has-days .pm-count-boxes span { min-width: 44px; padding: 6px 6px 5px; }
+  .pm-count.has-days .pm-count-boxes b { font-size: 19px; }
+}
 .pm-count-boxes i { font-size: 10.5px; font-style: normal; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
 .pm-count.is-urgent .pm-count-boxes span { background: var(--pm-accent); color: var(--pm-b); }
 .pm-count-inline { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--pm-muted); }
@@ -246,6 +252,7 @@
 .pm-flash-tagline { font-size: 15px; line-height: 1.5; color: var(--pm-muted); }
 .pm-flash-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .pm-flash-meta:empty { display: none; }
+.pm-flash-meta > .pm-seats { flex: 1 1 100%; }
 .pm-flash-foot { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 6px; }
 .pm-flash-foot .pm-cta { margin-left: auto; }
 .pm-flash-links { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
@@ -257,6 +264,14 @@
 .pm-flash.is-corner h2 { font-size: 18.5px; }
 .pm-flash.is-corner .pm-flash-tagline { font-size: 14px; }
 .pm-flash.is-corner .pm-flash-body { padding: 16px 18px 14px; }
+/* On a phone: a card from the bottom that leaves the page visible. No picture
+   and no sentence under the title, so it stays well under half the screen. */
+.pm-flash.is-phone { max-height: 52vh; overflow-y: auto; }
+.pm-flash.is-phone .pm-visual, .pm-flash.is-phone .pm-flash-tagline { display: none; }
+.pm-flash.is-phone .pm-flash-body { gap: 8px; padding: 14px 16px 12px; }
+.pm-flash.is-phone .pm-flash-eyebrow, .pm-flash.is-phone h2 { padding-right: 40px; }
+.pm-flash.is-phone .pm-flash-close { top: 10px; right: 10px; width: 32px; height: 32px; background: var(--pm-soft, #f1f3f8); box-shadow: none; }
+.pm-flash.is-phone .pm-flash-foot { margin-top: 2px; }
 
 /* ── Offers page ── */
 .pm-offers-hero { padding-bottom: clamp(20px, 3vw, 34px); }

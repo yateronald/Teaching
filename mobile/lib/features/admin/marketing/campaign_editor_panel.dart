@@ -640,8 +640,8 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
           icon: placeIcon('flash'),
           label: fr ? 'Flash' : 'Flash pop-up',
           hint: fr
-              ? 'Une fenêtre discrète qui s’ouvre après quelques secondes, une fois par visite.'
-              : 'A discreet window that opens after a few seconds, once per visit.',
+              ? 'Une fois par visite, quand la personne montre de l’intérêt : 30 s de lecture, une deuxième page, la moitié d’une longue page, ou sur le point de partir. Sur téléphone, une carte qui monte du bas.'
+              : 'Once per visit, when the visitor shows interest: 30 s of reading, a second page, half a long page, or about to leave. On phones, a card from the bottom.',
           value: _flash,
           onChanged: (v) => setState(() => _flash = v),
         ),

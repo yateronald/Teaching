@@ -7,15 +7,16 @@ import { dateRange, priceOf, promoImage, weeksBetween, type Lang, type Promotion
 import { ctaLabel, useTimeLeft, wordsOf } from './text';
 import './promo.css';
 
-/** "Registration closes in 3 d 04 h 12 min": boxes, or one line of text. */
+/** "Registration closes in 3 d 04 h 12 min 09 s": boxes, or one line of text. */
 export function Countdown({ promo, lang, variant = 'boxes' }: { promo: Promotion; lang: Lang; variant?: 'boxes' | 'inline' }) {
   const c = COPY[lang];
   const left = useTimeLeft(promo.countdown ? promo.ends_at : null);
   if (!left) return null;
   const two = (n: number) => String(n).padStart(2, '0');
-  const parts: [string, string][] = left.days >= 1
-    ? [[String(left.days), c.unit.d], [two(left.hours), c.unit.h], [two(left.minutes), c.unit.m]]
-    : [[two(left.hours), c.unit.h], [two(left.minutes), c.unit.m], [two(left.seconds), c.unit.s]];
+  const parts: [string, string][] = [
+    ...(left.days >= 1 ? [[String(left.days), c.unit.d] as [string, string]] : []),
+    [two(left.hours), c.unit.h], [two(left.minutes), c.unit.m], [two(left.seconds), c.unit.s],
+  ];
   if (variant === 'inline') {
     return (
       <span className="pm-count-inline" role="timer">
@@ -25,7 +26,7 @@ export function Countdown({ promo, lang, variant = 'boxes' }: { promo: Promotion
     );
   }
   return (
-    <div className={`pm-count${left.days < 1 ? ' is-urgent' : ''}`} role="timer" aria-label={`${c.endsIn} ${parts.map(([n, u]) => `${n} ${u}`).join(' ')}`}>
+    <div className={`pm-count${left.days < 1 ? ' is-urgent' : ''}${parts.length > 3 ? ' has-days' : ''}`} role="timer" aria-label={`${c.endsIn} ${parts.map(([n, u]) => `${n} ${u}`).join(' ')}`}>
       <span className="pm-count-label">{left.days < 1 ? c.lastDay : c.endsIn}</span>
       <span className="pm-count-boxes" aria-hidden>
         {parts.map(([n, u]) => <span key={u}><b>{n}</b><i>{u}</i></span>)}
