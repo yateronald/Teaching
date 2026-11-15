@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../auth/auth_notifier.dart';
 import '../constants/app_colors.dart';
@@ -123,23 +124,35 @@ class _SpaceShellState extends ConsumerState<SpaceShell> {
     final title = widget.items[_currentIndex].label(lang);
 
     if (isTablet) {
-      return Scaffold(
-        backgroundColor: AppColors.frenchPaper,
-        body: Row(
-          children: [
-            _buildSidebar(user, lang, navigationExpanded),
-            const VerticalDivider(width: 1, color: AppColors.border),
-            Expanded(
-              child: Column(
-                children: [
-                  const TricoloreBar(height: 3),
-                  _buildTabletTopBar(user, lang, title, navigationExpanded),
-                  const Divider(height: 1, color: AppColors.borderSoft),
-                  Expanded(child: IndexedStack(index: _currentIndex, children: _stack)),
-                ],
-              ),
+      // Android 15 draws every app edge to edge: the status bar (clock,
+      // battery) and the gesture bar sit over the window. The space keeps
+      // clear of them; the strip behind the status bar stays white, with
+      // dark icons, so it reads as part of the top bar.
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _systemBars,
+        child: Scaffold(
+          backgroundColor: AppColors.pureWhite,
+          body: SafeArea(
+            child: Row(
+              children: [
+                _buildSidebar(user, lang, navigationExpanded),
+                const VerticalDivider(width: 1, color: AppColors.border),
+                Expanded(
+                  child: ColoredBox(
+                    color: AppColors.frenchPaper,
+                    child: Column(
+                      children: [
+                        const TricoloreBar(height: 3),
+                        _buildTabletTopBar(user, lang, title, navigationExpanded),
+                        const Divider(height: 1, color: AppColors.borderSoft),
+                        Expanded(child: IndexedStack(index: _currentIndex, children: _stack)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       );
     }
@@ -203,9 +216,19 @@ class _SpaceShellState extends ConsumerState<SpaceShell> {
         ),
       ),
       drawer: _buildDrawer(user, lang),
-      body: IndexedStack(index: _currentIndex, children: _stack),
+      // The app bar keeps clear of the status bar; the pages keep clear of the gesture bar.
+      body: SafeArea(top: false, child: IndexedStack(index: _currentIndex, children: _stack)),
     );
   }
+
+  /// Dark icons on a transparent status bar, a white gesture bar.
+  static const _systemBars = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemNavigationBarColor: AppColors.pureWhite,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  );
 
   int _totalBadges() {
     var total = 0;

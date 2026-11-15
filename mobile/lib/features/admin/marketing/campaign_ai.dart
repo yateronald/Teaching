@@ -34,6 +34,37 @@ class AiMark extends StatelessWidget {
       );
 }
 
+/// Starting points for a new campaign: the administrator replaces what is in [brackets].
+List<(String, String)> _ideas(bool fr) => fr
+    ? const [
+        (
+          'Groupe d’examen',
+          'Nouveau groupe du soir de préparation au TCF Canada à partir du [date], mardi et jeudi de 19 h à 20 h 30 (heure de Montréal), pendant [nombre] semaines. [8] places. Prix normal [600] \$, [480] \$ pour une inscription avant le [date]. Examens blancs corrigés chaque semaine. Objectif : NCLC 7 pour l’Entrée express.',
+        ),
+        (
+          'Atelier gratuit',
+          'Atelier gratuit en ligne « Parler français sans peur » le [date] à [heure] (heure de Montréal), 1 heure, pour les niveaux débutant et intermédiaire. En direct avec une professeure native, [20] places maximum.',
+        ),
+        (
+          'Offre spéciale',
+          '[-20 %] sur les cours particuliers jusqu’au [date] pour les nouveaux élèves. Forfait de 10 cours : [500] \$ au lieu de [625] \$. Premier appel gratuit.',
+        ),
+      ]
+    : const [
+        (
+          'Exam group',
+          'New TCF Canada evening group starting [date], Tuesday and Thursday 7–8:30 pm Montréal time, for [number] weeks. [8] seats. Regular price [600] \$, [480] \$ if registered before [date]. Weekly corrected mock exams. Goal: NCLC 7 for Express Entry.',
+        ),
+        (
+          'Free workshop',
+          'Free online workshop « Speak French without fear » on [date] at [time] Montréal time, 1 hour, for beginners and intermediate learners. Live with a native teacher, limited to [20] people.',
+        ),
+        (
+          'Special offer',
+          '[-20 %] on private lessons until [date] for new students. Packs of 10 lessons: [500] \$ instead of [625] \$. Book a free first call.',
+        ),
+      ];
+
 /// The zone the AI reads the dates in: the profile's, or the phone's offset.
 String aiTimeZone(WidgetRef ref) {
   final profile = ref.read(authNotifierProvider).user?.timezone?.trim() ?? '';
@@ -79,6 +110,7 @@ class CampaignAiCard extends ConsumerStatefulWidget {
 
 class _CampaignAiCardState extends ConsumerState<CampaignAiCard> {
   final _brief = TextEditingController();
+  final _focus = FocusNode();
   late bool _open = !widget.editing;
   bool _picture = true;
   String _phase = 'idle'; // idle | writing | drawing
@@ -101,6 +133,7 @@ class _CampaignAiCardState extends ConsumerState<CampaignAiCard> {
   void dispose() {
     _clock?.cancel();
     _brief.dispose();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -274,6 +307,7 @@ class _CampaignAiCardState extends ConsumerState<CampaignAiCard> {
               TextField(
                 key: const Key('campaign-ai-brief'),
                 controller: _brief,
+                focusNode: _focus,
                 enabled: !busy,
                 minLines: 4,
                 maxLines: 9,
@@ -288,6 +322,44 @@ class _CampaignAiCardState extends ConsumerState<CampaignAiCard> {
                           : 'In French or English: what it is, for whom, dates and times, price (and discount), seats, the teacher, the deadline… The AI only uses the facts you give and says what is missing.'),
                 ),
               ),
+              // Starting points, as on the web: a model to complete rather than a blank page.
+              if (!changing && _brief.text.trim().isEmpty && !busy) ...[
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(fr ? 'Partir de :' : 'Start from:', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                    for (final (label, text) in _ideas(fr))
+                      ActionChip(
+                        key: Key('campaign-ai-idea-$label'),
+                        label: Text(label),
+                        onPressed: () {
+                          _brief.text = text;
+                          // The first [bracket] is selected: typing replaces it.
+                          final at = text.indexOf('[');
+                          final end = text.indexOf(']', at);
+                          if (at >= 0 && end > at) _brief.selection = TextSelection(baseOffset: at, extentOffset: end + 1);
+                          _focus.requestFocus();
+                        },
+                        labelStyle: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: const Color(0xFF6D28D9)),
+                        backgroundColor: const Color(0xFFF5F3FF),
+                        side: const BorderSide(color: Color(0xFFDDD6FE)),
+                        shape: const StadiumBorder(),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+              ],
+              if (!changing && _brief.text.contains('['))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    fr ? 'Remplacez ce qui est entre [crochets] par vos informations ; ce qui reste entre crochets sera signalé comme manquant.' : 'Replace what is in [brackets] with your details; anything left in brackets is reported as missing.',
+                    style: AppTypography.caption.copyWith(color: const Color(0xFF6D28D9), fontSize: 11, height: 1.35),
+                  ),
+                ),
               Row(
                 children: [
                   Switch.adaptive(value: _picture, onChanged: busy ? null : (v) => setState(() => _picture = v), activeTrackColor: AppColors.adminAccent),

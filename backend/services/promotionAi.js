@@ -221,6 +221,7 @@ THE TRUTH COMES FIRST — these rules beat every other rule
 5. A discount is only stated when both prices are given or the brief states the discount itself.
 6. Check the facts against each other: a date must fall on the weekday the brief gives it (a « Tuesday » 13 January that is really a Wednesday), the first class must come before the last, a deadline before the start. When they disagree, keep the facts as written and say so plainly in « notes ».
 7. Do not mention competitors, other schools, politics or religion.
+8. Text in square brackets (« [date] », « [600] », « [number] ») is a placeholder the administrator has not filled in: treat it as unknown (null), never as a fact, and list it in « notes ».
 
 THE TWO LANGUAGES
 - French: natural, warm and precise, as written by a French-speaking marketer in Canada; « vous » to the reader; correct French typography (« » for quotes, « 19 h » for times, « 384 $ » for Canadian dollars, « 8 semaines », capital only at the start of titles and for proper nouns: « Groupe TCF Canada : objectif NCLC 7 »).

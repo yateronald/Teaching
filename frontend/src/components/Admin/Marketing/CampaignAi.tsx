@@ -158,6 +158,9 @@ const CampaignAi: React.FC<Props> = ({ editing, fields, onDraft, onPicture, onUn
               {IDEAS.map(i => <button key={i.label} type="button" onClick={() => setBrief(i.text)}>{i.label}</button>)}
             </div>
           )}
+          {!editing && brief.includes('[') && (
+            <p className="mk-ai-hint">Replace what is in [brackets] with your details: anything left in brackets is reported as missing.</p>
+          )}
           <div className="mk-ai-actions">
             <label className="mk-switch"><Switch size="small" checked={withPicture} onChange={setWithPicture} disabled={busy} /><span>Also create a new picture</span></label>
             <span style={{ flex: 1 }} />

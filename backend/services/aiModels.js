@@ -88,10 +88,11 @@ function vertexEngine() {
     // Vertex has its own Live model names; the others above do not exist there.
     live: ['gemini-3.8-live', 'gemini-live-2.5-flash-native-audio'],
     tts: ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts', 'gemini-3.1-flash-tts-preview'],
-    // Marketing copy: the Pro model writes best (checked 2026-11-15: the only
-    // Pro model this project serves), the latest Flash models behind it.
-    writing: ['gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-3.7-flash'],
-    // Pictures: Nano Banana 2 (checked 2026-11-15; the Pro image previews answer 404 here).
+    // Marketing copy: the latest Flash first (the administrator's choice, 2026-11-15:
+    // faster than gemini-3.1-pro-preview), the previous Flash models behind it.
+    writing: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash'],
+    // Pictures: Nano Banana 2 (checked 2026-11-15: no 3.8 Flash image model exists,
+    // and the Pro image previews answer 404 here). The picture check runs on the text models.
     image: ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'],
   }, { text: 'VERTEX_TEXT_MODELS', live: 'VERTEX_LIVE_MODELS', tts: 'VERTEX_TTS_MODELS', writing: 'VERTEX_WRITING_MODELS', image: 'VERTEX_IMAGE_MODELS' });
 

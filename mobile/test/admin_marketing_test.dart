@@ -495,6 +495,21 @@ void main() {
     expect(body['image_key'], 'ai-0123456789ab');
   });
 
+  testWidgets('a starting point fills the description, with what to complete in brackets', (tester) async {
+    await _show(tester, const _Opener(CampaignEditorPanel()), size: const Size(1024, 1400));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.text('Start from:'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('campaign-ai-idea-Exam group')));
+    await tester.pumpAndSettle();
+    final brief = tester.widget<TextField>(find.byKey(const Key('campaign-ai-brief')));
+    expect(brief.controller!.text, startsWith('New TCF Canada evening group starting [date]'));
+    expect(brief.controller!.selection.textInside(brief.controller!.text), '[date]', reason: 'typing replaces the first blank');
+    expect(find.text('Start from:'), findsNothing, reason: 'the starting points step aside once there is text');
+    expect(find.text('Replace what is in [brackets] with your details; anything left in brackets is reported as missing.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('what the AI wrote can be undone', (tester) async {
     await _show(tester, const _Opener(CampaignEditorPanel()), size: const Size(1024, 1400));
     await tester.tap(find.text('open'));

@@ -763,7 +763,11 @@ Future<T?> showAdminPanel<T>(BuildContext context, {required WidgetBuilder build
           child: SizedBox(
             width: tabletWidth.clamp(320, MediaQuery.sizeOf(ctx).width * 0.9),
             height: double.infinity,
-            child: SafeArea(left: false, child: builder(ctx)),
+            // The strips behind the status and gesture bars are white, like the panel's header.
+            child: ColoredBox(
+              color: AppColors.pureWhite,
+              child: SafeArea(left: false, child: ColoredBox(color: AppColors.frenchPaper, child: builder(ctx))),
+            ),
           ),
         ),
       ),
