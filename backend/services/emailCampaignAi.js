@@ -352,7 +352,7 @@ async function draftEmail(db, { brief: rawBrief, goal, current, promotionId, pri
         const url = String(b?.url ?? fallback.url ?? '').trim() || null;
         if (action === 'whatsapp' && url && !svc.WHATSAPP_RE.test(url)) throw new AiError('AI_WHATSAPP', 'The WhatsApp link must be a group invitation (https://chat.whatsapp.com/…).');
         if (action === 'link' && url && !svc.HTTPS_RE.test(url)) throw new AiError('AI_LINK', 'The button link must start with https://.');
-        return { action, url: action === 'link' || action === 'whatsapp' ? url : null };
+        return { action, url: action === 'whatsapp' && url ? svc.tidyWhatsApp(url) : action === 'link' ? url : null };
     };
     const p = button(primary, cleaned.buttons.primary, false);
     const s = button(secondary, cleaned.buttons.secondary, true);

@@ -275,8 +275,8 @@ router.delete('/suppressions/:email', async (req, res) => {
 
 router.post('/', async (req, res) => {
     try {
-        const { values, errors } = svc.clean(req.body || {});
-        if (errors.length) return res.status(400).json({ error: 'Check the email', message: errors.join(' '), errors });
+        const { values, errors, issues } = svc.clean(req.body || {});
+        if (errors.length) return res.status(400).json({ error: 'Check the email', code: 'EMAIL_INVALID', message: errors.join(' '), errors, issues });
         const cols = [...svc.FIELDS, 'created_by'];
         const row = await req.db.get(
             `INSERT INTO email_campaigns (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
@@ -323,8 +323,8 @@ router.put('/:id', async (req, res) => {
         if (existing.status !== 'draft') {
             return res.status(409).json({ error: 'Already sent', message: 'Only a draft can be changed. Put a scheduled email back to draft first, or duplicate a sent one.' });
         }
-        const { values, errors } = svc.clean(req.body || {});
-        if (errors.length) return res.status(400).json({ error: 'Check the email', message: errors.join(' '), errors });
+        const { values, errors, issues } = svc.clean(req.body || {});
+        if (errors.length) return res.status(400).json({ error: 'Check the email', code: 'EMAIL_INVALID', message: errors.join(' '), errors, issues });
         await req.db.run(
             `UPDATE email_campaigns SET ${svc.FIELDS.map((f, i) => `${f} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`,
             [id, ...svc.FIELDS.map(f => stored(values, f))]);

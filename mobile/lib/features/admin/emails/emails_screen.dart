@@ -56,7 +56,7 @@ class _EmailsScreenState extends ConsumerState<EmailsScreen> {
       if (!mounted) return;
       setState(() {
         _notInstalled = emailsNotInstalled(e);
-        _error = apiErrorText(context, e);
+        _error = emailErrorText(context, e);
         _loading = false;
       });
     }
@@ -328,7 +328,7 @@ class _SenderPanelState extends ConsumerState<_SenderPanel> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = apiErrorText(context, e);
+          _error = emailErrorText(context, e);
           _saving = false;
         });
       }

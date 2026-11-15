@@ -2,12 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { App as AntApp, Button, Input, Modal, Skeleton } from 'antd';
 import { DeleteOutlined, SearchOutlined, StopOutlined, WarningOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { Empty } from '../../Org/OrgUi';
 import { useTr } from '../../../utils/useTr';
-import { fmtMoment, type EmailMeta, type EmailSettings } from './emailModel';
+import { emailError, fmtMoment, type EmailMeta, type EmailSettings } from './emailModel';
 
-const en = (e: string) => e;
 
 /* The sender's details: the postal address every campaign shows (Canada's
    anti-spam law), the address replies go to, the sender's name. */
@@ -27,7 +26,7 @@ export const SenderDetails: React.FC<{ open: boolean; meta: EmailMeta | null; on
       const r = await call<{ settings: EmailSettings }>(apiCall, '/admin/email-campaigns/settings', 'PUT', v);
       message.success(tr('Sender details saved', 'Expéditeur enregistré'));
       onSaved(r.settings);
-    } catch (e) { setErr(errorText(e, en)); } finally { setBusy(false); }
+    } catch (e) { setErr(emailError(e, tr)); } finally { setBusy(false); }
   };
 
   return (
@@ -68,8 +67,8 @@ export const Suppressions: React.FC<{ open: boolean; onClose: () => void; onChan
   const load = useCallback(async () => {
     setErr(null);
     try { setRows((await call<{ suppressions: Suppression[] }>(apiCall, `/admin/email-campaigns/suppressions?q=${encodeURIComponent(q)}`)).suppressions); }
-    catch (e) { setErr(errorText(e, en)); }
-  }, [apiCall, q]);
+    catch (e) { setErr(emailError(e, tr)); }
+  }, [apiCall, q, tr]);
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const addAll = async () => {
@@ -79,7 +78,7 @@ export const Suppressions: React.FC<{ open: boolean; onClose: () => void; onChan
       setAdd('');
       load();
       onChanged();
-    } catch (e) { message.error(errorText(e, en)); }
+    } catch (e) { message.error(emailError(e, tr)); }
   };
   const remove = (s: Suppression) => modal.confirm({
     title: tr(`Email ${s.email} again?`, `Écrire de nouveau à ${s.email} ?`),
@@ -89,7 +88,7 @@ export const Suppressions: React.FC<{ open: boolean; onClose: () => void; onChan
     okText: tr('Allow again', 'Autoriser de nouveau'), cancelText: tr('Cancel', 'Annuler'),
     onOk: async () => {
       try { await call(apiCall, `/admin/email-campaigns/suppressions/${encodeURIComponent(s.email)}`, 'DELETE'); load(); onChanged(); }
-      catch (e) { message.error(errorText(e, en)); }
+      catch (e) { message.error(emailError(e, tr)); }
     },
   });
 

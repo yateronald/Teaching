@@ -6,13 +6,13 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-import { ApiError, call, errorText } from '../../Org/orgModel';
+import { ApiError, call } from '../../Org/orgModel';
 import { Empty, Kpi, PageHeader } from '../../Org/OrgUi';
 import { useTr } from '../../../utils/useTr';
 import { Sparkles } from '../Marketing/CampaignAi';
 import EmailEditor from './EmailEditor';
 import { SenderDetails, Suppressions } from './EmailSettings';
-import { STATUS_TONE, counted, pct, people, statusLabel, whenOf, type EmailCampaign, type EmailMeta, type EmailStatus, type EmailSummary } from './emailModel';
+import { STATUS_TONE, counted, emailError, pct, people, statusLabel, whenOf, type EmailCampaign, type EmailMeta, type EmailStatus, type EmailSummary } from './emailModel';
 import '../../Org/Org.css';
 import '../Marketing/Marketing.css';
 import './Emails.css';
@@ -58,9 +58,9 @@ const EmailCampaigns: React.FC = () => {
       setNotInstalled(false);
     } catch (e) {
       if (e instanceof ApiError && (e.data as { code?: string })?.code === 'EMAILS_NOT_MIGRATED') setNotInstalled(true);
-      setError(errorText(e, (en: string) => en));
+      setError(emailError(e, tr));
     }
-  }, [apiCall]);
+  }, [apiCall, tr]);
   useEffect(() => { load(); }, [load]);
 
   const sending = (list || []).some(c => c.status === 'sending');

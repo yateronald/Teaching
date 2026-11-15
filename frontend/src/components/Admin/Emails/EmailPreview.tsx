@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Segmented, Skeleton } from 'antd';
 import { DesktopOutlined, LoadingOutlined, MobileOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
-import type { EmailFields, Lang, PersonSource, Tr } from './emailModel';
+import { call } from '../../Org/orgModel';
+import { emailError, type EmailFields, type Lang, type PersonSource, type Tr } from './emailModel';
 
 interface Rendered { subject: string; preheader: string; html: string }
 
@@ -39,7 +39,7 @@ const EmailPreview: React.FC<{
         if (ticket !== asked.current) return;
         setOut(r);
         setErr(null);
-      } catch (e) { if (ticket === asked.current) setErr(errorText(e, (en: string) => en)); } finally { if (ticket === asked.current) setBusy(false); }
+      } catch (e) { if (ticket === asked.current) setErr(emailError(e, tr)); } finally { if (ticket === asked.current) setBusy(false); }
     }, 450);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

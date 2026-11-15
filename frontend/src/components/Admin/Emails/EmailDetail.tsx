@@ -8,7 +8,7 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { Empty, Kpi } from '../../Org/OrgUi';
 import { useTr } from '../../../utils/useTr';
 import EmailEditor from './EmailEditor';
@@ -16,7 +16,7 @@ import EmailPreview from './EmailPreview';
 import { EmailStatusChip } from './EmailCampaigns';
 import { SenderDetails } from './EmailSettings';
 import {
-  counted, fieldsOf, fmtMoment, missingFor, pct, people, recipientStatus, responseStatus, sourceLabel, sourcesLabel, usesForm,
+  counted, emailError, fieldsOf, fmtMoment, missingFor, pct, people, recipientStatus, responseStatus, sourceLabel, sourcesLabel, usesForm,
   type AudienceCounts, type CampaignLink, type EmailCampaign, type EmailMeta, type FormField, type FormResponse, type Person, type PersonSource, type Recipient, type Tr,
 } from './emailModel';
 import '../../Org/Org.css';
@@ -25,7 +25,6 @@ import './Emails.css';
 
 /* Administrator: one email — test it, send it or schedule it, follow it as it goes, its answers, and what it brought. */
 
-const en = (e: string) => e;
 interface Detail {
   campaign: EmailCampaign;
   links: CampaignLink[];
@@ -59,8 +58,8 @@ const EmailDetail: React.FC = () => {
       setD(one);
       setMeta(m);
       setError(null);
-    } catch (e) { setError(errorText(e, en)); }
-  }, [apiCall, id, meta]);
+    } catch (e) { setError(emailError(e, tr)); }
+  }, [apiCall, id, meta, tr]);
   useEffect(() => { load(); }, [load]);
 
   const live = d?.campaign.status === 'sending';
@@ -82,21 +81,21 @@ const EmailDetail: React.FC = () => {
       const r = await call<{ campaign: EmailCampaign; retried?: number }>(apiCall, `/admin/email-campaigns/${c.id}/${path}`, 'POST');
       message.success(path === 'retry' ? tr(`${r.retried || 0} sent again`, `${r.retried || 0} renvoyé(s)`) : done);
       load();
-    } catch (e) { message.error(errorText(e, en)); } finally { setBusy(null); }
+    } catch (e) { message.error(emailError(e, tr)); } finally { setBusy(null); }
   };
   const duplicate = async () => {
     try {
       const r = await call<{ campaign: EmailCampaign }>(apiCall, `/admin/email-campaigns/${c.id}/duplicate`, 'POST');
       message.success(tr('Copied as a draft', 'Copié en brouillon'));
       navigate(`/app/emails/${r.campaign.id}`);
-    } catch (e) { message.error(errorText(e, en)); }
+    } catch (e) { message.error(emailError(e, tr)); }
   };
   const remove = () => modal.confirm({
     title: tr(`Delete « ${c.name} »?`, `Supprimer « ${c.name} » ?`), content: tr('The draft is deleted for good.', 'Le brouillon est supprimé définitivement.'),
     okText: tr('Delete', 'Supprimer'), cancelText: tr('Cancel', 'Annuler'), okButtonProps: { danger: true },
     onOk: async () => {
       try { await call(apiCall, `/admin/email-campaigns/${c.id}`, 'DELETE'); message.success(tr('Email deleted', 'Email supprimé')); navigate('/app/emails'); }
-      catch (e) { message.error(errorText(e, en)); }
+      catch (e) { message.error(emailError(e, tr)); }
     },
   });
   const confirmCancel = () => modal.confirm({
@@ -214,7 +213,7 @@ const TestModal: React.FC<{ open: boolean; campaign: EmailCampaign; defaultTo: s
       const r = await call<{ sent: { to: string; lang: string }[] }>(apiCall, `/admin/email-campaigns/${campaign.id}/test`, 'POST', { to, lang });
       message.success(tr(`${r.sent.length} test(s) sent: check the inbox (and the spam folder)`, `${r.sent.length} test(s) envoyé(s) : regardez la boîte de réception (et les indésirables)`));
       onClose();
-    } catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
+    } catch (e) { message.error(emailError(e, tr)); } finally { setBusy(false); }
   };
   return (
     <Modal open={open} onCancel={onClose} title={tr('Send a test', 'Envoyer un test')} okText={tr('Send the test', 'Envoyer le test')} cancelText={tr('Cancel', 'Annuler')} onOk={send} confirmLoading={busy} okButtonProps={{ disabled: !to.trim() }} destroyOnHidden>
@@ -244,8 +243,8 @@ const SendModal: React.FC<{ open: boolean; campaign: EmailCampaign; meta: EmailM
     if (!open) return;
     setWhen('now'); setAt(dayjs().add(1, 'day').hour(9).minute(0).second(0)); setErr(null); setCounts(null);
     call<{ counts: AudienceCounts; people: Person[] }>(apiCall, '/admin/email-campaigns/audience', 'POST', { audience: campaign.audience, excluded: campaign.excluded })
-      .then(r => setCounts(r.counts)).catch(e => setErr(errorText(e, en)));
-  }, [open, apiCall, campaign]);
+      .then(r => setCounts(r.counts)).catch(e => setErr(emailError(e, tr)));
+  }, [open, apiCall, campaign, tr]);
 
   const missing = missingFor(fieldsOf(campaign), tr, { postalAddress: meta.settings.postal_address, recipients: counts?.total });
   const minutes = counts ? Math.max(1, Math.ceil(counts.total / meta.pace.per_minute)) : 0;
@@ -256,7 +255,7 @@ const SendModal: React.FC<{ open: boolean; campaign: EmailCampaign; meta: EmailM
       await call(apiCall, `/admin/email-campaigns/${campaign.id}/send`, 'POST', when === 'later' && at ? { scheduled_at: at.toISOString() } : {});
       message.success(when === 'later' ? tr(`Scheduled for ${at?.format('D MMM YYYY, HH:mm')}`, `Programmé pour le ${at?.format('D MMM YYYY, HH:mm')}`) : tr('Sending: it goes out in the next minutes', 'Envoi en cours : il part dans les prochaines minutes'));
       onSent();
-    } catch (e) { setErr(errorText(e, en)); } finally { setBusy(false); }
+    } catch (e) { setErr(emailError(e, tr)); } finally { setBusy(false); }
   };
 
   return (
@@ -313,7 +312,7 @@ const Answers: React.FC<{ campaign: EmailCampaign; tr: Tr; locale: string; onCha
       await call(apiCall, `/admin/email-campaigns/${campaign.id}/responses/${r.id}`, 'PATCH', patch);
       load();
       onChanged();
-    } catch (e) { message.error(errorText(e, en)); }
+    } catch (e) { message.error(emailError(e, tr)); }
   };
   const csv = () => {
     if (!rows) return;

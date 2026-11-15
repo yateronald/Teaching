@@ -245,7 +245,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
         if (!mounted || ticket != _countTicket) return;
         setState(() {
           _counting = false;
-          _error = apiErrorText(context, e);
+          _error = emailErrorText(context, e);
         });
       }
     });
@@ -319,7 +319,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
         if (updated.isNotEmpty) _choices = updated;
       });
     } catch (e) {
-      if (mounted) setState(() => _aiError = apiErrorText(context, e));
+      if (mounted) setState(() => _aiError = emailErrorText(context, e));
     } finally {
       if (mounted) setState(() => _writing = false);
     }
@@ -347,7 +347,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
         _picture = {...p, 'prompt': scene};
       });
     } catch (e) {
-      if (mounted) setState(() => _pictureError = apiErrorText(context, e));
+      if (mounted) setState(() => _pictureError = emailErrorText(context, e));
     } finally {
       if (mounted) setState(() => _drawing = false);
     }
@@ -420,7 +420,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
       final updated = modelChoices(J.map(res.data)['choices']);
       if (mounted && updated.isNotEmpty) setState(() => _choices = updated);
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     } finally {
       if (mounted) setState(() => _checking = false);
     }
@@ -521,7 +521,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = apiErrorText(context, e);
+        _error = emailErrorText(context, e);
         _saving = false;
       });
     }
@@ -543,7 +543,7 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
         adminToast(context, fr ? 'Impossible d’ouvrir l’aperçu.' : 'The preview could not be opened.', error: true);
       }
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     } finally {
       if (mounted) setState(() => _opening = false);
     }

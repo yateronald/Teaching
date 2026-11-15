@@ -94,7 +94,7 @@ class _EmailDetailPanelState extends ConsumerState<EmailDetailPanel> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = apiErrorText(context, e);
+        _error = emailErrorText(context, e);
         _loading = false;
       });
     }
@@ -108,7 +108,7 @@ class _EmailDetailPanelState extends ConsumerState<EmailDetailPanel> {
       if (done != null) adminToast(context, done);
       await _load();
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -195,7 +195,7 @@ class _EmailDetailPanelState extends ConsumerState<EmailDetailPanel> {
       Navigator.of(context).pop(J.i(J.map(J.map(res.data)['campaign'])['id']));
     } catch (e) {
       if (mounted) {
-        adminToast(context, apiErrorText(context, e), error: true);
+        adminToast(context, emailErrorText(context, e), error: true);
         setState(() => _busy = false);
       }
     }
@@ -214,7 +214,7 @@ class _EmailDetailPanelState extends ConsumerState<EmailDetailPanel> {
       await ref.read(apiClientProvider).delete(_base);
       if (mounted) Navigator.of(context).pop(0);
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     }
   }
 
@@ -227,7 +227,7 @@ class _EmailDetailPanelState extends ConsumerState<EmailDetailPanel> {
         adminToast(context, fr ? 'Impossible d’ouvrir l’aperçu.' : 'The preview could not be opened.', error: true);
       }
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     }
   }
 
@@ -553,7 +553,7 @@ class _AnswerPanelState extends ConsumerState<_AnswerPanel> {
       _changed = true;
       if (mounted) adminToast(context, done);
     } catch (e) {
-      if (mounted) adminToast(context, apiErrorText(context, e), error: true);
+      if (mounted) adminToast(context, emailErrorText(context, e), error: true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

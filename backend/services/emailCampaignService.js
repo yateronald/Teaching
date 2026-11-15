@@ -36,7 +36,13 @@ const EXAMS = ['tcf_canada', 'tcf_quebec', 'tcf_tp'];
 const FIELD_TYPES = ['name', 'email', 'phone', 'text', 'textarea', 'select', 'radio', 'checkbox', 'date'];
 const EMAIL_RE = /^[^\s@<>()[\]\\,;:"]{1,64}@[^\s@<>()[\]\\,;:"]{1,180}\.[a-z]{2,24}$/i;
 const IMAGE_KEY_RE = /^(ai-[a-f0-9]{12}|[a-z0-9][a-z0-9-]{1,60})$/;
-const WHATSAPP_RE = /^https:\/\/(chat\.whatsapp\.com\/[A-Za-z0-9]{10,40}|wa\.me\/[0-9]{6,16}(\?[^\s]*)?|(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9]{10,40})\/?$/;
+// WhatsApp now copies invitations as « https://chat.whatsapp.com/AbC…?mode=ems_copy_t »: the query is allowed (and dropped, see tidyWhatsApp).
+const WHATSAPP_RE = /^https:\/\/(chat\.whatsapp\.com\/[A-Za-z0-9]{10,40}|wa\.me\/[0-9]{6,16}|(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9]{10,40})\/?(\?[^\s#]*)?$/;
+/** A group invitation without what only says how it was copied (« ?mode=… »); other links as they are. */
+const tidyWhatsApp = (url) => {
+    const m = /^(https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]{10,40})\/?(\?[^\s#]*)?$/.exec(String(url || '').trim());
+    return m ? m[1] : url;
+};
 const HTTPS_RE = /^https:\/\/[^\s<>"]{3,}$/i;
 
 /** The words of one language, and their limits. */
@@ -104,7 +110,8 @@ function cleanAudience(a) {
 function cleanButton(raw, { secondary = false } = {}) {
     const src = obj(raw);
     const action = ACTIONS.includes(src.action) ? src.action : (secondary ? 'none' : 'link');
-    return { action, url: action === 'link' || action === 'whatsapp' ? text(src.url, 600) : null };
+    const url = action === 'link' || action === 'whatsapp' ? text(src.url, 600) : null;
+    return { action, url: action === 'whatsapp' && url ? tidyWhatsApp(url) : url };
 }
 
 const slug = (v) => String(v || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 32);
@@ -172,22 +179,31 @@ function clean(body = {}) {
     if (usesForm && !v.form.fields.length) v.form = cleanForm({ fields: DEFAULT_FORM_FIELDS });
     if (!v.name) v.name = (v.content.fr.subject || v.content.en.subject || v.content.fr.headline || v.content.en.headline || 'Email').slice(0, 140);
 
+    // Each problem with a code (the editors say it in the administrator's language) and an English sentence.
     const errors = [];
+    const issues = [];
+    const problem = (code, extra, message) => {
+        if (errors.includes(message)) return;
+        errors.push(message);
+        issues.push({ code, ...extra });
+    };
     for (const k of ['primary', 'secondary']) {
         const b = v.buttons[k];
         const which = k === 'primary' ? 'main button' : 'second button';
-        if (b.action === 'link' && b.url && !HTTPS_RE.test(b.url)) errors.push(`The ${which}'s link must start with https://.`);
-        if (b.action === 'whatsapp' && b.url && !WHATSAPP_RE.test(b.url)) errors.push(`The ${which}'s WhatsApp link must be a group invitation (https://chat.whatsapp.com/…).`);
+        if (b.action === 'link' && b.url && !HTTPS_RE.test(b.url)) problem('LINK_HTTPS', { button: k }, `The ${which}'s link must start with https://.`);
+        if (b.action === 'whatsapp' && b.url && !WHATSAPP_RE.test(b.url)) problem('WHATSAPP_LINK', { button: k }, `The ${which}'s WhatsApp link must be a group invitation (https://chat.whatsapp.com/…).`);
     }
     if (usesForm) {
-        if (!v.form.fields.some(f => f.type === 'email')) errors.push('The form needs an email field (to answer the person).');
+        if (!v.form.fields.some(f => f.type === 'email')) problem('FORM_EMAIL', {}, 'The form needs an email field (to answer the person).');
         for (const f of v.form.fields) {
-            if (!f.label_fr && !f.label_en) errors.push(`Every form field needs a label (field « ${f.id} »).`);
-            if (['select', 'radio', 'checkbox'].includes(f.type) && !(f.options_fr?.length || f.options_en?.length)) errors.push(`The field « ${f.label_en || f.label_fr || f.id} » needs choices.`);
+            if (!f.label_fr && !f.label_en) problem('FIELD_LABEL', { field: f.id }, `Every form field needs a label (field « ${f.id} »).`);
+            if (['select', 'radio', 'checkbox'].includes(f.type) && !(f.options_fr?.length || f.options_en?.length)) {
+                problem('FIELD_CHOICES', { field: f.label_en || f.label_fr || f.id, field_fr: f.label_fr || f.label_en || f.id }, `The field « ${f.label_en || f.label_fr || f.id} » needs choices.`);
+            }
         }
     }
-    if (v.image_key && !IMAGE_KEY_RE.test(v.image_key)) errors.push('Unknown picture.');
-    return { values: v, errors: [...new Set(errors)] };
+    if (v.image_key && !IMAGE_KEY_RE.test(v.image_key)) problem('PICTURE', {}, 'Unknown picture.');
+    return { values: v, errors, issues };
 }
 
 /** The languages a campaign is written for, as its recipients will read it. */
@@ -411,7 +427,7 @@ function shape(c, stats, responses) {
 
 module.exports = {
     STATUSES, GOALS, LANGUAGE_MODES, SOURCES, ACTIONS, DEMO_STATUSES, REG_STATUSES, RESPONSE_STATUSES, EXAMS, FIELD_TYPES,
-    EMAIL_RE, WHATSAPP_RE, HTTPS_RE, WORD_LIMITS, DEFAULT_FORM_FIELDS, FIELDS, JSON_FIELDS, STATS_SQL,
+    EMAIL_RE, WHATSAPP_RE, HTTPS_RE, tidyWhatsApp, WORD_LIMITS, DEFAULT_FORM_FIELDS, FIELDS, JSON_FIELDS, STATS_SQL,
     ready, clean, cleanWords, cleanForm, cleanAudience, languagesNeeded, readiness, settings, saveSettings,
     audienceOf, langFor, urls, withUtm, machineLike, shape, statsOf, contentOf, token, firstNameOf, lower, linksOf, obj, arr,
 };

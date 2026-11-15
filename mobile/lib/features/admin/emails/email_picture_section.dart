@@ -77,7 +77,7 @@ class _EmailPictureSectionState extends ConsumerState<EmailPictureSection> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _note = apiErrorText(context, e);
+          _note = emailErrorText(context, e);
           _noteBad = true;
         });
       }

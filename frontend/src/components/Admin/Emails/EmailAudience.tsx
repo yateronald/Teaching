@@ -4,10 +4,10 @@ import {
   CheckOutlined, IdcardOutlined, LoadingOutlined, ReadOutlined, SearchOutlined, SolutionOutlined, TeamOutlined, UndoOutlined, UserDeleteOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { useTr } from '../../../utils/useTr';
 import {
-  EXAM_LABEL, demoStatusLabel, regStatusLabel, sourceLabel, sourcesLabel,
+  EXAM_LABEL, demoStatusLabel, emailError, regStatusLabel, sourceLabel, sourcesLabel,
   type Audience, type AudienceCounts, type EmailMeta, type Person, type PersonSource, type Source, type Tr,
 } from './emailModel';
 
@@ -58,7 +58,7 @@ const EmailAudience: React.FC<{
         if (ticket !== asked.current) return;
         setResult(r);
         setErr(null);
-      } catch (e) { if (ticket === asked.current) setErr(errorText(e, (en: string) => en)); } finally { if (ticket === asked.current) setBusy(false); }
+      } catch (e) { if (ticket === asked.current) setErr(emailError(e, tr)); } finally { if (ticket === asked.current) setBusy(false); }
     }, 350);
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps

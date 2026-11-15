@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/api/api_error.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../core/localization/translations.dart';
 import '../common/admin_kit.dart';
 
 /// Email campaigns, as the admin API returns them (/admin/email-campaigns):
@@ -185,10 +186,53 @@ String emailRate(dynamic rate, {bool fr = false}) {
 /// « 1 person », « 3 people » / « 0 personne », « 3 personnes ».
 String emailPeople(int n, bool fr) => fr ? '$n ${n <= 1 ? 'personne' : 'personnes'}' : '$n ${n == 1 ? 'person' : 'people'}';
 
+/// The AI's known refusals in both languages (the others keep the server's words).
+const _aiTexts = {
+  'AI_BRIEF_SHORT': ('Describe the email in a sentence or two (what it is about, for whom, the action you want).', 'Décrivez l’email en une ou deux phrases (de quoi il parle, pour qui, l’action voulue).'),
+  'AI_WHATSAPP': ('The WhatsApp link must be a group invitation (https://chat.whatsapp.com/…).', 'Le lien WhatsApp doit être une invitation de groupe (https://chat.whatsapp.com/…).'),
+  'AI_LINK': ('The button link must start with https://.', 'Le lien du bouton doit commencer par https://.'),
+  'AI_LIMIT': ('The AI has done a lot in the last hour. Try again a little later.', 'L’IA a beaucoup travaillé dans la dernière heure. Réessayez un peu plus tard.'),
+  'AI_ONE_LANGUAGE': ('The AI wrote only one language. Try again.', 'L’IA n’a écrit qu’une langue. Réessayez.'),
+  'AI_NO_SUBJECT': ('The AI did not write a subject. Try again with a little more detail.', 'L’IA n’a pas écrit d’objet. Réessayez avec un peu plus de détails.'),
+  'AI_PROMPT_SHORT': ('Describe the picture in a sentence (who, where, doing what).', 'Décrivez l’image en une phrase (qui, où, en train de faire quoi).'),
+  'AI_IMAGE_UNSAFE': ('The picture could not be made safely. Change the description and try again.', 'L’image n’a pas pu être faite sans risque. Changez la description et réessayez.'),
+};
+
+/// One problem the server found in an email (a save refused with code EMAIL_INVALID), in plain words.
+String? _issueText(Map<String, dynamic> i, bool fr) {
+  final which = i['button'] == 'secondary' ? (fr ? 'deuxième bouton' : 'second button') : (fr ? 'bouton principal' : 'main button');
+  return switch (J.s(i['code'])) {
+    'LINK_HTTPS' => fr ? 'le lien du $which doit commencer par https://' : 'the link of the $which must start with https://',
+    'WHATSAPP_LINK' => fr ? 'le $which a besoin d’une invitation de groupe WhatsApp (https://chat.whatsapp.com/…)' : 'the $which needs a WhatsApp group invitation (https://chat.whatsapp.com/…)',
+    'FORM_EMAIL' => fr ? 'le formulaire a besoin d’une question Email, pour répondre aux personnes' : 'the form needs an Email question, to answer people',
+    'FIELD_LABEL' => fr ? 'une question du formulaire n’a pas d’intitulé' : 'a form question has no words',
+    'FIELD_CHOICES' => fr ? 'la question « ${J.s(i['field_fr']).isEmpty ? J.s(i['field']) : J.s(i['field_fr'])} » a besoin de choix' : 'the question « ${J.s(i['field'])} » needs choices',
+    'PICTURE' => fr ? 'l’image est inconnue : choisissez-en une autre' : 'the picture is unknown: choose another one',
+    _ => null,
+  };
+}
+
+/// What went wrong, said plainly: each problem of the email, the AI's known refusals,
+/// otherwise the server's own explanation (not just its title).
+String emailErrorText(BuildContext context, Object error) {
+  final fr = context.isFrench;
+  if (error is ApiException) {
+    final d = J.map(error.details);
+    final issues = (d['issues'] is List ? d['issues'] as List : const []).map((e) => _issueText(J.map(e), fr)).whereType<String>().toList();
+    if (issues.isNotEmpty) return '${fr ? 'À corriger' : 'To fix'} : ${issues.join(' · ')}.';
+    final ai = _aiTexts[J.s(d['code'])];
+    if (ai != null) return fr ? ai.$2 : ai.$1;
+    final message = J.s(d['message']).trim();
+    if (message.isNotEmpty) return message;
+  }
+  return apiErrorText(context, error);
+}
+
 /// Before migration 029: the server says how to install email campaigns.
 bool emailsNotInstalled(Object error) => error is ApiException && error.statusCode == 503 && J.map(error.details)['code'] == 'EMAILS_NOT_MIGRATED';
 
-final _waRe = RegExp(r'^https://(chat\.whatsapp\.com/[A-Za-z0-9]{10,40}|wa\.me/[0-9]{6,16}(\?\S*)?|(www\.)?whatsapp\.com/channel/[A-Za-z0-9]{10,40})/?$');
+// The same rule as the server: what follows « ? » (WhatsApp now copies « …?mode=ems_copy_t ») is allowed, and dropped by the server.
+final _waRe = RegExp(r'^https://(chat\.whatsapp\.com/[A-Za-z0-9]{10,40}|wa\.me/[0-9]{6,16}|(www\.)?whatsapp\.com/channel/[A-Za-z0-9]{10,40})/?(\?[^\s#]*)?$');
 bool isWhatsAppInvite(String url) => _waRe.hasMatch(url.trim());
 bool isHttpsLink(String url) => RegExp(r'^https://[^\s<>"]{3,}$', caseSensitive: false).hasMatch(url.trim());
 

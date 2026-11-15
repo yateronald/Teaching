@@ -640,6 +640,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a refused save says what to fix, in the reader’s language', (tester) async {
+    Future<BuildContext> contextIn(String lang) async {
+      late BuildContext ctx;
+      await tester.pumpWidget(MaterialApp(
+        locale: Locale(lang),
+        supportedLocales: const [Locale('en'), Locale('fr')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Builder(builder: (c) {
+          ctx = c;
+          return const SizedBox();
+        }),
+      ));
+      return ctx;
+    }
+
+    final refused = ApiException(message: 'Check the email', statusCode: 400, details: {
+      'error': 'Check the email', 'code': 'EMAIL_INVALID', 'message': 'The second button’s WhatsApp link must be a group invitation.',
+      'issues': [{'code': 'WHATSAPP_LINK', 'button': 'secondary'}, {'code': 'FIELD_CHOICES', 'field': 'Your level', 'field_fr': 'Votre niveau'}],
+    });
+    final other = ApiException(message: 'Something', statusCode: 500, details: {'error': 'Something', 'message': 'Sending failed: Brevo answered 401.'});
+    final ai = ApiException(message: 'The AI could not write the email', statusCode: 400, details: {'error': 'x', 'code': 'AI_BRIEF_SHORT', 'message': 'Describe the email…'});
+
+    final fr = await contextIn('fr');
+    expect(emailErrorText(fr, refused), 'À corriger : le deuxième bouton a besoin d’une invitation de groupe WhatsApp (https://chat.whatsapp.com/…) · la question « Votre niveau » a besoin de choix.');
+    expect(emailErrorText(fr, ai), startsWith('Décrivez l’email en une ou deux phrases'));
+    final en = await contextIn('en');
+    expect(emailErrorText(en, refused), startsWith('To fix : the second button needs a WhatsApp group invitation'));
+    expect(emailErrorText(en, other), 'Sending failed: Brevo answered 401.', reason: 'the explanation, not only the title');
+  });
+
+  test('WhatsApp invitations as the app copies them today are accepted', () {
+    expect(isWhatsAppInvite('https://chat.whatsapp.com/AbCdEfGhIjKlMn12?mode=ems_copy_t'), isTrue);
+    expect(isWhatsAppInvite('https://chat.whatsapp.com/AbCdEfGhIjKlMn12/'), isTrue);
+    expect(isWhatsAppInvite('https://chat.whatsapp.com.evil.example/AbCdEfGhIjKl'), isFalse);
+    expect(isWhatsAppInvite('https://chat.whatsapp.com/AbCdEfGhIjKlMn12 extra'), isFalse);
+  });
+
   test('what is missing before sending, said like the server', () {
     final f = EmailCampaign(_email(id: 8, status: 'draft')).raw;
     Map<String, dynamic> withButtons(Map<String, dynamic> primary, [Map<String, dynamic>? secondary]) =>

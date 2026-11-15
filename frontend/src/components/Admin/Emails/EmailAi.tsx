@@ -5,11 +5,11 @@ import {
   StopOutlined, SyncOutlined, TagOutlined, TeamOutlined, UndoOutlined, UpOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { Sparkles } from '../Marketing/CampaignAi';
 import { promoImage } from '../../../promo/model';
 import {
-  goals, isHttps, isWhatsApp, modelStateLabel,
+  emailError, goals, isHttps, isWhatsApp, modelStateLabel,
   type EmailDraft, type EmailFields, type EmailGoal, type EmailMeta, type EmailPicture as EmailPictureAnswer, type ModelChoice, type PicturePlace, type SecondaryAction, type Tr,
 } from './emailModel';
 
@@ -56,7 +56,7 @@ function ModelPicker({ choices, model, onModel, onChoices, disabled, tr }: {
     try {
       const r = await call<{ choices: ModelChoice[] }>(apiCall, '/admin/email-campaigns/ai/models/check', 'POST', {});
       onChoices(r.choices);
-    } catch (e) { setErr(errorText(e, (en: string) => en)); } finally { setChecking(false); }
+    } catch (e) { setErr(emailError(e, tr)); } finally { setChecking(false); }
   };
   const picked = choices.find(c => c.id === model);
   return (
@@ -166,10 +166,10 @@ const EmailAi: React.FC<Props> = ({ editing, fields, meta, tr, lang, choices, mo
         onPicture(pic.image_key, scene, place);
         setResult({ draft, picture: { key: pic.image_key, prompt: scene, warning: pic.warning } });
       } catch (e) {
-        if (alive.current) setResult({ draft, pictureError: errorText(e, (en: string) => en) });
+        if (alive.current) setResult({ draft, pictureError: emailError(e, tr) });
       }
     } catch (e) {
-      if (alive.current) setErr(errorText(e, (en: string) => en));
+      if (alive.current) setErr(emailError(e, tr));
     } finally {
       if (alive.current) setPhase('idle');
     }

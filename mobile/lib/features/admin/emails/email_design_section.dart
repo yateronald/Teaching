@@ -91,7 +91,7 @@ class _EmailDesignSectionState extends ConsumerState<EmailDesignSection> {
         _notice = J.s(data['notice']).isEmpty ? null : J.s(data['notice']);
       });
     } catch (e) {
-      if (mounted) setState(() => _error = apiErrorText(context, e));
+      if (mounted) setState(() => _error = emailErrorText(context, e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }

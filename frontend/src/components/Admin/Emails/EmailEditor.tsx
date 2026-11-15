@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { App as AntApp, Button, Drawer, Input, Segmented, Tabs } from 'antd';
 import { MailOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { useTr } from '../../../utils/useTr';
 import EmailAi from './EmailAi';
 import EmailAudience, { type AudienceResult } from './EmailAudience';
@@ -11,7 +11,7 @@ import EmailActions from './EmailActions';
 import EmailDesign from './EmailDesign';
 import EmailPreview from './EmailPreview';
 import {
-  blankEmail, fieldsOf, languageModes, linkProblems, missingFor, placePicture, saveModel, savedModel, usesForm, withDraft,
+  blankEmail, emailError, fieldsOf, languageModes, linkProblems, missingFor, placePicture, saveModel, savedModel, usesForm, withDraft,
   type EmailCampaign, type EmailDraft, type EmailFields, type EmailMeta, type Lang, type LanguageMode, type ModelChoice, type Words,
 } from './emailModel';
 import '../../Org/Org.css';
@@ -85,7 +85,7 @@ const EmailEditor: React.FC<Props> = ({ open, meta, campaign, onClose, onSaved }
         : await call<{ campaign: EmailCampaign }>(apiCall, '/admin/email-campaigns', 'POST', f);
       message.success(campaign ? tr('Email saved', 'Email enregistré') : tr('Draft saved: send yourself a test, then send it', 'Brouillon enregistré : envoyez-vous un test, puis envoyez-le'));
       onSaved(r.campaign);
-    } catch (e) { setErr(errorText(e, (en: string) => en)); } finally { setBusy(false); }
+    } catch (e) { setErr(emailError(e, tr)); } finally { setBusy(false); }
   };
 
   const modes = languageModes(tr);

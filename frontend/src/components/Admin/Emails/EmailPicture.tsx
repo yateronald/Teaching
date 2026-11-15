@@ -2,11 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Button, Input, Segmented, Tooltip } from 'antd';
 import { DeleteOutlined, LoadingOutlined, PictureOutlined, WarningOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { promoImage } from '../../../promo/model';
 import { Sparkles } from '../Marketing/CampaignAi';
 import { PICTURES } from '../Marketing/marketingModel';
-import { pictureOf, type Design, type EmailMeta, type EmailPicture as Picture, type PicturePlace, type Tr } from './emailModel';
+import { emailError, pictureOf, type Design, type EmailMeta, type EmailPicture as Picture, type PicturePlace, type Tr } from './emailModel';
 
 /* The picture of an email: made by the marketing painter from a description
    (same image model, same checks for text and logos), or taken from the
@@ -45,7 +45,7 @@ const EmailPicture: React.FC<{
       onPicture(p.image_key, prompt);
       if (p.warning) setNote({ tone: 'warn', text: p.warning });
     } catch (e) {
-      setNote({ tone: 'bad', text: errorText(e, (en: string) => en) });
+      setNote({ tone: 'bad', text: emailError(e, tr) });
     } finally {
       setBusy(false);
     }

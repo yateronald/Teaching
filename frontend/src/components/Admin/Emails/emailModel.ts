@@ -1,8 +1,54 @@
 // The administrator's side of email campaigns: the shapes the API returns
 // (/api/admin/email-campaigns), the words of each choice in English and
 // French (tr), and small helpers.
+import { ApiError, errorText } from '../../Org/orgModel';
 
 export type Tr = (en: string, fr: string) => string;
+
+/** One problem the server found in an email (POST/PUT answer 400 with code EMAIL_INVALID). */
+interface EmailIssue { code: string; button?: 'primary' | 'secondary'; field?: string; field_fr?: string }
+
+function issueText(i: EmailIssue, tr: Tr): string | null {
+  const which = i.button === 'secondary' ? tr('second button', 'deuxième bouton') : tr('main button', 'bouton principal');
+  switch (i.code) {
+    case 'LINK_HTTPS': return tr(`the link of the ${which} must start with https://`, `le lien du ${which} doit commencer par https://`);
+    case 'WHATSAPP_LINK': return tr(`the ${which} needs a WhatsApp group invitation (https://chat.whatsapp.com/…)`, `le ${which} a besoin d’une invitation de groupe WhatsApp (https://chat.whatsapp.com/…)`);
+    case 'FORM_EMAIL': return tr('the form needs an Email question, to answer people', 'le formulaire a besoin d’une question Email, pour répondre aux personnes');
+    case 'FIELD_LABEL': return tr('a form question has no words', 'une question du formulaire n’a pas d’intitulé');
+    case 'FIELD_CHOICES': return tr(`the question « ${i.field} » needs choices`, `la question « ${i.field_fr || i.field} » a besoin de choix`);
+    case 'PICTURE': return tr('the picture is unknown: choose another one', 'l’image est inconnue : choisissez-en une autre');
+    default: return null;
+  }
+}
+
+/** The AI's refusals, in the administrator's language (the others keep the server's words). */
+const AI_TEXTS: Record<string, [string, string]> = {
+  AI_BRIEF_SHORT: ['Describe the email in a sentence or two (what it is about, for whom, the action you want).', 'Décrivez l’email en une ou deux phrases (de quoi il parle, pour qui, l’action voulue).'],
+  AI_WHATSAPP: ['The WhatsApp link must be a group invitation (https://chat.whatsapp.com/…).', 'Le lien WhatsApp doit être une invitation de groupe (https://chat.whatsapp.com/…).'],
+  AI_LINK: ['The button link must start with https://.', 'Le lien du bouton doit commencer par https://.'],
+  AI_LIMIT: ['The AI has done a lot in the last hour. Try again a little later.', 'L’IA a beaucoup travaillé dans la dernière heure. Réessayez un peu plus tard.'],
+  AI_ONE_LANGUAGE: ['The AI wrote only one language. Try again.', 'L’IA n’a écrit qu’une langue. Réessayez.'],
+  AI_NO_SUBJECT: ['The AI did not write a subject. Try again with a little more detail.', 'L’IA n’a pas écrit d’objet. Réessayez avec un peu plus de détails.'],
+  AI_PROMPT_SHORT: ['Describe the picture in a sentence (who, where, doing what).', 'Décrivez l’image en une phrase (qui, où, en train de faire quoi).'],
+  AI_IMAGE_UNSAFE: ['The picture could not be made safely. Change the description and try again.', 'L’image n’a pas pu être faite sans risque. Changez la description et réessayez.'],
+};
+
+/**
+ * What went wrong, said plainly: each problem of the email in the reader's
+ * language, the AI's known refusals, otherwise the server's own explanation
+ * (not just its title).
+ */
+export function emailError(e: unknown, tr: Tr): string {
+  if (!(e instanceof ApiError)) return errorText(e, tr);
+  const d = e.data as { issues?: EmailIssue[]; message?: unknown; code?: string };
+  if (Array.isArray(d.issues) && d.issues.length) {
+    const parts = d.issues.map(i => issueText(i, tr)).filter((s): s is string => !!s);
+    if (parts.length) return `${tr('To fix', 'À corriger')} : ${parts.join(' · ')}.`;
+  }
+  const ai = d.code ? AI_TEXTS[d.code] : undefined;
+  if (ai) return tr(ai[0], ai[1]);
+  return typeof d.message === 'string' && d.message.trim() ? d.message : errorText(e, tr);
+}
 export type EmailStatus = 'draft' | 'scheduled' | 'sending' | 'paused' | 'sent' | 'cancelled';
 export type EmailGoal = 'news' | 'offer' | 'group' | 'whatsapp' | 'event' | 'reminder' | 'survey';
 export type LanguageMode = 'auto' | 'fr' | 'en' | 'both';
@@ -341,7 +387,9 @@ export const whenOf = (c: EmailCampaign, tr: Tr, locale: string) => (c.status ==
   ? tr(`for ${fmtMoment(c.scheduled_at, locale)}`, `pour le ${fmtMoment(c.scheduled_at, locale)}`)
   : c.started_at ? fmtMoment(c.finished_at || c.started_at, locale) : tr(`edited ${fmtMoment(c.updated_at, locale)}`, `modifié le ${fmtMoment(c.updated_at, locale)}`));
 
-const WA_RE = /^https:\/\/(chat\.whatsapp\.com\/[A-Za-z0-9]{10,40}|wa\.me\/[0-9]{6,16}|(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9]{10,40})/;
+// The same rule as the server: a group invitation, a wa.me number or a channel; what follows « ? »
+// (WhatsApp now copies « …?mode=ems_copy_t ») is allowed, and dropped by the server.
+const WA_RE = /^https:\/\/(chat\.whatsapp\.com\/[A-Za-z0-9]{10,40}|wa\.me\/[0-9]{6,16}|(www\.)?whatsapp\.com\/channel\/[A-Za-z0-9]{10,40})\/?(\?[^\s#]*)?$/;
 export const isWhatsApp = (url: string | null) => !!url && WA_RE.test(url.trim());
 export const isHttps = (url: string | null) => !!url && /^https:\/\/\S{3,}$/i.test(url.trim());
 

@@ -2,10 +2,10 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Button, Collapse, ColorPicker, Input, Segmented, Select, Slider } from 'antd';
 import { CheckOutlined, InfoCircleOutlined, LoadingOutlined, UndoOutlined, WarningOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
-import { call, errorText } from '../../Org/orgModel';
+import { call } from '../../Org/orgModel';
 import { Sparkles } from '../Marketing/CampaignAi';
 import EmailPicture from './EmailPicture';
-import { THEMES, placePicture, recolor, type ColorKey, type Design, type EmailFields, type EmailMeta, type ModelChoice, type Tr } from './emailModel';
+import { THEMES, emailError, placePicture, recolor, type ColorKey, type Design, type EmailFields, type EmailMeta, type ModelChoice, type Tr } from './emailModel';
 
 /* The look of the email: the AI's art director proposes three complete
    designs (each drawn as the real email); the administrator can also pick a
@@ -120,7 +120,7 @@ const EmailDesign: React.FC<{
           .catch(() => { /* the card still shows its name and reason */ });
       });
     } catch (e) {
-      if (alive.current) setErr(errorText(e, (en: string) => en));
+      if (alive.current) setErr(emailError(e, tr));
     } finally {
       if (alive.current) setBusy(false);
     }
