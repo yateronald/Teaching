@@ -36,6 +36,8 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
   late final _level = TextEditingController(text: _c?.level ?? '');
   late final _teacher = TextEditingController(text: _c?.teacher ?? '');
   late final _seats = TextEditingController(text: _editing ? (_c!.seatLimit?.toString() ?? '') : '8');
+  // People registered outside the site (phone, WhatsApp, in person).
+  late final _offline = TextEditingController(text: '${_c?.seatsOffline ?? 0}');
   late final _regular = TextEditingController(text: _num(_c?.priceRegular));
   late final _promo = TextEditingController(text: _num(_c?.pricePromo));
   late final _url = TextEditingController(text: _c?.ctaUrl ?? '');
@@ -48,7 +50,7 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
   late DateTime? _classEnds = _c?.classEndsOn;
   late DateTime _startsAt = _c?.startsAt ?? DateTime.now();
   late DateTime? _endsAt = _editing ? _c!.endsAt : _endOfDay(DateTime.now().add(const Duration(days: 21)));
-  late bool _showSeats = _c?.showSeats ?? true;
+  late String _seatsDisplay = _c?.seatsDisplay ?? 'auto';
   late bool _showCountdown = _c?.showCountdown ?? true;
   late bool _bar = _c?.placeBar ?? false;
   late bool _home = _c?.placeHome ?? true;
@@ -72,7 +74,7 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
   void initState() {
     super.initState();
     // The preview follows every keystroke.
-    for (final c in [..._words.values, _level, _teacher, _seats, _regular, _promo, _url, _priority]) {
+    for (final c in [..._words.values, _level, _teacher, _seats, _offline, _regular, _promo, _url, _priority]) {
       c.addListener(_changed);
     }
   }
@@ -83,13 +85,15 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
 
   @override
   void dispose() {
-    for (final c in [..._words.values, _level, _teacher, _seats, _regular, _promo, _url, _priority]) {
+    for (final c in [..._words.values, _level, _teacher, _seats, _offline, _regular, _promo, _url, _priority]) {
       c.dispose();
     }
     super.dispose();
   }
 
   String? _text(TextEditingController c) => c.text.trim().isEmpty ? null : c.text.trim();
+  int? get _limit => _seats.text.trim().isEmpty ? null : int.tryParse(_seats.text.trim());
+  int get _offlineSeats => _limit == null ? 0 : (int.tryParse(_offline.text.trim()) ?? 0);
   num? _money(TextEditingController c) => c.text.trim().isEmpty ? null : num.tryParse(c.text.trim().replaceAll(',', '.').replaceAll(' ', ''));
 
   /// The campaign as the API takes it.
@@ -105,8 +109,11 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
     'class_starts_on': _classStarts == null ? null : _day(_classStarts!),
     'class_ends_on': _classEnds == null ? null : _day(_classEnds!),
     'teacher_name': _text(_teacher),
-    'seat_limit': _seats.text.trim().isEmpty ? null : int.tryParse(_seats.text.trim()),
-    'show_seats': _showSeats,
+    'seat_limit': _limit,
+    'seats_offline': _offlineSeats,
+    'seats_display': _seatsDisplay,
+    // For a server from before the seats outside the site.
+    'show_seats': _seatsDisplay != 'never',
     'price_regular': _money(_regular),
     'price_promo': _money(_promo),
     'currency': _currency,
@@ -136,6 +143,7 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
     _level.text = text(f['level']);
     _teacher.text = text(f['teacher_name']);
     _seats.text = f['seat_limit'] == null ? '' : '${J.i(f['seat_limit'])}';
+    if (f.containsKey('seats_offline')) _offline.text = '${J.i(f['seats_offline'])}';
     _regular.text = f['price_regular'] == null ? '' : _num(J.n(f['price_regular']));
     _promo.text = f['price_promo'] == null ? '' : _num(J.n(f['price_promo']));
     _url.text = text(f['cta_url']);
@@ -153,7 +161,9 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
       _classEnds = day(f['class_ends_on']);
       _startsAt = J.date(f['starts_at']) ?? DateTime.now();
       _endsAt = J.date(f['ends_at']);
-      _showSeats = f['show_seats'] != false;
+      _seatsDisplay = campaignSeatsDisplays.contains(f['seats_display'])
+          ? '${f['seats_display']}'
+          : (f['show_seats'] == false ? 'never' : (f.containsKey('show_seats') ? 'auto' : _seatsDisplay));
       _showCountdown = f['show_countdown'] != false;
       _bar = f['place_bar'] == true;
       _home = f['place_home'] != false;
@@ -192,6 +202,15 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
         return fr
             ? 'Le nombre de places est un nombre entier au-dessus de zéro (ou vide : sans limite).'
             : 'The number of seats is a whole number above zero (or empty: no limit).';
+      }
+      final off = int.tryParse(_offline.text.trim().isEmpty ? '0' : _offline.text.trim());
+      if (off == null || off < 0) {
+        return fr ? 'Les places prises hors du site sont un nombre entier (0 ou plus).' : 'The seats taken outside the site must be a whole number (0 or more).';
+      }
+      if (off > n) {
+        return fr
+            ? 'Les places prises hors du site ne peuvent pas dépasser le nombre de places du groupe.'
+            : 'The seats taken outside the site cannot be more than the seats of the group.';
       }
     }
     for (final c in [_regular, _promo]) {
@@ -288,16 +307,19 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
     final otherMissing = _text(_words['title_$other']!) == null;
     TextEditingController w(String f) => _words['${f}_$lang']!;
     final classLike = _kind == 'group_class' || _kind == 'event';
+    // The people registered on the site (counted by the server) and those outside it (typed here).
+    final online = _c?.seatsOnline ?? 0;
+    final limit = _limit;
+    final taken = online + _offlineSeats;
     final preview = Campaign({
       ..._body(),
       'slug': _c?.slug ?? 'preview',
       'state': 'live',
-      'seats_taken': _c?.seatsTaken ?? 0,
-      'seats_left': () {
-        final limit = int.tryParse(_seats.text.trim());
-        return limit == null ? null : (limit - (_c?.seatsTaken ?? 0)).clamp(0, limit);
-      }(),
+      'seats_online': online,
+      'seats_taken': taken,
+      'seats_left': limit == null ? null : (taken >= limit ? 0 : limit - taken),
     });
+    final seen = campaignSeatsLine(preview, lang == 'fr');
     final tag = lang.toUpperCase();
 
     return AdminPanel(
@@ -335,6 +357,7 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
           onDraft: _applyDraft,
           onPicture: (key) => setState(() => _image = key),
           onUndo: _beforeAi == null ? null : _undoAi,
+          registeredOnSite: _c?.seatsOnline,
         ),
         if (_error != null) MarketingBanner(icon: Icons.error_outline, color: AppColors.bad, title: fr ? 'À corriger' : 'To fix', text: _error!),
 
@@ -473,13 +496,29 @@ class _CampaignEditorPanelState extends ConsumerState<CampaignEditorPanel> {
             controller: _seats,
             keyboardType: TextInputType.number,
           ),
-          _Switch(
-            label: fr ? 'Afficher les places restantes' : 'Show the seats left',
-            hint: fr
-                ? '« Plus que 3 places » pousse à s’inscrire. Complet : les suivants vont sur la liste d’attente.'
-                : '“Only 3 seats left” makes people act. When full, the next ones join the waiting list.',
-            value: _showSeats,
-            onChanged: (v) => setState(() => _showSeats = v),
+          AdminField(
+            key: const Key('campaign-seats-offline'),
+            label: fr ? 'Déjà prises hors du site (téléphone, WhatsApp, en personne)' : 'Already taken outside the site (phone, WhatsApp, in person)',
+            controller: _offline,
+            keyboardType: TextInputType.number,
+            enabled: limit != null,
+          ),
+          if (limit != null)
+            _Hint(
+              fr
+                  ? 'Elles comptent comme prises. ${online == 0 ? 'Personne inscrit sur le site pour l’instant' : '$online inscrit(s) sur le site'} · ${taken >= limit ? 'groupe complet' : '${limit - taken} place(s) libre(s)'}.'
+                  : 'They count as taken. ${online == 0 ? 'Nobody registered on the site yet' : '$online registered on the site'} · ${taken >= limit ? 'group full' : '${limit - taken} left'}.',
+            ),
+          const SizedBox(height: 10),
+          AdminSelect<String>(
+            key: const Key('campaign-seats-display'),
+            label: fr ? 'Places restantes sur le site' : 'Seats left on the site',
+            value: _seatsDisplay,
+            options: [for (final d in campaignSeatsDisplays) FilterOption(d, seatsDisplayLabel(d, fr))],
+            onChanged: (v) => setState(() => _seatsDisplay = v ?? 'auto'),
+          ),
+          _Hint(
+            '${seatsDisplayHint(_seatsDisplay, fr)}${limit == null ? '' : (fr ? ' Les visiteurs voient : « ${seen ?? 'rien sur les places'} ».' : ' Visitors see now: “${seen ?? 'nothing about the seats'}”.')}',
           ),
         ],
 

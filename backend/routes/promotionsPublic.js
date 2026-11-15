@@ -12,6 +12,7 @@
 const express = require('express');
 const promos = require('../services/promotionService');
 const promoAi = require('../services/promotionAi');
+const { hasColumn } = require('../services/schemaFeatures');
 const { createBulkNotifications } = require('../services/notificationService');
 const { sendPromotionRegistrationConfirmation } = require('../emails/emailService');
 
@@ -131,6 +132,8 @@ router.post('/:slug/register', async (req, res) => {
         // The seat count and the insert are one statement: a full class puts the
         // person on the waiting list instead of overbooking it.
         const placement = promos.PLACEMENTS.includes(body.placement) ? body.placement : 'link';
+        // Seats taken outside the site (phone, WhatsApp, in person) count as taken.
+        const offline = (await hasColumn(req.db, 'promotions', 'seats_offline')) ? ' + COALESCE(p.seats_offline, 0)' : '';
         const inserted = await req.db.run(
             `INSERT INTO promotion_registrations
                  (promotion_id, full_name, email, phone, country, level, message, language, timezone, placement, source_path, status)
@@ -138,7 +141,7 @@ router.post('/:slug/register', async (req, res) => {
                     CASE WHEN p.seat_limit IS NOT NULL AND (
                              SELECT COUNT(*) FROM promotion_registrations x
                               WHERE x.promotion_id = p.id AND x.status IN ('new', 'contacted', 'confirmed')
-                         ) >= p.seat_limit THEN 'waitlist' ELSE 'new' END
+                         )${offline} >= p.seat_limit THEN 'waitlist' ELSE 'new' END
                FROM promotions p WHERE p.id = $1
              ON CONFLICT (promotion_id, lower(email)) DO NOTHING
              RETURNING *`,

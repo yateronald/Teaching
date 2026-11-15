@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { App as AntApp, Button, Drawer, Dropdown, Input, Modal, Segmented, Select, Skeleton, Tabs, Tooltip } from 'antd';
 import {
   ArrowLeftOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined, ExportOutlined,
-  EyeOutlined, InboxOutlined, MailOutlined, MoreOutlined, PauseCircleOutlined, PhoneOutlined, PlayCircleOutlined, RocketOutlined,
+  EyeOutlined, InboxOutlined, MailOutlined, MinusOutlined, MoreOutlined, PauseCircleOutlined, PhoneOutlined, PlayCircleOutlined, PlusOutlined, RocketOutlined,
   SearchOutlined, TeamOutlined, ThunderboltOutlined, WarningOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -15,7 +15,7 @@ import CampaignEditor from './CampaignEditor';
 import FlyerStudio from './FlyerStudio';
 import { CampaignThumb, StateChip } from './Marketing';
 import {
-  AUDIENCE_LABEL, KIND_LABEL, PLACE_LABEL, REG_STATUS, ago, campaignUrl, fieldsOf, fmtMoment, fmtShort, rate, registrationsCsv, toPublic,
+  AUDIENCE_LABEL, KIND_LABEL, PLACE_LABEL, REG_STATUS, ago, campaignUrl, fieldsOf, fmtMoment, fmtShort, rate, registrationsCsv, seatsIn, seatsOnline, toPublic,
   type Campaign, type CampaignStats, type Registration, type RegistrationStatus,
 } from './marketingModel';
 import '../../Org/Org.css';
@@ -54,7 +54,7 @@ const CampaignDetail: React.FC = () => {
   }, [apiCall, id]);
   useEffect(() => { load(); }, [load]);
 
-  const preview = useMemo(() => (c ? toPublic(fieldsOf(c), { slug: c.slug, seats_taken: c.seats_taken }) : null), [c]);
+  const preview = useMemo(() => (c ? toPublic(fieldsOf(c), { slug: c.slug, seats_online: seatsOnline(c) }) : null), [c]);
 
   if (error && !c) return <div className="og"><Empty icon={<WarningOutlined />} title="This campaign could not be loaded" text={error} action={<Button onClick={() => navigate('/app/marketing')}>All campaigns</Button>} /></div>;
   if (!c || !preview) return <div className="og"><Skeleton active paragraph={{ rows: 10 }} /></div>;
@@ -101,7 +101,7 @@ const CampaignDetail: React.FC = () => {
           <div className="og-hero-meta">
             <span><EyeOutlined />On the site {fmtShort(c.starts_at)} → {c.ends_at ? fmtMoment(c.ends_at) : 'no end date'}</span>
             {classDates && <span><CalendarOutlined />Class {classDates}</span>}
-            {c.seat_limit ? <span><TeamOutlined />{c.seats_taken} / {c.seat_limit} seats{c.waitlist ? ` · ${c.waitlist} waiting` : ''}</span> : null}
+            {c.seat_limit ? <span><TeamOutlined />{c.seats_taken} / {c.seat_limit} seats{c.seats_offline ? ` (${c.seats_offline} outside the site)` : ''}{c.waitlist ? ` · ${c.waitlist} waiting` : ''}</span> : null}
           </div>
         </div>
         <div className="og-actions">
@@ -128,8 +128,9 @@ const CampaignDetail: React.FC = () => {
       <div className="og-kpis">
         <Kpi icon={<TeamOutlined />} label="Registrations" value={c.registrations} warn={c.new_registrations > 0}
           note={c.new_registrations ? `${c.new_registrations} waiting for an answer` : c.last_registration_at ? `last one ${ago(c.last_registration_at)}` : 'Nobody yet'} />
-        <Kpi icon={<CheckCircleOutlined />} label={c.seat_limit ? 'Seats' : 'Seats taken'} value={c.seat_limit ? `${c.seats_taken} / ${c.seat_limit}` : c.seats_taken}
-          note={c.seat_limit ? (c.seats_left ? `${c.seats_left} left` : `Full · ${c.waitlist} on the waiting list`) : 'No limit'} />
+        {c.seat_limit
+          ? <SeatsKpi campaign={c} onChange={setC} />
+          : <Kpi icon={<CheckCircleOutlined />} label="Seats taken" value={c.seats_taken} note="No limit" />}
         <Kpi icon={<EyeOutlined />} label="Views" value={c.views.toLocaleString('en')} note={`${c.clicks.toLocaleString('en')} clicks · ${rate(c.clicks, c.views)}`} />
         <Kpi icon={<ThunderboltOutlined />} label="Views that became registrations" value={rate(c.registrations, c.views)} note="Registrations ÷ views" />
       </div>
@@ -142,6 +143,39 @@ const CampaignDetail: React.FC = () => {
       ]} />
 
       <CampaignEditor open={editing} campaign={c} onClose={() => setEditing(false)} onSaved={saved => { setEditing(false); setC(saved); load(); }} />
+    </div>
+  );
+};
+
+// ── The seats of the group ──
+/** Taken / total, with the people registered outside the site (phone, WhatsApp,
+ *  in person) counted in by hand: one tap when someone books by message. */
+const SeatsKpi: React.FC<{ campaign: Campaign; onChange: (c: Campaign) => void }> = ({ campaign: c, onChange }) => {
+  const { apiCall } = useAuth();
+  const { message } = AntApp.useApp();
+  const [busy, setBusy] = useState(false);
+  const s = seatsIn(fieldsOf(c), seatsOnline(c));
+  const add = async (n: number) => {
+    setBusy(true);
+    try {
+      const r = await call<{ promotion: Campaign }>(apiCall, `/admin/promotions/${c.id}/seats`, 'POST', { add: n });
+      onChange(r.promotion);
+      message.success(n > 0 ? 'One more seat taken outside the site' : 'One seat freed');
+    } catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
+  };
+  return (
+    <div className={`og-kpi mk-seats-kpi${s.full ? ' is-warn' : ''}`}>
+      <span className="og-kpi-label"><CheckCircleOutlined />Seats</span>
+      <span className="og-kpi-value">{s.taken} / {s.limit}</span>
+      <span className="og-kpi-note">{s.full ? `Full · ${c.waitlist} on the waiting list` : `${s.left} left`} · {s.online} on the site</span>
+      <span className="mk-seats-step">
+        <Tooltip title="People registered by phone, WhatsApp or in person. They count as taken on the site."><span>Outside the site</span></Tooltip>
+        <Button size="small" icon={<MinusOutlined />} aria-label="One seat less taken outside the site" disabled={busy || s.offline <= 0} onClick={() => add(-1)} />
+        <b aria-live="polite">{s.offline}</b>
+        <Tooltip title={s.full ? 'The group is full' : undefined}>
+          <Button size="small" icon={<PlusOutlined />} aria-label="One more seat taken outside the site" disabled={busy || s.full} onClick={() => add(1)} />
+        </Tooltip>
+      </span>
     </div>
   );
 };
@@ -320,7 +354,7 @@ const Performance: React.FC<{ campaign: Campaign; stats: CampaignStats | null }>
 // ── The campaign as visitors see it ──
 const Preview: React.FC<{ campaign: Campaign }> = ({ campaign }) => {
   const [lang, setLang] = useState<Lang>(campaign.title_fr && !campaign.title_en ? 'fr' : 'en');
-  const promo = useMemo(() => toPublic(fieldsOf(campaign), { slug: campaign.slug, seats_taken: campaign.seats_taken }), [campaign]);
+  const promo = useMemo(() => toPublic(fieldsOf(campaign), { slug: campaign.slug, seats_online: seatsOnline(campaign) }), [campaign]);
   const on = [campaign.place_home && 'Home page', campaign.place_learn && 'Free courses', campaign.place_bar && 'Top bar', campaign.place_flash && 'Flash pop-up', 'Offers page'].filter(Boolean).join(' · ');
   return (
     <section className="og-card">

@@ -169,6 +169,12 @@ class _FakeMarketingApi extends ApiClient {
       },
     },
     '/admin/promotions/7/registrations' => {'registrations': _registrations},
+    // A group of 8 with 3 people registered on the site and 2 by WhatsApp.
+    '/admin/promotions/9' => {
+      'promotion': {..._campaign(id: 9, taken: 5), 'seats_online': 3, 'seats_offline': 2, 'seats_display': 'auto'},
+      'stats': <String, dynamic>{},
+    },
+    '/admin/promotions/9/registrations' => {'registrations': <Map<String, dynamic>>[]},
     _ => null,
   };
 
@@ -584,11 +590,115 @@ void main() {
     final fr = campaignMessage(c, fr: true);
     expect(fr.split('\n').first, '🎓 Groupe TCF Canada – janvier, cours intensifs du soir');
     expect(fr, isNot(contains('Plus que 0 place(s)')), reason: 'a full group says so instead');
-    expect(fr, contains('Complet : liste d’attente ouverte'));
+    expect(fr, contains('👥 Groupe complet : liste d’attente ouverte'), reason: 'the words of the site');
     expect(fr.trim().split('\n').last, '👉 https://www.learnfrenchwithnatives.com/fr/offres/?p=groupe-tcf-janvier');
     final en = campaignMessage(c, fr: false);
     expect(en.trim().split('\n').last, '👉 https://www.learnfrenchwithnatives.com/offers/?p=groupe-tcf-janvier');
     expect(campaignRate(13, 1900), '0.7 %');
     expect(campaignRate(0, 0), '—');
+  });
+
+  // ── Seats taken outside the site, and what visitors read ──
+
+  Campaign seated({int limit = 8, int online = 0, int offline = 0, String display = 'auto'}) {
+    final taken = online + offline;
+    return Campaign({
+      ..._campaign(seats: limit, taken: taken),
+      'seats_online': online,
+      'seats_offline': offline,
+      'seats_display': display,
+    });
+  }
+
+  test('the site says the size of the group while many seats are free, the seats left once it fills up', () {
+    expect(seatsAlertAt(8), 4);
+    expect(seatsAlertAt(4), 3, reason: 'never fewer than 3');
+    expect(seatsAlertAt(20), 8);
+    expect(campaignSeatsLine(seated(), false), 'Small group · 8 seats max', reason: 'never “8 of 8 seats left”');
+    expect(campaignSeatsLine(seated(), true), 'Petit groupe · 8 places max');
+    expect(campaignSeatsLine(seated(online: 1, offline: 3), false), '4 of 8 seats left', reason: 'the seats taken outside the site count');
+    expect(campaignSeatsLine(seated(online: 2, offline: 5), true), 'Dernière place disponible');
+    expect(campaignSeatsLine(seated(online: 3, offline: 5), false), 'Group full: waiting list open');
+    expect(campaignSeatsLine(seated(display: 'always'), false), '8 of 8 seats left');
+    expect(campaignSeatsLine(seated(display: 'never', offline: 6), false), isNull);
+    expect(campaignSeatsLine(seated(display: 'never', offline: 8), false), 'Group full: waiting list open', reason: 'a full group says so even then');
+    expect(campaignSeatsLine(seated(limit: 30), true), 'Limité à 30 places');
+    expect(campaignSeatsLine(Campaign({..._campaign(), 'seat_limit': null}), false), isNull);
+  });
+
+  test('a campaign from a server before the seats outside the site still reads right', () {
+    final old = Campaign({..._campaign(taken: 3), 'show_seats': false});
+    expect(old.seatsDisplay, 'never');
+    expect(old.seatsOffline, 0);
+    expect(old.seatsOnline, 3, reason: 'its seats_taken were all on the site');
+    expect(Campaign({..._campaign(taken: 3)}).seatsDisplay, 'auto');
+    expect(seated(online: 3, offline: 2).seatsTaken, 5);
+  });
+
+  testWidgets('a seat booked by WhatsApp is counted in with one tap', (tester) async {
+    final (api, _) = await _show(tester, const CampaignDetailPanel(campaignId: 9), size: const Size(1024, 4000));
+    expect(find.text('3 on the site + 2 outside = 5 / 8'), findsOneWidget);
+    expect(find.text('Visitors see: “3 of 8 seats left”'), findsOneWidget);
+    expect(find.text('3 seat(s) left · 2 outside'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('campaign-offline-more')));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/promotions/9/seats'], {'add': 1});
+    await tester.tap(find.byKey(const Key('campaign-offline-less')));
+    await tester.pumpAndSettle();
+    expect(api.sent['/admin/promotions/9/seats'], {'add': -1});
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a full group cannot take one more seat outside the site', (tester) async {
+    await _show(tester, const CampaignDetailPanel(campaignId: 7), size: const Size(1024, 4000));
+    final more = tester.widget<IconButton>(find.byKey(const Key('campaign-offline-more')));
+    final less = tester.widget<IconButton>(find.byKey(const Key('campaign-offline-less')));
+    expect(more.onPressed, isNull, reason: 'the group is full');
+    expect(less.onPressed, isNull, reason: 'nobody was counted outside the site');
+  });
+
+  testWidgets('the editor counts the seats taken outside the site and shows what visitors will read', (tester) async {
+    final (api, _) = await _show(tester, _Opener(CampaignEditorPanel(campaign: seated(online: 2))), size: const Size(1024, 1400));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.byKey(const Key('campaign-seats-offline')), 300, scrollable: _panelScroll());
+    expect(find.textContaining('Visitors see now: “Small group · 8 seats max”'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('campaign-seats-offline')), '9');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('campaign-save')));
+    await tester.pumpAndSettle();
+    await tester.drag(_panelScroll(), const Offset(0, 4000));
+    await tester.pumpAndSettle();
+    expect(find.text('The seats taken outside the site cannot be more than the seats of the group.'), findsOneWidget);
+    expect(api.sent['/admin/promotions/7'], isNull, reason: 'nothing is sent');
+
+    await tester.scrollUntilVisible(find.byKey(const Key('campaign-seats-offline')), 300, scrollable: _panelScroll());
+    await tester.enterText(find.byKey(const Key('campaign-seats-offline')), '3');
+    await tester.pumpAndSettle();
+    expect(find.textContaining('2 registered on the site · 3 left'), findsOneWidget);
+    expect(find.textContaining('Visitors see now: “3 of 8 seats left”'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('campaign-save')));
+    await tester.pumpAndSettle();
+    final body = api.sent['/admin/promotions/7'] as Map;
+    expect(body['seats_offline'], 3);
+    expect(body['seats_display'], 'auto');
+    expect(body['show_seats'], isTrue, reason: 'an older server still understands it');
+  });
+
+  testWidgets('the AI knows how many people registered on the site', (tester) async {
+    final (api, _) = await _show(tester, _Opener(CampaignEditorPanel(campaign: seated(online: 2, offline: 1))), size: const Size(1024, 1400));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    // Closed while editing.
+    await tester.tap(find.byKey(const Key('campaign-ai-open')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('campaign-ai-brief')), 'Only 3 seats left, make it more urgent.');
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('campaign-ai-go')));
+    await tester.pumpAndSettle();
+    final draft = api.sent['/admin/promotions/ai/draft'] as Map;
+    expect(draft['registered_on_site'], 2);
+    expect((draft['current'] as Map)['seats_offline'], 1);
   });
 }

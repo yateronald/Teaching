@@ -37,7 +37,10 @@ export interface Promotion {
   class_starts_on: string | null;
   class_ends_on: string | null;
   teacher: string | null;
-  seats: { limit: number; left: number } | null;
+  /** `left` counts the seats taken outside the site too. `show_left`: say how
+   *  many are left (the group is filling up, or the administrator wants it
+   *  always); otherwise only the size of the group is shown. */
+  seats: { limit: number; left: number; show_left?: boolean } | null;
   full: boolean;
   price: { regular: number | null; promo: number | null; currency: string } | null;
   ends_at: string | null;

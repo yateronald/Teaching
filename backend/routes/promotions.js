@@ -7,6 +7,7 @@
  *   GET    /:id                      one campaign, with its figures per place and per day
  *   PUT    /:id                      change it
  *   POST   /:id/status               publish, pause, archive, back to draft
+ *   POST   /:id/seats                seats taken outside the site: { add: ±n } or { seats_offline: n }
  *   POST   /:id/duplicate            a draft copy
  *   DELETE /:id                      only while nobody has registered
  *   GET    /:id/registrations        the people who registered
@@ -19,6 +20,7 @@
  */
 const express = require('express');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
+const { hasColumn } = require('../services/schemaFeatures');
 const promos = require('../services/promotionService');
 const promoAi = require('../services/promotionAi');
 
@@ -62,6 +64,8 @@ const FIELDS = [
     'priority', 'theme', 'image_key', 'registration_mode', 'cta_url',
 ];
 const JSON_FIELDS = new Set(['highlights_en', 'highlights_fr']);
+/** The fields written, with the seats outside the site once migration 028 has run. */
+const fieldsOf = async (db) => ((await hasColumn(db, 'promotions', 'seats_offline')) ? [...FIELDS, 'seats_offline', 'seats_display'] : FIELDS);
 const stored = (values, field) => (JSON_FIELDS.has(field) ? JSON.stringify(values[field]) : values[field]);
 
 // ── List ──
@@ -126,8 +130,8 @@ router.get('/ai', (_req, res) => res.json(promoAi.status()));
 
 router.post('/ai/draft', aiQuota('draft'), async (req, res) => {
     try {
-        const { brief, current, timezone, notes_lang: notesLang } = req.body || {};
-        const draft = await promoAi.draftCampaign({ brief, current, timezone, notesLang, userTimezone: req.user.timezone });
+        const { brief, current, timezone, notes_lang: notesLang, registered_on_site: registeredOnSite } = req.body || {};
+        const draft = await promoAi.draftCampaign({ brief, current, timezone, notesLang, userTimezone: req.user.timezone, registeredOnSite });
         res.json(draft);
     } catch (err) { aiFail(res, err, 'Writing the campaign'); }
 });
@@ -155,8 +159,9 @@ router.post('/', async (req, res) => {
         if (errors.length) return res.status(400).json({ error: 'Check the campaign', message: errors.join(' '), errors });
         const status = req.body.status === 'published' ? 'published' : 'draft';
         const slug = await promos.freeSlug(req.db, values.title_en || values.title_fr);
-        const columns = ['slug', 'status', 'created_by', ...FIELDS];
-        const params = [slug, status, req.user.id, ...FIELDS.map(f => stored(values, f))];
+        const fields = await fieldsOf(req.db);
+        const columns = ['slug', 'status', 'created_by', ...fields];
+        const params = [slug, status, req.user.id, ...fields.map(f => stored(values, f))];
         const created = await req.db.run(
             `INSERT INTO promotions (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`, params);
         res.status(201).json({ promotion: promos.adminShape(await loadOne(req.db, created.rows[0].id)) });
@@ -197,13 +202,23 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', async (req, res) => {
     try {
         const id = idOf(req.params.id);
-        const existing = id && await req.db.get('SELECT id FROM promotions WHERE id = $1', [id]);
+        const existing = id && await req.db.get('SELECT * FROM promotions WHERE id = $1', [id]);
         if (!existing) return res.status(404).json({ error: 'Not found', message: 'This campaign does not exist any more.' });
-        const { values, errors } = promos.clean(req.body);
+        // An app from before the seats outside the site does not send them: they are kept, never reset.
+        const body = { ...req.body };
+        if (body.seats_offline === undefined && existing.seats_offline !== undefined) body.seats_offline = existing.seats_offline;
+        if (body.seats_display === undefined && existing.seats_display !== undefined) {
+            // Its only switch, show_seats, turns the count off, or back on.
+            if (body.show_seats === false) body.seats_display = 'never';
+            else if (body.show_seats === true && existing.seats_display === 'never') body.seats_display = 'auto';
+            else body.seats_display = existing.seats_display;
+        }
+        const { values, errors } = promos.clean(body);
         if (errors.length) return res.status(400).json({ error: 'Check the campaign', message: errors.join(' '), errors });
+        const fields = await fieldsOf(req.db);
         await req.db.run(
-            `UPDATE promotions SET ${FIELDS.map((f, i) => `${f} = $${i + 2}`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
-            [id, ...FIELDS.map(f => stored(values, f))]);
+            `UPDATE promotions SET ${fields.map((f, i) => `${f} = $${i + 2}`).join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [id, ...fields.map(f => stored(values, f))]);
         res.json({ promotion: promos.adminShape(await loadOne(req.db, id)) });
     } catch (err) { fail(res, err, 'Saving the campaign'); }
 });
@@ -220,6 +235,36 @@ router.post('/:id/status', async (req, res) => {
     } catch (err) { fail(res, err, 'Changing the campaign'); }
 });
 
+// ── Seats taken outside the site (phone, WhatsApp, in person) ──
+// `add` (+1, −1…) changes the count in one statement, so two quick taps never
+// lose one; `seats_offline` sets it. Always between 0 and the seats of the group.
+router.post('/:id/seats', async (req, res) => {
+    try {
+        const id = idOf(req.params.id);
+        if (!id) return res.status(400).json({ error: 'Invalid request', message: 'Unknown campaign.' });
+        if (!(await hasColumn(req.db, 'promotions', 'seats_offline'))) {
+            return res.status(409).json({
+                error: 'Not installed yet',
+                message: 'Run backend/database/run-promotion-seats-migration.js on the server to count the seats taken outside the site.',
+                code: 'SEATS_NOT_MIGRATED',
+            });
+        }
+        const { add, seats_offline: set } = req.body || {};
+        const isCount = (n, min, max) => Number.isInteger(n) && n >= min && n <= max;
+        if (!(set === undefined ? isCount(add, -100000, 100000) : isCount(set, 0, 100000))) {
+            return res.status(400).json({ error: 'Invalid request', message: 'Send a whole number of seats.' });
+        }
+        const existing = await req.db.get('SELECT seat_limit FROM promotions WHERE id = $1', [id]);
+        if (!existing) return res.status(404).json({ error: 'Not found', message: 'This campaign does not exist any more.' });
+        if (!existing.seat_limit) return res.status(400).json({ error: 'No seat limit', message: 'Give the group a number of seats first.' });
+        await req.db.run(
+            `UPDATE promotions SET seats_offline = LEAST(seat_limit, GREATEST(0, ${set === undefined ? 'COALESCE(seats_offline, 0) + $2' : '$2'})),
+                                   updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [id, set === undefined ? add : set]);
+        res.json({ promotion: promos.adminShape(await loadOne(req.db, id)) });
+    } catch (err) { fail(res, err, 'Changing the seats'); }
+});
+
 // ── A draft copy (same content, no registrations, no figures) ──
 router.post('/:id/duplicate', async (req, res) => {
     try {
@@ -229,12 +274,14 @@ router.post('/:id/duplicate', async (req, res) => {
         const copy = promos.adminShape(source);
         if (copy.title_en) copy.title_en = `${copy.title_en} (copy)`.slice(0, 140);
         if (copy.title_fr) copy.title_fr = `${copy.title_fr} (copie)`.slice(0, 140);
+        copy.seats_offline = 0;
         const { values } = promos.clean(copy);
         const slug = await promos.freeSlug(req.db, values.title_en || values.title_fr);
-        const columns = ['slug', 'status', 'created_by', ...FIELDS];
+        const fields = await fieldsOf(req.db);
+        const columns = ['slug', 'status', 'created_by', ...fields];
         const created = await req.db.run(
             `INSERT INTO promotions (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
-            [slug, 'draft', req.user.id, ...FIELDS.map(f => stored(values, f))]);
+            [slug, 'draft', req.user.id, ...fields.map(f => stored(values, f))]);
         res.status(201).json({ promotion: promos.adminShape(await loadOne(req.db, created.rows[0].id)) });
     } catch (err) { fail(res, err, 'Copying the campaign'); }
 });

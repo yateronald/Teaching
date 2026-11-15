@@ -202,10 +202,7 @@ String campaignMessage(Campaign c, {required bool fr}) {
       '📅 ${[if (c.classStartsOn != null) fr ? 'Début le ${day(c.classStartsOn!)}' : 'Starts ${day(c.classStartsOn!)}', ?schedule].join(' · ')}',
     if (c.teacher != null) fr ? '👩‍🏫 Avec ${c.teacher}' : '👩‍🏫 With ${c.teacher}',
     for (final h in c.highlights(fr).take(3)) '✔️ $h',
-    if (c.seatLimit != null && c.showSeats)
-      c.full
-          ? (fr ? '👥 Complet : liste d’attente ouverte' : '👥 Full: waiting list open')
-          : (fr ? '👥 Plus que ${c.seatsLeft ?? c.seatLimit} place(s)' : '👥 Only ${c.seatsLeft ?? c.seatLimit} seat(s) left'),
+    if (campaignSeatsLine(c, fr) case final seats?) '👥 $seats',
     if (c.hasPrice) '💶 ${_price(c, fr)}',
     if (c.endsAt != null) fr ? '⏳ Jusqu’au ${day(c.endsAt!)}' : '⏳ Until ${day(c.endsAt!)}',
     '',

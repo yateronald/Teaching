@@ -81,6 +81,15 @@ class _CampaignDetailPanelState extends ConsumerState<CampaignDetailPanel> {
     }
   }
 
+  /// One more (or one less) seat taken outside the site: someone booked by phone or WhatsApp.
+  Future<void> _addOffline(int n) {
+    final fr = context.isFrench;
+    return _run(
+      () => ref.read(apiClientProvider).post('$_base/seats', data: {'add': n}),
+      done: n > 0 ? (fr ? 'Une place de plus prise hors du site' : 'One more seat taken outside the site') : (fr ? 'Une place libérée' : 'One seat freed'),
+    );
+  }
+
   Future<void> _setStatus(String status, String done) => _run(() => ref.read(apiClientProvider).post('$_base/status', data: {'status': status}), done: done);
 
   Future<void> _publish() {
@@ -200,6 +209,7 @@ class _CampaignDetailPanelState extends ConsumerState<CampaignDetailPanel> {
         _actions(context, c),
         const SizedBox(height: 14),
         _kpis(context, c),
+        if (c.seatLimit != null) ...[const SizedBox(height: 10), _seats(context, c)],
         PanelSection(fr ? 'Inscriptions (${_regs.length})' : 'Registrations (${_regs.length})'),
         _registrations(context, c),
         PanelSection(
@@ -366,9 +376,8 @@ class _CampaignDetailPanelState extends ConsumerState<CampaignDetailPanel> {
           value: limit == null ? '${c.registrations}' : '${c.seatsTaken} / $limit',
           sub: limit == null
               ? (fr ? 'Sans limite de places' : 'No seat limit')
-              : (c.full
-                    ? (fr ? 'Complet · ${c.waitlist} en attente' : 'Full · ${c.waitlist} waiting')
-                    : (fr ? '${c.seatsLeft ?? limit} place(s) libre(s)' : '${c.seatsLeft ?? limit} seat(s) left')),
+              : '${c.full ? (fr ? 'Complet · ${c.waitlist} en attente' : 'Full · ${c.waitlist} waiting') : (fr ? '${c.seatsLeft ?? limit} place(s) libre(s)' : '${c.seatsLeft ?? limit} seat(s) left')}'
+                    '${c.seatsOffline > 0 ? (fr ? ' · ${c.seatsOffline} hors site' : ' · ${c.seatsOffline} outside') : ''}',
           icon: Icons.event_seat_outlined,
           color: c.full ? AppColors.warn : AppColors.adminAccent,
         ),
@@ -397,6 +406,75 @@ class _CampaignDetailPanelState extends ConsumerState<CampaignDetailPanel> {
           color: AppColors.good,
         ),
       ],
+    );
+  }
+
+  /// The seats of the group: on the site, outside it, and what visitors read.
+  Widget _seats(BuildContext context, Campaign c) {
+    final fr = context.isFrench;
+    final line = campaignSeatsLine(c, fr);
+    Widget step(IconData icon, String tip, Key key, VoidCallback? onTap) => IconButton.outlined(
+      key: key,
+      tooltip: tip,
+      onPressed: _busy ? null : onTap,
+      icon: Icon(icon, size: 18),
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(side: const BorderSide(color: AppColors.border), foregroundColor: AppColors.adminAccent),
+    );
+    return AdminCard(
+      title: fr ? 'Places' : 'Seats',
+      icon: Icons.event_seat_outlined,
+      accent: c.full ? AppColors.warn : AppColors.adminAccent,
+      padding: const EdgeInsets.fromLTRB(16, 10, 12, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fr ? 'Prises hors du site' : 'Taken outside the site',
+                      style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink),
+                    ),
+                    Text(
+                      fr ? 'Téléphone, WhatsApp, en personne' : 'Phone, WhatsApp, in person',
+                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+              step(Icons.remove, fr ? 'Une place de moins' : 'One seat less', const Key('campaign-offline-less'), c.seatsOffline > 0 ? () => _addOffline(-1) : null),
+              SizedBox(
+                width: 36,
+                child: Text(
+                  '${c.seatsOffline}',
+                  key: const Key('campaign-offline-count'),
+                  textAlign: TextAlign.center,
+                  style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink),
+                ),
+              ),
+              step(Icons.add, fr ? 'Une place de plus' : 'One more seat', const Key('campaign-offline-more'), c.full ? null : () => _addOffline(1)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            fr
+                ? '${c.seatsOnline} inscrit(s) sur le site + ${c.seatsOffline} hors site = ${c.seatsTaken} / ${c.seatLimit}'
+                : '${c.seatsOnline} on the site + ${c.seatsOffline} outside = ${c.seatsTaken} / ${c.seatLimit}',
+            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+          ),
+          if (line != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              fr ? 'Les visiteurs voient : « $line »' : 'Visitors see: “$line”',
+              style: AppTypography.caption.copyWith(color: AppColors.textMuted, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
     );
   }
 

@@ -40,6 +40,8 @@ interface Props {
   editing: boolean;
   /** The form as it is now. */
   fields: CampaignFields;
+  /** The people already registered on the site (an existing campaign): the AI keeps the seats left right. */
+  registeredOnSite?: number;
   /** The AI wrote the campaign: fill the form. */
   onDraft: (draft: AiDraft) => void;
   /** The AI made a picture. */
@@ -50,7 +52,7 @@ interface Props {
 
 type Phase = 'idle' | 'writing' | 'drawing';
 
-const CampaignAi: React.FC<Props> = ({ editing, fields, onDraft, onPicture, onUndo }) => {
+const CampaignAi: React.FC<Props> = ({ editing, fields, registeredOnSite, onDraft, onPicture, onUndo }) => {
   const { apiCall } = useAuth();
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [open, setOpen] = useState(!editing);
@@ -88,6 +90,7 @@ const CampaignAi: React.FC<Props> = ({ editing, fields, onDraft, onPicture, onUn
         brief,
         // An existing campaign, or a form already started, is changed rather than replaced.
         current: editing || hasContent ? fields : undefined,
+        registered_on_site: editing ? registeredOnSite : undefined,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         notes_lang: 'en',
       });

@@ -94,6 +94,9 @@ class CampaignAiCard extends ConsumerStatefulWidget {
   /// Puts the form back as it was before the AI wrote (null when there is nothing to undo).
   final VoidCallback? onUndo;
 
+  /// The people already registered on the site (an existing campaign): the AI keeps the seats left right.
+  final int? registeredOnSite;
+
   const CampaignAiCard({
     super.key,
     required this.editing,
@@ -102,6 +105,7 @@ class CampaignAiCard extends ConsumerStatefulWidget {
     required this.onDraft,
     required this.onPicture,
     this.onUndo,
+    this.registeredOnSite,
   });
 
   @override
@@ -177,6 +181,7 @@ class _CampaignAiCardState extends ConsumerState<CampaignAiCard> {
           if (widget.editing || widget.hasContent) 'current': widget.current(),
           'timezone': aiTimeZone(ref),
           'notes_lang': fr ? 'fr' : 'en',
+          if (widget.editing && widget.registeredOnSite != null) 'registered_on_site': widget.registeredOnSite,
         },
         options: _aiOptions,
       );

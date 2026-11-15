@@ -180,3 +180,8 @@
 .mk-ai-btn { border-color: #ddd6fe; color: #6d28d9; }
 .mk-ai-btn svg { vertical-align: -3px; }
 .mk-ai-picture { align-self: stretch; padding: 12px; border: 1px solid #ddd6fe; border-radius: 12px; background: #faf5ff; }
+
+/* The seats tile of a campaign: + / − for the seats taken outside the site. */
+.mk-seats-step { display: flex; align-items: center; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--x-line); font-size: 12px; color: var(--x-muted); }
+.mk-seats-step > span:first-child { flex: 1; min-width: 0; cursor: help; }
+.mk-seats-step > b { min-width: 20px; text-align: center; font-size: 14px; color: var(--x-ink); font-variant-numeric: tabular-nums; }

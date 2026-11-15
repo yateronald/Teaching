@@ -10,7 +10,9 @@ const MIGRATION_HINT = {
   user_sessions: 'backend/database/run-user-sessions-migration.js',
   tcf_ce_questions: 'backend/database/run-ce-passage-migration.js',
   promotions: 'backend/database/run-promotions-migration.js',
-  site_visits: 'backend/database/run-learning-analytics-migration.js',
+  'promotions.seats_offline': 'backend/database/run-promotion-seats-migration.js',
+  site_visits: 'backend/database/run-site-monitoring-migration.js',
+  'site_visits.area': 'backend/database/run-learning-analytics-migration.js',
   learn_events: 'backend/database/run-learning-analytics-migration.js',
 };
 
@@ -30,7 +32,7 @@ async function probe(db, key, sql, params, hint) {
 function hasColumn(db, table, column) {
   return probe(db, `Column ${table}.${column}`,
     'SELECT 1 AS ok FROM information_schema.columns WHERE table_name = $1 AND column_name = $2 LIMIT 1',
-    [table, column], MIGRATION_HINT[table] || 'backend/database/run-exam-reports-migration.js to store full reports');
+    [table, column], MIGRATION_HINT[`${table}.${column}`] || MIGRATION_HINT[table] || 'backend/database/run-exam-reports-migration.js to store full reports');
 }
 
 function hasTable(db, table) {

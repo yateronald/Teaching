@@ -16,6 +16,33 @@ const campaignAudiences = ['general', 'beginner', 'conversation', 'tcf', 'tef', 
 const campaignCurrencies = ['CAD', 'USD', 'EUR'];
 const registrationStatuses = ['new', 'contacted', 'confirmed', 'waitlist', 'cancelled'];
 
+/// How the site shows the seats left: once few remain (the size of the group
+/// before), always, or never.
+const campaignSeatsDisplays = ['auto', 'always', 'never'];
+
+/// In « auto », the count shows from this number of seats left: 40 % of the
+/// group, and never fewer than 3 (as on the server).
+int seatsAlertAt(int limit) {
+  final n = (limit * 0.4).ceil();
+  return n < 3 ? 3 : n;
+}
+
+String seatsDisplayLabel(String display, bool fr) => switch (display) {
+  'always' => fr ? 'Toujours' : 'Always',
+  'never' => fr ? 'Jamais' : 'Never',
+  _ => fr ? 'Quand il en reste peu (recommandé)' : 'When few remain (recommended)',
+};
+
+String seatsDisplayHint(String display, bool fr) => switch (display) {
+  'always' => fr ? 'Le nombre de places restantes est toujours affiché, même à l’ouverture du groupe.' : 'The number left is always shown, even when the group has just opened.',
+  'never' => fr
+      ? 'Rien sur les places. La liste d’attente s’ouvre quand même quand le groupe est complet.'
+      : 'Nothing about the seats. The waiting list still opens when the group is full.',
+  _ => fr
+      ? '« Petit groupe · 8 places max » tant qu’il y a de la place, puis « 3 places restantes sur 8 » quand le groupe se remplit.'
+      : '“Small group · 8 seats max” while many are free, then “3 of 8 seats left” once the group fills up.',
+};
+
 String kindLabel(String kind, bool fr) => switch (kind) {
   'offer' => fr ? 'Offre spéciale' : 'Special offer',
   'event' => fr ? 'Événement gratuit' : 'Free event',
@@ -280,7 +307,22 @@ class Campaign {
   DateTime? get classEndsOn => _day('class_ends_on');
   String? get teacher => _text('teacher_name');
   int? get seatLimit => raw['seat_limit'] == null ? null : J.i(raw['seat_limit']);
-  bool get showSeats => raw['show_seats'] != false;
+
+  /// People registered outside the site (phone, WhatsApp, in person): real
+  /// seats, counted as taken.
+  int get seatsOffline {
+    if (seatLimit == null) return 0;
+    final n = J.i(raw['seats_offline']);
+    return n < 0 ? 0 : n;
+  }
+
+  String get seatsDisplay {
+    final v = J.s(raw['seats_display']);
+    if (campaignSeatsDisplays.contains(v)) return v;
+    return raw['show_seats'] == false ? 'never' : 'auto';
+  }
+
+  bool get showSeats => seatsDisplay != 'never';
   num? get priceRegular => raw['price_regular'] == null ? null : J.n(raw['price_regular']);
   num? get pricePromo => raw['price_promo'] == null ? null : J.n(raw['price_promo']);
   String get currency => campaignCurrencies.contains(raw['currency']) ? J.s(raw['currency']) : 'CAD';
@@ -299,8 +341,19 @@ class Campaign {
 
   int get registrations => J.i(raw['registrations']);
   int get newRegistrations => J.i(raw['new_registrations']);
+  /// All the seats taken: registered on the site and outside it.
   int get seatsTaken => J.i(raw['seats_taken']);
+
+  /// Registered on the site (a server from before the seats outside the site counted only them).
+  int get seatsOnline => raw['seats_online'] == null ? seatsTaken : J.i(raw['seats_online']);
   int? get seatsLeft => raw['seats_left'] == null ? null : J.i(raw['seats_left']);
+
+  /// The site says how many seats are left; otherwise only the size of the group.
+  bool get showSeatsLeft {
+    final limit = seatLimit;
+    if (limit == null || !showSeats) return false;
+    return seatsDisplay == 'always' || (seatsLeft ?? limit) <= seatsAlertAt(limit);
+  }
   int get waitlist => J.i(raw['waitlist']);
   DateTime? get lastRegistrationAt => J.date(raw['last_registration_at']);
   int get views => J.i(raw['views']);
@@ -322,6 +375,22 @@ class Campaign {
     final v = J.s(raw[key]);
     return v.length < 10 ? null : DateTime.tryParse(v.substring(0, 10));
   }
+}
+
+/// What the site says about the seats, in its own words; null when it says nothing.
+String? campaignSeatsLine(Campaign c, bool fr) {
+  final limit = c.seatLimit;
+  if (limit == null) return null;
+  if (c.full) return fr ? 'Groupe complet : liste d’attente ouverte' : 'Group full: waiting list open';
+  if (!c.showSeats) return null;
+  final left = c.seatsLeft ?? limit;
+  if (c.showSeatsLeft) {
+    if (left == 1) return fr ? 'Dernière place disponible' : 'Last seat left';
+    return fr ? '$left places restantes sur $limit' : '$left of $limit seats left';
+  }
+  return limit <= 15
+      ? (fr ? 'Petit groupe · $limit places max' : 'Small group · $limit seats max')
+      : (fr ? 'Limité à $limit places' : 'Limited to $limit seats');
 }
 
 /// The words of the button, as the site writes them; null when there is no button.

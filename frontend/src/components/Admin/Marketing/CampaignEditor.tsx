@@ -9,9 +9,10 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { call, errorText } from '../../Org/orgModel';
 import { THEMES, isAiImage, promoImage, type Kind, type Lang, type ThemeId } from '../../../promo/model';
 import { PromoCard } from '../../../promo/parts';
+import { COPY } from '../../../promo/copy';
 import {
-  AUDIENCE_LABEL, KIND_HINT, KIND_LABEL, PICTURES, blankCampaign, fieldsOf, toPublic,
-  type AiDraft, type Campaign, type CampaignFields,
+  AUDIENCE_LABEL, KIND_HINT, KIND_LABEL, PICTURES, SEATS_DISPLAY_LABEL, blankCampaign, fieldsOf, seatsIn, seatsOnline, toPublic,
+  type AiDraft, type Campaign, type CampaignFields, type SeatsDisplay,
 } from './marketingModel';
 import CampaignAi, { AiPictureMaker } from './CampaignAi';
 import '../../Org/Org.css';
@@ -92,9 +93,16 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
     f.ends_at && f.ends_at <= f.starts_at && 'an end after the start',
     f.registration_mode === 'link' && !/^(https:\/\/|\/)\S+$/i.test(f.cta_url || '') && 'a link that starts with https://',
     f.price_regular !== null && f.price_promo !== null && f.price_promo > f.price_regular && 'a campaign price below the regular price',
+    !!f.seat_limit && f.seats_offline > f.seat_limit && 'no more seats taken outside the site than seats in the group',
   ].filter(Boolean) as string[];
 
-  const preview = useMemo(() => toPublic(f, { slug: campaign?.slug, seats_taken: campaign?.seats_taken }), [f, campaign]);
+  // The people registered on the site (counted by the server), those outside it (typed here), and what visitors see.
+  const online = campaign ? seatsOnline(campaign) : 0;
+  const seats = seatsIn(f, online);
+  const preview = useMemo(() => toPublic(f, { slug: campaign?.slug, seats_online: online }), [f, campaign, online]);
+  // The very words of the site, in the language being edited.
+  const seen = !seats.shown ? (seats.full ? `“${COPY[lang].full}”` : 'nothing about the seats')
+    : `“${seats.full ? COPY[lang].full : seats.showLeft ? COPY[lang].seatsOf(seats.left ?? 0, seats.limit) : COPY[lang].groupOf(seats.limit)}”`;
 
   const save = async (status?: 'draft' | 'published') => {
     setBusy(status || 'save');
@@ -124,7 +132,7 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
       <div className="mk-editor">
         <div className="og-form">
           {/* 0 ── The AI writer */}
-          <CampaignAi editing={!!campaign} fields={f} onDraft={applyDraft} onPicture={key => set({ image_key: key })} onUndo={beforeAi ? undoAi : undefined} />
+          <CampaignAi editing={!!campaign} fields={f} registeredOnSite={online} onDraft={applyDraft} onPicture={key => set({ image_key: key })} onUndo={beforeAi ? undoAi : undefined} />
 
           {/* 1 ── Kind */}
           <section className="og-section">
@@ -197,12 +205,20 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
               </div>
             </>}
             <div className="og-two">
-              <div className="og-field"><label>Seats <em>empty = no limit</em></label>
+              <div className="og-field"><label>Seats in the group <em>empty = no limit</em></label>
                 <InputNumber min={1} max={100000} value={f.seat_limit} onChange={v => set({ seat_limit: v ?? null })} style={{ width: '100%' }} addonAfter="seats" />
                 <small>When they are all taken, the next people join a waiting list.</small></div>
-              <div className="og-field"><label>Show the seats left on the site</label>
-                <span className="mk-switch"><Switch checked={f.show_seats} onChange={v => set({ show_seats: v })} disabled={!f.seat_limit} /><span>{f.show_seats && f.seat_limit ? '“4 of 8 seats left”' : 'Hidden'}</span></span></div>
+              <div className="og-field"><label>Seats taken outside the site</label>
+                <InputNumber min={0} max={f.seat_limit || 0} precision={0} value={f.seat_limit ? f.seats_offline : null} disabled={!f.seat_limit}
+                  onChange={v => set({ seats_offline: v ?? 0 })} style={{ width: '100%' }} addonAfter="seats" placeholder={f.seat_limit ? '0' : 'No limit'} />
+                <small>{f.seat_limit
+                  ? `By phone, WhatsApp or in person: they count as taken. ${online ? `${online} registered on the site` : 'Nobody registered on the site yet'} · ${seats.full ? 'group full' : `${seats.left} left`}.`
+                  : 'Give the group a number of seats first.'}</small></div>
             </div>
+            <div className="og-field"><label>Seats left on the site</label>
+              <Segmented block value={f.seats_display} disabled={!f.seat_limit} onChange={v => set({ seats_display: v as SeatsDisplay })}
+                options={(Object.keys(SEATS_DISPLAY_LABEL) as SeatsDisplay[]).map(k => ({ value: k, label: SEATS_DISPLAY_LABEL[k].name }))} />
+              <small>{SEATS_DISPLAY_LABEL[f.seats_display].text}{f.seat_limit ? <> Visitors see now: <strong>{seen}</strong>.</> : null}</small></div>
           </section>
 
           {/* 4 ── Price */}

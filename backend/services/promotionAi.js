@@ -243,7 +243,9 @@ THE FIELDS — the lengths are maxima, shorter is better
 - level: as given (« A2 », « B1 → B2 », « NCLC 7 »), or null.
 - class_starts_on / class_ends_on: « YYYY-MM-DD ». For an event, class_starts_on is the day of the event and class_ends_on is null. Work out relative dates (« next Monday », « in January ») from today's date. null when not given.
 - teacher_name: only when the brief names the teacher.
-- seat_limit: the TOTAL number of seats of the group when given, else null. The site counts the seats left from the registrations by itself: « only 5 seats left » is never a new total — keep seat_limit, use the words for urgency, and say it in notes. show_seats: true when seat_limit is 20 or fewer, else false.
+- seat_limit: the TOTAL number of seats of the group when given, else null. « Only 5 seats left » is never a new total: keep seat_limit.
+- seats_offline: people already registered OUTSIDE the site (by phone, WhatsApp, in person). They are real and count as taken seats. When the brief gives it, use it. When the brief says how many seats are LEFT and the total is known, seats_offline = total − seats left − registrations already made on the site (given below, 0 for a new campaign), never below 0. Otherwise keep the current value (0 for a new campaign). Say in notes what you set.
+- seats_display: « auto » (recommended: the site shows « only 3 seats left » once few remain, and the size of the group before), « always » to always show the seats left, « never » to hide them. Use « auto » unless the brief asks otherwise.
 - price_regular / price_promo: numbers only (no currency sign), from the brief. A single price goes in price_regular. A free event: price_regular 0. Otherwise null.
 - currency: CAD unless the brief says US dollars (USD) or euros (EUR).
 - starts_at / ends_at: when the campaign shows on the site, as local time « YYYY-MM-DDTHH:mm » in the administrator's time zone. starts_at: now, unless the brief asks for a later start. ends_at: the registration deadline when given; otherwise, for a group class or an event, the day before it starts at 23:59; otherwise 21 days from now at 23:59; null only for an announcement with no end.
@@ -294,7 +296,8 @@ const SCHEMA = {
         class_ends_on: nstr('YYYY-MM-DD or null'),
         teacher_name: nstr('Teacher name only if given'),
         seat_limit: { type: 'integer', nullable: true },
-        show_seats: { type: 'boolean' },
+        seats_offline: { type: 'integer', nullable: true },
+        seats_display: { type: 'string', enum: ['auto', 'always', 'never'] },
         price_regular: { type: 'number', nullable: true },
         price_promo: { type: 'number', nullable: true },
         currency: { type: 'string', enum: ['CAD', 'USD', 'EUR'] },
@@ -315,7 +318,7 @@ const SCHEMA = {
     },
     required: [
         'kind', 'audience', 'title_fr', 'title_en', 'tagline_fr', 'tagline_en', 'description_fr', 'description_en',
-        'highlights_fr', 'highlights_en', 'cta_fr', 'cta_en', 'show_seats', 'currency', 'starts_at', 'show_countdown',
+        'highlights_fr', 'highlights_en', 'cta_fr', 'cta_en', 'seats_display', 'currency', 'starts_at', 'show_countdown',
         'place_home', 'place_learn', 'place_bar', 'place_flash', 'priority', 'theme', 'image_key', 'registration_mode',
         'image_prompt', 'notes',
     ],
@@ -333,7 +336,7 @@ function currentForModel(current, tz) {
     return out;
 }
 
-function userPrompt({ brief, current, tz, notesLang, now = new Date() }) {
+function userPrompt({ brief, current, tz, notesLang, now = new Date(), onSite = 0 }) {
     const today = new Intl.DateTimeFormat('en-GB', {
         timeZone: tz, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
     }).format(now);
@@ -347,7 +350,8 @@ function userPrompt({ brief, current, tz, notesLang, now = new Date() }) {
         '"""',
     ];
     if (current) {
-        lines.push('', 'CURRENT CAMPAIGN (JSON) — the brief above asks for changes to it:', JSON.stringify(current));
+        lines.push('', 'CURRENT CAMPAIGN (JSON) — the brief above asks for changes to it:', JSON.stringify(current),
+            `Registrations already made on the site for it: ${onSite}.`);
     }
     lines.push('', 'PHOTO CATALOGUE (image_key — what it shows):',
         ...PICTURE_KEYS.map(k => `- ${k} — ${PICTURES[k]}`));
@@ -373,7 +377,8 @@ function toFields(raw, tz, now = new Date()) {
         class_ends_on: dayOf(raw.class_ends_on),
         teacher_name: plain(raw.teacher_name).slice(0, 120) || null,
         seat_limit: Number.isInteger(raw.seat_limit) && raw.seat_limit > 0 && raw.seat_limit <= 100000 ? raw.seat_limit : null,
-        show_seats: raw.show_seats !== false,
+        seats_display: ['auto', 'always', 'never'].includes(raw.seats_display) ? raw.seats_display : 'auto',
+        seats_offline: Number.isInteger(raw.seats_offline) && raw.seats_offline > 0 ? raw.seats_offline : 0,
         price_regular: Number.isFinite(raw.price_regular) && raw.price_regular >= 0 ? Math.round(raw.price_regular * 100) / 100 : null,
         price_promo: Number.isFinite(raw.price_promo) && raw.price_promo >= 0 ? Math.round(raw.price_promo * 100) / 100 : null,
         currency: ['CAD', 'USD', 'EUR'].includes(raw.currency) ? raw.currency : 'CAD',
@@ -416,7 +421,9 @@ function toFields(raw, tz, now = new Date()) {
         fixes.push('prices');
     }
     if (fields.price_regular !== null && fields.price_promo !== null && fields.price_promo === fields.price_regular) fields.price_promo = null;
-    if (!fields.seat_limit) fields.show_seats = true;
+    // Seats outside the site only exist in a group with a size, and never beyond it.
+    if (!fields.seat_limit) fields.seats_offline = 0;
+    else if (fields.seats_offline > fields.seat_limit) { fields.seats_offline = fields.seat_limit; fixes.push('seats_offline'); }
     if (!fields.title_fr && !fields.title_en) throw new AiError('AI_NO_TITLE', 'The AI did not write a title. Try again with a little more detail.', 502);
 
     // The final word belongs to the same rules as a campaign typed by hand.
@@ -430,13 +437,14 @@ function toFields(raw, tz, now = new Date()) {
  * administrator's points to check, the art direction for the picture and
  * the model that wrote it.
  */
-async function draftCampaign({ brief: rawBrief, current, timezone, notesLang, userTimezone }) {
+async function draftCampaign({ brief: rawBrief, current, timezone, notesLang, userTimezone, registeredOnSite }) {
     const brief = briefOf(rawBrief);
     if (brief.length < 8) throw new AiError('AI_BRIEF_SHORT', 'Describe the campaign in a sentence or two (what, for whom, when, price, seats).');
     const tz = zoneOf(timezone) || zoneOf(userTimezone) || 'America/Toronto';
     const lang = NOTES_LANGS.includes(notesLang) ? notesLang : 'en';
     const now = new Date();
-    const prompt = userPrompt({ brief, current: currentForModel(current, tz), tz, notesLang: lang, now });
+    const onSite = Number.isInteger(Number(registeredOnSite)) && Number(registeredOnSite) > 0 ? Number(registeredOnSite) : 0;
+    const prompt = userPrompt({ brief, current: currentForModel(current, tz), tz, notesLang: lang, now, onSite });
 
     try {
         const { result, model, engine } = await ai.withFallback('writing', async (client, model) => {

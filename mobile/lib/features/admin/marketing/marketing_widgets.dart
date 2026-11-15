@@ -159,14 +159,7 @@ class CampaignPreview extends StatelessWidget {
                         ),
                       if (schedule != null) _fact(Icons.schedule, schedule, onLight),
                       if (c.teacher != null) _fact(Icons.person_outline, c.teacher!, onLight),
-                      if (c.seatLimit != null && c.showSeats)
-                        _fact(
-                          Icons.event_seat_outlined,
-                          c.full
-                              ? (fr ? 'Complet · liste d’attente' : 'Full · waiting list')
-                              : (fr ? 'Plus que ${c.seatsLeft ?? c.seatLimit} place(s)' : '${c.seatsLeft ?? c.seatLimit} seat(s) left'),
-                          onLight,
-                        ),
+                      if (campaignSeatsLine(c, fr) case final seats?) _fact(Icons.event_seat_outlined, seats, onLight),
                     ],
                   ),
                   if (points.isNotEmpty) ...[

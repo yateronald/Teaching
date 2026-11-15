@@ -16,6 +16,13 @@ const REGISTRATION_MODES = ['form', 'link', 'none'];
 const REGISTRATION_STATUSES = ['new', 'contacted', 'confirmed', 'waitlist', 'cancelled'];
 /** Registrations that hold a seat. */
 const SEATED = ['new', 'contacted', 'confirmed'];
+/**
+ * How the seats left are shown: "auto" only when few remain (otherwise the
+ * size of the group, « Petit groupe · 8 places max »), "always", or "never".
+ */
+const SEATS_DISPLAY = ['auto', 'always', 'never'];
+/** In "auto", the count shows from this number of seats left: 40 % of the group, and never fewer than 3. */
+const seatsAlertAt = (limit) => Math.max(3, Math.ceil(limit * 0.4));
 /** Where a campaign can be seen or clicked on the site. */
 const PLACEMENTS = ['bar', 'home', 'flash', 'learn', 'offers', 'link'];
 const LANGS = ['en', 'fr'];
@@ -101,7 +108,10 @@ function clean(body = {}) {
         schedule_fr: text(body.schedule_fr, 160),
         teacher_name: text(body.teacher_name, 120),
         seat_limit: body.seat_limit === null || body.seat_limit === undefined || body.seat_limit === '' ? null : Number(body.seat_limit),
-        show_seats: body.show_seats !== false,
+        // Older apps only know show_seats: false still hides the count.
+        seats_display: SEATS_DISPLAY.includes(body.seats_display) ? body.seats_display : (body.show_seats === false ? 'never' : 'auto'),
+        // People registered outside the site (phone, WhatsApp, in person): real seats, counted as taken.
+        seats_offline: body.seats_offline === undefined || body.seats_offline === null || body.seats_offline === '' ? 0 : Number(body.seats_offline),
         price_regular: money(body.price_regular),
         price_promo: money(body.price_promo),
         currency: CURRENCIES.includes(body.currency) ? body.currency : 'CAD',
@@ -127,6 +137,10 @@ function clean(body = {}) {
     if (isBad(v.starts_at) || isBad(v.ends_at)) errors.push('The dates of the campaign are not valid.');
     else if (v.ends_at && v.ends_at <= v.starts_at) errors.push('The campaign must end after it starts.');
     if (v.seat_limit !== null && !(Number.isInteger(v.seat_limit) && v.seat_limit > 0 && v.seat_limit <= 100000)) errors.push('The number of seats must be a whole number above zero (or empty for no limit).');
+    if (!(Number.isInteger(v.seats_offline) && v.seats_offline >= 0 && v.seats_offline <= 100000)) errors.push('The seats taken outside the site must be a whole number (0 or more).');
+    else if (v.seat_limit === null) v.seats_offline = 0;
+    else if (v.seats_offline > v.seat_limit) errors.push('The seats taken outside the site cannot be more than the seats of the group.');
+    v.show_seats = v.seats_display !== 'never';
     if (isBad(v.price_regular) || isBad(v.price_promo)) errors.push('A price must be a number.');
     else if (v.price_regular !== null && v.price_promo !== null && v.price_promo > v.price_regular) errors.push('The campaign price cannot be higher than the regular price.');
     if (v.registration_mode === 'link') {
@@ -178,8 +192,17 @@ function wordsIn(p, lang) {
 }
 
 /** What the admin console receives: every field, plus the state and the counts. */
+/** The seats of a campaign: registered on the site, outside it, in all, and what is left. */
+function seatsOf(p) {
+    const online = p.seats_taken || 0;
+    const offline = p.seat_limit ? Math.max(0, Number(p.seats_offline) || 0) : 0;
+    const taken = online + offline;
+    const display = SEATS_DISPLAY.includes(p.seats_display) ? p.seats_display : (p.show_seats === false ? 'never' : 'auto');
+    return { online, offline, taken, left: p.seat_limit ? Math.max(0, p.seat_limit - taken) : null, display };
+}
+
 function adminShape(p) {
-    const taken = p.seats_taken || 0;
+    const seats = seatsOf(p);
     return {
         id: p.id, slug: p.slug, kind: p.kind, status: p.status, state: stateOf(p),
         title_en: p.title_en, title_fr: p.title_fr, tagline_en: p.tagline_en, tagline_fr: p.tagline_fr,
@@ -189,7 +212,7 @@ function adminShape(p) {
         audience: p.audience, level: p.level,
         class_starts_on: p.class_starts || null, class_ends_on: p.class_ends || null,
         schedule_en: p.schedule_en, schedule_fr: p.schedule_fr, teacher_name: p.teacher_name,
-        seat_limit: p.seat_limit, show_seats: p.show_seats,
+        seat_limit: p.seat_limit, show_seats: seats.display !== 'never', seats_display: seats.display, seats_offline: seats.offline,
         price_regular: num(p.price_regular), price_promo: num(p.price_promo), currency: p.currency,
         price_note_en: p.price_note_en, price_note_fr: p.price_note_fr,
         starts_at: p.starts_at, ends_at: p.ends_at, show_countdown: p.show_countdown,
@@ -199,8 +222,10 @@ function adminShape(p) {
         created_at: p.created_at, updated_at: p.updated_at,
         registrations: p.registrations || 0,
         new_registrations: p.new_registrations || 0,
-        seats_taken: taken,
-        seats_left: p.seat_limit ? Math.max(0, p.seat_limit - taken) : null,
+        // All the seats taken (on the site and outside it), and those registered on the site.
+        seats_taken: seats.taken,
+        seats_online: seats.online,
+        seats_left: seats.left,
         waitlist: p.waitlist || 0,
         last_registration_at: p.last_registration_at || null,
         views: p.views || 0, clicks: p.clicks || 0,
@@ -209,13 +234,16 @@ function adminShape(p) {
 
 /** What a visitor's browser receives: only what the site shows. */
 function publicShape(p) {
-    const taken = p.seats_taken || 0;
-    const full = !!p.seat_limit && taken >= p.seat_limit;
+    const seats = seatsOf(p);
+    const full = !!p.seat_limit && seats.taken >= p.seat_limit;
     return {
         slug: p.slug, kind: p.kind, audience: p.audience, level: p.level, theme: p.theme, image: p.image_key,
         text: { en: wordsIn(p, 'en'), fr: wordsIn(p, 'fr') },
         class_starts_on: p.class_starts || null, class_ends_on: p.class_ends || null, teacher: p.teacher_name,
-        seats: p.seat_limit && p.show_seats ? { limit: p.seat_limit, left: Math.max(0, p.seat_limit - taken) } : null,
+        // show_left: whether to say « 3 places left » or, while many remain, the size of the group.
+        seats: p.seat_limit && seats.display !== 'never'
+            ? { limit: p.seat_limit, left: seats.left, show_left: seats.display === 'always' || seats.left <= seatsAlertAt(p.seat_limit) }
+            : null,
         full,
         price: p.price_regular !== null || p.price_promo !== null
             ? { regular: num(p.price_regular), promo: num(p.price_promo), currency: p.currency }
@@ -229,6 +257,7 @@ function publicShape(p) {
 
 module.exports = {
     KINDS, STATUSES, AUDIENCES, THEMES, CURRENCIES, REGISTRATION_MODES, REGISTRATION_STATUSES, SEATED, PLACEMENTS, LANGS,
+    SEATS_DISPLAY, seatsAlertAt, seatsOf,
     COLUMNS, COUNTS_JOIN,
     ready, clean, stateOf, slugify, freeSlug, wordsIn, adminShape, publicShape, text, longText,
 };
