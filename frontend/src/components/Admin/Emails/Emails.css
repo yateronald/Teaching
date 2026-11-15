@@ -115,11 +115,83 @@
 .em-tabs .ant-tabs-tab { font-weight: 600; }
 .og-text-warn { font-size: 12px; color: #b45309; }
 
-/* AI: buttons the email will have */
-.em-ai-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
-.em-ai-buttons .og-field { gap: 6px; }
-.em-ai-buttons .ant-segmented { align-self: flex-start; max-width: 100%; overflow-x: auto; }
-@media (max-width: 720px) { .em-ai-buttons { grid-template-columns: minmax(0, 1fr); } }
+/* ── The AI panel: numbered steps, then the settings and the button ── */
+.em-ai { --ai: #6d4aff; --ai-ink: #4c2fd1; --ai-soft: #f4f1ff; --ai-line: #e4ddff; container-type: inline-size; }
+.em-ai > header { margin-bottom: 4px; }
+.em-ai > header span { white-space: normal; }
+.em-ai-step { padding: 14px 0 2px; }
+.em-ai-step + .em-ai-step { border-top: 1px solid #f1eefc; }
+.em-ai-step-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 9px; }
+.em-ai-step-head strong { font-size: 13.5px; color: var(--x-ink); }
+.em-ai-step-head em { font-size: 12px; font-style: normal; color: var(--x-subtle); }
+.em-ai-n { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; align-self: center; width: 20px; height: 20px; border-radius: 50%; background: var(--ai-soft); font-size: 11px; font-weight: 800; color: var(--ai-ink); }
+
+/* Choices as pills (what it is for, what a button opens) */
+.em-ai-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.em-ai .em-goal { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-color: #e5e7eb; font-weight: 600; }
+.em-ai .em-goal .anticon { font-size: 13px; color: var(--x-subtle); transition: color 0.15s; }
+.em-ai .em-goal:hover:not(:disabled) { border-color: var(--ai); }
+.em-ai .em-goal.is-on { border-color: var(--ai); background: var(--ai-soft); color: var(--ai-ink); box-shadow: 0 0 0 1px var(--ai) inset; }
+.em-ai .em-goal.is-on .anticon { color: var(--ai); }
+.em-ai .em-goal.is-whatsapp.is-on { border-color: #1fa855; background: #ecfdf3; color: #146c3a; box-shadow: 0 0 0 1px #1fa855 inset; }
+.em-ai .em-goal.is-whatsapp.is-on .anticon { color: #1fa855; }
+
+.em-ai-brief.ant-input { border-radius: 12px; padding: 10px 12px; font-size: 14px; line-height: 1.55; }
+.em-ai .mk-ai-ideas { margin-top: 10px; }
+
+/* The two buttons of the email, side by side */
+.em-ai-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.em-ai-button { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px; border: 1px solid #ece9f7; border-radius: 12px; background: #fcfbff; }
+.em-ai-button.is-primary { border-color: var(--ai-line); background: #fff; box-shadow: 0 1px 2px rgba(76, 47, 209, 0.06); }
+.em-ai-button-title { font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--x-muted); }
+.em-ai-button-title em { font-style: normal; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--x-subtle); }
+.em-ai-button .em-goal { padding: 5px 10px; font-size: 12px; }
+.em-ai-button small { font-size: 11.5px; line-height: 1.4; color: var(--x-subtle); }
+@container (max-width: 560px) { .em-ai-buttons { grid-template-columns: minmax(0, 1fr); } }
+
+/* Extras: a campaign to promote, a picture */
+.em-ai-extras { display: flex; flex-direction: column; gap: 8px; }
+.em-ai-extra { border: 1px solid #ece9f7; border-radius: 12px; background: #fff; transition: border-color 0.15s, background 0.15s; }
+.em-ai-extra.is-on { border-color: var(--ai-line); background: #fcfbff; }
+.em-ai-extra-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 10px 12px; }
+.em-ai-extra-ic { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; font-size: 15px; }
+.em-ai-extra-ic.is-campaign { background: #eff6ff; color: #1d4ed8; }
+.em-ai-extra-ic.is-picture { background: #fdf2f8; color: #be185d; }
+.em-ai-extra-text { display: flex; flex: 1 1 200px; flex-direction: column; min-width: 0; line-height: 1.35; }
+.em-ai-extra-text strong { font-size: 13px; color: var(--x-ink); }
+.em-ai-extra-text em { font-size: 12px; font-style: normal; color: var(--x-subtle); }
+.em-ai-extra-select { flex: 0 1 240px; min-width: 180px; }
+.em-ai-extra-head > .ant-switch { flex-shrink: 0; margin-left: auto; }
+.em-ai-extra-head:has(> .ant-switch) .em-ai-extra-text { flex-basis: 0; }
+.em-ai-extra-body { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px 56px; }
+@container (max-width: 560px) { .em-ai-extra-body { padding-left: 12px; } .em-ai-extra-select { flex: 1 1 100%; } }
+.em-ai-place { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.em-ai-place-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--x-ink); text-align: left; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.em-ai-place-opt:hover:not(:disabled) { border-color: var(--ai); }
+.em-ai-place-opt.is-on { border-color: var(--ai); box-shadow: 0 0 0 1px var(--ai) inset; color: var(--ai-ink); }
+.em-ai-place-opt i { display: flex; flex-direction: column; gap: 3px; flex-shrink: 0; width: 34px; height: 40px; padding: 4px; border-radius: 6px; background: #f1f3f8; }
+.em-ai-place-opt i b { display: block; height: 4px; width: 70%; border-radius: 2px; background: #94a3b8; }
+.em-ai-place-opt i s { display: block; height: 3px; width: 90%; border-radius: 2px; background: #cbd5e1; text-decoration: none; }
+.em-ai-place-opt.is-top i b { order: -1; height: 14px; width: 100%; border-radius: 3px; background: linear-gradient(135deg, #c4b5fd, var(--ai)); }
+.em-ai-place-opt.is-inline i b { height: 4px; }
+.em-ai-place-opt.is-inline i::after { content: ''; display: block; order: 1; height: 10px; border-radius: 3px; background: linear-gradient(135deg, #c4b5fd, var(--ai)); }
+.em-ai-place-opt.is-inline i s:last-child { order: 2; }
+
+/* The foot: model and layout on one side, the button on the other */
+.em-ai-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-top: 16px; padding-top: 14px; border-top: 1px solid #f1eefc; }
+.em-ai-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.em-ai-go-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 10px; margin-left: auto; }
+.em-ai-wait { max-width: 260px; font-size: 12px; line-height: 1.35; text-align: right; color: var(--x-subtle); }
+.em-ai .mk-ai-go.ant-btn-lg { height: 42px; padding: 0 20px; border-radius: 12px; font-weight: 700; }
+.em-ai .mk-ai-go.ant-btn-primary:disabled { background: #ede9fe; color: #a78bfa; box-shadow: none; }
+@container (max-width: 560px) { .em-ai-go-row, .em-ai-go-row .mk-ai-go { width: 100%; } .em-ai-wait { width: 100%; max-width: none; text-align: left; } }
+
+/* The editor's bottom bar on a phone: the note above, the buttons below */
+@media (max-width: 560px) {
+  .mk-drawer .og-foot { flex-wrap: wrap; }
+  .mk-drawer .og-foot-note { flex: 1 1 100%; }
+  .mk-drawer .og-foot .ant-btn { flex: 1; }
+}
 
 /* Words */
 .em-lang-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-radius: 12px; background: var(--x-soft); }
@@ -205,21 +277,22 @@
 .em-colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .em-color { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--x-line); border-radius: 10px; font-size: 12.5px; color: var(--x-ink); cursor: pointer; }
 
-/* AI: the model to write with */
-.em-model { margin-bottom: 12px; }
-.em-model-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.em-model-option { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
-.em-model-option i { font-size: 11px; font-style: normal; color: var(--x-subtle); }
-.em-model-option i.is-ok { color: #047857; }
-.em-model-option i.is-missing, .em-model-option i.is-error { color: #b45309; }
-.em-model-option i.is-busy { color: #1d4ed8; }
+/* AI: the model to write with (Vertex), in the foot */
+.em-model { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.em-model-row { display: flex; align-items: center; gap: 4px; }
+.em-model-label { display: inline-flex; align-items: center; gap: 5px; margin-right: 2px; font-size: 12px; font-weight: 700; color: var(--x-muted); }
+.em-model-select { min-width: 170px; }
+.em-model .og-text-warn { max-width: 340px; font-size: 11.5px; line-height: 1.35; }
+.em-model-option { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.em-model-option em { font-size: 11px; font-style: normal; color: var(--x-subtle); }
+.em-model-option em.is-ok { color: #047857; }
+.em-model-option em.is-missing, .em-model-option em.is-error { color: #b45309; }
+.em-model-option em.is-busy { color: #1d4ed8; }
+.em-model-option i { display: inline-block; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
+.em-model-option i.is-ok { background: #10b981; }
+.em-model-option i.is-missing, .em-model-option i.is-error { background: #f59e0b; }
+.em-model-option i.is-busy { background: #3b82f6; }
 
-/* AI: the picture asked with the email */
-.em-ai-picture { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 10px 12px; border: 1px dashed #ddd6fe; border-radius: 12px; background: #fff; }
-.em-ai-picture.is-on { border-style: solid; background: #faf5ff; }
-.em-ai-picture .mk-switch strong { color: var(--x-ink); }
-.em-ai-picture-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--x-muted); }
-.em-ai-picture-row > span { font-weight: 700; }
 .em-ai-result-picture { display: flex; gap: 12px; align-items: flex-start; margin: 8px 0; }
 .em-ai-result-picture img { flex-shrink: 0; width: 132px; height: 74px; object-fit: cover; border-radius: 10px; border: 1px solid var(--x-line); }
 .em-ai-result-picture > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }

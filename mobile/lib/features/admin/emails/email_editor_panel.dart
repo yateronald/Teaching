@@ -12,6 +12,7 @@ import '../common/admin_kit.dart';
 import '../marketing/campaign_ai.dart' show AiMark, aiTimeZone;
 import '../marketing/marketing_model.dart' show themeOf;
 import '../marketing/marketing_widgets.dart' show CampaignPicture, MarketingBanner;
+import 'email_ai_widgets.dart';
 import 'email_design_section.dart';
 import 'email_form_builder.dart';
 import 'email_model.dart';
@@ -350,6 +351,65 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
     } finally {
       if (mounted) setState(() => _drawing = false);
     }
+  }
+
+  /// The models to write with (Vertex), what each did lately, and « Check »: in a sheet from the bottom.
+  Future<void> _pickModel() async {
+    final fr = context.isFrench;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: AppColors.pureWhite,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(fr ? 'Modèle d’IA' : 'AI model', style: AppTypography.titleMedium.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink)),
+                Text(
+                  fr
+                      ? 'Vertex AI. Si le modèle choisi ne répond pas, Gemini 3.8 écrit à sa place et vous êtes prévenu.'
+                      : 'Vertex AI. If the model picked does not answer, Gemini 3.8 writes instead and you are told.',
+                  style: AppTypography.caption.copyWith(color: AppColors.textMuted, height: 1.4),
+                ),
+                const SizedBox(height: 8),
+                for (final m in _choices)
+                  ListTile(
+                    key: Key('email-ai-model-${m['id']}'),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    leading: Icon(_model == m['id'] ? Icons.radio_button_checked : Icons.radio_button_off, color: _model == m['id'] ? AiColors.ai : AppColors.textMuted),
+                    title: Text(J.s(m['label']), style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink)),
+                    subtitle: modelStateLabel(m['state'], fr) == null
+                        ? null
+                        : Text(modelStateLabel(m['state'], fr)!, style: AppTypography.caption.copyWith(color: modelStateColor(m['state']))),
+                    trailing: Container(width: 9, height: 9, decoration: BoxDecoration(color: modelStateColor(m['state']), shape: BoxShape.circle)),
+                    onTap: () => Navigator.of(ctx).pop(J.s(m['id'])),
+                  ),
+                const SizedBox(height: 4),
+                OutlinedButton.icon(
+                  key: const Key('email-ai-check-models'),
+                  onPressed: _checking
+                      ? null
+                      : () async {
+                          setSheet(() => _checking = true);
+                          await _checkModels();
+                          if (ctx.mounted) setSheet(() {});
+                        },
+                  icon: _checking ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.sync, size: 18),
+                  label: Text(fr ? 'Vérifier quels modèles répondent' : 'Check which models answer'),
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _model = picked);
   }
 
   /// One short call to each model, to see which ones answer on this project.
@@ -781,10 +841,75 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
     final notes = result == null ? <String>[] : ((result['notes'] as List?) ?? []).map((n) => '$n').toList();
     final promotions = J.list(widget.meta, ['promotions']);
     final hasContent = ['fr', 'en'].any((l) => _text(_t['subject_$l']!) != null || _text(_t['body_$l']!) != null);
+    final busy = _writing || _drawing;
+    final painter = J.s(J.map(widget.meta['ai'])['image_model']);
+    final picked = _choices.firstWhere((m) => m['id'] == _model, orElse: () => <String, dynamic>{});
+    final linkBad = [(_primary, _url1), (_secondary, _url2)].any((b) {
+      final url = b.$2.text.trim();
+      return url.isNotEmpty && ((b.$1 == 'link' && !isHttpsLink(url)) || (b.$1 == 'whatsapp' && !isWhatsAppInvite(url)));
+    });
+    final waitHint = _brief.text.trim().length < 8
+        ? (fr ? 'Décrivez l’email en une ou deux phrases pour commencer.' : 'Describe the email in a sentence or two to start.')
+        : linkBad
+        ? (fr ? 'Vérifiez les liens des boutons ci-dessus.' : 'Check the button links above.')
+        : null;
+
+    Widget pills(List<String> values, String selected, String keyPrefix, void Function(String) onPick, {IconData Function(String)? icon, String Function(String)? label}) => Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        for (final v in values)
+          AiPill(
+            key: Key('$keyPrefix-$v'),
+            label: label?.call(v) ?? actionLabel(v, fr),
+            icon: icon?.call(v),
+            selected: selected == v,
+            whatsapp: v == 'whatsapp' && keyPrefix != 'email-goal',
+            onTap: busy ? null : () => onPick(v),
+          ),
+      ],
+    );
+
+    Widget buttonCard(String which) {
+      final primary = which == 'primary';
+      final action = primary ? _primary : _secondary;
+      final url = primary ? _url1 : _url2;
+      final suffix = primary ? '' : '-2';
+      final note = switch (action) {
+        'link' => url.text.trim().isEmpty ? (fr ? 'Vide : l’IA choisit la bonne page du site.' : 'Empty: the AI picks the right page of the site.') : null,
+        'form' => fr ? 'L’IA écrit ses questions ; vous pourrez les changer.' : 'The AI writes its questions; you can change them after.',
+        'whatsapp' => isWhatsAppInvite(url.text) ? null : (fr ? 'Collez le lien d’invitation du groupe.' : 'Paste the group’s invitation link.'),
+        _ => fr ? 'Un second choix plus doux, ex. le groupe WhatsApp à côté d’un formulaire.' : 'A softer second choice, e.g. the WhatsApp group next to a form.',
+      };
+      return AiButtonCard(
+        title: primary ? (fr ? 'Bouton principal' : 'Main button') : (fr ? 'Deuxième bouton' : 'Second button'),
+        hint: primary ? null : (fr ? 'facultatif' : 'optional'),
+        primary: primary,
+        children: [
+          pills([if (!primary) 'none', ...emailActions], action, 'email-ai-$which', (a) => _setAction(which, a), icon: actionIcon),
+          if (action == 'link' || action == 'whatsapp') ...[
+            const SizedBox(height: 10),
+            TextField(
+              key: Key(action == 'whatsapp' ? 'email-ai-whatsapp$suffix' : 'email-ai-link$suffix'),
+              controller: url,
+              enabled: !busy,
+              keyboardType: TextInputType.url,
+              style: AppTypography.bodyMedium,
+              decoration: adminInputDecoration(
+                action == 'whatsapp' ? (fr ? 'Lien d’invitation du groupe' : 'Group invitation link') : (fr ? 'Lien (facultatif)' : 'Link (optional)'),
+                hint: action == 'whatsapp' ? 'https://chat.whatsapp.com/…' : 'https://…',
+              ),
+            ),
+          ],
+          if (note != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(note, style: AppTypography.caption.copyWith(color: AppColors.textMuted, height: 1.35))),
+        ],
+      );
+    }
+
     return AdminCard(
       title: hasContent ? (fr ? 'Modifier l’email avec l’IA' : 'Change the email with AI') : (fr ? 'Écrire l’email avec l’IA' : 'Write the email with AI'),
       icon: Icons.auto_awesome,
-      accent: const Color(0xFF6D4AFF),
+      accent: AiColors.ai,
       child: !available
           ? Text(
               fr ? 'Le moteur d’IA n’est pas configuré sur le serveur (Admin → Moteur d’IA).' : 'The AI engine is not configured on the server (Admin → AI engine).',
@@ -793,234 +918,304 @@ class _EmailEditorPanelState extends ConsumerState<EmailEditorPanel> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (_vertex && _choices.isNotEmpty) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(fr ? 'Modèle d’IA (Vertex AI)' : 'AI model (Vertex AI)', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: AppColors.textMuted)),
-                      ),
-                      TextButton(
-                        key: const Key('email-ai-check-models'),
-                        onPressed: _checking || _writing ? null : _checkModels,
-                        child: _checking ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2)) : Text(fr ? 'Vérifier' : 'Check'),
-                      ),
-                    ],
-                  ),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      for (final m in _choices)
-                        ChoiceChip(
-                          key: Key('email-ai-model-${m['id']}'),
-                          avatar: m['state'] == 'ok'
-                              ? const Icon(Icons.check_circle, size: 16, color: AppColors.good)
-                              : m['state'] == 'missing' || m['state'] == 'error'
-                              ? const Icon(Icons.block, size: 16, color: AppColors.warn)
-                              : null,
-                          label: Text(J.s(m['label'])),
-                          tooltip: modelStateLabel(m['state'], fr),
-                          selected: _model == m['id'],
-                          visualDensity: VisualDensity.compact,
-                          onSelected: _writing ? null : (_) => setState(() => _model = J.s(m['id'])),
-                        ),
-                    ],
-                  ),
-                  if (_choices.any((m) => m['id'] == _model && m['state'] == 'missing'))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        fr
-                            ? 'Ce modèle n’a pas répondu sur votre projet Vertex (introuvable ou accès non accordé) : le modèle suivant écrira à sa place.'
-                            : 'This model did not answer on your Vertex project (not found or no access): the next model will write instead.',
-                        style: AppTypography.caption.copyWith(color: AppColors.warn),
-                      ),
-                    ),
-                  const SizedBox(height: 12),
-                ],
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final g in emailGoals)
-                      ChoiceChip(
-                        key: Key('email-goal-$g'),
-                        label: Text(goalLabel(g, fr)),
-                        selected: _goal == g,
-                        onSelected: _writing ? null : (_) => setState(() => _goal = g),
-                        visualDensity: VisualDensity.compact,
-                      ),
-                  ],
+                Text(
+                  fr ? 'En français et en anglais, avec vos informations seulement · environ 20 s' : 'In French and English, from your facts only · about 20 s',
+                  style: AppTypography.caption.copyWith(color: AppColors.textMuted),
                 ),
-                const SizedBox(height: 10),
-                TextField(
-                  key: const Key('email-ai-brief'),
-                  controller: _brief,
-                  enabled: !_writing,
-                  maxLines: 5,
-                  minLines: 3,
-                  style: AppTypography.bodyMedium,
-                  decoration: adminInputDecoration(
-                    hasContent
-                        ? (fr ? 'Que faut-il changer ?' : 'What should change?')
-                        : (fr ? 'De quoi parle l’email, et que doivent faire les gens ?' : 'What is the email about, and what should people do?'),
-                    hint: hasContent
-                        ? (fr ? 'ex. Plus court ; demander aussi la date d’examen' : 'e.g. Shorter; also ask for their exam date')
-                        : (fr ? 'Le cours, les dates, le prix, la date limite… L’IA n’utilise que vos informations.' : 'The class, the dates, the price, the deadline… The AI only uses your facts.'),
-                  ),
+                const SizedBox(height: 8),
+                AiStep(
+                  n: 1,
+                  first: true,
+                  title: fr ? 'À quoi sert-il ?' : 'What is it for?',
+                  child: pills(emailGoals, _goal, 'email-goal', (g) => setState(() => _goal = g), icon: goalIcon, label: (g) => goalLabel(g, fr)),
                 ),
-                const SizedBox(height: 10),
-                Text(fr ? 'Le bouton principal ouvre…' : 'The main button opens…', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: AppColors.textMuted)),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final a in emailActions)
-                      ChoiceChip(
-                        key: Key('email-ai-primary-$a'),
-                        avatar: Icon(actionIcon(a), size: 16),
-                        label: Text(actionLabel(a, fr)),
-                        selected: _primary == a,
-                        visualDensity: VisualDensity.compact,
-                        onSelected: _writing ? null : (_) => _setAction('primary', a),
-                      ),
-                  ],
-                ),
-                if (_primary == 'whatsapp') ...[
-                  const SizedBox(height: 10),
-                  AdminField(key: const Key('email-ai-whatsapp'), label: fr ? 'Lien d’invitation du groupe WhatsApp' : 'WhatsApp group invitation link', controller: _url1, keyboardType: TextInputType.url, hint: 'https://chat.whatsapp.com/…'),
-                ],
-                if (_primary == 'form')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: _Hint(fr ? 'L’IA écrit les questions du formulaire : vous pouvez les changer ensuite.' : 'The AI writes the form’s questions: you can change them after.'),
-                  ),
-                const SizedBox(height: 10),
-                Text(fr ? 'Un deuxième bouton ?' : 'A second button?', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: AppColors.textMuted)),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: [
-                    for (final a in ['none', ...emailActions])
-                      ChoiceChip(
-                        key: Key('email-ai-secondary-$a'),
-                        label: Text(actionLabel(a, fr)),
-                        selected: _secondary == a,
-                        visualDensity: VisualDensity.compact,
-                        onSelected: _writing ? null : (_) => _setAction('secondary', a),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (promotions.isNotEmpty)
-                  AdminSelect<int>(
-                    key: ValueKey('email-ai-promotion-$_promotion'),
-                    label: fr ? 'Promouvoir une campagne marketing (facultatif)' : 'Promote a marketing campaign (optional)',
-                    value: _promotion ?? 0,
-                    options: [
-                      FilterOption(0, fr ? 'Aucune' : 'None'),
-                      for (final p in promotions) FilterOption(J.i(p['id']), J.s(p[fr ? 'title_fr' : 'title_en']).isNotEmpty ? J.s(p[fr ? 'title_fr' : 'title_en']) : J.s(p['slug'])),
-                    ],
-                    onChanged: (v) => setState(() => _promotion = (v == null || v == 0) ? null : v),
-                  ),
-                Container(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
-                  margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
-                    color: _withPicture ? const Color(0xFFFAF5FF) : AppColors.pureWhite,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFDDD6FE)),
-                  ),
+                AiStep(
+                  n: 2,
+                  title: hasContent ? (fr ? 'Que faut-il changer ?' : 'What should change?') : (fr ? 'Votre brief' : 'Your brief'),
+                  hint: hasContent ? null : (fr ? 'en français ou en anglais' : 'in French or English'),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      SwitchListTile.adaptive(
-                        key: const Key('email-ai-picture'),
-                        contentPadding: EdgeInsets.zero,
-                        dense: true,
-                        value: _withPicture,
-                        activeTrackColor: const Color(0xFF6D4AFF),
-                        title: Text(fr ? 'Ajouter une image' : 'Add a picture', style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700)),
-                        subtitle: Text(
-                          fr
-                              ? 'Faite par ${J.s(J.map(widget.meta['ai'])['image_model']).isEmpty ? 'le peintre du marketing' : J.s(J.map(widget.meta['ai'])['image_model'])}, comme pour le marketing'
-                              : 'Made by ${J.s(J.map(widget.meta['ai'])['image_model']).isEmpty ? 'the marketing painter' : J.s(J.map(widget.meta['ai'])['image_model'])}, like marketing',
-                          style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                      TextField(
+                        key: const Key('email-ai-brief'),
+                        controller: _brief,
+                        enabled: !busy,
+                        maxLines: 8,
+                        minLines: 4,
+                        style: AppTypography.bodyMedium.copyWith(height: 1.45),
+                        // No label (the step says what it is): the hint shows in the empty box.
+                        decoration: InputDecoration(
+                          hintText: hasContent
+                              ? (fr ? 'ex. Plus court ; dire qu’il reste 3 places ; demander aussi la date d’examen' : 'e.g. Shorter; say only 3 seats are left; also ask for their exam date')
+                              : (fr
+                                    ? 'Le cours, les dates, le prix, la date limite, ce que les gens doivent faire… L’IA n’utilise que vos informations.'
+                                    : 'The class, the dates, the price, the deadline, what people should do… The AI only uses your facts.'),
+                          hintMaxLines: 4,
+                          hintStyle: AppTypography.bodySmall.copyWith(color: AppColors.textMuted, height: 1.45),
+                          filled: true,
+                          fillColor: AppColors.pureWhite,
+                          contentPadding: const EdgeInsets.all(12),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.border)),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AiColors.ai, width: 1.5)),
                         ),
-                        onChanged: _writing || _drawing ? null : (v) => setState(() => _withPicture = v),
                       ),
-                      if (_withPicture) ...[
-                        TextField(
-                          key: const Key('email-ai-picture-prompt'),
-                          controller: _picturePrompt,
-                          enabled: !_writing,
-                          minLines: 2,
-                          maxLines: 4,
-                          style: AppTypography.bodyMedium,
-                          decoration: adminInputDecoration(
-                            fr ? 'Décrivez l’image (facultatif)' : 'Describe the picture (optional)',
-                            hint: fr ? 'Qui, où, en train de faire quoi. Vide : l’IA en imagine une qui va avec l’email.' : 'Who, where, doing what. Empty: the AI imagines one that fits the email.',
-                          ),
-                        ),
-                        const SizedBox(height: 8),
+                      if (_brief.text.isEmpty && !hasContent) ...[
+                        const SizedBox(height: 10),
+                        Text(fr ? 'Partir de :' : 'Start from:', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                        const SizedBox(height: 6),
                         Wrap(
                           spacing: 6,
                           runSpacing: 6,
                           children: [
-                            for (final (p, label) in [('top', fr ? 'En haut, en grand' : 'At the top, large'), ('inline', fr ? 'Sous le titre' : 'Under the headline')])
-                              ChoiceChip(
-                                key: Key('email-ai-picture-place-$p'),
+                            for (final (label, goal, action, text) in emailAiIdeas(fr))
+                              ActionChip(
+                                key: Key('email-ai-idea-$goal'),
                                 label: Text(label),
-                                selected: _place == p,
+                                labelStyle: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: const Color(0xFF6D28D9)),
+                                backgroundColor: const Color(0xFFF5F3FF),
+                                side: const BorderSide(color: Color(0xFFDDD6FE)),
+                                shape: const StadiumBorder(),
                                 visualDensity: VisualDensity.compact,
-                                onSelected: _writing ? null : (_) => setState(() => _place = p),
+                                onPressed: busy
+                                    ? null
+                                    : () {
+                                        _brief.text = text;
+                                        setState(() => _goal = goal);
+                                        _setAction('primary', action);
+                                      },
                               ),
                           ],
                         ),
                       ],
+                      if (_brief.text.contains('['))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            fr ? 'Remplacez ce qui est entre [crochets] : ce qui reste est signalé comme manquant.' : 'Replace what is in [brackets] with your details: anything left is reported as missing.',
+                            style: AppTypography.caption.copyWith(color: const Color(0xFF6D28D9)),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                SwitchListTile.adaptive(
-                  key: const Key('email-ai-with-design'),
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  value: _withDesign,
-                  activeTrackColor: const Color(0xFF6D4AFF),
-                  title: Text(fr ? 'Appliquer la mise en page qu’elle choisit' : 'Apply the layout it chooses', style: AppTypography.bodySmall),
-                  onChanged: _writing ? null : (v) => setState(() => _withDesign = v),
+                AiStep(
+                  n: 3,
+                  title: fr ? 'Que doivent faire les gens ?' : 'What should people do?',
+                  child: LayoutBuilder(
+                    builder: (context, box) => box.maxWidth >= 560
+                        ? IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [Expanded(child: buttonCard('primary')), const SizedBox(width: 10), Expanded(child: buttonCard('secondary'))],
+                            ),
+                          )
+                        : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [buttonCard('primary'), const SizedBox(height: 10), buttonCard('secondary')]),
+                  ),
                 ),
-                Row(
-                  children: [
-                    if (_beforeAi != null && !_writing)
-                      TextButton.icon(onPressed: _undoAi, icon: const Icon(Icons.undo, size: 18), label: Text(fr ? 'Annuler' : 'Undo')),
-                    // The button keeps to the room there is (its words shorten on a small phone).
-                    Expanded(
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: FilledButton.icon(
-                          key: const Key('email-ai-go'),
-                          onPressed: _writing || _drawing || _brief.text.trim().length < 8 ? null : _write,
-                          style: FilledButton.styleFrom(backgroundColor: const Color(0xFF6D4AFF)),
-                          icon: _writing || _drawing
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const AiMark(size: 18),
-                          label: Text(
-                            _drawing
-                                ? (fr ? 'L’image… (environ 15 s)' : 'The picture… (about 15 s)')
-                                : _writing
-                                ? (fr ? 'L’IA écrit… (jusqu’à 1 min)' : 'Writing… (up to a minute)')
-                                : hasContent
-                                ? (fr ? 'Appliquer' : 'Apply')
-                                : (fr ? 'Écrire l’email' : 'Write the email'),
-                            overflow: TextOverflow.ellipsis,
+                AiStep(
+                  n: 4,
+                  title: fr ? 'En plus' : 'Extras',
+                  hint: fr ? 'facultatif' : 'optional',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (promotions.isNotEmpty) ...[
+                        AiExtra(
+                          icon: Icons.campaign_outlined,
+                          tint: const Color(0xFF1D4ED8),
+                          tintBg: const Color(0xFFEFF6FF),
+                          title: fr ? 'Promouvoir une campagne marketing' : 'Promote a marketing campaign',
+                          text: fr ? 'Ses dates, son prix et ses places servent de faits.' : 'Its dates, price and seats are used as facts.',
+                          body: AdminSelect<int>(
+                            key: ValueKey('email-ai-promotion-$_promotion'),
+                            label: fr ? 'Campagne' : 'Campaign',
+                            value: _promotion ?? 0,
+                            options: [
+                              FilterOption(0, fr ? 'Aucune' : 'None'),
+                              for (final p in promotions) FilterOption(J.i(p['id']), J.s(p[fr ? 'title_fr' : 'title_en']).isNotEmpty ? J.s(p[fr ? 'title_fr' : 'title_en']) : J.s(p['slug'])),
+                            ],
+                            onChanged: (v) => setState(() => _promotion = (v == null || v == 0) ? null : v),
                           ),
                         ),
+                        const SizedBox(height: 8),
+                      ],
+                      AiExtra(
+                        on: _withPicture,
+                        icon: Icons.image_outlined,
+                        tint: const Color(0xFFBE185D),
+                        tintBg: const Color(0xFFFDF2F8),
+                        title: fr ? 'Ajouter une image' : 'Add a picture',
+                        text: fr
+                            ? 'Par ${painter.isEmpty ? 'le peintre du marketing' : painter}, comme le marketing · environ 15 s'
+                            : 'By ${painter.isEmpty ? 'the marketing painter' : painter}, like marketing · about 15 s',
+                        trailing: Switch.adaptive(
+                          key: const Key('email-ai-picture'),
+                          value: _withPicture,
+                          activeTrackColor: AiColors.ai,
+                          onChanged: busy ? null : (v) => setState(() => _withPicture = v),
+                        ),
+                        body: !_withPicture
+                            ? null
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  TextField(
+                                    key: const Key('email-ai-picture-prompt'),
+                                    controller: _picturePrompt,
+                                    enabled: !busy,
+                                    minLines: 2,
+                                    maxLines: 4,
+                                    style: AppTypography.bodyMedium,
+                                    decoration: adminInputDecoration(
+                                      fr ? 'Décrivez-la (facultatif)' : 'Describe it (optional)',
+                                      hint: fr ? 'Qui, où, en train de faire quoi. Vide : l’IA en imagine une qui va avec l’email.' : 'Who, where, doing what. Empty: the AI imagines one that fits the email.',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      for (final (p, label) in [('top', fr ? 'En haut, en grand' : 'At the top, large'), ('inline', fr ? 'Sous le titre' : 'Under the headline')]) ...[
+                                        if (p == 'inline') const SizedBox(width: 8),
+                                        Expanded(
+                                          child: AiPlaceTile(
+                                            key: Key('email-ai-picture-place-$p'),
+                                            top: p == 'top',
+                                            label: label,
+                                            selected: _place == p,
+                                            onTap: busy ? null : () => setState(() => _place = p),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(fr ? 'Vérifiée (texte, logos) avant d’être utilisée.' : 'Checked for text and logos before it is used.', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                                ],
+                              ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                ),
+
+                // The foot: the model, the layout, the button.
+                Container(
+                  margin: const EdgeInsets.only(top: 14),
+                  padding: const EdgeInsets.only(top: 12),
+                  decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0xFFF1EEFC)))),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (_vertex && _choices.isNotEmpty)
+                            Material(
+                              color: const Color(0xFFF5F5F7),
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                key: const Key('email-ai-model'),
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: busy ? null : _pickModel,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.memory, size: 16, color: AppColors.textMuted),
+                                      const SizedBox(width: 6),
+                                      Text(fr ? 'Modèle' : 'Model', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: Text(
+                                          J.s(picked['label']).isEmpty ? J.s(_model) : J.s(picked['label']),
+                                          overflow: TextOverflow.ellipsis,
+                                          style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Container(width: 7, height: 7, decoration: BoxDecoration(color: modelStateColor(picked['state']), shape: BoxShape.circle)),
+                                      const Icon(Icons.expand_more, size: 18, color: AppColors.textMuted),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Switch.adaptive(
+                                key: const Key('email-ai-with-design'),
+                                value: _withDesign,
+                                activeTrackColor: AiColors.ai,
+                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                onChanged: busy ? null : (v) => setState(() => _withDesign = v),
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(child: Text(fr ? 'Appliquer sa mise en page' : 'Apply its layout', style: AppTypography.caption.copyWith(color: AppColors.text))),
+                            ],
+                          ),
+                        ],
+                      ),
+                      if (picked['state'] == 'missing')
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            fr
+                                ? '${J.s(picked['label'])} n’est pas encore disponible sur votre projet Vertex : Gemini 3.8 écrira à sa place.'
+                                : '${J.s(picked['label'])} is not available on your Vertex project yet: Gemini 3.8 will write instead.',
+                            style: AppTypography.caption.copyWith(color: AppColors.warn),
+                          ),
+                        ),
+                      if (waitHint != null && !busy)
+                        Padding(padding: const EdgeInsets.only(top: 10), child: Text(waitHint, style: AppTypography.caption.copyWith(color: AppColors.textMuted))),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          if (_beforeAi != null && !busy) ...[
+                            OutlinedButton.icon(
+                              onPressed: _undoAi,
+                              icon: const Icon(Icons.undo, size: 18),
+                              label: Text(fr ? 'Annuler' : 'Undo'),
+                              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: FilledButton.icon(
+                              key: const Key('email-ai-go'),
+                              onPressed: busy || _brief.text.trim().length < 8 || linkBad ? null : _write,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AiColors.ai,
+                                disabledBackgroundColor: const Color(0xFFEDE9FE),
+                                disabledForegroundColor: const Color(0xFFA78BFA),
+                                minimumSize: const Size(0, 48),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                textStyle: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              icon: busy
+                                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : const AiMark(size: 18),
+                              label: Text(
+                                _drawing
+                                    ? (fr ? 'L’image… (environ 15 s)' : 'The picture… (about 15 s)')
+                                    : _writing
+                                    ? (fr ? 'L’IA écrit… (jusqu’à 1 min)' : 'Writing… (up to a minute)')
+                                    : hasContent
+                                    ? (fr ? 'Appliquer les changements' : 'Apply the changes')
+                                    : _withPicture
+                                    ? (fr ? 'Écrire l’email et son image' : 'Write the email and its picture')
+                                    : (fr ? 'Écrire l’email' : 'Write the email'),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
                 if (_aiError != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_aiError!, style: AppTypography.caption.copyWith(color: AppColors.bad))),
                 if (result != null) ...[

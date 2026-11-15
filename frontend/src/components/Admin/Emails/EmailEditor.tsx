@@ -11,7 +11,7 @@ import EmailActions from './EmailActions';
 import EmailDesign from './EmailDesign';
 import EmailPreview from './EmailPreview';
 import {
-  blankEmail, fieldsOf, languageModes, missingFor, placePicture, saveModel, savedModel, usesForm, withDraft,
+  blankEmail, fieldsOf, languageModes, linkProblems, missingFor, placePicture, saveModel, savedModel, usesForm, withDraft,
   type EmailCampaign, type EmailDraft, type EmailFields, type EmailMeta, type Lang, type LanguageMode, type ModelChoice, type Words,
 } from './emailModel';
 import '../../Org/Org.css';
@@ -71,7 +71,9 @@ const EmailEditor: React.FC<Props> = ({ open, meta, campaign, onClose, onSaved }
   };
 
   const missing = useMemo(() => missingFor(f, tr, { postalAddress: meta?.settings.postal_address, recipients: audience?.counts.total }), [f, tr, meta, audience]);
-  const blocking = missing.filter(m => /https|WhatsApp|email field|champ email|choices|choix/.test(m));
+  // What stops saving: a wrong link, a form without an email field or a list without choices (the server refuses them).
+  // Anything else (a link not given yet, a subject in one language…) only stops sending.
+  const blocking = [...linkProblems(f, tr), ...missing.filter(m => /email field|champ email|choices|choix/.test(m))];
   const canSave = !!(f.content.fr.subject || f.content.en.subject || f.content.fr.headline || f.content.en.headline) && !blocking.length;
 
   const save = async () => {

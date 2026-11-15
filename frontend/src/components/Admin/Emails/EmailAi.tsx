@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, Input, Segmented, Select, Switch, Tooltip } from 'antd';
-import { CheckCircleFilled, FormOutlined, LinkOutlined, LoadingOutlined, PictureOutlined, UndoOutlined, UpOutlined, WarningOutlined, WhatsAppOutlined } from '@ant-design/icons';
+import { Button, Input, Select, Switch, Tooltip } from 'antd';
+import {
+  BellOutlined, CalendarOutlined, CheckCircleFilled, FormOutlined, LinkOutlined, LoadingOutlined, NotificationOutlined, PictureOutlined, RobotOutlined,
+  StopOutlined, SyncOutlined, TagOutlined, TeamOutlined, UndoOutlined, UpOutlined, WarningOutlined, WhatsAppOutlined,
+} from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { call, errorText } from '../../Org/orgModel';
 import { Sparkles } from '../Marketing/CampaignAi';
@@ -57,22 +60,43 @@ function ModelPicker({ choices, model, onModel, onChoices, disabled, tr }: {
   };
   const picked = choices.find(c => c.id === model);
   return (
-    <div className="og-field em-model"><label>{tr('AI model', 'Modèle d’IA')} <em>{tr('Vertex AI', 'Vertex AI')}</em></label>
+    <div className="em-model">
       <div className="em-model-row">
-        <Select value={model ?? undefined} onChange={v => onModel(v)} disabled={disabled} style={{ minWidth: 220, flex: 1 }}
+        <span className="em-model-label"><RobotOutlined /> {tr('Model', 'Modèle')}</span>
+        <Select size="small" variant="filled" value={model ?? undefined} onChange={v => onModel(v)} disabled={disabled} popupMatchSelectWidth={false}
+          aria-label={tr('AI model (Vertex AI)', 'Modèle d’IA (Vertex AI)')} className="em-model-select"
+          labelRender={() => <span className="em-model-option"><span>{picked?.label || model}</span>{picked?.state && <i className={`is-${picked.state}`} aria-hidden />}</span>}
           options={choices.map(c => ({
             value: c.id,
-            label: <span className="em-model-option"><span>{c.label}</span>{c.state && <i className={`is-${c.state}`}>{modelStateLabel(c.state, tr)}</i>}</span>,
+            label: <span className="em-model-option"><span>{c.label}</span>{c.state && <em className={`is-${c.state}`}>{modelStateLabel(c.state, tr)}</em>}</span>,
           }))} />
-        <Tooltip title={tr('One short call to each model, to see which ones answer on your project.', 'Un court appel à chaque modèle, pour voir lesquels répondent sur votre projet.')}>
-          <Button onClick={check} loading={checking} disabled={disabled}>{tr('Check', 'Vérifier')}</Button>
+        <Tooltip title={tr('Check which models answer on your Vertex project (one short call each)', 'Vérifier quels modèles répondent sur votre projet Vertex (un court appel chacun)')}>
+          <Button size="small" type="text" icon={<SyncOutlined spin={checking} />} onClick={check} disabled={disabled || checking} aria-label={tr('Check the models', 'Vérifier les modèles')} />
         </Tooltip>
       </div>
       {picked?.state === 'missing' && <small className="og-text-warn">{tr(
-        `${picked.label} did not answer on your Vertex project (not found or no access): the next model will write instead.`,
-        `${picked.label} n’a pas répondu sur votre projet Vertex (introuvable ou accès non accordé) : le modèle suivant écrira à sa place.`,
+        `${picked.label} is not available on your Vertex project yet: Gemini 3.8 will write instead.`,
+        `${picked.label} n’est pas encore disponible sur votre projet Vertex : Gemini 3.8 écrira à sa place.`,
       )}</small>}
       {err && <small className="og-text-warn">{err}</small>}
+    </div>
+  );
+}
+
+const GOAL_ICONS: Record<EmailGoal, React.ReactNode> = {
+  group: <TeamOutlined />, offer: <TagOutlined />, survey: <FormOutlined />, whatsapp: <WhatsAppOutlined />,
+  event: <CalendarOutlined />, news: <NotificationOutlined />, reminder: <BellOutlined />,
+};
+const ACTION_ICONS: Record<SecondaryAction, React.ReactNode> = {
+  none: <StopOutlined />, link: <LinkOutlined />, form: <FormOutlined />, whatsapp: <WhatsAppOutlined />,
+};
+
+/** A numbered step of the panel: its number, its title, a hint, then what it holds. */
+function Step({ n, title, hint, children }: { n: number; title: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div className="em-ai-step">
+      <div className="em-ai-step-head"><span className="em-ai-n">{n}</span><strong>{title}</strong>{hint && <em>{hint}</em>}</div>
+      {children}
     </div>
   );
 }
@@ -104,7 +128,13 @@ const EmailAi: React.FC<Props> = ({ editing, fields, meta, tr, lang, choices, mo
 
   const hasContent = !!(fields.content.fr.subject || fields.content.en.subject || fields.content.fr.body || fields.content.en.body);
   const busy = phase !== 'idle';
-  const urlOk = (b: { action: SecondaryAction; url: string }) => (b.action === 'link' ? !b.url || isHttps(b.url) : b.action === 'whatsapp' ? isWhatsApp(b.url) : true);
+  // A link typed must be right; an empty one is fine to write (the AI does not need it; it is asked before sending).
+  const urlOk = (b: { action: SecondaryAction; url: string }) => {
+    if (!b.url.trim()) return true;
+    if (b.action === 'link') return isHttps(b.url);
+    if (b.action === 'whatsapp') return isWhatsApp(b.url);
+    return true;
+  };
   const ready = brief.trim().length >= 8 && urlOk(primary) && urlOk(secondary);
 
   const run = async () => {
@@ -155,25 +185,41 @@ const EmailAi: React.FC<Props> = ({ editing, fields, meta, tr, lang, choices, mo
     );
   }
 
-  const actions = (withNone: boolean) => [
-    ...(withNone ? [{ value: 'none', label: tr('None', 'Aucun') }] : []),
-    { value: 'link', label: <span><LinkOutlined /> {tr('A page', 'Une page')}</span> },
-    { value: 'form', label: <span><FormOutlined /> {tr('A form', 'Un formulaire')}</span> },
-    { value: 'whatsapp', label: <span><WhatsAppOutlined /> WhatsApp</span> },
-  ];
-  const urlInput = (b: { action: SecondaryAction; url: string }, set: (v: string) => void) => (b.action === 'link' || b.action === 'whatsapp') && (
-    <Input size="small" value={b.url} onChange={e => set(e.target.value)} disabled={busy} status={urlOk(b) ? undefined : 'error'}
-      prefix={b.action === 'whatsapp' ? <WhatsAppOutlined style={{ color: '#1fa855' }} /> : <LinkOutlined />}
-      placeholder={b.action === 'whatsapp' ? 'https://chat.whatsapp.com/…' : tr('https://… (optional: the AI picks a page of the site)', 'https://… (facultatif : l’IA choisit une page du site)')} />
+  const actionLabel = (a: SecondaryAction) => ({
+    none: tr('None', 'Aucun'), link: tr('A page', 'Une page'), form: tr('A form', 'Un formulaire'), whatsapp: 'WhatsApp',
+  }[a]);
+  const actionPills = (b: { action: SecondaryAction }, set: (a: SecondaryAction) => void, withNone: boolean, name: string) => (
+    <div className="em-ai-pills" role="radiogroup" aria-label={name}>
+      {([...(withNone ? ['none'] : []), 'link', 'form', 'whatsapp'] as SecondaryAction[]).map(a => (
+        <button key={a} type="button" role="radio" aria-checked={b.action === a} className={`em-goal is-${a}${b.action === a ? ' is-on' : ''}`} onClick={() => set(a)} disabled={busy}>
+          {ACTION_ICONS[a]}{actionLabel(a)}
+        </button>
+      ))}
+    </div>
   );
+  const urlInput = (b: { action: SecondaryAction; url: string }, set: (v: string) => void) => (b.action === 'link' || b.action === 'whatsapp') && (
+    <Input value={b.url} onChange={e => set(e.target.value)} disabled={busy} status={!b.url.trim() || urlOk(b) ? undefined : 'error'} allowClear
+      prefix={b.action === 'whatsapp' ? <WhatsAppOutlined style={{ color: '#1fa855' }} /> : <LinkOutlined className="og-muted" />}
+      placeholder={b.action === 'whatsapp' ? 'https://chat.whatsapp.com/…' : tr('https://… or leave empty', 'https://… ou laissez vide')} />
+  );
+  const buttonNote = (b: { action: SecondaryAction; url: string }) => (
+    b.action === 'link' ? (b.url ? null : tr('Empty: the AI picks the right page of the site.', 'Vide : l’IA choisit la bonne page du site.'))
+      : b.action === 'form' ? tr('The AI writes its questions; you can change them after.', 'L’IA écrit ses questions ; vous pourrez les changer.')
+        : b.action === 'whatsapp' ? (isWhatsApp(b.url) ? null : tr('Paste the group’s invitation link (https://chat.whatsapp.com/…).', 'Collez le lien d’invitation du groupe (https://chat.whatsapp.com/…).'))
+          : tr('A softer second choice, e.g. the WhatsApp group next to a form.', 'Un second choix plus doux, ex. le groupe WhatsApp à côté d’un formulaire.')
+  );
+  const promotionTitle = (p: EmailMeta['promotions'][number]) => (lang === 'fr' ? p.title_fr || p.title_en : p.title_en || p.title_fr) || p.slug;
+  const waitHint = brief.trim().length < 8
+    ? tr('Describe the email in a sentence or two to start.', 'Décrivez l’email en une ou deux phrases pour commencer.')
+    : !urlOk(primary) || !urlOk(secondary) ? tr('Check the button links above.', 'Vérifiez les liens des boutons ci-dessus.') : null;
 
   return (
-    <section className="mk-ai" aria-label={tr('Write the email with AI', 'Écrire l’email avec l’IA')}>
+    <section className="mk-ai em-ai" aria-label={tr('Write the email with AI', 'Écrire l’email avec l’IA')}>
       <header>
         <span className="mk-ai-mark"><Sparkles size={18} /></span>
         <div>
           <strong>{hasContent ? tr('Change this email with AI', 'Modifier cet email avec l’IA') : tr('Write the email with AI', 'Écrire l’email avec l’IA')}</strong>
-          <span>{meta?.ai.available ? `${meta.ai.writing_model} · ${meta.ai.engine === 'vertex' ? 'Vertex AI' : 'Gemini API'}` : tr('Uses the platform’s AI engine.', 'Utilise le moteur d’IA de la plateforme.')}</span>
+          <span>{tr('In French and English, from your facts only · about 20 seconds', 'En français et en anglais, avec vos informations seulement · environ 20 secondes')}</span>
         </div>
         <Tooltip title={tr('Close', 'Fermer')}><Button type="text" size="small" icon={<UpOutlined />} onClick={() => setOpen(false)} aria-label={tr('Close the AI panel', 'Fermer le panneau IA')} /></Tooltip>
       </header>
@@ -182,69 +228,103 @@ const EmailAi: React.FC<Props> = ({ editing, fields, meta, tr, lang, choices, mo
         <p className="mk-ai-off"><WarningOutlined /> {tr('The AI engine is not configured on the server. Write the email by hand.', 'Le moteur d’IA n’est pas configuré sur le serveur. Écrivez l’email à la main.')}</p>
       ) : (
         <>
-          {meta?.ai.engine === 'vertex' && choices.length > 0 && (
-            <ModelPicker choices={choices} model={model} onModel={onModel} onChoices={onChoices} disabled={busy} tr={tr} />
-          )}
-          <div className="em-goals" role="radiogroup" aria-label={tr('What the email is for', 'À quoi sert l’email')}>
-            {goals(tr).map(g => (
-              <button key={g.value} type="button" role="radio" aria-checked={goal === g.value} className={`em-goal${goal === g.value ? ' is-on' : ''}`}
-                onClick={() => setGoal(g.value)} disabled={busy} title={g.hint}>{g.label}</button>
-            ))}
-          </div>
-          <Input.TextArea value={brief} onChange={e => setBrief(e.target.value)} autoSize={{ minRows: 4, maxRows: 10 }} maxLength={4000} disabled={busy}
-            placeholder={hasContent
-              ? tr('What should change? e.g. « Shorter », « Say there are only 3 seats left », « Ask also for their exam date ».', 'Que faut-il changer ? ex. « Plus court », « Dire qu’il reste 3 places », « Demander aussi la date d’examen ».')
-              : tr('Say what the email is about and what you want people to do, in French or English: the class, the dates, the price, the deadline… The AI only uses your facts and tells you what is missing.', 'Dites de quoi parle l’email et ce que les gens doivent faire, en français ou en anglais : le cours, les dates, le prix, la date limite… L’IA n’utilise que vos informations et signale ce qui manque.')} />
-          {!brief && !hasContent && (
-            <div className="mk-ai-ideas">
-              <span>{tr('Start from:', 'Partir de :')}</span>
-              {IDEAS(tr).map(i => <button key={i.label} type="button" onClick={() => { setBrief(i.text); setGoal(i.goal); setPrimary(p => ({ ...p, action: i.action })); }}>{i.label}</button>)}
+          <Step n={1} title={tr('What is it for?', 'À quoi sert-il ?')}>
+            <div className="em-ai-pills" role="radiogroup" aria-label={tr('What the email is for', 'À quoi sert l’email')}>
+              {goals(tr).map(g => (
+                <button key={g.value} type="button" role="radio" aria-checked={goal === g.value} className={`em-goal${goal === g.value ? ' is-on' : ''}`}
+                  onClick={() => setGoal(g.value)} disabled={busy} title={g.hint}>{GOAL_ICONS[g.value]}{g.label}</button>
+              ))}
             </div>
-          )}
-          {brief.includes('[') && <p className="mk-ai-hint">{tr('Replace what is in [brackets] with your details: anything left is reported as missing.', 'Remplacez ce qui est entre [crochets] : ce qui reste est signalé comme manquant.')}</p>}
+          </Step>
 
-          <div className="em-ai-buttons">
-            <div className="og-field"><label>{tr('The main button…', 'Le bouton principal…')}</label>
-              <Segmented size="small" value={primary.action} onChange={v => setPrimary(p => ({ ...p, action: v as SecondaryAction }))} options={actions(false)} disabled={busy} />
-              {urlInput(primary, v => setPrimary(p => ({ ...p, url: v })))}
-              {primary.action === 'form' && <small>{tr('The AI writes the form’s questions: you can change them after.', 'L’IA écrit les questions du formulaire : vous pouvez les changer ensuite.')}</small>}
-            </div>
-            <div className="og-field"><label>{tr('A second button?', 'Un deuxième bouton ?')}</label>
-              <Segmented size="small" value={secondary.action} onChange={v => setSecondary(p => ({ ...p, action: v as SecondaryAction }))} options={actions(true)} disabled={busy} />
-              {urlInput(secondary, v => setSecondary(p => ({ ...p, url: v })))}
-            </div>
-          </div>
-          <div className="og-field"><label>{tr('Promote a marketing campaign', 'Promouvoir une campagne marketing')} <em>{tr('optional · its dates, price and seats are used', 'facultatif · ses dates, prix et places sont utilisés')}</em></label>
-            <Select allowClear value={promotion ?? undefined} onChange={v => setPromotion(v ?? null)} disabled={busy} placeholder={tr('None', 'Aucune')} showSearch optionFilterProp="label"
-              options={(meta?.promotions || []).map(p => ({ value: p.id, label: (lang === 'fr' ? p.title_fr || p.title_en : p.title_en || p.title_fr) || p.slug }))} /></div>
-
-          <div className={`em-ai-picture${withPicture ? ' is-on' : ''}`}>
-            <label className="mk-switch"><Switch size="small" checked={withPicture} onChange={setWithPicture} disabled={busy} />
-              <span><strong>{tr('Add a picture', 'Ajouter une image')}</strong> · {tr(`made by ${meta?.ai.image_model || 'the marketing painter'}, like the marketing campaigns`, `faite par ${meta?.ai.image_model || 'le peintre du marketing'}, comme pour les campagnes marketing`)}</span></label>
-            {withPicture && <>
-              <Input.TextArea value={picturePrompt} onChange={e => setPicturePrompt(e.target.value)} autoSize={{ minRows: 2, maxRows: 5 }} maxLength={600} disabled={busy}
-                placeholder={tr(
-                  'Describe the picture (optional): who, where, doing what, the mood. e.g. « An adult learner at home in the evening, smiling during an online French class ». Empty: the AI describes one that fits the email.',
-                  'Décrivez l’image (facultatif) : qui, où, en train de faire quoi, l’ambiance. ex. « Une adulte chez elle le soir, souriante pendant un cours de français en ligne ». Vide : l’IA en imagine une qui va avec l’email.',
-                )} />
-              <div className="em-ai-picture-row">
-                <span>{tr('Place', 'Place')}</span>
-                <Segmented size="small" value={place} onChange={v => setPlace(v as PicturePlace)} disabled={busy} options={[
-                  { value: 'top', label: tr('At the top, large', 'En haut, en grand') },
-                  { value: 'inline', label: tr('Under the headline', 'Sous le titre') },
-                ]} />
-                <small>{tr('About 15 s more · checked for text and logos', 'Environ 15 s de plus · vérifiée (texte, logos)')}</small>
+          <Step n={2} title={hasContent ? tr('What should change?', 'Que faut-il changer ?') : tr('Your brief', 'Votre brief')}
+            hint={hasContent ? undefined : tr('in French or English', 'en français ou en anglais')}>
+            <Input.TextArea className="em-ai-brief" value={brief} onChange={e => setBrief(e.target.value)} autoSize={{ minRows: 4, maxRows: 10 }} maxLength={4000} disabled={busy}
+              placeholder={hasContent
+                ? tr('e.g. « Shorter », « Say there are only 3 seats left », « Ask also for their exam date ».', 'ex. « Plus court », « Dire qu’il reste 3 places », « Demander aussi la date d’examen ».')
+                : tr('The class, the dates, the price, the deadline, what people should do… The AI only uses your facts and tells you what is missing.', 'Le cours, les dates, le prix, la date limite, ce que les gens doivent faire… L’IA n’utilise que vos informations et signale ce qui manque.')} />
+            {!brief && !hasContent && (
+              <div className="mk-ai-ideas">
+                <span>{tr('Start from:', 'Partir de :')}</span>
+                {IDEAS(tr).map(i => <button key={i.label} type="button" onClick={() => { setBrief(i.text); setGoal(i.goal); setPrimary(p => ({ ...p, action: i.action })); }}>{i.label}</button>)}
               </div>
-            </>}
-          </div>
+            )}
+            {brief.includes('[') && <p className="mk-ai-hint">{tr('Replace what is in [brackets] with your details: anything left is reported as missing.', 'Remplacez ce qui est entre [crochets] : ce qui reste est signalé comme manquant.')}</p>}
+          </Step>
 
-          <div className="mk-ai-actions">
-            <label className="mk-switch"><Switch size="small" checked={withDesign} onChange={setWithDesign} disabled={busy} /><span>{tr('Apply its layout', 'Appliquer sa mise en page')}</span></label>
-            <span style={{ flex: 1 }} />
-            {onUndo && result && !busy && <Button icon={<UndoOutlined />} onClick={() => { onUndo(); setResult(null); }}>{tr('Undo', 'Annuler')}</Button>}
-            <Button type="primary" className="mk-ai-go" onClick={run} disabled={busy || !ready} icon={busy ? <LoadingOutlined /> : <Sparkles />}>
-              {busy ? tr('Working…', 'L’IA travaille…') : hasContent ? tr('Apply the changes', 'Appliquer les changements') : tr('Write the email', 'Écrire l’email')}
-            </Button>
+          <Step n={3} title={tr('What should people do?', 'Que doivent faire les gens ?')}>
+            <div className="em-ai-buttons">
+              <div className="em-ai-button is-primary">
+                <span className="em-ai-button-title">{tr('Main button', 'Bouton principal')}</span>
+                {actionPills(primary, a => setPrimary(p => ({ ...p, action: a })), false, tr('The main button opens', 'Le bouton principal ouvre'))}
+                {urlInput(primary, v => setPrimary(p => ({ ...p, url: v })))}
+                {buttonNote(primary) && <small>{buttonNote(primary)}</small>}
+              </div>
+              <div className="em-ai-button">
+                <span className="em-ai-button-title">{tr('Second button', 'Deuxième bouton')} <em>{tr('optional', 'facultatif')}</em></span>
+                {actionPills(secondary, a => setSecondary(p => ({ ...p, action: a })), true, tr('The second button opens', 'Le deuxième bouton ouvre'))}
+                {urlInput(secondary, v => setSecondary(p => ({ ...p, url: v })))}
+                {buttonNote(secondary) && <small>{buttonNote(secondary)}</small>}
+              </div>
+            </div>
+          </Step>
+
+          <Step n={4} title={tr('Extras', 'En plus')} hint={tr('optional', 'facultatif')}>
+            <div className="em-ai-extras">
+              <div className="em-ai-extra">
+                <div className="em-ai-extra-head">
+                  <span className="em-ai-extra-ic is-campaign"><NotificationOutlined /></span>
+                  <span className="em-ai-extra-text"><strong>{tr('Promote a marketing campaign', 'Promouvoir une campagne marketing')}</strong>
+                    <em>{tr('Its dates, price and seats are used as facts.', 'Ses dates, son prix et ses places servent de faits.')}</em></span>
+                  <Select allowClear value={promotion ?? undefined} onChange={v => setPromotion(v ?? null)} disabled={busy} placeholder={tr('None', 'Aucune')} showSearch optionFilterProp="label"
+                    className="em-ai-extra-select" popupMatchSelectWidth={false}
+                    options={(meta?.promotions || []).map(p => ({ value: p.id, label: promotionTitle(p) }))} />
+                </div>
+              </div>
+              <div className={`em-ai-extra${withPicture ? ' is-on' : ''}`}>
+                <div className="em-ai-extra-head">
+                  <span className="em-ai-extra-ic is-picture"><PictureOutlined /></span>
+                  <span className="em-ai-extra-text"><strong>{tr('Add a picture', 'Ajouter une image')}</strong>
+                    <em>{tr(`By ${meta?.ai.image_model || 'the marketing painter'}, like the marketing campaigns · about 15 s`, `Par ${meta?.ai.image_model || 'le peintre du marketing'}, comme les campagnes marketing · environ 15 s`)}</em></span>
+                  <Switch checked={withPicture} onChange={setWithPicture} disabled={busy} aria-label={tr('Add a picture', 'Ajouter une image')} />
+                </div>
+                {withPicture && (
+                  <div className="em-ai-extra-body">
+                    <Input.TextArea value={picturePrompt} onChange={e => setPicturePrompt(e.target.value)} autoSize={{ minRows: 2, maxRows: 5 }} maxLength={600} disabled={busy}
+                      placeholder={tr(
+                        'Describe it (optional): who, where, doing what, the mood. e.g. « An adult learner at home in the evening, smiling during an online French class ». Empty: the AI imagines one that fits the email.',
+                        'Décrivez-la (facultatif) : qui, où, en train de faire quoi, l’ambiance. ex. « Une adulte chez elle le soir, souriante pendant un cours de français en ligne ». Vide : l’IA en imagine une qui va avec l’email.',
+                      )} />
+                    <div className="em-ai-place" role="radiogroup" aria-label={tr('Where the picture goes', 'Où va l’image')}>
+                      {([['top', tr('At the top, large', 'En haut, en grand')], ['inline', tr('Under the headline', 'Sous le titre')]] as [PicturePlace, string][]).map(([v, label]) => (
+                        <button key={v} type="button" role="radio" aria-checked={place === v} className={`em-ai-place-opt is-${v}${place === v ? ' is-on' : ''}`} onClick={() => setPlace(v)} disabled={busy}>
+                          <i aria-hidden><b /><s /><s /></i>{label}
+                        </button>
+                      ))}
+                    </div>
+                    <small className="og-muted">{tr('Checked for text and logos before it is used.', 'Vérifiée (texte, logos) avant d’être utilisée.')}</small>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Step>
+
+          <div className="em-ai-foot">
+            <div className="em-ai-settings">
+              {meta?.ai.engine === 'vertex' && choices.length > 0 && (
+                <ModelPicker choices={choices} model={model} onModel={onModel} onChoices={onChoices} disabled={busy} tr={tr} />
+              )}
+              <Tooltip title={tr('Use the layout the AI picks for this kind of email (you can change it in Design).', 'Utiliser la mise en page choisie par l’IA pour ce type d’email (modifiable dans Design).')}>
+                <label className="mk-switch"><Switch size="small" checked={withDesign} onChange={setWithDesign} disabled={busy} /><span>{tr('Apply its layout', 'Appliquer sa mise en page')}</span></label>
+              </Tooltip>
+            </div>
+            <div className="em-ai-go-row">
+              {waitHint && !busy && <small className="em-ai-wait">{waitHint}</small>}
+              {onUndo && result && !busy && <Button icon={<UndoOutlined />} onClick={() => { onUndo(); setResult(null); }}>{tr('Undo', 'Annuler')}</Button>}
+              <Button type="primary" size="large" className="mk-ai-go" onClick={run} disabled={busy || !ready} icon={busy ? <LoadingOutlined /> : <Sparkles />}>
+                {busy ? tr('Working…', 'L’IA travaille…') : hasContent ? tr('Apply the changes', 'Appliquer les changements') : withPicture ? tr('Write the email and its picture', 'Écrire l’email et son image') : tr('Write the email', 'Écrire l’email')}
+              </Button>
+            </div>
           </div>
 
           {busy && (

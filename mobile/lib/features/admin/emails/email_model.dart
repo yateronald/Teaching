@@ -57,6 +57,52 @@ String goalLabel(String g, bool fr) => switch (g) {
   _ => fr ? 'Remplir un groupe' : 'Fill a group',
 };
 
+IconData goalIcon(String g) => switch (g) {
+  'offer' => Icons.local_offer_outlined,
+  'survey' => Icons.assignment_outlined,
+  'whatsapp' => Icons.forum_outlined,
+  'event' => Icons.event_outlined,
+  'news' => Icons.campaign_outlined,
+  'reminder' => Icons.notifications_none,
+  _ => Icons.groups_outlined,
+};
+
+/// Ready-made starts for the AI brief (the same as on the web): label, goal, main button, text.
+List<(String, String, String, String)> emailAiIdeas(bool fr) => [
+  (
+    fr ? 'Relancer les demandes d’essai' : 'Follow up trial requests',
+    'group',
+    'form',
+    fr
+        ? 'Relancer les personnes qui ont demandé un cours d’essai sans s’inscrire. Notre prochain groupe [niveau] commence le [date], [jours et heure] heure de Montréal, [8] places, [prix]. Le bouton ouvre un formulaire pour réserver (niveau et disponibilités).'
+        : 'Follow up the people who asked for a trial class but did not register. Our next group [level] starts on [date], [days and time] Montréal time, [8] seats, [price]. The button opens a form to book a seat (their level and availability).',
+  ),
+  (
+    fr ? 'Questionnaire aux élèves' : 'Questions to students',
+    'survey',
+    'form',
+    fr
+        ? 'Poser trois ou quatre questions courtes à nos élèves sur leurs cours : ce qu’ils aiment, ce qu’il faut améliorer, quel nouveau cours ils aimeraient. Deux minutes.'
+        : 'Ask our students three or four short questions about their classes: what they like, what to improve, which new course they would like. It takes two minutes.',
+  ),
+  (
+    fr ? 'Groupe WhatsApp' : 'WhatsApp group',
+    'whatsapp',
+    'whatsapp',
+    fr
+        ? 'Les inviter à rejoindre notre groupe WhatsApp gratuit : chaque semaine un court exercice, des conseils pour le TCF et les réponses d’une professeure native.'
+        : 'Invite them to join our free WhatsApp group: every week a short French exercise, tips for the TCF and answers from a native teacher.',
+  ),
+  (
+    fr ? 'Offre limitée' : 'Offer with a deadline',
+    'offer',
+    'link',
+    fr
+        ? '[-20 %] sur [quoi] jusqu’au [date] pour [qui]. Dire clairement ce qu’ils obtiennent et comment en profiter.'
+        : '[-20 %] on [what] until [date] for [who]. Say clearly what they get and how to take advantage of it.',
+  ),
+];
+
 String actionLabel(String a, bool fr) => switch (a) {
   'form' => fr ? 'Un formulaire' : 'A form',
   'whatsapp' => 'WhatsApp',

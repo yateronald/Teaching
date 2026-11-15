@@ -396,6 +396,7 @@ void main() {
     expect(find.textContaining('La date exacte'), findsOneWidget);
     expect(_field(tester, 'email-subject-fr').text, 'Votre groupe A1 commence en janvier');
     expect(find.text('THE FORM'), findsOneWidget, reason: 'the form section opens');
+    await _reach(tester, find.byKey(const Key('email-form-label-fr-2')));
     expect(_field(tester, 'email-form-label-fr-2').text, 'Votre niveau');
 
     await tester.tap(find.byKey(const Key('email-save')));
@@ -413,8 +414,10 @@ void main() {
 
   testWidgets('the AI writes with the model picked, and adds the picture described', (tester) async {
     final api = await _show(tester, EmailEditorPanel(meta: _meta), size: _tall);
+    await _tap(tester, find.byKey(const Key('email-ai-model')));
     expect(find.byKey(const Key('email-ai-model-gemini-4-hydrogen')), findsOneWidget, reason: 'Vertex offers the Gemini 4 models');
     await _tap(tester, find.byKey(const Key('email-ai-model-gemini-4-carbon')));
+    expect(find.text('Gemini 4 Carbon'), findsOneWidget, reason: 'the foot shows the model picked');
     await _tap(tester, find.byKey(const Key('email-ai-picture')));
     await tester.enterText(find.byKey(const Key('email-ai-picture-prompt')), 'An adult learner at her kitchen table, smiling at a laptop');
     await _tap(tester, find.byKey(const Key('email-ai-picture-place-inline')));
@@ -431,7 +434,7 @@ void main() {
     expect(find.textContaining('Gemini 4 Carbon is not available on your project'), findsOneWidget, reason: 'the admin is told who wrote it');
     expect(find.textContaining('Written by Gemini 3.8 Flash'), findsOneWidget);
     expect(find.text('Picture added · under the headline'), findsOneWidget);
-    expect(find.text('This model did not answer on your Vertex project (not found or no access): the next model will write instead.'), findsOneWidget);
+    expect(find.text('Gemini 4 Carbon is not available on your Vertex project yet: Gemini 3.8 will write instead.'), findsOneWidget);
 
     await _tap(tester, find.byKey(const Key('email-save')));
     final saved = api.sent['/admin/email-campaigns'] as Map;
@@ -442,16 +445,21 @@ void main() {
 
   testWidgets('« Check » shows which models answer on the project', (tester) async {
     final api = await _show(tester, EmailEditorPanel(meta: _meta), size: _tall);
+    await _tap(tester, find.byKey(const Key('email-ai-model')));
     await _tap(tester, find.byKey(const Key('email-ai-check-models')));
     expect(api.sent.containsKey('/admin/email-campaigns/ai/models/check'), isTrue);
+    expect(find.text('not available on your project'), findsNWidgets(3), reason: 'each model says what it did');
+    expect(find.text('answers'), findsOneWidget);
     await _tap(tester, find.byKey(const Key('email-ai-model-gemini-4-argon')));
-    expect(find.textContaining('This model did not answer on your Vertex project'), findsOneWidget);
+    expect(find.textContaining('is not available on your Vertex project yet'), findsOneWidget);
+    await _tap(tester, find.byKey(const Key('email-ai-model')));
     await _tap(tester, find.byKey(const Key('email-ai-model-gemini-3.8-flash')));
-    expect(find.textContaining('This model did not answer on your Vertex project'), findsNothing);
+    expect(find.textContaining('is not available on your Vertex project yet'), findsNothing);
   });
 
   testWidgets('the art director uses the model picked, and says when another one stood in', (tester) async {
     final api = await _show(tester, EmailEditorPanel(campaign: EmailCampaign(_email(id: 8, status: 'draft')), meta: _meta), size: _tall);
+    await _tap(tester, find.byKey(const Key('email-ai-model')));
     await _tap(tester, find.byKey(const Key('email-ai-model-gemini-4-argon')));
     await _tap(tester, find.byKey(const Key('email-design-go')));
     expect((api.sent['/admin/email-campaigns/ai/designs'] as Map)['model'], 'gemini-4-argon');
@@ -462,7 +470,7 @@ void main() {
   testWidgets('with the developer engine, no model to pick', (tester) async {
     final meta = {..._meta, 'ai': {...J.map(_meta['ai']), 'engine': 'developer'}};
     await _show(tester, EmailEditorPanel(meta: meta), size: _tall);
-    expect(find.byKey(const Key('email-ai-model-gemini-3.8-flash')), findsNothing);
+    expect(find.byKey(const Key('email-ai-model')), findsNothing);
   });
 
   testWidgets('a picture from the library, at the top or under the headline, removed', (tester) async {
@@ -508,10 +516,12 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const Key('email-ai-go')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('invitation link'), findsWidgets);
+    expect(find.text('Check the button links above.'), findsOneWidget, reason: 'the button says why it waits');
+    expect(tester.widget<FilledButton>(find.byKey(const Key('email-ai-go'))).onPressed, isNull, reason: 'a wrong link: the AI cannot be asked');
     expect(api.sent['/admin/email-campaigns/ai/draft'], isNull, reason: 'nothing asked with a wrong link');
 
     await tester.enterText(find.byKey(const Key('email-ai-whatsapp')), 'https://chat.whatsapp.com/AbCdEfGhIjKlMn12');
+    await tester.pump();
     await tester.tap(find.byKey(const Key('email-ai-go')));
     await tester.pumpAndSettle();
     expect((api.sent['/admin/email-campaigns/ai/draft'] as Map)['primary'], {'action': 'whatsapp', 'url': 'https://chat.whatsapp.com/AbCdEfGhIjKlMn12'});

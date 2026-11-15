@@ -356,15 +356,30 @@ export function missingFor(f: EmailFields, tr: Tr, { postalAddress, recipients }
   }
   for (const [k, b] of [['primary', f.buttons.primary], ['secondary', f.buttons.secondary]] as const) {
     const which = k === 'primary' ? tr('the main button', 'le bouton principal') : tr('the second button', 'le 2ᵉ bouton');
-    if (b.action === 'link' && !isHttps(b.url)) out.push(tr(`a link (https://) for ${which}`, `un lien (https://) pour ${which}`));
-    if (b.action === 'whatsapp' && !isWhatsApp(b.url)) out.push(tr(`a WhatsApp invitation link for ${which}`, `un lien d’invitation WhatsApp pour ${which}`));
+    if (b.url?.trim()) continue; // a link is there: linkProblems says when it is wrong
+    if (b.action === 'link') out.push(tr(`a link for ${which}`, `un lien pour ${which}`));
+    if (b.action === 'whatsapp') out.push(tr(`the WhatsApp group link for ${which}`, `le lien du groupe WhatsApp pour ${which}`));
   }
+  out.push(...linkProblems(f, tr));
   if (usesForm(f)) {
     if (!f.form.fields.some(x => x.type === 'email')) out.push(tr('an email field in the form', 'un champ email dans le formulaire'));
     if (f.form.fields.some(x => ['select', 'radio', 'checkbox'].includes(x.type) && !(x.options_fr?.length || x.options_en?.length))) out.push(tr('choices for the list questions', 'des choix pour les questions à choix'));
   }
   if (postalAddress !== undefined && !postalAddress.trim()) out.push(tr('the school’s postal address (Sender details)', 'l’adresse postale de l’école (Expéditeur)'));
   if (recipients !== undefined && recipients < 1) out.push(tr('at least one recipient', 'au moins un destinataire'));
+  return out;
+}
+
+/** Links typed but wrong (they stop saving; a link not given yet only stops sending). */
+export function linkProblems(f: EmailFields, tr: Tr): string[] {
+  const out: string[] = [];
+  for (const [k, b] of [['primary', f.buttons.primary], ['secondary', f.buttons.secondary]] as const) {
+    const url = b.url?.trim();
+    if (!url) continue;
+    const which = k === 'primary' ? tr('the main button', 'le bouton principal') : tr('the second button', 'le 2ᵉ bouton');
+    if (b.action === 'link' && !isHttps(url)) out.push(tr(`a link starting with https:// for ${which}`, `un lien qui commence par https:// pour ${which}`));
+    if (b.action === 'whatsapp' && !isWhatsApp(url)) out.push(tr(`a WhatsApp group invitation (https://chat.whatsapp.com/…) for ${which}`, `une invitation de groupe WhatsApp (https://chat.whatsapp.com/…) pour ${which}`));
+  }
   return out;
 }
 
