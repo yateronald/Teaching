@@ -15,15 +15,18 @@ import {
 /* The audience view: how many people came, from where, and what they read. */
 
 const KPIS = [
-    { key: 'visitors', label: 'Visitors', hint: 'People, counted once a day each.' },
-    { key: 'visits', label: 'Page views', hint: 'Pages opened in total.' },
+    {
+        key: 'visitors', label: 'Visitors',
+        hint: 'People, counted once a day each (over several days, a person who comes back on another day counts again). Visitors who ask not to be tracked count once per arrival.',
+    },
+    { key: 'visits', label: 'Page views', hint: 'Every page shown: the first one of a visit and every move inside the site.' },
     { key: 'sessions', label: 'Visits', hint: 'A run of pages with no gap longer than 30 minutes.' },
-    { key: 'bounce_rate', label: 'Bounce rate', hint: 'Visits that read one page and left.', suffix: '%', lowerIsBetter: true },
-    { key: 'avg_seconds', label: 'Time on page', hint: 'Average time a page stayed open.', time: true },
+    { key: 'bounce_rate', label: 'Bounce rate', hint: 'Visits that read one page and left. Compared with the previous period in points.', suffix: '%', lowerIsBetter: true },
+    { key: 'avg_seconds', label: 'Time on page', hint: 'Average time a page was on screen (a tab left in the background does not count).', time: true },
 ] as const;
 
 /** A list of names with a share bar — the shape every breakdown here uses. */
-const BarList: React.FC<{
+export const BarList: React.FC<{
     rows: { label: React.ReactNode; value: number; sub?: string; color?: string }[];
     total: number;
     empty?: string;
@@ -48,16 +51,19 @@ const BarList: React.FC<{
 const deviceIcon = (name: string) =>
     name === 'phone' ? <MobileOutlined /> : name === 'tablet' ? <TabletOutlined /> : <DesktopOutlined />;
 
-const Delta: React.FC<{ value: number | null; lowerIsBetter?: boolean }> = ({ value, lowerIsBetter }) => {
+/** The change against the previous period of the same length: a percentage, or points for a rate. */
+export const Delta: React.FC<{ value: number | null | undefined; lowerIsBetter?: boolean; points?: boolean }> = ({ value, lowerIsBetter, points }) => {
     if (value === null || value === undefined || !Number.isFinite(value)) return <span className="mon-delta is-flat">no earlier data</span>;
     if (value === 0) return <span className="mon-delta is-flat">no change</span>;
     const up = value > 0;
     const good = lowerIsBetter ? !up : up;
     return (
-        <span className={`mon-delta ${good ? 'is-up' : 'is-down'}`}>
-            {up ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-            {Math.abs(value)}%
-        </span>
+        <Tooltip title="Against the previous period of the same length">
+            <span className={`mon-delta ${good ? 'is-up' : 'is-down'}`}>
+                {up ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                {points ? `${Math.abs(value)} pts` : `${Math.abs(value)}%`}
+            </span>
+        </Tooltip>
     );
 };
 
@@ -66,6 +72,8 @@ const MonitoringOverview: React.FC<{ data: Overview | null }> = ({ data }) => {
     const { kpis, series, countries, pages, channels, referrers, campaigns, devices, browsers, systems, languages } = data;
     const bucket = data.range?.bucket || 'day';
     const totalVisits = kpis.visits || 1;
+    // Where people come from is counted on visits (their first page), so shares are of visits.
+    const arrivals = channels.reduce((sum, c) => sum + c.visits, 0) || 1;
     const chart = series.map(p => ({ ...p, label: axisLabel(p.at, bucket) }));
     const share = (rows: Named[]) => rows.reduce((sum, r) => sum + r.visits, 0) || 1;
 
@@ -84,7 +92,17 @@ const MonitoringOverview: React.FC<{ data: Overview | null }> = ({ data }) => {
                                 {'time' in kpi && kpi.time ? duration(value) : compact(value)}
                                 {'suffix' in kpi && kpi.suffix ? <i>{kpi.suffix}</i> : null}
                             </strong>
-                            <Delta value={kpis.change[kpi.key]} lowerIsBetter={'lowerIsBetter' in kpi && kpi.lowerIsBetter} />
+                            {kpi.key === 'bounce_rate' && 'bounce_points' in kpis.change
+                                ? <Delta value={kpis.change.bounce_points} lowerIsBetter points />
+                                : <Delta value={kpis.change[kpi.key]} lowerIsBetter={'lowerIsBetter' in kpi && kpi.lowerIsBetter} />}
+                            {kpi.key === 'sessions' && !!kpis.pages_per_session && (
+                                <small className="mon-kpi-sub">{kpis.pages_per_session} pages per visit</small>
+                            )}
+                            {kpi.key === 'visitors' && !!kpis.anonymous_visits && (
+                                <Tooltip title="Visitors with Do Not Track or Global Privacy Control on: counted, with no identifier.">
+                                    <small className="mon-kpi-sub">{compact(kpis.anonymous_visits)} page views untracked</small>
+                                </Tooltip>
+                            )}
                         </div>
                     );
                 })}
@@ -164,9 +182,23 @@ const MonitoringOverview: React.FC<{ data: Overview | null }> = ({ data }) => {
                     />
                 </section>
 
+                {/* ── Where visits begin ── */}
+                {!!data.entry_pages?.length && (
+                    <section className="mon-card">
+                        <header>
+                            <h3>Entry pages</h3>
+                            <span>where visits begin</span>
+                        </header>
+                        <BarList
+                            total={data.entry_pages.reduce((sum, p) => sum + p.visits, 0) || 1}
+                            rows={data.entry_pages.slice(0, 12).map(p => ({ label: <code>{p.path}</code>, value: p.visits }))}
+                        />
+                    </section>
+                )}
+
                 {/* ── How they arrived ── */}
                 <section className="mon-card">
-                    <header><h3>How people arrive</h3></header>
+                    <header><h3>How people arrive</h3><span>visits, by their first page</span></header>
                     <div className="mon-split">
                         <ResponsiveContainer width="100%" height={180}>
                             <PieChart>
@@ -194,9 +226,9 @@ const MonitoringOverview: React.FC<{ data: Overview | null }> = ({ data }) => {
 
                 {/* ── Referrers and campaigns ── */}
                 <section className="mon-card">
-                    <header><h3>Referring sites</h3></header>
+                    <header><h3>Referring sites</h3><span>visits</span></header>
                     <BarList
-                        total={totalVisits}
+                        total={arrivals}
                         rows={referrers.map(r => ({ label: r.host, value: r.visits }))}
                         empty="No site has linked a visitor here yet."
                     />
@@ -204,7 +236,7 @@ const MonitoringOverview: React.FC<{ data: Overview | null }> = ({ data }) => {
                         <>
                             <h4 className="mon-subhead">Campaigns</h4>
                             <BarList
-                                total={totalVisits}
+                                total={arrivals}
                                 rows={campaigns.map(c => ({
                                     label: c.name || c.source || 'Campaign',
                                     sub: [c.source, c.medium].filter(Boolean).join(' · ') || undefined,

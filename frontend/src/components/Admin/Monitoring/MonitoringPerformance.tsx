@@ -36,8 +36,11 @@ const VitalCard: React.FC<{ vital: Performance['vitals'][number] }> = ({ vital }
 const MonitoringPerformance: React.FC<{ data: Performance | null }> = ({ data }) => {
     if (!data) return null;
     const { vitals, slowest, trend, api, health } = data;
-    const trendData = trend.map(t => ({ ...t, label: axisLabel(t.at, 'day') }));
-    const apiSeries = api.series.map(s => ({ ...s, label: axisLabel(s.at, 'day') }));
+    // Hours for the last 24 hours, days otherwise (older servers do not say: the period does).
+    const bucket = data.range?.bucket || (trend.length > 20 && trend.length < 30 ? 'hour' : 'day');
+    const trendData = trend.map(t => ({ ...t, label: axisLabel(t.at, bucket) }));
+    const hasTrend = trend.some(t => t.lcp_p75 !== null || t.load_p75 !== null);
+    const apiSeries = api.series.map(s => ({ ...s, label: axisLabel(s.at, bucket) }));
     const apiHealthy = api.error_rate < 1 && api.p95_ms < 1500;
 
     return (
@@ -57,15 +60,16 @@ const MonitoringPerformance: React.FC<{ data: Performance | null }> = ({ data })
                 {/* ── Trend ── */}
                 <section className="mon-card mon-chart">
                     <header><h3>Loading speed over time</h3><span>75th percentile</span></header>
-                    {trendData.length ? (
+                    {hasTrend ? (
                         <ResponsiveContainer width="100%" height={230}>
                             <LineChart data={trendData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" vertical={false} />
                                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} minTickGap={24} />
                                 <YAxis tick={{ fontSize: 11, fill: '#6b7280' }} tickLine={false} axisLine={false} width={48} unit="ms" />
                                 <ReTooltip contentStyle={{ borderRadius: 12, border: '1px solid #e5e7eb', fontSize: 12 }} formatter={(v: number) => ms(v)} />
-                                <Line type="monotone" dataKey="lcp_p75" name="Largest paint" stroke="#4f46e5" strokeWidth={2} dot={false} />
-                                <Line type="monotone" dataKey="load_p75" name="Page load" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                                {/* A period without measurements is a gap, not a fall to zero. */}
+                                <Line type="monotone" dataKey="lcp_p75" name="Largest paint" stroke="#4f46e5" strokeWidth={2} dot={false} connectNulls />
+                                <Line type="monotone" dataKey="load_p75" name="Page load" stroke="#f59e0b" strokeWidth={2} dot={false} connectNulls />
                             </LineChart>
                         </ResponsiveContainer>
                     ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No measurements yet." />}
@@ -105,7 +109,15 @@ const MonitoringPerformance: React.FC<{ data: Performance | null }> = ({ data })
                 <div className="mon-kpis is-tight">
                     <div className="mon-kpi"><span className="mon-kpi-label">API requests</span><strong>{compact(api.requests)}</strong></div>
                     <div className="mon-kpi"><span className="mon-kpi-label">Average response</span><strong>{ms(api.avg_ms)}</strong></div>
-                    <div className="mon-kpi"><span className="mon-kpi-label">Slowest 5%</span><strong>{ms(api.p95_ms)}</strong></div>
+                    <div className="mon-kpi">
+                        <Tooltip title="95% of requests are answered faster than this (the 95th percentile, weighted by traffic).">
+                            <span className="mon-kpi-label">Slowest 5%</span>
+                        </Tooltip>
+                        <strong>{ms(api.p95_ms)}</strong>
+                        {!!api.worst_p95_ms && api.worst_p95_ms > api.p95_ms && (
+                            <small className="mon-kpi-sub">worst minute {ms(api.worst_p95_ms)}</small>
+                        )}
+                    </div>
                     <div className="mon-kpi">
                         <Tooltip title="Share of requests the server failed to answer (5xx).">
                             <span className="mon-kpi-label">Error rate</span>
@@ -150,6 +162,7 @@ const MonitoringPerformance: React.FC<{ data: Performance | null }> = ({ data })
                                     },
                                     { title: 'Calls', dataIndex: 'hits', width: 80, align: 'right', render: (v: number) => compact(v) },
                                     { title: 'Slowest 5%', dataIndex: 'p95_ms', width: 110, align: 'right', render: (v: number) => ms(v) },
+                                    { title: 'Slowest', dataIndex: 'max_ms', width: 90, align: 'right', render: (v: number) => ms(v) },
                                     {
                                         title: 'Errors', dataIndex: 'server_errors', width: 90, align: 'right',
                                         render: (v: number) => (v ? <span className="is-bad">{v}</span> : '—'),

@@ -550,6 +550,8 @@ process.on('SIGINT', async () => {
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
     try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
+    // The API timings of the last minute or two, before the restart loses them.
+    try { await require('./middleware/apiMetrics').flush(database, { all: true }); } catch {}
     await database.close();
     process.exit(0);
 });
@@ -559,6 +561,8 @@ process.on('SIGTERM', async () => {
     reminderService.stop();
     try { require('./services/recordingCleanupService').stop(); } catch {}
     try { require('./services/meetingLifecycle').stopMeetingSweeper(); } catch {}
+    // The API timings of the last minute or two, before the restart loses them.
+    try { await require('./middleware/apiMetrics').flush(database, { all: true }); } catch {}
     await database.close();
     process.exit(0);
 });

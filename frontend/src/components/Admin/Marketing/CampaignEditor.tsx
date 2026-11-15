@@ -7,12 +7,13 @@ import {
 import dayjs from 'dayjs';
 import { useAuth } from '../../../contexts/AuthContext';
 import { call, errorText } from '../../Org/orgModel';
-import { THEMES, promoImage, type Kind, type Lang, type ThemeId } from '../../../promo/model';
+import { THEMES, isAiImage, promoImage, type Kind, type Lang, type ThemeId } from '../../../promo/model';
 import { PromoCard } from '../../../promo/parts';
 import {
   AUDIENCE_LABEL, KIND_HINT, KIND_LABEL, PICTURES, blankCampaign, fieldsOf, toPublic,
-  type Campaign, type CampaignFields,
+  type AiDraft, type Campaign, type CampaignFields,
 } from './marketingModel';
+import CampaignAi, { AiPictureMaker } from './CampaignAi';
 import '../../Org/Org.css';
 import './Marketing.css';
 
@@ -45,6 +46,9 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
 
   // The selling points as typed, one per line, in each language: kept as typed while editing, cleaned when saved.
   const [highlightsText, setHighlightsText] = useState<Record<Lang, string>>({ en: '', fr: '' });
+  // The form as it was before the AI wrote in it (for « Undo »), and the AI's art direction for a new picture.
+  const [beforeAi, setBeforeAi] = useState<{ fields: CampaignFields; highlights: Record<Lang, string> } | null>(null);
+  const [imagePrompt, setImagePrompt] = useState('');
   useEffect(() => {
     if (!open) return;
     const base = campaign ? fieldsOf(campaign) : blankCampaign();
@@ -53,7 +57,27 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
     setLang(campaign && !campaign.title_en && campaign.title_fr ? 'fr' : 'en');
     setErr(null);
     setPictures(false);
+    setBeforeAi(null);
+    setImagePrompt('');
   }, [open, campaign]);
+
+  // The AI filled the campaign: every field, both languages.
+  const applyDraft = (draft: AiDraft) => {
+    setBeforeAi(prev => prev ?? { fields: f, highlights: highlightsText });
+    const next = { ...draft.fields };
+    // A picture already made by the AI stays when the campaign is only changed.
+    if (isAiImage(f.image_key)) next.image_key = f.image_key;
+    setF(next);
+    setHighlightsText({ en: next.highlights_en.join('\n'), fr: next.highlights_fr.join('\n') });
+    setImagePrompt(draft.image_prompt);
+    setPictures(false);
+  };
+  const undoAi = () => {
+    if (!beforeAi) return;
+    setF(beforeAi.fields);
+    setHighlightsText(beforeAi.highlights);
+    setBeforeAi(null);
+  };
 
   const set = (patch: Partial<CampaignFields>) => setF(v => ({ ...v, ...patch }));
   const word = (field: 'title' | 'tagline' | 'description' | 'cta' | 'badge' | 'schedule' | 'price_note') => `${field}_${lang}` as keyof CampaignFields;
@@ -99,6 +123,9 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
       </div>}>
       <div className="mk-editor">
         <div className="og-form">
+          {/* 0 ── The AI writer */}
+          <CampaignAi editing={!!campaign} fields={f} onDraft={applyDraft} onPicture={key => set({ image_key: key })} onUndo={beforeAi ? undoAi : undefined} />
+
           {/* 1 ── Kind */}
           <section className="og-section">
             <div className="og-section-title"><span className="og-step-n">1</span>What are you announcing?</div>
@@ -243,6 +270,15 @@ const CampaignEditor: React.FC<Props> = ({ open, campaign, onClose, onSaved }) =
                 <span className={`mk-thumb is-md pm-t-${f.theme}`} aria-hidden>{f.image_key && <img src={promoImage(f.image_key)} alt="" />}</span>
                 <Button icon={<PictureOutlined />} onClick={() => setPictures(p => !p)}>{pictures ? 'Hide the pictures' : f.image_key ? 'Change the picture' : 'Choose a picture'}</Button>
                 {f.image_key && <Button type="text" onClick={() => set({ image_key: null })}>No picture</Button>}
+              </div>
+              <div className="mk-picture-ai">
+                <AiPictureMaker
+                  prompt={imagePrompt}
+                  theme={f.theme}
+                  title={f.title_en || f.title_fr}
+                  onPicture={key => { set({ image_key: key }); setPictures(false); }}
+                />
+                {isAiImage(f.image_key) && <small>This picture was made by the AI for this campaign.</small>}
               </div>
               {pictures && (
                 <div className="mk-pictures">

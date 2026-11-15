@@ -3,7 +3,7 @@
 // the scroll position after a link from another page.
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { trackPageView } from '../../utils/siteAnalytics';
+import { leavePage, trackPageView, type PageMeta } from '../../utils/siteAnalytics';
 import type { Lang } from './landingContent';
 
 // The booking form is only needed after a click: it stays out of the first
@@ -32,12 +32,17 @@ export function useDemoModal() {
   return { openDemo, openExamOffer, modal };
 }
 
-export function usePublicPage(lang: Lang) {
+export function usePublicPage(lang: Lang, meta?: PageMeta) {
   const { pathname, hash } = useLocation();
 
-  // Count this visit for the monitoring space. No cookie, no identifier that
-  // outlives the page (see utils/siteAnalytics).
-  useEffect(() => { trackPageView(); }, []);
+  // Count each page shown for the monitoring space — the first one and every
+  // move inside the site. No cookie, no identifier that outlives the page
+  // (see utils/siteAnalytics).
+  const { area, kind, topic, title, category } = meta ?? {};
+  useEffect(() => {
+    trackPageView(pathname, lang, { area, kind, topic, title, category });
+    return () => leavePage();
+  }, [pathname, lang, area, kind, topic, title, category]);
 
   // The signed-in app (sign-in first) opens in the language of the page: its
   // translations (i18n.ts) read this key when they load. Not imported here, so

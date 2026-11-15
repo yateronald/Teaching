@@ -46,7 +46,8 @@
 .mon-refreshed { margin-left: auto; padding-right: 4px; font-size: 11.5px; color: #94a3b8; white-space: nowrap; }
 
 /* ── Cards ── */
-.mon-body { display: grid; gap: 14px; }
+/* One column that never grows past the page: a wide table scrolls inside its card instead. */
+.mon-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .mon-card { padding: 16px; border: 1px solid var(--mon-line); border-radius: 16px; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
 .mon-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
 .mon-card > header h3 { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; font-weight: 700; color: var(--mon-ink); }
@@ -69,6 +70,7 @@
 .mon-delta.is-up { color: var(--mon-good); }
 .mon-delta.is-down { color: var(--mon-poor); }
 .mon-delta.is-flat { color: #94a3b8; font-weight: 500; }
+.mon-kpi-sub { display: block; margin-top: 2px; font-size: 11.5px; color: var(--mon-muted); }
 
 .mon-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--mon-good); box-shadow: 0 0 0 0 rgba(14, 159, 110, .6); animation: mon-pulse 2s infinite; }
 .mon-dot.is-big { width: 12px; height: 12px; }
@@ -127,6 +129,24 @@
 .mon-facts { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 16px 0 0; padding: 14px 0 0; border-top: 1px solid var(--mon-line); list-style: none; }
 .mon-facts li { display: flex; align-items: baseline; gap: 7px; font-size: 12.5px; color: var(--mon-muted); }
 .mon-facts b { color: var(--mon-ink); font-variant-numeric: tabular-nums; }
+
+/* ── Free courses ── */
+.mon-notice { display: flex; gap: 12px; align-items: flex-start; border-color: #fde68a; background: #fffbeb; }
+.mon-notice > .anticon { margin-top: 3px; font-size: 18px; color: #b45309; }
+.mon-notice strong { display: block; font-size: 13.5px; color: var(--mon-ink); }
+.mon-notice p { margin: 4px 0 8px; font-size: 12.5px; line-height: 1.55; color: var(--mon-text); }
+.mon-notice code { display: inline-block; padding: 4px 8px; border-radius: 6px; background: #fff; border: 1px solid #fde68a; }
+.mon-funnel { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mon-funnel li { position: relative; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; overflow: hidden; font-size: 13px; }
+.mon-funnel-bar { position: absolute; inset: 0 auto 0 0; border-radius: 10px; background: linear-gradient(90deg, rgba(14, 159, 110, .18), rgba(79, 70, 229, .12)); }
+.mon-funnel-label { position: relative; flex: 1; min-width: 0; color: var(--mon-ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-funnel b { position: relative; font-variant-numeric: tabular-nums; color: var(--mon-ink); }
+.mon-funnel em { position: relative; width: 40px; text-align: right; font-style: normal; font-size: 11.5px; color: var(--mon-muted); }
+.mon-funnel small { position: relative; width: 58px; text-align: right; font-size: 11px; color: #94a3b8; }
+.mon-course { display: inline-flex; flex-direction: column; min-width: 0; max-width: 100%; }
+.mon-course b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--mon-ink); font-weight: 600; }
+.mon-course small { font-size: 11px; color: var(--mon-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mon-course .mon-method { align-self: flex-start; margin-top: 3px; }
 
 /* ── Live ── */
 .mon-live-head { display: grid; grid-template-columns: minmax(200px, 260px) minmax(0, 1fr); gap: 18px; align-items: center; }

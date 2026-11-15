@@ -10,6 +10,8 @@ const MIGRATION_HINT = {
   user_sessions: 'backend/database/run-user-sessions-migration.js',
   tcf_ce_questions: 'backend/database/run-ce-passage-migration.js',
   promotions: 'backend/database/run-promotions-migration.js',
+  site_visits: 'backend/database/run-learning-analytics-migration.js',
+  learn_events: 'backend/database/run-learning-analytics-migration.js',
 };
 
 async function probe(db, key, sql, params, hint) {

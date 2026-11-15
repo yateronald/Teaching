@@ -9,18 +9,21 @@
  */
 const { hasTable } = require('../services/schemaFeatures');
 
-/** Keep the table small: routes beyond this fall into one "other" bucket. */
-const MAX_ROUTES = 200;
+/** Keep memory and the table small: routes beyond this (over the minutes held) fall into one "other" bucket. */
+const MAX_ROUTES = 400;
 /** Enough samples for a stable p95 without holding a minute of traffic in memory. */
 const MAX_SAMPLES = 500;
 
-const buckets = new Map();   // "GET /api/users/:id" → tally
+const buckets = new Map();   // "<minute>|GET /api/users/:id" → tally
 let lag = 0;                 // event-loop delay, milliseconds
 
 const minuteStart = (d = new Date()) => new Date(Math.floor(d.getTime() / 60_000) * 60_000);
 
 /** The route pattern a request matched, with ids collapsed. */
-function routeKey(req) {
+function routeKey(req, status) {
+    // No route answered: robots probing for /wp-admin, /.env… are one line,
+    // not one row per address they try.
+    if (!req.route && status === 404) return '/api/(not found)';
     const matched = `${req.baseUrl || ''}${req.route?.path && req.route.path !== '/' ? req.route.path : ''}`;
     const fallback = (req.path || '/')
         .replace(/\/\d+(?=\/|$)/g, '/:id')
@@ -29,11 +32,13 @@ function routeKey(req) {
     return key.slice(0, 120);
 }
 
-function tally(key) {
+/** The tally of one route for the minute the request ended in. */
+function tally(route, minute = minuteStart().getTime()) {
+    const key = `${minute}|${route}`;
     let bucket = buckets.get(key);
     if (!bucket) {
-        if (buckets.size >= MAX_ROUTES) return tally('OTHER /(other)');
-        bucket = { hits: 0, client: 0, server: 0, total: 0, max: 0, samples: [] };
+        if (buckets.size >= MAX_ROUTES && route !== 'OTHER /(other)') return tally('OTHER /(other)', minute);
+        bucket = { minute, hits: 0, client: 0, server: 0, total: 0, max: 0, samples: [] };
         buckets.set(key, bucket);
     }
     return bucket;
@@ -47,7 +52,7 @@ function track(req, res, next) {
     res.on('finish', () => {
         try {
             const ms = Number(process.hrtime.bigint() - started) / 1e6;
-            const bucket = tally(`${req.method} ${routeKey(req)}`);
+            const bucket = tally(`${req.method} ${routeKey(req, res.statusCode)}`);
             bucket.hits += 1;
             bucket.total += ms;
             bucket.max = Math.max(bucket.max, ms);
@@ -62,17 +67,22 @@ function track(req, res, next) {
 
 const percentile = (sorted, p) => (sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))] : 0);
 
-/** Empties the in-memory tallies into the table, one row per route per minute. */
-async function flush(db) {
+/**
+ * Writes the finished minutes into the table, one row per route per minute,
+ * each under the minute its requests were actually served in. The minute
+ * still running stays in memory until the next write (`all` writes it too).
+ */
+async function flush(db, { all = false } = {}) {
     if (!buckets.size || !(await hasTable(db, 'api_metrics'))) return;
 
-    const rows = [...buckets.entries()];
-    buckets.clear();
-    const minute = minuteStart();
+    const current = minuteStart().getTime();
+    const rows = [...buckets.entries()].filter(([, b]) => all || b.minute < current);
+    for (const [key] of rows) buckets.delete(key);
 
     for (const [key, b] of rows) {
-        const [method, ...rest] = key.split(' ');
+        const [method, ...rest] = key.slice(key.indexOf('|') + 1).split(' ');
         const route = rest.join(' ') || '/';
+        const minute = new Date(b.minute);
         const sorted = b.samples.sort((x, y) => x - y);
         try {
             await db.run(

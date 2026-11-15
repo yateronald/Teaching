@@ -37,6 +37,9 @@ export function loadImage(src: string | null): Promise<HTMLImageElement | null> 
   if (!src) return Promise.resolve(null);
   return new Promise(resolve => {
     const img = new Image();
+    // A picture from another origin (the API's AI pictures) must be fetched
+    // with CORS, or the canvas could not be saved as an image afterwards.
+    try { if (new URL(src, window.location.href).origin !== window.location.origin) img.crossOrigin = 'anonymous'; } catch { /* relative */ }
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
     img.src = src;

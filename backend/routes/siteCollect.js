@@ -6,7 +6,8 @@
  *   • POST only. Every answer is 204 with an empty body, whatever happened, so
  *     it cannot be used to read data, to probe what exists, or to tell a
  *     rejected payload from an accepted one.
- *   • It touches exactly two tables (site_visits, site_salts) and can neither
+ *   • It touches only the monitoring tables (site_visits, site_salts, and for
+ *     the free courses learn_events, learn_titles) and can neither
  *     read nor write anything about users, classes, exams or files.
  *   • The body is capped at 4 KB (see server.js) and validated field by field
  *     against allowlists before a parameterised INSERT.
@@ -61,6 +62,7 @@ router.post('/collect', async (req, res) => {
         if (!beacon) return done(res);
 
         if (beacon.kind === 'vitals') await analytics.attachVitals(req.db, req, beacon);
+        else if (beacon.kind === 'learn') await analytics.recordLearning(req.db, req, beacon);
         else await analytics.recordVisit(req.db, req, beacon, OWN_HOSTS);
 
         return done(res);

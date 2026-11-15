@@ -17,3 +17,17 @@ Future<void> refreshDemoBadge(WidgetRef ref) async {
     // The badge is a convenience: it keeps its last value when offline.
   }
 }
+
+/// Registrations to marketing campaigns that nobody has answered yet: the
+/// number beside "Marketing" in the admin menu.
+final newPromoRegistrationsProvider = StateProvider<int>((ref) => 0);
+
+/// Asks the server for that count. Silent before marketing is installed.
+Future<void> refreshMarketingBadge(WidgetRef ref) async {
+  try {
+    final res = await ref.read(apiClientProvider).get('/admin/promotions/alerts');
+    ref.read(newPromoRegistrationsProvider.notifier).state = J.i(J.map(res.data)['waiting']);
+  } catch (_) {
+    // A convenience only: keeps its last value.
+  }
+}

@@ -112,6 +112,21 @@ export const PLACE_LABEL: Record<Placement, string> = {
   bar: 'Top bar', home: 'Home page', flash: 'Flash pop-up', learn: 'Free courses', offers: 'Offers page', link: 'Shared link',
 };
 
+/** What the AI writer answers (POST /admin/promotions/ai/draft). */
+export interface AiDraft {
+  fields: CampaignFields;
+  /** Points the administrator should check: what was assumed or is missing. */
+  notes: string[];
+  /** The art direction for a new picture, in English. */
+  image_prompt: string;
+  model: string;
+  engine: 'developer' | 'vertex';
+}
+/** What the AI painter answers (POST /admin/promotions/ai/image). */
+export interface AiPicture { image_key: string; model: string; engine: string; warning: string | null }
+/** Whether the AI can work now (GET /admin/promotions/ai). */
+export interface AiStatus { available: boolean; engine: 'developer' | 'vertex'; writing_model: string | null; image_model: string | null }
+
 export const PUBLIC_SITE = 'https://www.learnfrenchwithnatives.com';
 /** The address of a campaign on the public site, in one language. */
 export const campaignUrl = (slug: string, lang: Lang) => `${PUBLIC_SITE}${lang === 'fr' ? '/fr/offres/' : '/offers/'}?p=${encodeURIComponent(slug)}`;

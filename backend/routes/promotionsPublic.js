@@ -2,6 +2,7 @@
  * Marketing campaigns, for the public site (mounted at /api/public/promotions):
  *
  *   GET  /                 the campaigns that are live right now
+ *   GET  /images/<key>.webp a picture made for a campaign (<key>-640.webp: the small one)
  *   POST /track            counts a view or a click (no cookie, no identifier)
  *   POST /:slug/register   a visitor registers for a campaign
  *
@@ -10,6 +11,7 @@
  */
 const express = require('express');
 const promos = require('../services/promotionService');
+const promoAi = require('../services/promotionAi');
 const { createBulkNotifications } = require('../services/notificationService');
 const { sendPromotionRegistrationConfirmation } = require('../emails/emailService');
 
@@ -36,6 +38,29 @@ router.get('/', async (req, res) => {
     } catch (err) {
         console.error('GET /public/promotions error:', err.message);
         res.json({ promotions: [] });
+    }
+});
+
+// ── A picture made for a campaign ──
+// Its address never changes once made (a new picture has a new key), so it
+// is cached for a year. It may be drawn on another site's page or canvas
+// (the www site, the flyer studio): cross-origin is allowed for images only.
+router.get('/images/:file', async (req, res) => {
+    try {
+        const m = /^(ai-[a-f0-9]{12})(-640)?\.webp$/.exec(String(req.params.file || ''));
+        if (!m) return res.status(404).end();
+        const bytes = await promoAi.loadImage(req.db, m[1], !!m[2]);
+        if (!bytes) return res.status(404).end();
+        res.setHeader('Content-Type', 'image/webp');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Content-Security-Policy', "default-src 'none'");
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.end(bytes);
+    } catch (err) {
+        console.error('GET /public/promotions/images error:', err.message);
+        res.status(404).end();
     }
 });
 

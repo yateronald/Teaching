@@ -23,16 +23,23 @@ export interface CampaignRow { name: string | null; source: string | null; mediu
 
 export interface Overview {
     ready: boolean;
-    range: { key: RangeKey; label: string; bucket: 'hour' | 'day' };
+    range: { key: RangeKey; label: string; bucket: 'hour' | 'day'; tz?: string };
     kpis: {
         visits: number; visitors: number; sessions: number; bounce_rate: number; avg_seconds: number;
+        /** Pages read per visit, on the visits that can be followed. */
+        pages_per_session?: number;
+        /** Page views of visitors who asked not to be tracked (no identifier). */
+        anonymous_visits?: number;
         live_visitors: number;
-        change: Record<'visits' | 'visitors' | 'sessions' | 'bounce_rate' | 'avg_seconds', number | null>;
+        change: Record<'visits' | 'visitors' | 'sessions' | 'bounce_rate' | 'avg_seconds', number | null>
+            & { bounce_points?: number | null };
         previous: { visits: number; visitors: number; sessions: number; bounce_rate: number; avg_seconds: number };
     };
     series: Point[];
     countries: CountryRow[];
     pages: PageRow[];
+    /** The pages visits begin on. */
+    entry_pages?: { path: string; visits: number }[];
     channels: { channel: string; visits: number }[];
     referrers: ReferrerRow[];
     campaigns: CampaignRow[];
@@ -41,6 +48,72 @@ export interface Overview {
     systems: Named[];
     languages: Named[];
 }
+
+/** The free courses: who learns, what, for how long, and how far they get. */
+export interface LearningCourse {
+    course: string; title_en: string | null; title_fr: string | null; category: string | null;
+    views: number; learners: number; minutes: number; minutes_per_learner: number;
+    lessons_started: number; lessons_finished: number; completion_rate: number | null; avg_score: number | null;
+    finals_taken: number; finals_passed: number;
+}
+export interface LearningLesson {
+    course: string; item: string; title_en: string | null; title_fr: string | null;
+    course_title_en: string | null; course_title_fr: string | null;
+    starts: number; finishes: number; completion_rate: number | null; avg_score: number | null; avg_seconds: number | null;
+}
+export interface Learning {
+    ready: boolean;
+    /** False until migration 027: pages are then known by their address only. */
+    detailed: boolean;
+    /** False until migration 027: lessons started and finished are not recorded yet. */
+    events: boolean;
+    range: { key: RangeKey; label: string; bucket: 'hour' | 'day'; tz?: string };
+    kpis: {
+        learners: number; views: number; hours_total: number; minutes_per_learner: number;
+        lessons_started: number; lessons_finished: number; completion_rate: number | null; avg_score: number | null;
+        avg_lesson_minutes: number | null; finals_taken: number; finals_passed: number; games_played: number;
+        placement_tests: number; course_tests: number; active_learners: number; share_of_visitors: number;
+        change: { learners: number | null; views: number | null; minutes_per_learner: number | null; lessons_finished: number | null; completion_points: number | null };
+    };
+    series: { at: string; learners: number; views: number; lessons: number }[];
+    funnel: { step: 'learners' | 'course' | 'started' | 'finished' | 'final'; value: number }[];
+    courses: LearningCourse[];
+    categories: { category: string; courses: number; views: number; learners: number; lessons_finished: number }[];
+    lessons: LearningLesson[];
+    games: { game: string; title_en: string | null; title_fr: string | null; views: number; learners: number; plays: number; avg_score: number | null }[];
+    levels: { level: string; tests: number; avg_score: number | null }[];
+    page_kinds: { kind: string; views: number; learners: number; avg_seconds: number }[];
+    arrivals: { channel: string; visits: number }[];
+    entry_pages: { path: string; visits: number }[];
+    countries: { country: string; views: number; learners: number }[];
+    devices: { name: string; views: number; learners: number }[];
+    promotions: { views: number; clicks: number; registrations: number } | null;
+}
+
+export const PAGE_KIND_LABEL: Record<string, string> = {
+    hub: 'Free courses home',
+    category: 'Category pages',
+    level: 'Level pages',
+    course: 'Course pages',
+    lesson: 'Lessons',
+    final: 'Final assessments',
+    games: 'Games home',
+    game: 'Games',
+    placement: 'Level test',
+    progress: 'My progress',
+    none: 'Page not found',
+    other: 'Other',
+};
+
+/** The categories of the free courses (learn/categories.ts). */
+export const CATEGORY_LABEL: Record<string, string> = {
+    beginner: 'Beginner French', grammar: 'French Grammar', spelling: 'Spelling', listening: 'Listening',
+    reading: 'Reading', pronunciation: 'Pronunciation', conversation: 'Conversation', tcf: 'TCF Canada',
+    'tef-quebec': 'TEF Canada & Québec', 'delf-dalf': 'DELF & DALF', business: 'Business French', other: 'Other',
+};
+
+/** "passe-compose" → "Passe compose", when the site has not told the title yet. */
+export const fromId = (id: string) => (id.charAt(0).toUpperCase() + id.slice(1)).replace(/[-_]+/g, ' ');
 
 export interface Vital {
     key: string;
@@ -61,14 +134,17 @@ export interface Vital {
 
 export interface Performance {
     ready: boolean;
+    range?: { key: RangeKey; label: string; bucket: 'hour' | 'day'; tz?: string };
     vitals: Vital[];
     slowest: { path: string; samples: number; lcp_p75: number; load_p75: number; ttfb_p75: number }[];
-    trend: { at: string; lcp_p75: number; load_p75: number }[];
+    trend: { at: string; lcp_p75: number | null; load_p75: number | null }[];
     api: {
         requests: number; server_errors: number; client_errors: number; avg_ms: number; p95_ms: number;
+        /** The slowest minute of any single route (p95), for the record. */
+        worst_p95_ms?: number;
         error_rate: number;
         routes: { route: string; method: string; hits: number; avg_ms: number; p95_ms: number; max_ms: number; server_errors: number; client_errors: number }[];
-        series: { at: string; requests: number; errors: number; p95_ms: number }[];
+        series: { at: string; requests: number; errors: number; p95_ms: number | null }[];
     };
     health: {
         uptime_seconds: number; memory_mb: number; heap_used_mb: number; heap_total_mb: number;
@@ -189,7 +265,15 @@ export const uptimeText = (seconds: number) => {
     return `${m}m`;
 };
 
-/** A timestamp from the API, on the axis of a chart. */
+/** The viewer's time zone: the server cuts days and hours in it. */
+export const viewerZone = (() => {
+    try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }
+})();
+
+/**
+ * A bucket from the API ("2026-11-15T09:00:00", the viewer's own wall-clock
+ * time, no offset) on the axis of a chart.
+ */
 export function axisLabel(at: string, bucket: 'hour' | 'day' | 'minute'): string {
     const date = new Date(at);
     if (Number.isNaN(date.getTime())) return '';
@@ -210,6 +294,7 @@ export const CHANNEL_LABEL: Record<string, string> = {
     social: 'Social',
     referral: 'Referral',
     campaign: 'Campaign',
+    internal: 'Inside the site',
 };
 
 export const CHANNEL_COLOR: Record<string, string> = {
@@ -218,6 +303,7 @@ export const CHANNEL_COLOR: Record<string, string> = {
     social: '#d946ef',
     referral: '#f59e0b',
     campaign: '#ef4444',
+    internal: '#94a3b8',
 };
 
 export const DEVICE_COLOR: Record<string, string> = {

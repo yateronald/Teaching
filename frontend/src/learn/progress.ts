@@ -3,6 +3,7 @@
 // empty state on the server and during hydration, then the stored one.
 import { useSyncExternalStore } from 'react';
 import { LEVELS, type Level } from './types';
+import { trackLearning } from '../utils/siteAnalytics';
 
 export interface LessonRecord { best: number; at: number; attempts: number }
 export interface FinalRecord { best: number; passed: boolean; at: number }
@@ -128,6 +129,7 @@ export function recordFinal(courseId: string, score: number, passed: boolean, xp
 }
 
 export function recordPlacement(level: Level, score: number): BadgeId[] {
+  trackLearning({ kind: 'placement', action: 'finish', item: level, score });
   const p = load();
   const { next, fresh } = awardBadges(withDay({ ...p, placement: { level, score, at: Date.now() }, xp: p.xp + 50 }));
   save(next);
@@ -135,6 +137,7 @@ export function recordPlacement(level: Level, score: number): BadgeId[] {
 }
 
 export function recordCourseTest(courseId: string, level: Level) {
+  trackLearning({ kind: 'course_test', action: 'finish', course: courseId, item: level });
   const p = load();
   save(withDay({ ...p, courseTests: { ...(p.courseTests ?? {}), [courseId]: { level, at: Date.now() } }, xp: p.xp + 30 }));
 }
@@ -172,6 +175,8 @@ export function ladderState(p: Progress, courseId: string): LadderState {
 // ── Games ──
 /** Records a game result; returns whether it is a new best score. */
 export function recordGame(id: string, score: number, xp: number): boolean {
+  // A game's score is in its own points: the play is counted, not the score.
+  trackLearning({ kind: 'game', action: 'finish', item: id });
   const p = load();
   const prev = p.games?.[id];
   const best = Math.max(prev?.best ?? 0, score);
@@ -180,6 +185,7 @@ export function recordGame(id: string, score: number, xp: number): boolean {
 }
 
 export function recordEpisode(id: string, stars: number, xp: number) {
+  trackLearning({ kind: 'story', action: 'finish', item: id, score: Math.max(0, Math.min(3, stars)) / 3 });
   const p = load();
   save(withDay({ ...p, story: { ...(p.story ?? {}), [id]: Math.max(p.story?.[id] ?? 0, stars) }, xp: p.xp + xp }));
 }

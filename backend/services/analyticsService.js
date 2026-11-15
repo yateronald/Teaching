@@ -20,15 +20,15 @@
  * is still counted as a visit, but with no identifier at all.
  */
 const crypto = require('crypto');
-const { hasTable } = require('./schemaFeatures');
+const { hasColumn, hasTable } = require('./schemaFeatures');
 const { countryForTimezone } = require('./geoTimezones');
 
 const RETAIN_VISIT_DAYS = 180;
 const RETAIN_METRIC_DAYS = 45;
 /** A page view may complete (send its performance figures) within this window. */
 const VITALS_WINDOW_MINUTES = 60;
-/** Per-address ceiling, on top of the route's rate limiter. */
-const MAX_HITS_PER_MINUTE = 40;
+/** Per-address ceiling, on top of the route's rate limiter (a page and its reports). */
+const MAX_HITS_PER_MINUTE = 60;
 
 const ready = (db) => hasTable(db, 'site_visits');
 
@@ -43,11 +43,15 @@ const oneOf = (v, allowed) => (allowed.includes(v) ? v : null);
 
 // ── Who is asking (never stored as-is) ─────────────────────────────────────
 
-/** The caller's address, from the proxy header the server already trusts. */
+/**
+ * The caller's address, as Express works it out from the proxy it trusts
+ * ('trust proxy' in server.js). Never the first X-Forwarded-For entry: the
+ * browser writes that one itself, so anyone could pose as a thousand
+ * different visitors, or slip past the per-address ceiling.
+ */
 function clientIp(req) {
-    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    const raw = forwarded || req.ip || req.socket?.remoteAddress || '';
-    return raw.replace('::ffff:', '').slice(0, 45);
+    const raw = req.ip || req.socket?.remoteAddress || '';
+    return String(raw).replace('::ffff:', '').slice(0, 45);
 }
 
 const salts = new Map(); // day → salt, so the day's salt is read once
@@ -136,7 +140,21 @@ const channelFor = ({ referrerHost, source, medium }) => {
 
 // ── Validation of the beacon ───────────────────────────────────────────────
 
-const KINDS = ['page', 'vitals'];
+const KINDS = ['page', 'vitals', 'learn'];
+
+// ── The free courses ───────────────────────────────────────────────────────
+
+/** Pages of the free courses, recognised by their address whatever the page says. */
+const LEARN_PATH = /^\/(learn|fr\/apprendre)(\/|$)/;
+const PAGE_KINDS = ['hub', 'placement', 'progress', 'category', 'level', 'games', 'game', 'course', 'lesson', 'final', 'none'];
+const LEARN_KINDS = ['lesson', 'final', 'game', 'story', 'placement', 'course_test'];
+const ID_OK = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
+const idOf = (v) => { const t = str(v, 80); return t && ID_OK.test(t) ? t : null; };
+/** A title as the site shows it: one line of text, nothing else. */
+const titleOf = (v) => {
+    const t = typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+    return t || null;
+};
 const PATH_OK = /^\/[A-Za-z0-9\-._~/]{0,199}$/;
 const UUID_OK = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANG_OK = /^[a-z]{2}$/;
@@ -154,6 +172,27 @@ function readBeacon(body) {
 
     const eventKey = str(body.id, 40);
     if (!eventKey || !UUID_OK.test(eventKey)) return null;
+
+    if (kind === 'learn') {
+        const type = oneOf(str(body.type, 12), LEARN_KINDS);
+        const action = oneOf(str(body.action, 8), ['start', 'finish']);
+        if (!type || !action) return null;
+        // A course or item that is not a real id means the report was not made by the site.
+        if ((body.course !== undefined && !idOf(body.course)) || (body.item !== undefined && !idOf(body.item))) return null;
+        return {
+            kind,
+            eventKey,
+            type,
+            action,
+            course: idOf(body.course),
+            item: idOf(body.item),
+            score: clampInt(body.score, 0, 100),
+            passed: typeof body.passed === 'boolean' ? body.passed : null,
+            seconds: action === 'finish' ? clampInt(body.secs, 0, 4 * 60 * 60) : null,
+            title: titleOf(body.ttl),
+            itemTitle: titleOf(body.ittl),
+        };
+    }
 
     if (kind === 'vitals') {
         return {
@@ -175,18 +214,26 @@ function readBeacon(body) {
     if (!path || path.length > 200 || !PATH_OK.test(path)) return null;
 
     const lang = str(body.lang, 2)?.toLowerCase() || null;
+    // A move from one page of the site to another (the site does not reload):
+    // it says nothing about where the visitor came from.
+    const inside = body.nav === 'inside';
     return {
         kind,
         eventKey,
+        inside,
         path: path === '/' ? '/' : path.replace(/\/+$/, '') || '/',
         lang: lang && LANG_OK.test(lang) ? lang : null,
         timezone: str(body.tz, 60),
-        referrer: str(body.ref, 500),
-        source: str(body.utm_source, 60)?.match(UTM_OK) ? str(body.utm_source, 60) : null,
-        medium: str(body.utm_medium, 60)?.match(UTM_OK) ? str(body.utm_medium, 60) : null,
-        campaign: str(body.utm_campaign, 60)?.match(UTM_OK) ? str(body.utm_campaign, 60) : null,
+        referrer: inside ? null : str(body.ref, 500),
+        source: !inside && str(body.utm_source, 60)?.match(UTM_OK) ? str(body.utm_source, 60) : null,
+        medium: !inside && str(body.utm_medium, 60)?.match(UTM_OK) ? str(body.utm_medium, 60) : null,
+        campaign: !inside && str(body.utm_campaign, 60)?.match(UTM_OK) ? str(body.utm_campaign, 60) : null,
         screen_w: clampInt(body.sw, 0, 20_000),
         anonymous: body.dnt === true,
+        pageKind: oneOf(str(body.pkind, 16), PAGE_KINDS),
+        topic: idOf(body.topic),
+        topicTitle: titleOf(body.ttl),
+        category: idOf(body.cat),
     };
 }
 
@@ -223,10 +270,38 @@ async function recordVisit(db, req, beacon, ownHosts) {
         ? headerCountry.toUpperCase() : null;
     const country = fromHeader || countryForTimezone(beacon.timezone);
 
-    const referrerHost = readReferrerHost(beacon.referrer, ownHosts);
-    const channel = channelFor({ referrerHost, source: beacon.source, medium: beacon.medium });
+    const referrerHost = beacon.inside ? null : readReferrerHost(beacon.referrer, ownHosts);
+    // Pages after the first one are 'internal': they are counted as page
+    // views, never as arrivals from a search engine, a site or a campaign.
+    const channel = beacon.inside ? 'internal' : channelFor({ referrerHost, source: beacon.source, medium: beacon.medium });
 
     const hash = beacon.anonymous ? null : visitorHash(ip, userAgent, await dailySalt(db));
+
+    const values = [beacon.eventKey, hash, beacon.path, beacon.lang, country,
+        country ? (fromHeader ? 'header' : 'timezone') : null, referrerHost,
+        channel, beacon.source, beacon.medium, beacon.campaign,
+        agent.device, agent.browser, agent.os, beacon.screen_w];
+
+    // The free courses are recognised by their address; what the page says
+    // about itself (kind, course) only completes it.
+    const learn = LEARN_PATH.test(beacon.path);
+    if (await hasColumn(db, 'site_visits', 'area')) {
+        await db.run(
+            `INSERT INTO site_visits
+                (event_key, visitor_hash, path, lang, country, country_from, referrer_host,
+                 channel, source, medium, campaign, device, browser, os, screen_w, is_bot, area, page_kind, topic)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false, $16, $17, $18)
+             -- The predicate repeats the partial unique index so it can be inferred.
+             ON CONFLICT (event_key) WHERE event_key IS NOT NULL DO NOTHING`,
+            [...values, learn ? 'learn' : null, learn ? beacon.pageKind : null, learn ? beacon.topic : null]);
+        if (learn && beacon.topic && beacon.topicTitle && ['course', 'lesson', 'final', 'game'].includes(beacon.pageKind)) {
+            await rememberTitle(db, {
+                key: beacon.topic, kind: beacon.pageKind === 'game' ? 'game' : 'course',
+                category: beacon.category, lang: beacon.lang, text: beacon.topicTitle,
+            });
+        }
+        return true;
+    }
 
     await db.run(
         `INSERT INTO site_visits
@@ -235,17 +310,68 @@ async function recordVisit(db, req, beacon, ownHosts) {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, false)
          -- The predicate repeats the partial unique index so it can be inferred.
          ON CONFLICT (event_key) WHERE event_key IS NOT NULL DO NOTHING`,
-        [beacon.eventKey, hash, beacon.path, beacon.lang, country,
-            country ? (fromHeader ? 'header' : 'timezone') : null, referrerHost,
-            channel, beacon.source, beacon.medium, beacon.campaign,
-            agent.device, agent.browser, agent.os, beacon.screen_w]);
+        values);
+    return true;
+}
+
+/**
+ * Keeps the name of a course, lesson or game as the site shows it, in the
+ * language of the page. Written only when something changes.
+ */
+async function rememberTitle(db, { key, kind, course = null, category = null, lang, text }) {
+    if (!key || !text || !(await hasTable(db, 'learn_titles'))) return;
+    const column = lang === 'fr' ? 'title_fr' : 'title_en';
+    await db.run(
+        `INSERT INTO learn_titles (key, kind, course, category, ${column}) VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (key) DO UPDATE SET
+            ${column} = EXCLUDED.${column},
+            course = COALESCE(EXCLUDED.course, learn_titles.course),
+            category = COALESCE(EXCLUDED.category, learn_titles.category),
+            updated_at = CURRENT_TIMESTAMP
+          WHERE learn_titles.${column} IS DISTINCT FROM EXCLUDED.${column}
+             OR (EXCLUDED.category IS NOT NULL AND learn_titles.category IS DISTINCT FROM EXCLUDED.category)
+             OR (EXCLUDED.course IS NOT NULL AND learn_titles.course IS DISTINCT FROM EXCLUDED.course)`,
+        [`${kind}:${key}`, kind, course, category, text]);
+}
+
+/**
+ * Records a step of a learner in the free courses. It is only kept when the
+ * page view it names exists (and is recent), so an invented id adds nothing.
+ */
+async function recordLearning(db, req, beacon) {
+    if (!(await hasTable(db, 'learn_events'))) return false;
+    if (!withinLimit(clientIp(req))) return false;
+
+    const visit = await db.get(
+        `SELECT lang FROM site_visits
+          WHERE event_key = $1 AND created_at > LOCALTIMESTAMP - INTERVAL '12 hours' AND NOT is_bot`,
+        [beacon.eventKey]);
+    if (!visit) return false;
+
+    const finished = beacon.action === 'finish';
+    await db.run(
+        `INSERT INTO learn_events (visit_key, kind, action, course, item, score, passed, seconds)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [beacon.eventKey, beacon.type, beacon.action, beacon.course, beacon.item,
+            finished ? beacon.score : null, finished ? beacon.passed : null, beacon.seconds]);
+
+    if (!finished) {
+        if (beacon.course && beacon.title) {
+            await rememberTitle(db, { key: beacon.course, kind: 'course', lang: visit.lang, text: beacon.title });
+        }
+        if (beacon.type === 'lesson' && beacon.item && beacon.itemTitle) {
+            await rememberTitle(db, { key: beacon.item, kind: 'lesson', course: beacon.course, lang: visit.lang, text: beacon.itemTitle });
+        }
+    }
     return true;
 }
 
 /**
  * Attaches how the page performed to the page view it belongs to. It can only
- * ever touch a row created in the last hour whose figures are still empty, so
- * a replayed or invented id changes nothing.
+ * ever touch a row created in the last hour, so an invented id changes
+ * nothing. A page reports again each time it is hidden: the loading figures
+ * keep their first value, while the time on page, the worst interaction and
+ * the layout shift can only grow.
  */
 async function attachVitals(db, req, beacon) {
     if (!(await ready(db))) return false;
@@ -254,8 +380,8 @@ async function attachVitals(db, req, beacon) {
     await db.run(
         `UPDATE site_visits SET
             ttfb_ms = COALESCE(ttfb_ms, $2), fcp_ms = COALESCE(fcp_ms, $3),
-            lcp_ms = COALESCE(lcp_ms, $4), inp_ms = COALESCE(inp_ms, $5),
-            cls_x1000 = COALESCE(cls_x1000, $6), load_ms = COALESCE(load_ms, $7),
+            lcp_ms = COALESCE(lcp_ms, $4), inp_ms = GREATEST(inp_ms, $5),
+            cls_x1000 = GREATEST(cls_x1000, $6), load_ms = COALESCE(load_ms, $7),
             dwell_ms = GREATEST(COALESCE(dwell_ms, 0), COALESCE($8, 0))
           WHERE event_key = $1
             AND created_at > LOCALTIMESTAMP - make_interval(mins => $9)`,
@@ -270,6 +396,9 @@ async function attachVitals(db, req, beacon) {
 async function sweep(db) {
     if (!(await ready(db))) return;
     await db.run(`DELETE FROM site_visits WHERE created_at < LOCALTIMESTAMP - make_interval(days => $1)`, [RETAIN_VISIT_DAYS]);
+    if (await hasTable(db, 'learn_events')) {
+        await db.run(`DELETE FROM learn_events WHERE created_at < LOCALTIMESTAMP - make_interval(days => $1)`, [RETAIN_VISIT_DAYS]);
+    }
     await db.run(`DELETE FROM api_metrics WHERE minute < LOCALTIMESTAMP - make_interval(days => $1)`, [RETAIN_METRIC_DAYS]);
     await db.run(`DELETE FROM site_salts WHERE day < CURRENT_DATE - 1`);
 }
@@ -284,6 +413,6 @@ function startAnalyticsSweeper(db) {
 
 module.exports = {
     RETAIN_VISIT_DAYS, RETAIN_METRIC_DAYS, MAX_HITS_PER_MINUTE,
-    readBeacon, recordVisit, attachVitals, readAgent, readReferrerHost, channelFor,
+    readBeacon, recordVisit, attachVitals, recordLearning, readAgent, readReferrerHost, channelFor, LEARN_PATH,
     clientIp, visitorHash, dailySalt, sweep, startAnalyticsSweeper, ready,
 };

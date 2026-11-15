@@ -16,6 +16,7 @@ import { seededShuffle } from '../player/common';
 import Player, { type PlayerOutcome } from '../player/Player';
 import { ScoreRing, celebrate } from '../player/EndScreen';
 import { Overlay, useScrollLock } from './LessonPage';
+import { trackLearning } from '../../utils/siteAnalytics';
 
 const PASS = 0.7;
 
@@ -68,6 +69,7 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
 
   const finish = (o: PlayerOutcome) => {
     const ok = o.score >= PASS;
+    trackLearning({ kind: 'final', action: 'finish', course: course.id, score: o.score, passed: ok });
     const allLessons = (lessons ?? []).every(l => p.lessons[l.id]);
     setFresh(recordFinal(course.id, o.score, ok, Math.round(o.score * 100), ok && allLessons));
     setResult(o);
@@ -93,7 +95,7 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
                 </div>
               )}
               <div className="lp-hero-ctas">
-                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" disabled={!steps.length} onClick={() => { setRun(n => n + 1); setPhase('play'); }}>
+                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" disabled={!steps.length} onClick={() => { trackLearning({ kind: 'final', action: 'start', course: course.id, title }); setRun(n => n + 1); setPhase('play'); }}>
                   {result || best ? <><RedoOutlined />{f.retry}</> : <>{f.start}<ArrowRightOutlined /></>}
                 </button>
                 <Link to={coursePath(course, lang)} className="lp-btn lp-btn-ghost lp-btn-lg">{ui.lesson.backToCourse}</Link>

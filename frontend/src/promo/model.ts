@@ -239,4 +239,7 @@ export function audienceOfCategory(category: string | undefined, courseId?: stri
 }
 
 /** A picture of the library, at the width asked for. */
-export const promoImage = (key: string, width: 640 | 1200 = 640) => imageUrl(key, width);
+/** A picture made by the AI for a campaign (Marketing → AI): served by the API, not by the site. */
+export const isAiImage = (key: string | null | undefined) => !!key && /^ai-[a-f0-9]{12}$/.test(key);
+export const promoImage = (key: string, width: 640 | 1200 = 640) =>
+  isAiImage(key) ? `${ENDPOINT}/images/${key}${width === 640 ? '-640' : ''}.webp` : imageUrl(key, width);

@@ -56,7 +56,7 @@ const MonitoringMap: React.FC<{ data: GeoData | null; loading?: boolean }> = ({ 
                 const world = (await import('world-atlas/countries-110m.json')).default as unknown;
                 if (cancelled) return;
                 const topo = world as Parameters<typeof feature>[0];
-                const collection = feature(topo, (topo as any).objects.countries) as unknown as {
+                const collection = feature(topo, (topo as unknown as { objects: { countries: Parameters<typeof feature>[1] } }).objects.countries) as unknown as {
                     features: { id?: string | number; properties: { name: string }; geometry: unknown }[];
                 };
                 // Antarctica is drawn by no analytics map worth the name: it is a

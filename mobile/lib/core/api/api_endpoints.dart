@@ -10,6 +10,8 @@ class ApiEndpoints {
   static const String socketUrl = String.fromEnvironment('SOCKET_URL', defaultValue: 'https://api.learnfrenchwithnatives.com');
   static const String webSocketUrl = socketUrl;
   static const String liveKitUrl = 'wss://livekit.learnfrenchwithnatives.com';
+  // The public website (campaign links, pictures). --dart-define=SITE_URL=… for another one.
+  static const String siteUrl = String.fromEnvironment('SITE_URL', defaultValue: 'https://www.learnfrenchwithnatives.com');
 
   // ── Auth ──
   static const String login = '/auth/login';

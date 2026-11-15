@@ -20,6 +20,7 @@ import { AudioButton, Rich } from '../player/common';
 import Player, { type PlayerOutcome } from '../player/Player';
 import EndScreen from '../player/EndScreen';
 import { KIND_ICON } from './CoursePage';
+import { trackLearning } from '../../utils/siteAnalytics';
 
 /** Locks the page behind the player. */
 export function useScrollLock(on: boolean) {
@@ -66,6 +67,7 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
   const afterHref = next ? lessonPath(course, next, lang) : ladder ? coursePath(course, lang) : finalPath(course, lang);
 
   const finish = useCallback((o: PlayerOutcome) => {
+    trackLearning({ kind: 'lesson', action: 'finish', course: course.id, item: lesson.id, score: o.score, passed: o.score >= PASS_MARK });
     const r = recordLesson(lesson.id, o.score, o.xp, {
       path: afterHref,
       title: next ? tx(next.title, lang) : ladder ? tx(course.title, lang) : UI[lang].course.final,
@@ -77,7 +79,11 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
     setPhase('end');
   }, [lesson.id, next, course, lang, afterHref, ladder]);
 
-  const start = () => { setRun(n => n + 1); setPhase('play'); };
+  const start = () => {
+    trackLearning({ kind: 'lesson', action: 'start', course: course.id, item: lesson.id, title: tx(course.title, lang), itemTitle: title });
+    setRun(n => n + 1);
+    setPhase('play');
+  };
 
   // Arriving from “Start the course”, a lesson in the list or “Next lesson”:
   // the player opens at once. The state is cleared so a reload shows the page.

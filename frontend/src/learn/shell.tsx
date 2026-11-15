@@ -1,8 +1,8 @@
 // Frame shared by every page of the learning space: the site header and
 // footer, the demo form, the head tags, and small building blocks (course
 // cards, breadcrumbs, the teacher call to action).
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, PlayCircleFilled, ReadOutlined, RightOutlined } from '@ant-design/icons';
 import SEO from '../components/SEO/SEO';
 import SiteHeader from '../components/Landing/SiteHeader';
@@ -11,7 +11,7 @@ import { PATHS } from '../components/Landing/landingContent';
 import { useDemoModal, usePublicPage } from '../components/Landing/publicPage';
 import { CATEGORIES, imageUrl } from './categories';
 import { coursePath } from './catalog';
-import { AUTOSTART } from './paths';
+import { AUTOSTART, resolveLearnPath } from './paths';
 import { useProgress, courseDone } from './progress';
 import { tx, type CourseMeta, type Lang } from './types';
 import { UI } from './ui';
@@ -40,9 +40,30 @@ interface ShellProps {
   bare?: boolean;
 }
 
+/**
+ * What the monitoring space needs to know about a page of the free courses:
+ * its kind, and the course (or game) it belongs to, under the same id in
+ * both languages, with its title.
+ */
+function useLearnMeta(lang: Lang) {
+  const { pathname } = useLocation();
+  return useMemo(() => {
+    const route = resolveLearnPath(pathname);
+    const course = 'course' in route ? route.course : undefined;
+    const game = route.type === 'game' ? route.game : undefined;
+    return {
+      area: 'learn' as const,
+      kind: route.type,
+      topic: course?.id ?? game?.id,
+      title: course ? tx(course.title, lang) : game ? tx(game.title, lang) : undefined,
+      category: course?.category,
+    };
+  }, [pathname, lang]);
+}
+
 export function LearnShell({ lang, alternates, seo, children, bare = false }: ShellProps) {
   const { openDemo, openExamOffer, modal } = useDemoModal();
-  usePublicPage(lang);
+  usePublicPage(lang, useLearnMeta(lang));
   return (
     <PromoProvider lang={lang} area="learn">
     <DemoCtx.Provider value={{ openDemo, openOffer: openExamOffer }}>

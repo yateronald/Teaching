@@ -40,10 +40,10 @@ const COUNTS_JOIN = `
           FROM promotion_registrations GROUP BY promotion_id
     ) r ON r.promotion_id = p.id`;
 
-/** "A B  C" → "A B C", cut to `max`; empty → null. */
+/** "A B  C" → "A B C", cut to `max`; empty → null. No-break spaces (French typography: « 19 h », « : ») are kept. */
 function text(value, max) {
     if (value === undefined || value === null) return null;
-    const s = String(value).replace(/\s+/g, ' ').trim();
+    const s = String(value).replace(/[^\S\u00a0\u202f]+/g, ' ').trim();
     return s ? s.slice(0, max) : null;
 }
 /** Like text(), but keeps the line breaks of a paragraph. */

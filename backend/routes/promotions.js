@@ -12,10 +12,15 @@
  *   GET    /:id/registrations        the people who registered
  *   PATCH  /:id/registrations/:rid   status and notes of one registration
  *   DELETE /:id/registrations/:rid   remove one registration
+ *
+ *   GET    /ai                       can the AI write and draw now, and with which models
+ *   POST   /ai/draft                 a campaign in French and English from a brief (or changes to one)
+ *   POST   /ai/image                 a new picture for a campaign (its key becomes image_key)
  */
 const express = require('express');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const promos = require('../services/promotionService');
+const promoAi = require('../services/promotionAi');
 
 const router = express.Router();
 router.use(authenticateToken, authorizeRoles('admin'));
@@ -85,6 +90,54 @@ router.get('/', async (req, res) => {
             },
         });
     } catch (err) { fail(res, err, 'Loading the campaigns'); }
+});
+
+// ── The AI writer ──
+// Each administrator may ask a reasonable number of times per hour: enough
+// to work, never a bulk run against the engine's quota.
+const AI_PER_HOUR = { draft: 40, image: 20 };
+const aiUses = new Map(); // "kind|user" → times of the last hour
+
+function aiQuota(kind) {
+    return (req, res, next) => {
+        const key = `${kind}|${req.user.id}`;
+        const now = Date.now();
+        const recent = (aiUses.get(key) || []).filter(t => now - t < 3_600_000);
+        if (recent.length >= AI_PER_HOUR[kind]) {
+            return res.status(429).json({
+                error: 'Too many AI requests',
+                message: `The AI has been asked ${AI_PER_HOUR[kind]} times in the last hour. Try again a little later.`,
+                code: 'AI_LIMIT',
+            });
+        }
+        recent.push(now);
+        aiUses.set(key, recent);
+        next();
+    };
+}
+
+const aiFail = (res, err, what) => {
+    if (err instanceof promoAi.AiError) return res.status(err.status).json({ error: err.message, message: err.message, code: err.code });
+    console.error(`${what} error:`, err.message);
+    return res.status(500).json({ error: 'Something went wrong', message: `${what} failed. Please try again.` });
+};
+
+router.get('/ai', (_req, res) => res.json(promoAi.status()));
+
+router.post('/ai/draft', aiQuota('draft'), async (req, res) => {
+    try {
+        const { brief, current, timezone, notes_lang: notesLang } = req.body || {};
+        const draft = await promoAi.draftCampaign({ brief, current, timezone, notesLang, userTimezone: req.user.timezone });
+        res.json(draft);
+    } catch (err) { aiFail(res, err, 'Writing the campaign'); }
+});
+
+router.post('/ai/image', aiQuota('image'), async (req, res) => {
+    try {
+        const { prompt, theme, title } = req.body || {};
+        const picture = await promoAi.campaignImage(req.db, { prompt, theme, title, userId: req.user.id });
+        res.json(picture);
+    } catch (err) { aiFail(res, err, 'Making the picture'); }
 });
 
 // ── Menu badge: registrations still marked "new" ──

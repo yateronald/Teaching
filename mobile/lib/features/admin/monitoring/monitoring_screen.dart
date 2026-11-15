@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/auth/auth_notifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
@@ -29,6 +30,9 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
   String? _error;
   Timer? _timer;
   DateTime? _refreshed;
+  // Only the latest request may fill the screen: an older answer arriving
+  // late (another period, another tab) is dropped.
+  int _latest = 0;
 
   @override
   void initState() {
@@ -42,12 +46,28 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
     super.dispose();
   }
 
-  String get _path => switch (_tab) {
-        'overview' => '/monitoring/overview?range=$_range',
-        'geo' => '/monitoring/geo?range=$_range',
-        'performance' => '/monitoring/performance?range=$_range',
-        _ => '/monitoring/live',
-      };
+  /// The zone the server cuts days and hours in: the one of the admin's
+  /// profile, or the phone's offset when the profile has none.
+  String get _zone {
+    final profile = ref.read(authNotifierProvider).user?.timezone?.trim() ?? '';
+    if (profile.contains('/') || profile == 'UTC') return profile;
+    final offset = DateTime.now().timeZoneOffset;
+    if (offset.inMinutes % 60 != 0) return 'UTC';
+    final h = offset.inHours;
+    // POSIX names are inverted: UTC+2 is "Etc/GMT-2".
+    return h == 0 ? 'UTC' : 'Etc/GMT${h > 0 ? '-' : '+'}${h.abs()}';
+  }
+
+  String get _path {
+    final tz = 'tz=${Uri.encodeQueryComponent(_zone)}';
+    return switch (_tab) {
+      'overview' => '/monitoring/overview?range=$_range&$tz',
+      'geo' => '/monitoring/geo?range=$_range',
+      'performance' => '/monitoring/performance?range=$_range&$tz',
+      'learning' => '/monitoring/learning?range=$_range&$tz',
+      _ => '/monitoring/live?$tz',
+    };
+  }
 
   Future<void> _load({bool silent = false}) async {
     if (!silent) {
@@ -57,16 +77,18 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
       });
     }
     final tab = _tab;
+    final mine = ++_latest;
     try {
       final res = await ref.read(apiClientProvider).get(_path);
-      if (!mounted) return;
+      if (!mounted || mine != _latest) return;
       setState(() {
         _data[tab] = J.map(res.data);
         _loading = false;
+        _error = null;
         _refreshed = DateTime.now();
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || mine != _latest) return;
       setState(() {
         _loading = false;
         if (e is ApiException && e.statusCode == 403) {
@@ -100,23 +122,22 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
       );
     }
     final d = _data[_tab];
-    // Four tabs with icons do not fit a small phone: text only there.
-    final narrow = MediaQuery.sizeOf(context).width < 480;
     return AdminPage(
       onRefresh: _load,
       toolbar: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SegmentedButton<String>(
-            segments: [
-              ButtonSegment(value: 'overview', icon: narrow ? null : const Icon(Icons.area_chart_outlined, size: 18), label: Text(fr ? 'Audience' : 'Audience')),
-              ButtonSegment(value: 'geo', icon: narrow ? null : const Icon(Icons.public, size: 18), label: Text(fr ? 'Pays' : 'Countries')),
-              ButtonSegment(value: 'performance', icon: narrow ? null : const Icon(Icons.bolt, size: 18), label: Text(fr ? 'Vitesse' : 'Speed')),
-              ButtonSegment(value: 'live', icon: narrow ? null : const Icon(Icons.sensors, size: 18), label: Text(fr ? 'Direct' : 'Live')),
+          // Five sections: a row that scrolls on a small phone.
+          _Tabs(
+            selected: _tab,
+            onSelected: _switch,
+            tabs: [
+              ('overview', Icons.area_chart_outlined, fr ? 'Audience' : 'Audience'),
+              ('geo', Icons.public, fr ? 'Pays' : 'Countries'),
+              ('learning', Icons.menu_book_outlined, fr ? 'Cours gratuits' : 'Free courses'),
+              ('performance', Icons.bolt, fr ? 'Vitesse' : 'Speed'),
+              ('live', Icons.sensors, fr ? 'Direct' : 'Live'),
             ],
-            selected: {_tab},
-            showSelectedIcon: false,
-            onSelectionChanged: (v) => _switch(v.first),
           ),
           if (_tab != 'live') ...[
             const SizedBox(height: 8),
@@ -144,10 +165,28 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
         else if (d != null && d['ready'] == false)
           AdminCard(child: AdminEmpty(icon: Icons.hourglass_empty, title: fr ? 'Pas encore de données' : 'No data yet', message: fr ? 'Les premières visites apparaîtront ici.' : 'The first visits will appear here.'))
         else if (d != null) ...[
+          // A failed refresh keeps the last figures, and says so.
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  const Icon(Icons.cloud_off, size: 16, color: AppColors.warn),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      fr ? 'Actualisation impossible : $_error' : 'Could not refresh: $_error',
+                      style: AppTypography.caption.copyWith(color: AppColors.warn),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (_tab == 'overview') _Overview(d: d),
           if (_tab == 'geo') _Geo(d: d),
           if (_tab == 'performance') _Performance(d: d),
           if (_tab == 'live') _Live(d: d, refreshed: _refreshed),
+          if (_tab == 'learning') _Learning(d: d),
         ],
       ],
     );
@@ -155,6 +194,41 @@ class _MonitoringScreenState extends ConsumerState<MonitoringScreen> {
 }
 
 // ── Shared bits ────────────────────────────────────────────────────────────
+
+/// The sections of the space, as chips that scroll sideways when they do not fit.
+class _Tabs extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onSelected;
+  final List<(String, IconData, String)> tabs;
+  const _Tabs({required this.selected, required this.onSelected, required this.tabs});
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final (key, icon, label) in tabs)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: ChoiceChip(
+                key: Key('monitoring-tab-$key'),
+                avatar: Icon(icon, size: 17, color: key == selected ? AppColors.pureWhite : AppColors.adminAccent),
+                label: Text(label),
+                selected: key == selected,
+                showCheckmark: false,
+                selectedColor: AppColors.adminAccent,
+                backgroundColor: AppColors.pureWhite,
+                side: BorderSide(color: key == selected ? AppColors.adminAccent : AppColors.border),
+                labelStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: key == selected ? AppColors.pureWhite : AppColors.text),
+                onSelected: (_) => onSelected(key),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 String _flag(String? code) {
   if (code == null || code.length != 2 || code == '??') return '🌐';
@@ -202,19 +276,38 @@ String _uptime(int s) {
   return '$m min';
 }
 
+String _channelName(String c, bool fr) =>
+    {
+      'direct': fr ? 'Accès direct' : 'Direct',
+      'search': fr ? 'Recherche' : 'Search',
+      'social': fr ? 'Réseaux sociaux' : 'Social',
+      'referral': fr ? 'Site référent' : 'Referral',
+      'campaign': fr ? 'Campagne' : 'Campaign',
+      'internal': fr ? 'Dans le site' : 'Inside the site',
+    }[c] ??
+    c;
+
 String _ms(num? v) => v == null ? '—' : v >= 1000 ? '${(v / 1000).toStringAsFixed(1)} s' : '${v.round()} ms';
 
+/// The change against the previous period of the same length: a percentage,
+/// or points for a rate (a bounce rate going from 40 % to 50 % is +10 pts).
 class _Delta extends StatelessWidget {
   final num? change;
   final bool lowerIsBetter;
-  const _Delta(this.change, {this.lowerIsBetter = false});
+  final bool points;
+  const _Delta(this.change, {this.lowerIsBetter = false, this.points = false});
 
   @override
   Widget build(BuildContext context) {
     if (change == null) return const SizedBox.shrink();
-    final up = change! >= 0;
+    if (change == 0) {
+      return Text(context.isFrench ? '= stable' : '= no change', style: AppTypography.caption.copyWith(color: AppColors.textSubtle));
+    }
+    final up = change! > 0;
     final good = lowerIsBetter ? !up : up;
-    return Text('${up ? '▲' : '▼'} ${change!.abs().round()}%', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: good ? AppColors.good : AppColors.bad));
+    final amount = change!.abs();
+    final text = points ? '${amount % 1 == 0 ? amount.toInt() : amount} pts' : '${amount.round()}%';
+    return Text('${up ? '▲' : '▼'} $text', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: good ? AppColors.good : AppColors.bad));
   }
 }
 
@@ -275,9 +368,13 @@ class _Overview extends StatelessWidget {
           'social': fr ? 'Réseaux sociaux' : 'Social',
           'referral': fr ? 'Sites référents' : 'Referrals',
           'campaign': fr ? 'Campagnes' : 'Campaigns',
+          'internal': fr ? 'Dans le site' : 'Inside the site',
           'email': 'E-mail',
         }[c] ??
         c;
+    final bouncePoints = change.containsKey('bounce_points');
+    final perVisit = J.n(k['pages_per_session']);
+    final untracked = J.i(k['anonymous_visits']);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -286,11 +383,25 @@ class _Overview extends StatelessWidget {
           maxColumns: 5,
           spacing: 10,
           children: [
-            _Kpi(fr ? 'Visites' : 'Visits', AdminFmt.number(context, J.n(k['visits'])), _Delta(change['visits'] as num?)),
-            _Kpi(fr ? 'Visiteurs' : 'Visitors', AdminFmt.number(context, J.n(k['visitors'])), _Delta(change['visitors'] as num?)),
-            _Kpi(fr ? 'Sessions' : 'Sessions', AdminFmt.number(context, J.n(k['sessions'])), _Delta(change['sessions'] as num?)),
-            _Kpi(fr ? 'Taux de rebond' : 'Bounce rate', '${J.n(k['bounce_rate']).round()}%', _Delta(change['bounce_rate'] as num?, lowerIsBetter: true)),
-            _Kpi(fr ? 'Durée moyenne' : 'Avg. time', _duration(J.n(k['avg_seconds'])), _Delta(change['avg_seconds'] as num?)),
+            _Kpi(
+              fr ? 'Visiteurs' : 'Visitors',
+              AdminFmt.number(context, J.n(k['visitors'])),
+              _Delta(change['visitors'] as num?),
+              sub: untracked > 0 ? (fr ? 'dont $untracked pages sans suivi' : '$untracked pages untracked') : null,
+            ),
+            _Kpi(fr ? 'Pages vues' : 'Page views', AdminFmt.number(context, J.n(k['visits'])), _Delta(change['visits'] as num?)),
+            _Kpi(
+              fr ? 'Visites' : 'Visits',
+              AdminFmt.number(context, J.n(k['sessions'])),
+              _Delta(change['sessions'] as num?),
+              sub: perVisit > 0 ? (fr ? '$perVisit pages par visite' : '$perVisit pages per visit') : null,
+            ),
+            _Kpi(
+              fr ? 'Taux de rebond' : 'Bounce rate',
+              '${J.n(k['bounce_rate']).round()}%',
+              bouncePoints ? _Delta(change['bounce_points'] as num?, lowerIsBetter: true, points: true) : _Delta(change['bounce_rate'] as num?, lowerIsBetter: true),
+            ),
+            _Kpi(fr ? 'Temps par page' : 'Time on page', _duration(J.n(k['avg_seconds'])), _Delta(change['avg_seconds'] as num?)),
           ],
         ),
         if (J.i(k['live_visitors']) > 0)
@@ -308,13 +419,15 @@ class _Overview extends StatelessWidget {
           ),
         const SizedBox(height: 14),
         AdminCard(
-          title: fr ? 'Visites' : 'Visits',
+          title: fr ? 'Trafic' : 'Traffic',
           icon: Icons.show_chart,
-          action: Row(mainAxisSize: MainAxisSize.min, children: [
-            _Key(AppColors.adminAccent, fr ? 'Visites' : 'Visits'),
-            const SizedBox(width: 10),
-            _Key(AppColors.good, fr ? 'Visiteurs' : 'Visitors'),
-          ]),
+          // The legend wraps under itself on a narrow phone instead of pushing the title out.
+          action: Flexible(
+            child: Wrap(alignment: WrapAlignment.end, spacing: 10, runSpacing: 4, children: [
+              _Key(AppColors.adminAccent, fr ? 'Pages vues' : 'Page views'),
+              _Key(AppColors.good, fr ? 'Visiteurs' : 'Visitors'),
+            ]),
+          ),
           child: Container(
             height: 180,
             padding: const EdgeInsets.only(right: 14),
@@ -381,8 +494,14 @@ class _Overview extends StatelessWidget {
               icon: Icons.article_outlined,
               child: _Bars([for (final p in J.list(d['pages']).take(8)) (J.s(p['path']), J.n(p['visits']))]),
             ),
+            if (J.list(d['entry_pages']).isNotEmpty)
+              AdminCard(
+                title: fr ? 'Pages d’entrée' : 'Entry pages',
+                icon: Icons.login,
+                child: _Bars([for (final p in J.list(d['entry_pages']).take(8)) (J.s(p['path']), J.n(p['visits']))], color: const Color(0xFF0D9488)),
+              ),
             AdminCard(
-              title: fr ? "D'où ils viennent" : 'Where they come from',
+              title: fr ? "D'où ils viennent (visites)" : 'Where they come from (visits)',
               icon: Icons.alt_route,
               child: _Bars([for (final c in J.list(d['channels'])) (channel(J.s(c['channel'])), J.n(c['visits']))], color: const Color(0xFF0891B2)),
             ),
@@ -421,7 +540,7 @@ class _Key extends StatelessWidget {
   Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 10, height: 3, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
         const SizedBox(width: 4),
-        Text(label, style: AppTypography.caption.copyWith(fontSize: 11, color: AppColors.textMuted)),
+        Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption.copyWith(fontSize: 11, color: AppColors.textMuted))),
       ]);
 }
 
@@ -429,7 +548,8 @@ class _Kpi extends StatelessWidget {
   final String label;
   final String value;
   final Widget delta;
-  const _Kpi(this.label, this.value, this.delta);
+  final String? sub;
+  const _Kpi(this.label, this.value, this.delta, {this.sub});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -443,6 +563,10 @@ class _Kpi extends StatelessWidget {
             FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: AppTypography.headlineSmall.copyWith(fontWeight: FontWeight.w800))),
             const SizedBox(height: 2),
             delta,
+            if (sub != null) ...[
+              const SizedBox(height: 2),
+              Text(sub!, style: AppTypography.caption.copyWith(fontSize: 11, color: AppColors.textMuted), maxLines: 2, overflow: TextOverflow.ellipsis),
+            ],
           ],
         ),
       );
@@ -592,8 +716,8 @@ class _GeoState extends State<_Geo> {
                   title: Text(_country(J.s(c['country']), fr), style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w800)),
                   subtitle: Text(
                     fr
-                        ? '${AdminFmt.number(context, J.n(c['visits']))} visites · ${J.n(c['share']).toStringAsFixed(1)} % · ${AdminFmt.number(context, J.n(c['visitors']))} visiteurs'
-                        : '${AdminFmt.number(context, J.n(c['visits']))} visits · ${J.n(c['share']).toStringAsFixed(1)}% · ${AdminFmt.number(context, J.n(c['visitors']))} visitors',
+                        ? '${AdminFmt.number(context, J.n(c['visits']))} pages vues · ${J.n(c['share']).toStringAsFixed(1)} % · ${AdminFmt.number(context, J.n(c['visitors']))} visiteurs'
+                        : '${AdminFmt.number(context, J.n(c['visits']))} page views · ${J.n(c['share']).toStringAsFixed(1)}% · ${AdminFmt.number(context, J.n(c['visitors']))} visitors',
                     style: AppTypography.caption.copyWith(color: AppColors.textMuted),
                   ),
                   children: [
@@ -602,7 +726,7 @@ class _GeoState extends State<_Geo> {
                       runSpacing: 8,
                       children: [
                         _Fact(fr ? 'Rebond' : 'Bounce', '${J.n(c['bounce_rate']).round()}%'),
-                        _Fact(fr ? 'Durée' : 'Avg. time', _duration(J.n(c['avg_seconds']))),
+                        _Fact(fr ? 'Temps par page' : 'Time on page', _duration(J.n(c['avg_seconds']))),
                         _Fact(fr ? 'Chargement (p75)' : 'Load (p75)', _ms(c['load_p75'] as num?)),
                         _Fact('LCP (p75)', _ms(c['lcp_p75'] as num?)),
                         _Fact(fr ? 'Téléphone / tablette / ordi' : 'Phone / tablet / desktop', '${J.i(c['phone'])} / ${J.i(c['tablet'])} / ${J.i(c['desktop'])}'),
@@ -820,7 +944,8 @@ class _Performance extends StatelessWidget {
                     children: [
                       _Fact(fr ? 'Requêtes' : 'Requests', AdminFmt.number(context, J.n(api['requests']))),
                       _Fact(fr ? 'Temps moyen' : 'Average', _ms(J.n(api['avg_ms']))),
-                      _Fact('p95', _ms(J.n(api['p95_ms']))),
+                      _Fact(fr ? '5 % les plus lentes' : 'Slowest 5%', _ms(J.n(api['p95_ms']))),
+                      if (J.n(api['worst_p95_ms']) > J.n(api['p95_ms'])) _Fact(fr ? 'Pire minute' : 'Worst minute', _ms(J.n(api['worst_p95_ms']))),
                       _Fact(fr ? 'Erreurs serveur' : 'Server errors', '${J.i(api['server_errors'])} (${J.n(api['error_rate']).toStringAsFixed(2)}%)'),
                     ],
                   ),
@@ -874,7 +999,7 @@ class _Live extends StatelessWidget {
           spacing: 10,
           children: [
             StatTile(label: fr ? 'Visiteurs en ce moment' : 'Visitors right now', value: '${J.i(d['visitors'])}', icon: Icons.sensors, color: AppColors.good),
-            StatTile(label: fr ? 'Pages vues (30 min)' : 'Page views (30 min)', value: '${J.i(d['views'])}', icon: Icons.visibility_outlined),
+            StatTile(label: fr ? 'Pages vues (5 min)' : 'Page views (5 min)', value: '${J.i(d['views'])}', icon: Icons.visibility_outlined),
           ],
         ),
         if (refreshed != null)
@@ -920,7 +1045,7 @@ class _Live extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         AdminCard(
-          title: fr ? 'Dernières visites' : 'Recent visits',
+          title: fr ? 'Dernières pages vues' : 'Latest page views',
           icon: Icons.history,
           child: Column(
             children: [
@@ -931,7 +1056,11 @@ class _Live extends StatelessWidget {
                   leading: Text(_flag(J.s(r['country'])), style: const TextStyle(fontSize: 22)),
                   title: Text(J.s(r['path']), style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
                   subtitle: Text(
-                    [J.s(r['device']), J.s(r['browser']), J.s(r['referrer_host']).isEmpty ? J.s(r['channel']) : J.s(r['referrer_host'])].where((s) => s.isNotEmpty).join(' · '),
+                    [
+                      J.s(r['device']),
+                      J.s(r['browser']),
+                      J.s(r['referrer_host']).isNotEmpty ? J.s(r['referrer_host']) : _channelName(J.s(r['channel']), fr),
+                    ].where((s) => s.isNotEmpty).join(' · '),
                     style: AppTypography.caption.copyWith(color: AppColors.textMuted),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -945,6 +1074,468 @@ class _Live extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── Free courses ───────────────────────────────────────────────────────────
+
+const _categoryNames = {
+  'beginner': ('Français débutant', 'Beginner French'),
+  'grammar': ('Grammaire', 'Grammar'),
+  'spelling': ('Orthographe', 'Spelling'),
+  'listening': ('Compréhension orale', 'Listening'),
+  'reading': ('Compréhension écrite', 'Reading'),
+  'pronunciation': ('Prononciation', 'Pronunciation'),
+  'conversation': ('Conversation', 'Conversation'),
+  'tcf': ('TCF Canada', 'TCF Canada'),
+  'tef-quebec': ('TEF Canada et Québec', 'TEF Canada & Québec'),
+  'delf-dalf': ('DELF et DALF', 'DELF & DALF'),
+  'business': ('Français professionnel', 'Business French'),
+};
+
+String _categoryName(String c, bool fr) {
+  final n = _categoryNames[c];
+  return n == null ? _fromId(c) : (fr ? n.$1 : n.$2);
+}
+
+String _pageKindName(String k, bool fr) =>
+    {
+      'hub': fr ? 'Accueil des cours' : 'Free courses home',
+      'category': fr ? 'Catégories' : 'Category pages',
+      'level': fr ? 'Pages de niveau' : 'Level pages',
+      'course': fr ? 'Pages de cours' : 'Course pages',
+      'lesson': fr ? 'Leçons' : 'Lessons',
+      'final': fr ? 'Évaluations finales' : 'Final assessments',
+      'games': fr ? 'Accueil des jeux' : 'Games home',
+      'game': fr ? 'Jeux' : 'Games',
+      'placement': fr ? 'Test de niveau' : 'Level test',
+      'progress': fr ? 'Ma progression' : 'My progress',
+      'none': fr ? 'Page introuvable' : 'Page not found',
+    }[k] ??
+    (fr ? 'Autres' : 'Other');
+
+/// "passe-compose" → "Passe compose", when the site has not told the title yet.
+String _fromId(String id) => id.isEmpty ? '—' : (id[0].toUpperCase() + id.substring(1)).replaceAll(RegExp(r'[-_]+'), ' ');
+
+/// A title in the language of the app, or the other one, or the id.
+String _titleOf(Map<String, dynamic> row, String id, bool fr, [String prefix = '']) {
+  final own = J.s(row['${prefix}title_${fr ? 'fr' : 'en'}']);
+  final other = J.s(row['${prefix}title_${fr ? 'en' : 'fr'}']);
+  return own.isNotEmpty ? own : (other.isNotEmpty ? other : _fromId(id));
+}
+
+String _pct(dynamic v) => v == null ? '—' : '${J.n(v) % 1 == 0 ? J.n(v).toInt() : J.n(v)} %';
+
+String _minutes(dynamic m) {
+  final v = J.n(m);
+  return v <= 0 ? '—' : _duration(v * 60);
+}
+
+class _Learning extends StatelessWidget {
+  final Map<String, dynamic> d;
+  const _Learning({required this.d});
+
+  @override
+  Widget build(BuildContext context) {
+    final fr = context.isFrench;
+    final k = J.map(d['kpis']);
+    final change = J.map(k['change']);
+    final series = J.list(d['series']);
+    final hourly = J.s(J.map(d['range'])['bucket']) == 'hour';
+    final funnel = J.list(d['funnel']);
+    final courses = J.list(d['courses']);
+    final lessons = J.list(d['lessons']);
+    final games = J.list(d['games']);
+    final levels = J.list(d['levels']);
+    final promotions = d['promotions'] == null ? null : J.map(d['promotions']);
+    final hardest = [
+      for (final l in lessons)
+        if (J.i(l['starts']) >= 3 && l['completion_rate'] != null) l,
+    ]..sort((a, b) => J.n(a['completion_rate']).compareTo(J.n(b['completion_rate'])));
+    String funnelName(String step) =>
+        {
+          'learners': fr ? 'Ont visité les cours' : 'Visited the free courses',
+          'course': fr ? 'Ont ouvert un cours' : 'Opened a course',
+          'started': fr ? 'Ont commencé une leçon' : 'Started a lesson',
+          'finished': fr ? 'Ont terminé une leçon' : 'Finished a lesson',
+          'final': fr ? 'Ont réussi une évaluation' : 'Passed an assessment',
+        }[step] ??
+        step;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (d['events'] != true)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: AppColors.warnBg, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.warnBorder)),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline, size: 18, color: AppColors.warn),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    fr
+                        ? 'Les leçons, évaluations et jeux ne sont pas encore enregistrés : les chiffres viennent des pages des cours. Lancez sur le serveur backend/database/run-learning-analytics-migration.js.'
+                        : 'Lessons, assessments and games are not recorded yet: the figures come from the course pages. Run backend/database/run-learning-analytics-migration.js on the server.',
+                    style: AppTypography.caption.copyWith(color: AppColors.text, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        AdminGrid(
+          minTileWidth: 150,
+          maxColumns: 3,
+          spacing: 10,
+          children: [
+            _Kpi(
+              fr ? 'Apprenants' : 'Learners',
+              AdminFmt.number(context, J.n(k['learners'])),
+              _Delta(change['learners'] as num?),
+              sub: fr ? '${_pct(k['share_of_visitors'])} des visiteurs du site' : "${_pct(k['share_of_visitors'])} of the site's visitors",
+            ),
+            _Kpi(
+              fr ? 'Temps par apprenant' : 'Time per learner',
+              _minutes(k['minutes_per_learner']),
+              _Delta(change['minutes_per_learner'] as num?),
+              sub: fr ? '${J.n(k['hours_total'])} h au total' : '${J.n(k['hours_total'])} h in total',
+            ),
+            _Kpi(
+              fr ? 'Leçons terminées' : 'Lessons finished',
+              AdminFmt.number(context, J.n(k['lessons_finished'])),
+              _Delta(change['lessons_finished'] as num?),
+              sub: fr ? '${J.i(k['lessons_started'])} commencées' : '${J.i(k['lessons_started'])} started',
+            ),
+            _Kpi(
+              fr ? 'Achèvement' : 'Completion',
+              _pct(k['completion_rate']),
+              _Delta(change['completion_points'] as num?, points: true),
+              sub: k['avg_lesson_minutes'] == null ? null : (fr ? '${_minutes(k['avg_lesson_minutes'])} par leçon' : '${_minutes(k['avg_lesson_minutes'])} per lesson'),
+            ),
+            _Kpi(
+              fr ? 'Score moyen' : 'Average score',
+              _pct(k['avg_score']),
+              const SizedBox.shrink(),
+              sub: fr ? '${J.i(k['games_played'])} parties de jeux' : '${J.i(k['games_played'])} games played',
+            ),
+            _Kpi(
+              fr ? 'Évaluations finales' : 'Final assessments',
+              '${J.i(k['finals_passed'])} / ${J.i(k['finals_taken'])}',
+              const SizedBox.shrink(),
+              sub: fr ? '${J.i(k['placement_tests'])} tests de niveau' : '${J.i(k['placement_tests'])} level tests',
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        AdminCard(
+          title: fr ? 'Apprenants et leçons' : 'Learners and lessons',
+          icon: Icons.show_chart,
+          action: Flexible(
+            child: Wrap(alignment: WrapAlignment.end, spacing: 10, runSpacing: 4, children: [
+              _Key(AppColors.good, fr ? 'Apprenants' : 'Learners'),
+              _Key(AppColors.adminAccent, fr ? 'Leçons terminées' : 'Lessons finished'),
+            ]),
+          ),
+          child: Container(
+            height: 170,
+            padding: const EdgeInsets.only(right: 14),
+            child: series.every((p) => J.n(p['learners']) == 0 && J.n(p['lessons']) == 0)
+                ? Center(child: Text(fr ? 'Personne dans les cours sur la période.' : 'Nobody in the free courses in this period.', style: AppTypography.caption.copyWith(color: AppColors.textMuted)))
+                : LineChart(
+                    LineChartData(
+                      minY: 0,
+                      gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => const FlLine(color: AppColors.borderSoft, strokeWidth: 1)),
+                      borderData: FlBorderData(show: false),
+                      titlesData: FlTitlesData(
+                        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                        leftTitles: AxisTitles(
+                          sideTitles: SideTitles(showTitles: true, reservedSize: 32, getTitlesWidget: (v, _) => Text('${v.round()}', style: AppTypography.caption.copyWith(fontSize: 9.5, color: AppColors.textSubtle))),
+                        ),
+                        bottomTitles: AxisTitles(
+                          sideTitles: SideTitles(
+                            showTitles: true,
+                            reservedSize: 20,
+                            interval: math.max(1, (series.length / 5).ceilToDouble()),
+                            getTitlesWidget: (v, _) {
+                              final i = v.round();
+                              if (i < 0 || i >= series.length) return const SizedBox.shrink();
+                              final at = J.date(series[i]['at']);
+                              return Text(
+                                at == null ? '' : DateFormat(hourly ? 'HH:mm' : 'd MMM', fr ? 'fr_FR' : 'en_US').format(at),
+                                style: AppTypography.caption.copyWith(fontSize: 9.5, color: AppColors.textSubtle),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      lineBarsData: [
+                        LineChartBarData(
+                          spots: [for (var i = 0; i < series.length; i++) FlSpot(i.toDouble(), J.n(series[i]['learners']).toDouble())],
+                          isCurved: true,
+                          preventCurveOverShooting: true,
+                          color: AppColors.good,
+                          barWidth: 2.5,
+                          dotData: const FlDotData(show: false),
+                          belowBarData: BarAreaData(show: true, color: AppColors.good.withValues(alpha: 0.08)),
+                        ),
+                        LineChartBarData(
+                          spots: [for (var i = 0; i < series.length; i++) FlSpot(i.toDouble(), J.n(series[i]['lessons']).toDouble())],
+                          isCurved: true,
+                          preventCurveOverShooting: true,
+                          color: AppColors.adminAccent,
+                          barWidth: 2,
+                          dotData: const FlDotData(show: false),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        AdminGrid(
+          minTileWidth: 320,
+          maxColumns: 2,
+          children: [
+            if (funnel.isNotEmpty)
+              AdminCard(
+                title: fr ? 'Jusqu’où vont les apprenants' : 'How far learners get',
+                icon: Icons.filter_alt_outlined,
+                child: _Bars(
+                  [for (final f in funnel) (funnelName(J.s(f['step'])), J.n(f['value']))],
+                  value: (v) {
+                    final first = J.n(funnel.first['value']);
+                    return first == 0 ? '${v.round()}' : '${v.round()} · ${(v / first * 100).round()} %';
+                  },
+                  color: AppColors.good,
+                ),
+              ),
+            AdminCard(
+              title: fr ? 'Où vont les apprenants' : 'Where learners go',
+              icon: Icons.travel_explore,
+              child: _Bars([for (final p in J.list(d['page_kinds'])) (_pageKindName(J.s(p['kind']), fr), J.n(p['views']))]),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        PanelSection(fr ? 'Cours les plus suivis' : 'Most followed courses'),
+        if (courses.isEmpty)
+          AdminCard(
+            child: Text(
+              d['detailed'] == true
+                  ? (fr ? 'Aucun cours ouvert sur la période.' : 'No course opened in this period.')
+                  : (fr ? 'La liste des cours apparaît une fois la migration lancée.' : 'The list of courses appears once the migration has run.'),
+              style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+            ),
+          )
+        else
+          for (final c in courses.take(15))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: _CourseCard(c: c),
+            ),
+        const SizedBox(height: 6),
+        AdminGrid(
+          minTileWidth: 320,
+          maxColumns: 2,
+          children: [
+            AdminCard(
+              title: fr ? 'Leçons les plus jouées' : 'Most played lessons',
+              icon: Icons.play_lesson_outlined,
+              child: lessons.isEmpty
+                  ? Text(fr ? 'Aucune leçon jouée sur la période.' : 'No lesson played in this period.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted))
+                  : Column(children: [for (final l in lessons.take(8)) _LessonRow(l: l)]),
+            ),
+            AdminCard(
+              title: fr ? 'Leçons à revoir' : 'Lessons to look at',
+              icon: Icons.report_outlined,
+              accent: AppColors.warn,
+              child: hardest.isEmpty
+                  ? Text(fr ? 'Pas encore assez d’essais pour le dire.' : 'Not enough attempts yet to tell.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted))
+                  : _Bars(
+                      [for (final l in hardest.take(6)) (_titleOf(l, J.s(l['item']), fr), J.n(l['completion_rate']))],
+                      value: (v) => fr ? '${v.round()} % terminées' : '${v.round()}% finished',
+                      color: AppColors.warn,
+                    ),
+            ),
+            AdminCard(
+              title: fr ? 'Catégories' : 'Categories',
+              icon: Icons.category_outlined,
+              child: _Bars([for (final c in J.list(d['categories'])) (_categoryName(J.s(c['category']), fr), J.n(c['views']))], color: const Color(0xFF0D9488)),
+            ),
+            AdminCard(
+              title: fr ? 'Jeux et test de niveau' : 'Games and level test',
+              icon: Icons.sports_esports_outlined,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Bars(
+                    [for (final g in games) (_titleOf(g, J.s(g['game']), fr), J.n(g['plays']))],
+                    value: (v) => fr ? '${v.round()} parties' : '${v.round()} plays',
+                    color: const Color(0xFFDB2777),
+                  ),
+                  if (levels.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(fr ? 'Niveaux au test de niveau' : 'Level test results', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+                    _Bars([for (final l in levels) (J.s(l['level']), J.n(l['tests']))], color: const Color(0xFF7C3AED)),
+                  ],
+                ],
+              ),
+            ),
+            AdminCard(
+              title: fr ? 'Comment ils arrivent' : 'How learners arrive',
+              icon: Icons.alt_route,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Bars([for (final a in J.list(d['arrivals'])) (_channelName(J.s(a['channel']), fr), J.n(a['visits']))], color: const Color(0xFF0891B2)),
+                  if (J.list(d['entry_pages']).isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(fr ? 'Pages d’arrivée' : 'Landing pages', style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.textMuted)),
+                    _Bars([for (final e in J.list(d['entry_pages']).take(6)) (J.s(e['path']), J.n(e['visits']))]),
+                  ],
+                ],
+              ),
+            ),
+            AdminCard(
+              title: fr ? 'Pays et appareils' : 'Countries and devices',
+              icon: Icons.public,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _Bars([for (final c in J.list(d['countries']).take(8)) ('${_flag(J.s(c['country']))}  ${_country(J.s(c['country']), fr)}', J.n(c['learners']))], color: AppColors.good),
+                  const SizedBox(height: 10),
+                  _Bars([for (final v in J.list(d['devices'])) (J.s(v['name']).isEmpty ? '—' : J.s(v['name']), J.n(v['views']))], color: AppColors.warn),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (promotions != null) ...[
+          const SizedBox(height: 14),
+          AdminCard(
+            title: fr ? 'Des cours gratuits aux cours payants' : 'From free courses to classes',
+            icon: Icons.campaign_outlined,
+            child: Wrap(
+              spacing: 22,
+              runSpacing: 10,
+              children: [
+                _Fact(fr ? 'Carte vue' : 'Card seen', AdminFmt.number(context, J.n(promotions['views']))),
+                _Fact(fr ? 'Clics' : 'Clicks', AdminFmt.number(context, J.n(promotions['clicks']))),
+                _Fact(fr ? 'Inscriptions' : 'Registrations', AdminFmt.number(context, J.n(promotions['registrations']))),
+                if (J.n(k['learners']) > 0)
+                  _Fact(
+                    fr ? 'Inscrits / apprenants' : 'Registered / learners',
+                    _pct((J.n(promotions['registrations']) / J.n(k['learners']) * 1000).round() / 10),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _CourseCard extends StatelessWidget {
+  final Map<String, dynamic> c;
+  const _CourseCard({required this.c});
+
+  @override
+  Widget build(BuildContext context) {
+    final fr = context.isFrench;
+    final completion = c['completion_rate'];
+    final low = completion != null && J.n(completion) < 40;
+    return AdminCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(_titleOf(c, J.s(c['course']), fr), style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink), maxLines: 2, overflow: TextOverflow.ellipsis),
+              ),
+              if (J.s(c['category']).isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Flexible(child: Pill(_categoryName(J.s(c['category']), fr), color: AppColors.adminAccent)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: [
+              _Fact(fr ? 'Apprenants' : 'Learners', AdminFmt.number(context, J.n(c['learners']))),
+              _Fact(fr ? 'Pages vues' : 'Page views', AdminFmt.number(context, J.n(c['views']))),
+              _Fact(fr ? 'Temps / apprenant' : 'Time / learner', _minutes(c['minutes_per_learner'])),
+              _Fact(fr ? 'Leçons commencées' : 'Lessons started', '${J.i(c['lessons_started'])}'),
+              _Fact(fr ? 'Terminées' : 'Finished', '${J.i(c['lessons_finished'])}'),
+              _Fact(fr ? 'Achèvement' : 'Completion', _pct(completion)),
+              _Fact(fr ? 'Score moyen' : 'Average score', _pct(c['avg_score'])),
+              if (J.i(c['finals_taken']) > 0) _Fact(fr ? 'Évaluation réussie' : 'Final passed', '${J.i(c['finals_passed'])} / ${J.i(c['finals_taken'])}'),
+            ],
+          ),
+          if (low) ...[
+            const SizedBox(height: 8),
+            Text(
+              fr ? 'Moins de 4 leçons sur 10 sont terminées : à regarder.' : 'Fewer than 4 lessons in 10 are finished: worth a look.',
+              style: AppTypography.caption.copyWith(color: AppColors.warn, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _LessonRow extends StatelessWidget {
+  final Map<String, dynamic> l;
+  const _LessonRow({required this.l});
+
+  @override
+  Widget build(BuildContext context) {
+    final fr = context.isFrench;
+    final course = _titleOf(l, J.s(l['course']), fr, 'course_');
+    final secs = l['avg_seconds'];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_titleOf(l, J.s(l['item']), fr), style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(course, style: AppTypography.caption.copyWith(color: AppColors.textMuted), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                fr ? '${J.i(l['finishes'])} / ${J.i(l['starts'])} terminées' : '${J.i(l['finishes'])} / ${J.i(l['starts'])} finished',
+                style: AppTypography.caption.copyWith(fontWeight: FontWeight.w800, color: AppColors.ink),
+              ),
+              Text(
+                [
+                  if (l['avg_score'] != null) fr ? 'score ${_pct(l['avg_score'])}' : 'score ${_pct(l['avg_score'])}',
+                  if (secs != null) _duration(J.n(secs)),
+                ].join(' · '),
+                style: AppTypography.caption.copyWith(fontSize: 11, color: AppColors.textMuted),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
