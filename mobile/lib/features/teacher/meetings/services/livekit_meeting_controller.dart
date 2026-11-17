@@ -38,23 +38,24 @@ class LiveKitMeetingController extends ChangeNotifier {
   );
 
   static const _roomOptions = RoomOptions(
-    adaptiveStream: true,
+    adaptiveStream: false,
     dynacast: true,
     // The SDK's default 720p/30 camera can use ~1.7 Mbps before screen
     // sharing starts. Leave uplink headroom for the presentation stream.
     defaultCameraCaptureOptions: _cameraCapture,
-    // 1080p is the SDK default, but it is unnecessarily expensive on a
-    // phone uplink and makes shared motion lag behind. A 720p source plus
-    // a low simulcast layer lets receivers adapt without stalling.
+    // High-performance screen sharing matching Google Meet smoothness:
+    // 1080p at 30 FPS with maintainFramerate degradation preference.
     defaultScreenShareCaptureOptions: ScreenShareCaptureOptions(
-      params: VideoParametersPresets.screenShareH720FPS15,
-      maxFrameRate: 15,
+      params: VideoParametersPresets.screenShareH1080FPS30,
+      maxFrameRate: 30,
     ),
     defaultVideoPublishOptions: VideoPublishOptions(
       simulcast: true,
-      screenShareEncoding: VideoEncoding(maxBitrate: 1500000, maxFramerate: 15),
-      screenShareSimulcastLayers: [VideoParametersPresets.screenShareH360FPS3],
-      degradationPreference: DegradationPreference.balanced,
+      screenShareEncoding: VideoEncoding(maxBitrate: 4000000, maxFramerate: 30),
+      screenShareSimulcastLayers: [
+        VideoParametersPresets.screenShareH720FPS15,
+      ],
+      degradationPreference: DegradationPreference.maintainFramerate,
     ),
   );
 
@@ -133,13 +134,19 @@ class LiveKitMeetingController extends ChangeNotifier {
     final room = _room;
     if (room == null) return null;
     RemoteTrackPublication? pending;
-    for (final p in room.remoteParticipants.values) {
-      for (final pub in p.trackPublications.values) {
-        if (pub.source != TrackSource.screenShareVideo || pub.muted) continue;
-        if (pub.subscribed && pub.track is VideoTrack) return pub;
-        pending ??= pub;
+    try {
+      for (final p in room.remoteParticipants.values) {
+        for (final pub in p.trackPublications.values) {
+          if (pub.source != TrackSource.screenShareVideo || pub.muted) continue;
+          if (pub.subscribed &&
+              pub.track is VideoTrack &&
+              !(pub.track as VideoTrack).isDisposed) {
+            return pub;
+          }
+          pending ??= pub;
+        }
       }
-    }
+    } catch (_) {}
     return pending;
   }
 
@@ -150,16 +157,27 @@ class LiveKitMeetingController extends ChangeNotifier {
   /// The presentation video, or null while it is still being subscribed.
   VideoTrack? get screenShareTrack {
     final track = _presentation?.track;
-    return track is RemoteVideoTrack ? track : null;
+    if (track is RemoteVideoTrack && !track.isDisposed) {
+      return track;
+    }
+    return null;
   }
 
   List<Participant> get allParticipants {
     final room = _room;
     if (room == null) return const [];
-    return [
-      if (room.localParticipant != null) room.localParticipant!,
-      ...room.remoteParticipants.values,
-    ];
+    try {
+      final remotes =
+          List<RemoteParticipant>.from(room.remoteParticipants.values);
+      return [
+        if (room.localParticipant != null) room.localParticipant!,
+        ...remotes,
+      ];
+    } catch (_) {
+      return [
+        if (room.localParticipant != null) room.localParticipant!,
+      ];
+    }
   }
 
   /// Texts of the Android "class in progress" notification.
@@ -640,11 +658,13 @@ class LiveKitMeetingController extends ChangeNotifier {
       }
       // Always receive the presentation, in full quality, even when its view
       // is small or briefly off screen (picture-in-picture, layout changes).
-      await pub.enable();
-      await pub.setVideoQuality(VideoQuality.HIGH);
-      final before = await _framesDecoded(pub);
+      if (pub.track != null && !pub.track!.isDisposed) {
+        await pub.enable();
+        await pub.setVideoQuality(VideoQuality.HIGH);
+      }
       if (kick) await _requestKeyFrame(pub);
       if (_isDisposed || _presentation != pub) return;
+      final before = await _framesDecoded(pub);
       _presentationTimer = Timer(
         const Duration(seconds: 4),
         () => unawaited(_checkPresentation(pub, before)),
@@ -659,37 +679,35 @@ class LiveKitMeetingController extends ChangeNotifier {
     num? before,
   ) async {
     if (_isDisposed || _left || _presentation != pub) return;
+    if (pub.track == null || pub.track!.isDisposed) {
+      if (pub.subscriptionAllowed && !pub.subscribed) {
+        try {
+          await pub.subscribe();
+        } catch (_) {}
+      }
+      return;
+    }
     final now = await _framesDecoded(pub);
     if (now == null || now > (before ?? 0)) return;
     if (_presentationRecoveries >= 3) return;
     _presentationRecoveries++;
     debugPrint(
-      '[LiveKit] Presentation shows no picture; recovery $_presentationRecoveries',
+      '[LiveKit] Presentation shows no picture; requesting keyframe $_presentationRecoveries',
     );
-    if (_presentationRecoveries == 1) {
-      _watchPresentation(kick: true);
-      return;
-    }
-    // A new subscription makes the server send a complete picture.
-    try {
-      await pub.unsubscribe();
-      await Future<void>.delayed(const Duration(milliseconds: 600));
-      if (_isDisposed || _left) return;
-      await pub.subscribe();
-    } catch (e) {
-      debugPrint('[LiveKit] Presentation resubscribe failed: $e');
-    }
-    _presentationTimer?.cancel();
-    _presentationTimer = Timer(const Duration(seconds: 4), _watchPresentation);
+    // Request a keyframe without destroying or unsubscribing the active track
+    await _requestKeyFrame(pub);
   }
 
   /// Pausing and resuming delivery makes the server wait for, and request, a
   /// key frame from the presenter before forwarding again.
   Future<void> _requestKeyFrame(RemoteTrackPublication pub) async {
-    await pub.disable();
-    await Future<void>.delayed(const Duration(milliseconds: 350));
-    if (_isDisposed) return;
-    await pub.enable();
+    if (_isDisposed || pub.track == null || pub.track!.isDisposed) return;
+    try {
+      await pub.disable();
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (_isDisposed || pub.track == null || pub.track!.isDisposed) return;
+      await pub.enable();
+    } catch (_) {}
   }
 
   Future<num?> _framesDecoded(RemoteTrackPublication pub) async {
@@ -796,7 +814,13 @@ class LiveKitMeetingController extends ChangeNotifier {
         if (!await _setProjection(true)) return ScreenShareToggleResult.failed;
       }
 
-      await participant.setScreenShareEnabled(true);
+      await participant.setScreenShareEnabled(
+        true,
+        screenShareCaptureOptions: const ScreenShareCaptureOptions(
+          params: VideoParametersPresets.screenShareH1080FPS30,
+          maxFrameRate: 30,
+        ),
+      );
       _isScreenSharing = true;
       return ScreenShareToggleResult.started;
     } catch (e) {

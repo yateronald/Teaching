@@ -523,9 +523,12 @@ class _PreJoinScreenState extends ConsumerState<PreJoinScreen> with SingleTicker
           alignment: Alignment.center,
           children: [
             // 1. Live Camera or Avatar
-            if (_isCamOn && _cameraTrack != null)
+            if (_isCamOn && _cameraTrack != null && !_cameraTrack!.isDisposed)
               SizedBox.expand(
-                child: VideoTrackRenderer(_cameraTrack!),
+                child: VideoTrackRenderer(
+                  _cameraTrack!,
+                  key: const ValueKey('prejoin_camera'),
+                ),
               )
             else if (_isCamOn && _isCameraInitializing)
               Column(

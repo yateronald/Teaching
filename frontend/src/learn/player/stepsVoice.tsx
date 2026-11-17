@@ -355,46 +355,52 @@ export const Write = forwardRef<StepHandle, StepProps<WriteStep>>(function Write
   return (
     <div className="lx-write">
       <h2 className="lx-prompt"><Rich text={tx(step.prompt, lang)} /></h2>
-      {step.task && <div className="lx-task"><EditOutlined aria-hidden /><RichBlock text={tx(step.task, lang)} /></div>}
-      <div className="lx-editor">
-        <textarea ref={area} value={text} onChange={e => setText(e.target.value)} placeholder={ui.writePlaceholder} rows={8} spellCheck={false} lang="fr" />
-        <div className={`lx-wordbar ${state}`}>
-          <span>{ui.words(n)}</span>
-          <i><b style={{ transform: `scaleX(${fill})` }} /><u style={{ left: `${(step.min / step.max) * 100}%` }} /></i>
-          <span>{ui.wordRange(step.min, step.max)}</span>
+      <div className="lx-write-grid">
+        <div className="lx-write-side">
+          {step.task && <div className="lx-task"><EditOutlined aria-hidden /><RichBlock text={tx(step.task, lang)} /></div>}
+          {step.phrases && (
+            <div className="lx-phrases">
+              <p>{ui.phrases}</p>
+              <div>{step.phrases.map(p => <button key={p} type="button" className="lx-chip" onClick={() => insert(p)}>{p}</button>)}</div>
+            </div>
+          )}
+          <div className="lx-checklist">
+            <p>{ui.checklist}</p>
+            {step.checklist.map((c, i) => (
+              <label key={i} className={ticks[i] ? 'is-on' : ''}>
+                <input type="checkbox" checked={ticks[i]} onChange={() => setTicks(t => t.map((x, k) => (k === i ? !x : x)))} />
+                <span><Rich text={tx(c, lang)} /></span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="lx-write-main">
+          <div className="lx-editor">
+            <textarea ref={area} value={text} onChange={e => setText(e.target.value)} placeholder={ui.writePlaceholder} rows={6} spellCheck={false} lang="fr" />
+            <div className={`lx-wordbar ${state}`}>
+              <span>{ui.words(n)}</span>
+              <i><b style={{ transform: `scaleX(${fill})` }} /><u style={{ left: `${(step.min / step.max) * 100}%` }} /></i>
+              <span>{ui.wordRange(step.min, step.max)}</span>
+            </div>
+          </div>
+          <AccentKeys target={area} lang={lang} />
+          {!model ? (
+            <button type="button" className="lx-btn-soft" onClick={() => setModel(true)}><PauseCircleFilled /> {ui.showModel}</button>
+          ) : (
+            <motion.div className="lx-model" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+              <p className="lx-model-title">{ui.model}</p>
+              <RichBlock text={step.model} className="lx-model-text" />
+              {step.modelNote && <p className="lx-model-note"><Rich text={tx(step.modelNote, lang)} /></p>}
+            </motion.div>
+          )}
+          {onDemo && (
+            <div className="lx-upsell">
+              <span>{ui.teacherCorrection}</span>
+              <button type="button" className="lx-link" onClick={onDemo}>{ui.teacherCorrectionCta} →</button>
+            </div>
+          )}
         </div>
       </div>
-      <AccentKeys target={area} lang={lang} />
-      {step.phrases && (
-        <div className="lx-phrases">
-          <p>{ui.phrases}</p>
-          <div>{step.phrases.map(p => <button key={p} type="button" className="lx-chip" onClick={() => insert(p)}>{p}</button>)}</div>
-        </div>
-      )}
-      <div className="lx-checklist">
-        <p>{ui.checklist}</p>
-        {step.checklist.map((c, i) => (
-          <label key={i} className={ticks[i] ? 'is-on' : ''}>
-            <input type="checkbox" checked={ticks[i]} onChange={() => setTicks(t => t.map((x, k) => (k === i ? !x : x)))} />
-            <span><Rich text={tx(c, lang)} /></span>
-          </label>
-        ))}
-      </div>
-      {!model ? (
-        <button type="button" className="lx-btn-soft" onClick={() => setModel(true)}><PauseCircleFilled /> {ui.showModel}</button>
-      ) : (
-        <motion.div className="lx-model" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="lx-model-title">{ui.model}</p>
-          <RichBlock text={step.model} className="lx-model-text" />
-          {step.modelNote && <p className="lx-model-note"><Rich text={tx(step.modelNote, lang)} /></p>}
-        </motion.div>
-      )}
-      {onDemo && (
-        <div className="lx-upsell">
-          <span>{ui.teacherCorrection}</span>
-          <button type="button" className="lx-link" onClick={onDemo}>{ui.teacherCorrectionCta} →</button>
-        </div>
-      )}
     </div>
   );
 });

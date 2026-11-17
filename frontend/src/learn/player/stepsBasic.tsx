@@ -32,63 +32,108 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
     speak(examples[next - 1].fr);
   };
   const variant = step.variant && step.variant !== 'default' ? step.variant : null;
+  const hasTheory = !!(step.image || step.body || step.points || step.table);
+  const splitWithExamples = hasTheory && examples.length > 0;
+  const splitImageWithTheory = !splitWithExamples && !!step.image && !!(step.body || step.points || step.table);
+  const isSplit = splitWithExamples || splitImageWithTheory;
+
+  const pointsNode = step.points && (
+    <ul className="lx-points">
+      {step.points.map((p, i) => (
+        <motion.li key={i} {...rise} transition={{ delay: 0.14 + i * 0.06, duration: 0.3 }}><CheckOutlined aria-hidden /><Rich text={tx(p, lang)} /></motion.li>
+      ))}
+    </ul>
+  );
+
+  const tableNode = step.table && (
+    <motion.div className="lx-table-wrap" {...rise} transition={{ delay: 0.12, duration: 0.35 }}>
+      <table className="lx-table">
+        {step.table.caption && <caption>{tx(step.table.caption, lang)}</caption>}
+        <thead><tr>{step.table.head.map((h, i) => <th key={i} scope="col">{tx(h, lang)}</th>)}</tr></thead>
+        <tbody>
+          {step.table.rows.map((row, r) => (
+            <motion.tr key={r} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.18 + r * 0.05 }}>
+              {row.map((cell, k) => <td key={k}><Rich text={tx(cell, lang)} /></td>)}
+            </motion.tr>
+          ))}
+        </tbody>
+      </table>
+    </motion.div>
+  );
+
+  const examplesNode = examples.length > 0 && (
+    <div className="lx-examples">
+      <div className="lx-examples-head">
+        <p className="lx-examples-hint">{ui.tapToHear}</p>
+        {shown < examples.length && (
+          <div className="lx-examples-more">
+            <button type="button" className="lx-btn-soft" onClick={reveal}>{ui.next} <span>{shown}/{examples.length}</span></button>
+            <button type="button" className="lx-link" onClick={() => setShown(examples.length)}>{ui.showAll}</button>
+          </div>
+        )}
+      </div>
+      <ol className={examples.length >= 4 && !isSplit ? 'is-two-col' : undefined}>
+        <AnimatePresence initial={false}>
+          {examples.slice(0, shown).map((ex, i) => (
+            <motion.li key={i} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }}>
+              <AudioButton text={ex.fr} lang={lang} size="sm" />
+              <div>
+                <button type="button" className="lx-ex-fr" onClick={() => speak(ex.fr)}><Rich text={ex.fr} /></button>
+                {gloss(ex.tr, lang) && <p className="lx-ex-tr">{gloss(ex.tr, lang)}</p>}
+                {ex.note && <p className="lx-ex-note"><Rich text={tx(ex.note, lang)} /></p>}
+              </div>
+            </motion.li>
+          ))}
+        </AnimatePresence>
+      </ol>
+    </div>
+  );
 
   return (
-    <div className={`lx-concept${variant ? ` is-${variant}` : ''}`}>
-      {variant && <p className="lx-concept-tag">{VARIANT_ICON[variant]}{VARIANT_LABEL[lang][variant]}</p>}
-      <motion.h2 {...rise} transition={{ duration: 0.4 }}>{tx(step.title, lang)}</motion.h2>
-      {step.image && (
-        <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.08, duration: 0.45 }}>
-          <img src={imageUrl(step.image)} alt="" loading="lazy" />
-        </motion.figure>
-      )}
-      {step.body && <motion.div {...rise} transition={{ delay: 0.1, duration: 0.4 }}><RichBlock text={tx(step.body, lang)} className="lx-concept-body" /></motion.div>}
-      {step.points && (
-        <ul className="lx-points">
-          {step.points.map((p, i) => (
-            <motion.li key={i} {...rise} transition={{ delay: 0.18 + i * 0.09, duration: 0.35 }}><CheckOutlined aria-hidden /><Rich text={tx(p, lang)} /></motion.li>
-          ))}
-        </ul>
-      )}
-      {step.table && (
-        <motion.div className="lx-table-wrap" {...rise} transition={{ delay: 0.15, duration: 0.4 }}>
-          <table className="lx-table">
-            {step.table.caption && <caption>{tx(step.table.caption, lang)}</caption>}
-            <thead><tr>{step.table.head.map((h, i) => <th key={i} scope="col">{tx(h, lang)}</th>)}</tr></thead>
-            <tbody>
-              {step.table.rows.map((row, r) => (
-                <motion.tr key={r} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 + r * 0.07 }}>
-                  {row.map((cell, k) => <td key={k}><Rich text={tx(cell, lang)} /></td>)}
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
-        </motion.div>
-      )}
-      {examples.length > 0 && (
-        <div className="lx-examples">
-          <p className="lx-examples-hint">{ui.tapToHear}</p>
-          <ol>
-            <AnimatePresence initial={false}>
-              {examples.slice(0, shown).map((ex, i) => (
-                <motion.li key={i} initial={{ opacity: 0, y: 12, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.35 }}>
-                  <AudioButton text={ex.fr} lang={lang} size="sm" />
-                  <div>
-                    <button type="button" className="lx-ex-fr" onClick={() => speak(ex.fr)}><Rich text={ex.fr} /></button>
-                    {gloss(ex.tr, lang) && <p className="lx-ex-tr">{gloss(ex.tr, lang)}</p>}
-                    {ex.note && <p className="lx-ex-note"><Rich text={tx(ex.note, lang)} /></p>}
-                  </div>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </ol>
-          {shown < examples.length && (
-            <div className="lx-examples-more">
-              <button type="button" className="lx-btn-soft" onClick={reveal}>{ui.next} <span>{shown}/{examples.length}</span></button>
-              <button type="button" className="lx-link" onClick={() => setShown(examples.length)}>{ui.showAll}</button>
-            </div>
-          )}
+    <div className={`lx-concept${variant ? ` is-${variant}` : ''}${isSplit ? ' is-split' : ''}`}>
+      <header className="lx-concept-head">
+        {variant && <p className="lx-concept-tag">{VARIANT_ICON[variant]}{VARIANT_LABEL[lang][variant]}</p>}
+        <motion.h2 {...rise} transition={{ duration: 0.35 }}>{tx(step.title, lang)}</motion.h2>
+      </header>
+      {isSplit ? (
+        <div className="lx-concept-grid">
+          <div className="lx-concept-col">
+            {step.image && (
+              <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.06, duration: 0.35 }}>
+                <img src={imageUrl(step.image)} alt="" loading="lazy" />
+              </motion.figure>
+            )}
+            {splitWithExamples && step.body && (
+              <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}>
+                <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+              </motion.div>
+            )}
+            {splitWithExamples && pointsNode}
+            {splitWithExamples && tableNode}
+          </div>
+          <div className="lx-concept-col">
+            {splitImageWithTheory && step.body && (
+              <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}>
+                <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+              </motion.div>
+            )}
+            {splitImageWithTheory && pointsNode}
+            {splitImageWithTheory && tableNode}
+            {examplesNode}
+          </div>
         </div>
+      ) : (
+        <>
+          {step.image && (
+            <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.06, duration: 0.35 }}>
+              <img src={imageUrl(step.image)} alt="" loading="lazy" />
+            </motion.figure>
+          )}
+          {step.body && <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}><RichBlock text={tx(step.body, lang)} className="lx-concept-body" /></motion.div>}
+          {pointsNode}
+          {tableNode}
+          {examplesNode}
+        </>
       )}
     </div>
   );
@@ -139,8 +184,9 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
   }, [locked, order]);
 
   const frParts = step.fr ? step.fr.split('___') : null;
+  const hasMedia = !!(step.image || step.doc);
   return (
-    <div className="lx-mcq">
+    <div className={`lx-mcq${hasMedia ? ' is-split' : ''}`}>
       {(step.level || step.timer) && (
         <div className="lx-q-head">
           {step.level && <span className="lx-level-chip">{step.level}</span>}
@@ -148,58 +194,66 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
         </div>
       )}
       <h2 className="lx-prompt"><Rich text={tx(step.prompt, lang)} /></h2>
-      {step.image && <figure className="lx-q-img"><img src={imageUrl(step.image)} alt="" /></figure>}
-      {step.audio && step.listen && (
-        <div className="lx-listen">
-          <button type="button" className="lx-listen-play" onClick={() => speak(step.audio!, { voice: step.voice })} aria-label={ui.listen}><PlayCircleFilled /></button>
-          <div className="lx-listen-side">
-            <span>{ui.listen}</span>
-            <AudioButton text={step.audio} voice={step.voice} lang={lang} slow size="sm" />
+      <div className={hasMedia ? 'lx-mcq-grid' : undefined}>
+        {hasMedia && (
+          <div className="lx-mcq-media">
+            {step.image && <figure className="lx-q-img"><img src={imageUrl(step.image)} alt="" /></figure>}
+            {step.doc && (
+              <article className={`lx-doc${step.doc.look ? ` is-${step.doc.look}` : ''}`}>
+                <header><FileTextOutlined aria-hidden />{step.doc.title ? tx(step.doc.title, lang) : 'Document'}</header>
+                <DocBody text={step.doc.text} />
+                {step.doc.source && <footer>{tx(step.doc.source, lang)}</footer>}
+              </article>
+            )}
           </div>
-          {locked && <p className="lx-transcript">« {step.audio} »</p>}
+        )}
+        <div className="lx-mcq-main">
+          {step.audio && step.listen && (
+            <div className="lx-listen">
+              <button type="button" className="lx-listen-play" onClick={() => speak(step.audio!, { voice: step.voice })} aria-label={ui.listen}><PlayCircleFilled /></button>
+              <div className="lx-listen-side">
+                <span>{ui.listen}</span>
+                <AudioButton text={step.audio} voice={step.voice} lang={lang} slow size="sm" />
+              </div>
+              {locked && <p className="lx-transcript">« {step.audio} »</p>}
+            </div>
+          )}
+          {step.audio && !step.listen && (
+            <p className="lx-q-fr"><AudioButton text={step.audio} voice={step.voice} lang={lang} size="sm" /><span>{step.audio}</span></p>
+          )}
+          {frParts && (
+            <p className="lx-q-fr is-gap">
+              {frParts.map((part, i) => (
+                <span key={i}>{part}{i < frParts.length - 1 && <b className={`lx-gap${picked !== null ? ' is-filled' : ''}`}>{picked !== null ? tx(step.options[picked], lang) : ' '}</b>}</span>
+              ))}
+            </p>
+          )}
+          <div className={`lx-options${step.options.length >= 4 && !hasMedia ? ' is-many' : ''}`} role="radiogroup">
+            {order.map((i, k) => {
+              const o = step.options[i];
+              const state = locked ? (i === step.answer ? 'is-right' : i === picked ? 'is-wrong' : 'is-dim') : picked === i ? 'is-picked' : '';
+              return (
+                <motion.button
+                  key={i}
+                  type="button"
+                  role="radio"
+                  aria-checked={picked === i}
+                  disabled={locked}
+                  className={`lx-option ${state}`}
+                  onClick={() => setPicked(i)}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={locked && i === picked && i !== step.answer ? { opacity: 1, y: 0, x: [0, -6, 6, -4, 4, 0] } : { opacity: 1, y: 0 }}
+                  transition={{ delay: locked ? 0 : 0.05 + k * 0.05, duration: locked ? 0.4 : 0.3 }}
+                >
+                  <kbd>{k + 1}</kbd>
+                  <span><Rich text={tx(o, lang)} /></span>
+                  {locked && i === step.answer && <CheckOutlined className="lx-option-mark" />}
+                  {locked && i === picked && i !== step.answer && <CloseOutlined className="lx-option-mark" />}
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
-      )}
-      {step.audio && !step.listen && (
-        <p className="lx-q-fr"><AudioButton text={step.audio} voice={step.voice} lang={lang} size="sm" /><span>{step.audio}</span></p>
-      )}
-      {step.doc && (
-        <article className={`lx-doc${step.doc.look ? ` is-${step.doc.look}` : ''}`}>
-          <header><FileTextOutlined aria-hidden />{step.doc.title ? tx(step.doc.title, lang) : 'Document'}</header>
-          <DocBody text={step.doc.text} />
-          {step.doc.source && <footer>{tx(step.doc.source, lang)}</footer>}
-        </article>
-      )}
-      {frParts && (
-        <p className="lx-q-fr is-gap">
-          {frParts.map((part, i) => (
-            <span key={i}>{part}{i < frParts.length - 1 && <b className={`lx-gap${picked !== null ? ' is-filled' : ''}`}>{picked !== null ? tx(step.options[picked], lang) : ' '}</b>}</span>
-          ))}
-        </p>
-      )}
-      <div className={`lx-options${step.options.length > 4 ? ' is-many' : ''}`} role="radiogroup">
-        {order.map((i, k) => {
-          const o = step.options[i];
-          const state = locked ? (i === step.answer ? 'is-right' : i === picked ? 'is-wrong' : 'is-dim') : picked === i ? 'is-picked' : '';
-          return (
-            <motion.button
-              key={i}
-              type="button"
-              role="radio"
-              aria-checked={picked === i}
-              disabled={locked}
-              className={`lx-option ${state}`}
-              onClick={() => setPicked(i)}
-              initial={{ opacity: 0, y: 10 }}
-              animate={locked && i === picked && i !== step.answer ? { opacity: 1, y: 0, x: [0, -6, 6, -4, 4, 0] } : { opacity: 1, y: 0 }}
-              transition={{ delay: locked ? 0 : 0.05 + k * 0.05, duration: locked ? 0.4 : 0.3 }}
-            >
-              <kbd>{k + 1}</kbd>
-              <span><Rich text={tx(o, lang)} /></span>
-              {locked && i === step.answer && <CheckOutlined className="lx-option-mark" />}
-              {locked && i === picked && i !== step.answer && <CloseOutlined className="lx-option-mark" />}
-            </motion.button>
-          );
-        })}
       </div>
     </div>
   );

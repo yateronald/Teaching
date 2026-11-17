@@ -13,8 +13,8 @@ export const CATEGORIES: CategoryMeta[] = [
     tag: b('Start here', 'Commencez ici'),
     tagline: b('Your first words, numbers and everyday situations.', 'Vos premiers mots, les nombres et les situations du quotidien.'),
     description: b(
-      'Four short courses to go from zero to your first real conversations: greeting people, introducing yourself, numbers and time, family and home, cafés, transport and hotels. Every lesson makes you listen, speak and build sentences from the first minute.',
-      'Quatre cours courts pour passer de zéro à vos premières vraies conversations : saluer, vous présenter, les nombres et l’heure, la famille et la maison, le café, les transports et l’hôtel. Chaque leçon vous fait écouter, parler et construire des phrases dès la première minute.',
+      'Step-by-step courses to go from zero to your first real conversations: greeting people, introducing yourself, numbers and time, family and home, shopping, cafés, transport, travel and work. Every lesson makes you listen, speak and build sentences from the first minute.',
+      'Des cours progressifs pour passer de zéro à vos premières vraies conversations : saluer, vous présenter, les nombres et l’heure, la famille et la maison, les courses, le café, les transports, le voyage et le travail. Chaque leçon vous fait écouter, parler et construire des phrases dès la première minute.',
     ),
     image: 'cat-beginner',
     topic: 'online',

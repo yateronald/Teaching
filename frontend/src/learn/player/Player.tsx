@@ -94,6 +94,7 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
   const mistakes = useRef<{ step: Step; answer?: string }[]>([]);
   const started = useRef(Date.now());
   const footRef = useRef<HTMLButtonElement | null>(null);
+  const stageRef = useRef<HTMLElement | null>(null);
 
   const item = queue[pos];
   const mode = item ? modeOf(item.step) : 'self';
@@ -103,6 +104,7 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
 
   useEffect(() => { setMuted(!sound); }, [sound]);
   useEffect(() => () => { stopAudio(); }, []);
+  useEffect(() => { stageRef.current?.scrollTo({ top: 0 }); }, [pos]);
 
   const onReady = useCallback((r: boolean) => setReady(r), []);
   const onScore = useCallback((f: number) => { inlineScore.current = f; }, []);
@@ -231,7 +233,7 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
         )}
       </AnimatePresence>
 
-      <main className="lx-pstage">
+      <main ref={stageRef} className="lx-pstage">
         <AnimatePresence mode="wait">
           <motion.div
             key={`${pos}-${item.index}`}

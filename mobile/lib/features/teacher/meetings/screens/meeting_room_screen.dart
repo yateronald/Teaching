@@ -2536,11 +2536,11 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
     if (presentation) {
       final track = _controller.screenShareTrack;
       final sharer = _controller.screenShareParticipant;
-      content = track == null
+      content = track == null || track.isDisposed
           ? _buildPipLoading()
           : VideoTrackRenderer(
               track,
-              key: ValueKey('pip-${track.sid}'),
+              key: ValueKey('pip-${track.sid ?? track.mediaStreamTrack.id}'),
               fit: VideoViewFit.contain,
               placeholderBuilder: (_) => _buildPipLoading(),
             );
@@ -2690,15 +2690,15 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
         .firstOrNull;
     if (pub == null || pub.muted) return null;
     final track = pub.track;
-    return track is VideoTrack ? track : null;
+    return (track is VideoTrack && !track.isDisposed) ? track : null;
   }
 
   Widget _buildPipParticipant(Participant p) {
     final track = _cameraTrackOf(p);
-    if (track != null) {
+    if (track != null && !track.isDisposed) {
       return VideoTrackRenderer(
         track,
-        key: ValueKey('pip-${track.sid}'),
+        key: ValueKey('pip-${p.identity}-${track.sid ?? track.mediaStreamTrack.id}'),
         fit: VideoViewFit.cover,
       );
     }
@@ -2931,14 +2931,19 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    screenTrack != null
+                    screenTrack != null && !screenTrack.isDisposed
                         // Pinch to read small slide text on a phone.
                         ? InteractiveViewer(
-                            key: ValueKey('presentation-${screenTrack.sid}'),
+                            key: ValueKey(
+                              'presentation-${screenTrack.sid ?? screenTrack.mediaStreamTrack.id}',
+                            ),
                             minScale: 1,
                             maxScale: 4,
                             child: VideoTrackRenderer(
                               screenTrack,
+                              key: ValueKey(
+                                'screenshare-track-${screenTrack.sid ?? screenTrack.mediaStreamTrack.id}',
+                              ),
                               fit: VideoViewFit.contain,
                               placeholderBuilder: (_) =>
                                   _buildPresentationLoading(isFr),
@@ -2987,6 +2992,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
               itemCount: participants.length,
               separatorBuilder: (_, index) => const SizedBox(width: 8),
               itemBuilder: (context, idx) {
+                if (idx < 0 || idx >= participants.length) {
+                  return const SizedBox.shrink();
+                }
                 return SizedBox(
                   width: 130,
                   child: _buildParticipantTile(participants[idx]),
@@ -3072,8 +3080,11 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
     final videoPub = p.videoTrackPublications
         .where((pub) => pub.source != TrackSource.screenShareVideo)
         .firstOrNull;
-    final hasVideo =
-        videoPub != null && !videoPub.muted && videoPub.track != null;
+    final hasVideo = videoPub != null &&
+        !videoPub.muted &&
+        videoPub.track != null &&
+        videoPub.track is VideoTrack &&
+        !(videoPub.track as VideoTrack).isDisposed;
     final isTeacher = p.identity == _teacherIdentity;
     final hasHandRaised = _raisedHands.contains(p.identity);
 
@@ -3094,11 +3105,13 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
           alignment: Alignment.center,
           children: [
             // Video or Avatar
-            if (hasVideo && videoPub.track is VideoTrack)
+            if (hasVideo &&
+                videoPub.track is VideoTrack &&
+                !(videoPub.track as VideoTrack).isDisposed)
               SizedBox.expand(
                 child: VideoTrackRenderer(
                   videoPub.track as VideoTrack,
-                  key: ValueKey('tile-${videoPub.sid}'),
+                  key: ValueKey('tile-${p.identity}-${videoPub.sid}'),
                 ),
               )
             else
