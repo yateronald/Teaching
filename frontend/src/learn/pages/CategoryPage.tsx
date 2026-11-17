@@ -18,6 +18,7 @@ import { LEVEL_COPY, categoryLevelPath, categoryLevels } from '../levels';
 import { Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell';
 import { LEVELS, tx, type CategoryMeta, type CourseMeta, type Lang, type Level } from '../types';
 import { audienceOfCategory } from '../../promo/model';
+import { ReadingPromo } from '../practice/parts';
 import { UI } from '../ui';
 
 const STAGE_COLLAPSE_LIMIT = 6;
@@ -287,6 +288,13 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
               </div>
             </div>
           </div>
+        </section>
+      )}
+
+      {/* ── The reading library (texts with audio), on the Reading path ── */}
+      {category.id === 'reading' && (
+        <section className="rx-promo-sec is-cat">
+          <div className="lp-wrap"><ReadingPromo lang={lang} /></div>
         </section>
       )}
 

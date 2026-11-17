@@ -6,9 +6,12 @@ import { COURSES } from './catalog';
 import { PLACEMENT } from './content/placement';
 import { CAST, EPISODES, playerLines } from './games/story';
 import { DAILY_WORDS, GENDER_NOUNS, PAIR_DECKS, numberCall, withArticle } from './games/words';
+import { TEXTS } from './practice/meta';
+import type { ReadingText } from './practice/types';
 import type { Lesson, Step, Voice } from './types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
+const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
 
 export interface AudioItem { key: string; text: string; voice: Voice }
 
@@ -75,5 +78,13 @@ export function collectMedia() {
   for (let n = 0; n <= 100; n++) add(numberCall(n));
   PAIR_DECKS.forEach(d => d.words.forEach(([fr]) => add(fr)));
   DAILY_WORDS.forEach(w => add(w.ex));
+
+  // ── Reading texts: their picture, the words explained and the language-point
+  // examples (the texts themselves are read by scripts/practice-audio.mjs). ──
+  TEXTS.forEach(t => images.add(t.image));
+  for (const mod of Object.values(textModules)) {
+    mod.default.glossary.forEach(g => add(g.fr));
+    mod.default.focus.examples.forEach(e => add(e.fr));
+  }
   return { audio: [...audio.values()], images: [...images] };
 }

@@ -101,6 +101,9 @@ export const PAGE_KIND_LABEL: Record<string, string> = {
     game: 'Games',
     placement: 'Level test',
     progress: 'My progress',
+    practice: 'Practice home',
+    reading: 'Reading library',
+    text: 'Reading texts',
     none: 'Page not found',
     other: 'Other',
 };

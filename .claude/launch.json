@@ -38,6 +38,21 @@
         "--strictPort"
       ],
       "port": 5174
+    },
+    {
+      "name": "frontend-build",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "frontend",
+        "run",
+        "preview",
+        "--",
+        "--port",
+        "5176",
+        "--strictPort"
+      ],
+      "port": 5176
     }
   ]
 }

@@ -13,6 +13,7 @@ import { LEVEL_COPY, coursesAtLevel, levelPath } from '../levels';
 import { G } from '../games/copy';
 import { GAMES, gamesPath } from '../games/meta';
 import { GameCard } from './GamesHubPage';
+import { ReadingPromo } from '../practice/parts';
 import '../games/games.css';
 import { CourseCard, LearnShell, useDemo, useMounted } from '../shell';
 import { LEVELS, tx, type Lang, type Level } from '../types';
@@ -135,6 +136,11 @@ export default function HubPage({ lang }: { lang: Lang }) {
           </header>
           <ul className="lx-grid is-four">{popular.map(c => <li key={c.id}><CourseCard course={c} lang={lang} compact /></li>)}</ul>
         </div>
+      </section>
+
+      {/* ── Reading texts with audio ── */}
+      <section className="rx-promo-sec">
+        <div className="lp-wrap"><ReadingPromo lang={lang} /></div>
       </section>
 
       {/* ── Games ── */}

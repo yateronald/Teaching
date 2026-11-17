@@ -51,12 +51,13 @@ function useLearnMeta(lang: Lang) {
     const route = resolveLearnPath(pathname);
     const course = 'course' in route ? route.course : undefined;
     const game = route.type === 'game' ? route.game : undefined;
+    const text = route.type === 'text' ? route.text : undefined;
     return {
       area: 'learn' as const,
       kind: route.type,
-      topic: course?.id ?? game?.id,
-      title: course ? tx(course.title, lang) : game ? tx(game.title, lang) : undefined,
-      category: course?.category,
+      topic: course?.id ?? game?.id ?? text?.id,
+      title: course ? tx(course.title, lang) : game ? tx(game.title, lang) : text?.title,
+      category: course?.category ?? (route.type === 'text' || route.type === 'reading' ? 'reading' as const : undefined),
     };
   }, [pathname, lang]);
 }

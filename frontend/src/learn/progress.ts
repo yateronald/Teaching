@@ -7,6 +7,7 @@ import { trackLearning } from '../utils/siteAnalytics';
 
 export interface LessonRecord { best: number; at: number; attempts: number }
 export interface FinalRecord { best: number; passed: boolean; at: number }
+export interface TextRecord { best: number; total: number; at: number; attempts: number }
 
 export interface Progress {
   v: 1;
@@ -26,6 +27,8 @@ export interface Progress {
   storyVoice?: 'f' | 'm';
   /** Word of the day: today's attempts, and the winning streak. */
   daily?: { day: string; guesses: string[]; won: boolean; streak: number; lastWin?: string; wins: number };
+  /** Reading texts (practice space): best number of right answers out of `total`. */
+  texts?: Record<string, TextRecord>;
   /** Name printed on certificates. */
   name?: string;
   last?: { path: string; title: string; course: string; at: number };
@@ -191,6 +194,23 @@ export function recordEpisode(id: string, stars: number, xp: number) {
 }
 
 export function setStoryVoice(v: 'f' | 'm') { save({ ...load(), storyVoice: v }); }
+
+// ── Reading texts ──
+/** A text counts as mastered from this share of right answers. */
+export const TEXT_MASTERED = 0.8;
+
+/**
+ * Records the answers to a text. Points (2 per right answer) count once: only
+ * answers better than the best earlier attempt add to the learner's points.
+ */
+export function recordText(id: string, correct: number, total: number, last: Progress['last']): { improved: boolean; xp: number } {
+  const p = load();
+  const prev = p.texts?.[id];
+  const xp = Math.max(0, correct - (prev?.best ?? 0)) * 2;
+  const rec: TextRecord = { best: Math.max(prev?.best ?? 0, correct), total, at: Date.now(), attempts: (prev?.attempts ?? 0) + 1 };
+  save(withDay({ ...p, texts: { ...(p.texts ?? {}), [id]: rec }, xp: p.xp + xp, last }));
+  return { improved: !prev || correct > prev.best, xp };
+}
 
 export function saveDaily(d: NonNullable<Progress['daily']>, xp = 0) {
   const p = load();

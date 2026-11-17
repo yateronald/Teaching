@@ -146,7 +146,7 @@ const KINDS = ['page', 'vitals', 'learn'];
 
 /** Pages of the free courses, recognised by their address whatever the page says. */
 const LEARN_PATH = /^\/(learn|fr\/apprendre)(\/|$)/;
-const PAGE_KINDS = ['hub', 'placement', 'progress', 'category', 'level', 'games', 'game', 'course', 'lesson', 'final', 'none'];
+const PAGE_KINDS = ['hub', 'placement', 'progress', 'category', 'level', 'games', 'game', 'course', 'lesson', 'final', 'practice', 'reading', 'text', 'none'];
 const LEARN_KINDS = ['lesson', 'final', 'game', 'story', 'placement', 'course_test'];
 const ID_OK = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$/;
 const idOf = (v) => { const t = str(v, 80); return t && ID_OK.test(t) ? t : null; };

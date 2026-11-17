@@ -1111,6 +1111,9 @@ String _pageKindName(String k, bool fr) =>
       'game': fr ? 'Jeux' : 'Games',
       'placement': fr ? 'Test de niveau' : 'Level test',
       'progress': fr ? 'Ma progression' : 'My progress',
+      'practice': fr ? 'Accueil de la pratique' : 'Practice home',
+      'reading': fr ? 'Bibliothèque de lecture' : 'Reading library',
+      'text': fr ? 'Textes de lecture' : 'Reading texts',
       'none': fr ? 'Page introuvable' : 'Page not found',
     }[k] ??
     (fr ? 'Autres' : 'Other');

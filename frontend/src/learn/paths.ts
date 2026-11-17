@@ -13,6 +13,8 @@ import { CATEGORIES, LEARN_BASE, categoryPath } from './categories';
 import { COURSES, coursePath } from './catalog';
 import { categoryLevels, LEVEL_SLUG, levelFromSlug } from './levels';
 import { GAMES, GAMES_SLUG, type GameMeta } from './games/meta';
+import { PRACTICE_SLUG, TEXTS, skillById } from './practice/meta';
+import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
 export { LEARN_BASE, categoryPath, coursePath };
@@ -43,6 +45,9 @@ export type LearnRoute =
   | { type: 'course'; lang: Lang; category: CategoryMeta; course: CourseMeta }
   | { type: 'lesson'; lang: Lang; category: CategoryMeta; course: CourseMeta; lessonSlug: string }
   | { type: 'final'; lang: Lang; category: CategoryMeta; course: CourseMeta }
+  | { type: 'practice'; lang: Lang }
+  | { type: 'reading'; lang: Lang }
+  | { type: 'text'; lang: Lang; text: TextMeta }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -56,6 +61,14 @@ export function resolveLearnPath(pathname: string): LearnRoute {
     if (rest.length === 1) return { type: 'games', lang };
     const game = rest.length === 2 ? GAMES.find(x => x.slug[lang] === rest[1]) : undefined;
     return game ? { type: 'game', lang, game } : { type: 'none', lang };
+  }
+  // The practice space: /learn/practice/reading/<text>/ (only the reading library is open for now).
+  if (rest[0] === PRACTICE_SLUG[lang]) {
+    if (rest.length === 1) return { type: 'practice', lang };
+    if (rest[1] !== skillById('reading').slug[lang]) return { type: 'none', lang };
+    if (rest.length === 2) return { type: 'reading', lang };
+    const text = rest.length === 3 ? TEXTS.find(t => t.slug === rest[2]) : undefined;
+    return text ? { type: 'text', lang, text } : { type: 'none', lang };
   }
   if (rest[0] === LEVEL_SLUG[lang]) {
     const level = rest.length === 2 ? levelFromSlug(rest[1]) : undefined;

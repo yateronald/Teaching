@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+# Takes kept by scripts/practice-audio.mjs between runs
+.cache
 
 # Editor directories and files
 .vscode/*

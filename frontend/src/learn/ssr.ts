@@ -11,8 +11,13 @@ import { finalPath, hubPath, lessonPath, placementPath, progressPath } from './p
 import { LEVELS, type Lang, type Lesson } from './types';
 import { allLevelPages, categoryLevelPath, levelPath } from './levels';
 import { GAMES, gamePath, gamesPath } from './games/meta';
+import { TEXTS, practicePath, readingPath, textPath } from './practice/meta';
+import { checkText } from './practice/model';
+import { registerText } from './practice/registry';
+import type { ReadingText } from './practice/types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
+const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
 
 export interface LearnPage { path: string; lang: Lang; alternates: Record<Lang, string>; priority: string; sitemap: boolean }
 
@@ -34,6 +39,14 @@ export function prepareLearn(): string[] {
       const mcq = l.steps.filter(s => s.kind === 'mcq').length;
       if (mcq < 4) warnings.push(`levelled course ${c.id}: lesson ${i + 1} has ${mcq} multiple-choice questions (the adaptive test needs 4)`);
     });
+  }
+  // Reading texts: registered, and checked against their entry in practice/meta.ts.
+  for (const t of TEXTS) {
+    const text = textModules[`./practice/texts/${t.id}.ts`]?.default;
+    if (!text) { warnings.push(`text ${t.id} has no content file`); continue; }
+    if (text.id !== t.id) warnings.push(`text ${t.id}: its file says id ${text.id}`);
+    registerText(text);
+    warnings.push(...checkText(t, text));
   }
   return warnings;
 }
@@ -58,5 +71,9 @@ export function learnPages(): LearnPage[] {
     lessons.forEach(lesson => both(l => lessonPath(c, lesson, l), '0.6'));
     if (!c.ladder) both(l => finalPath(c, l), '0.4', false);
   });
+  // The practice space: /learn/practice/ shows the reading library (not indexed, canonical elsewhere).
+  both(practicePath, '0.1', false);
+  both(readingPath, '0.8');
+  TEXTS.forEach(t => both(l => textPath(t, l), '0.7'));
   return pages;
 }

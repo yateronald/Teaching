@@ -12,7 +12,12 @@ const AVAILABLE = new Set<string>((manifest as { keys: string[] }).keys);
 // Single words the voice mistakes for a homophone when said alone (checked by
 // transcription): it is given a spelling that sounds right. Only the audio
 // changes, never the text shown.
-const SAY_AS: Record<string, string> = { mes: 'mé', Y: 'i grec', 'ouaf ouaf': 'Ouaf ! Ouaf !', croître: 'Croître.' };
+const SAY_AS: Record<string, string> = {
+  mes: 'mé', Y: 'i grec', 'ouaf ouaf': 'Ouaf ! Ouaf !', croître: 'Croître.',
+  // Reading texts’ glossary: alone, « quai » was heard as « cas », « bruit » as a laugh,
+  // and « limitent » as « limitant ».
+  quai: 'Le quai.', bruit: 'Le bruit.', 'en limitent l’usage': 'Elles en limitent l’usage.',
+};
 
 /** Words the voice cannot say alone without a mistake: no recording (no speaker button). */
 export const NO_AUDIO = new Set(['gris', 'pis', 'y a', 'si']);
@@ -68,11 +73,15 @@ export function stop() {
   setPlaying(null);
 }
 
+/** Called before a phrase plays: a longer recording on the page (a text read aloud) pauses. */
+export const beforeSpeak = new Set<() => void>();
+
 /** Plays a French phrase. Resolves when it ends (or fails). */
 export function speak(text: string, opts: { voice?: Voice; rate?: number } = {}): Promise<void> {
   const voice = opts.voice ?? 'f';
   const rate = opts.rate ?? 1;
   stop();
+  beforeSpeak.forEach(f => f());
   if (muted || typeof window === 'undefined') return Promise.resolve();
   const key = audioKey(text, voice);
   setPlaying(key);
