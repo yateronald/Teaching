@@ -15,6 +15,8 @@ import { categoryLevels, LEVEL_SLUG, levelFromSlug } from './levels';
 import { GAMES, GAMES_SLUG, type GameMeta } from './games/meta';
 import { PRACTICE_SLUG, TEXTS, skillById } from './practice/meta';
 import { MISSIONS, type ReadingMission } from './practice/missions';
+import { LISTENING } from './practice/listening/catalog';
+import type { ListeningExercise } from './practice/listening/types';
 import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
@@ -50,6 +52,8 @@ export type LearnRoute =
   | { type: 'reading'; lang: Lang }
   | { type: 'text'; lang: Lang; text: TextMeta }
   | { type: 'reading-mission'; lang: Lang; mission: ReadingMission }
+  | { type: 'listening'; lang: Lang }
+  | { type: 'listening-exercise'; lang: Lang; exercise: ListeningExercise }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -64,9 +68,14 @@ export function resolveLearnPath(pathname: string): LearnRoute {
     const game = rest.length === 2 ? GAMES.find(x => x.slug[lang] === rest[1]) : undefined;
     return game ? { type: 'game', lang, game } : { type: 'none', lang };
   }
-  // The practice space: /learn/practice/reading/<text>/ (only the reading library is open for now).
+  // Each practice library has its own routes and exercise format.
   if (rest[0] === PRACTICE_SLUG[lang]) {
     if (rest.length === 1) return { type: 'practice', lang };
+    if (rest[1] === skillById('listening').slug[lang]) {
+      if (rest.length === 2) return { type: 'listening', lang };
+      const exercise = rest.length === 3 ? LISTENING.find(item => item.id === rest[2]) : undefined;
+      return exercise ? { type: 'listening-exercise', lang, exercise } : { type: 'none', lang };
+    }
     if (rest[1] !== skillById('reading').slug[lang]) return { type: 'none', lang };
     if (rest.length === 2) return { type: 'reading', lang };
     if (rest[2] === 'mission' && rest.length === 4) {

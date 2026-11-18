@@ -7,14 +7,17 @@ import { PLACEMENT } from './content/placement';
 import { CAST, EPISODES, playerLines } from './games/story';
 import { DAILY_WORDS, GENDER_NOUNS, PAIR_DECKS, numberCall, withArticle } from './games/words';
 import { TEXTS } from './practice/meta';
-import { MISSIONS, missionAudio, missionVoice } from './practice/missions';
+import { MISSIONS, missionAudio, missionCoverKey, missionVoice } from './practice/missions';
+import { LISTENING, listeningCoverKey } from './practice/listening/catalog';
+import { LISTENING_VOICES, passageAudio, questionAudio } from './practice/listening/types';
 import type { ReadingText } from './practice/types';
 import type { Lesson, Step, Voice } from './types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
 const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
 
-export interface AudioItem { key: string; text: string; voice: Voice }
+/** `sealed`: a practice recording, stored scrambled (not offered for download, sealedAudio.ts). */
+export interface AudioItem { key: string; text: string; voice: Voice; sealed?: boolean }
 
 function stepPhrases(s: Step, add: (text: string, voice?: Voice) => void, image: (k: string) => void) {
   switch (s.kind) {
@@ -46,12 +49,15 @@ function stepPhrases(s: Step, add: (text: string, voice?: Voice) => void, image:
 export function collectMedia() {
   const audio = new Map<string, AudioItem>();
   const images = new Set<string>(['hub-hero', 'teacher', 'placement']);
-  const add = (text: string, voice: Voice = 'f') => {
+  const add = (text: string, voice: Voice = 'f', sealed = false) => {
     const t = normalizeForAudio(text);
     if (!t || NO_AUDIO.has(t)) return;
     const key = audioKey(t, voice);
-    if (!audio.has(key)) audio.set(key, { key, text: t, voice });
+    const had = audio.get(key);
+    if (!had) audio.set(key, { key, text: t, voice, ...(sealed ? { sealed } : {}) });
+    else if (sealed) had.sealed = true;
   };
+  const seal = (text: string, voice: Voice) => add(text, voice, true);
   const image = (k: string) => images.add(k);
   CATEGORIES.forEach(c => images.add(c.image));
   COURSES.forEach(c => images.add(c.image));
@@ -83,7 +89,17 @@ export function collectMedia() {
   // ── Reading texts: their picture, the words explained and the language-point
   // examples (the texts themselves are read by scripts/practice-audio.mjs). ──
   TEXTS.forEach(t => images.add(t.image));
-  MISSIONS.forEach(m => m.documents.forEach(d => add(missionAudio(d), missionVoice(d))));
+  MISSIONS.forEach(m => {
+    images.add(missionCoverKey(m));
+    m.documents.forEach(d => seal(missionAudio(d), missionVoice(d)));
+  });
+  // Listening: the passage, its excerpts and the questions read aloud are all sealed.
+  LISTENING.forEach(e => {
+    images.add(listeningCoverKey(e));
+    LISTENING_VOICES.forEach(voice => seal(passageAudio(e), voice));
+    e.segments.forEach(segment => seal(segment, e.voice));
+    e.questions.forEach(question => seal(questionAudio(question), e.voice));
+  });
   for (const mod of Object.values(textModules)) {
     mod.default.glossary.forEach(g => add(g.fr));
     mod.default.focus.examples.forEach(e => add(e.fr));

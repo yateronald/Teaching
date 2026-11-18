@@ -8,6 +8,7 @@ import { b, type Lang, type T } from '../types';
 import type { SkillId, TextMeta } from './types';
 import { readingSeries } from './readingSeries';
 import { advancedReadingSeries } from './advancedReadingSeries';
+import { documentSeries } from './documentSeries';
 
 export const PRACTICE_SLUG: Record<Lang, string> = { en: 'practice', fr: 'pratique' };
 
@@ -21,7 +22,7 @@ export interface SkillMeta {
 
 export const SKILLS: SkillMeta[] = [
   { id: 'reading', slug: { en: 'reading', fr: 'lecture' }, name: b('Reading', 'Lecture'), ready: true },
-  { id: 'listening', slug: { en: 'listening', fr: 'ecoute' }, name: b('Listening', 'Écoute'), ready: false },
+  { id: 'listening', slug: { en: 'listening', fr: 'ecoute' }, name: b('Listening', 'Écoute'), ready: true },
   { id: 'dictation', slug: { en: 'dictation', fr: 'dictee' }, name: b('Dictation', 'Dictée'), ready: false },
   { id: 'grammar', slug: { en: 'grammar', fr: 'grammaire' }, name: b('Grammar', 'Grammaire'), ready: false },
   { id: 'vocabulary', slug: { en: 'vocabulary', fr: 'vocabulaire' }, name: b('Vocabulary', 'Vocabulaire'), ready: false },
@@ -245,6 +246,7 @@ export const TEXTS: TextMeta[] = [
   },
   ...readingSeries,
   ...advancedReadingSeries,
+  ...documentSeries,
 ];
 
 export const textById = (id: string) => TEXTS.find(t => t.id === id);

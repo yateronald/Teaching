@@ -53,7 +53,10 @@ console.log(`${rows.length} recordings · median ${(median * 1000).toFixed(0)} m
 
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 let bad = 0;
+// One request at a time, with a pause (the Vertex project was suspended once for bulk requests).
+const GAP_MS = Number(process.env.QA_GAP_MS || 1500);
 for (const r of [...odd, ...rand]) {
+  await new Promise(res => setTimeout(res, GAP_MS));
   const b64 = (await fs.readFile(r.f)).toString('base64');
   let heard = '';
   try {

@@ -1,0 +1,70 @@
+import { listening } from './authoring';
+
+export const b1Listening = listening('B1', 'f2', [
+  [
+    "le-micro-est-reste-ouvert",
+    "Le micro est resté ouvert",
+    ["Anecdote","Anecdote"],
+    ["Reconstituez un petit incident à la radio.","Piece together a small mishap at a radio station."],
+    ["Suivre la chronologie et comprendre la réaction de la narratrice.","Follow the timeline and understand the narrator’s reaction."],
+    ["Repérez « quand », « avant de » et « finalement » pour remettre les événements dans l’ordre.","Use « quand », « avant de » and « finalement » to put events in order."],
+    [
+      "Pour mon premier stage à la radio, j’étais chargée de préparer les invités, pas de parler à l’antenne. Un matin, l’animatrice m’a demandé de lui apporter le programme pendant la pause musicale.",
+      "En entrant dans le studio, j’ai plaisanté en disant que j’avais pris le dernier croissant. Je pensais qu’on ne pouvait pas m’entendre, puisque la musique était lancée. Mais le micro des invités était toujours ouvert.",
+      "Quelques minutes plus tard, un auditeur a envoyé un message pour demander si la radio servait aussi le petit-déjeuner. C’est là que j’ai compris ce qui s’était passé. J’aurais aimé disparaître sous la table.",
+      "L’animatrice a ri et m’a proposé de lire la météo. Avant de me tendre le micro, elle m’a montré le voyant rouge qui indique qu’on est à l’antenne. Finalement, j’ai passé le reste du stage à attendre qu’il s’allume.",
+    ],
+    [
+      ["Quel était le rôle de la stagiaire au début ?",["Lire la météo","Préparer les invités","Choisir la musique"],1,0,["Elle devait préparer les invités, pas parler à l’antenne.","Her job was to prepare guests, not speak on air."]],
+      ["Pourquoi pense-t-elle qu’on ne l’entend pas ?",["Elle croit que le studio est vide","Elle a coupé le micro","La musique est déjà lancée"],2,1,["Elle associe la pause musicale à un micro coupé, à tort.","She incorrectly assumes the music break means the microphone is off."]],
+      ["Qu’est-ce qui lui fait comprendre l’incident ?",["Un message d’auditeur","Un appel de l’animatrice","Le voyant rouge qu’elle voit en entrant"],0,2,["La plaisanterie de l’auditeur montre qu’il l’a entendue.","The listener’s joke shows that he heard her."]],
+      ["Que veut dire « disparaître sous la table » ici ?",["Elle a perdu son croissant","Elle se sent très gênée","Elle cherche un bouton"],1,2,["C’est une image pour exprimer la gêne.","It is a figurative way to express embarrassment."]],
+      ["Que lui montre l’animatrice avant la météo ?",["Le programme du lendemain","Le message de l’auditeur","Le voyant qui signale le direct"],2,3,["Le voyant rouge indique que le micro est à l’antenne.","The red light means the microphone is live."]],
+      ["Comment évolue la stagiaire ?",["Elle finit par avoir envie de parler à l’antenne","Elle refuse de retourner au studio","Elle préfère rester au petit-déjeuner"],0,3,["Elle finit par attendre le voyant au lieu de le redouter.","She comes to look forward to the signal rather than fear it."]],
+    ],
+  ],
+  [
+    "premier-jour-a-l-atelier",
+    "Premier jour à l’atelier",
+    ["Consignes de travail","Work instructions"],
+    ["Retenez l’ordre des tâches et les exceptions.","Remember the order of tasks and exceptions."],
+    ["Suivre des consignes en plusieurs étapes.","Follow instructions with multiple steps."],
+    ["Les expressions « d’abord », « avant de » et « sauf si » disent dans quel ordre agir et quand changer de plan.","« D’abord », « avant de » and « sauf si » tell you the order and when to change plans."],
+    [
+      "Bienvenue à l’atelier de sérigraphie. Avant de commencer, laissez vos manteaux au vestiaire et prenez un tablier. Les gants sont sur la table près de l’évier ; vous en aurez besoin au moment du nettoyage.",
+      "Ce matin, vous allez imprimer une affiche. D’abord, testez le dessin sur une feuille de brouillon. Si le résultat est net, vous pourrez passer au papier épais. En cas de tache, demandez-moi avant d’ajouter de l’encre.",
+      "Une fois les affiches imprimées, posez-les à plat sur l’étagère du fond, sans les empiler. Elles doivent sécher. Vous pouvez quitter l’atelier à midi, sauf si vous avez emprunté du matériel : dans ce cas, rapportez-le au comptoir d’abord.",
+      "Cet après-midi, nous regarderons ensemble les affiches sèches. Si vous avez un doute sur la qualité d’une impression, gardez-la quand même pour qu’on puisse en parler.",
+    ],
+    [
+      ["Que faut-il prendre avant de commencer ?",["Un tablier","Une affiche déjà sèche","Une bouteille d’encre"],0,0,["Le tablier est demandé tout de suite ; les gants servent plus tard.","The apron is needed right away; gloves are for later."]],
+      ["Sur quoi fait-on le premier essai ?",["Sur du papier épais","Sur une feuille de brouillon","Sur du tissu"],1,1,["« D’abord » introduit l’essai sur brouillon.","« D’abord » introduces the test on scrap paper."]],
+      ["Que faire si l’impression est tachée ?",["Ajouter de l’encre tout de suite","Jeter le dessin","Demander de l’aide avant d’ajouter de l’encre"],2,1,["« Avant d’ajouter » donne l’ordre à respecter.","« Avant d’ajouter » sets the required order."]],
+      ["Comment faut-il laisser sécher les affiches ?",["À plat, sans les empiler","Debout contre la porte","En les posant les unes sur les autres"],0,2,["« Sans les empiler » exclut de les mettre les unes sur les autres.","« Sans les empiler » rules out stacking them."]],
+      ["Qui doit passer au comptoir avant de partir ?",["Toute personne qui a mis un tablier","Les personnes qui ont emprunté du matériel","Les personnes qui reviennent l’après-midi"],1,2,["« Sauf si » introduit l’exception pour les emprunts.","« Sauf si » introduces the exception for borrowed equipment."]],
+      ["Que conseiller à une personne qui hésite à garder une affiche imparfaite ?",["De la jeter avant midi","De la montrer seulement si elle est sèche le matin","De la garder pour en discuter"],2,3,["Le dernier passage invite à garder les essais même en cas de doute.","The last section says to keep the prints even if unsure."]],
+    ],
+  ],
+  [
+    "une-minute-de-meteo",
+    "Une minute de météo",
+    ["Bulletin local","Local bulletin"],
+    ["Décidez quand partir en vélo selon la météo.","Choose when to cycle based on the forecast."],
+    ["Distinguer une prévision, une évolution et un conseil.","Distinguish a forecast, a change and advice."],
+    ["Comparez les tranches horaires au lieu de mémoriser chaque chiffre.","Compare time windows instead of memorising every number."],
+    [
+      "Voici la météo du littoral pour ce dimanche. Le matin, le ciel reste couvert sur toute la côte, sans pluie avant onze heures. Si vous prévoyez une sortie à vélo sur la piste du bord de mer, c’est le meilleur créneau.",
+      "Entre midi et quinze heures, de fortes averses sont attendues au nord du port. Au sud, les averses devraient être moins fortes, mais le vent soufflera surtout sur les ponts. La piste reste ouverte ; prévoyez simplement du temps en plus.",
+      "En fin d’après-midi, la pluie s’éloigne, mais les chemins de terre risquent de rester glissants. Mieux vaut privilégier les voies goudronnées. Les départs en bateau, eux, reprennent à dix-sept heures.",
+      "Si vous avez une réservation, consultez le message de votre compagnie avant de partir : la reprise annoncée ne signifie pas que tous les trajets auront lieu.",
+    ],
+    [
+      ["Quel est le meilleur moment pour partir en vélo ?",["Avant onze heures","Après quinze heures","À dix-sept heures"],0,0,["Le créneau du matin est annoncé sans pluie avant onze heures.","The morning window is forecast to be dry before eleven."]],
+      ["Où attend-on les averses les plus fortes ?",["Sur les ponts au sud","Au nord du port","Partout avec la même force"],1,1,["Le bulletin distingue le nord, touché par les averses, du sud, plus venteux.","The bulletin distinguishes the wetter north from the windier south."]],
+      ["Que conseille-t-on aux cyclistes sur les ponts ?",["De prendre un bateau","De rentrer demain","De prévoir plus de temps"],2,1,["La piste reste ouverte, mais le vent peut ralentir le trajet.","The track remains open, but wind may slow the trip."]],
+      ["Pourquoi conseiller les voies goudronnées ?",["Les chemins de terre peuvent rester glissants","La pluie commencera après dix-sept heures","La piste est officiellement fermée"],0,2,["La fin de la pluie ne fait pas sécher les chemins de terre tout de suite.","The end of the rain does not immediately dry dirt paths."]],
+      ["Qu’est-ce qui reprend à dix-sept heures ?",["Les averses","Des départs en bateau","La circulation sur les ponts"],1,2,["La reprise annoncée concerne les bateaux.","The announced restart refers to boats."]],
+      ["Pourquoi consulter le message de sa compagnie ?",["Pour acheter un vélo","Pour savoir si le vent va tomber","Pour vérifier que son trajet est bien maintenu"],2,3,["Une reprise générale n’est pas une confirmation pour chaque trajet.","A general resumption does not confirm each individual trip."]],
+    ],
+  ],
+]);

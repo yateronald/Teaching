@@ -104,5 +104,7 @@ const pilotMission: ReadingMission = {
 export const MISSIONS = [pilotMission, ...additionalMissions].sort((a, b) => a.level.localeCompare(b.level));
 
 export const missionPath = (mission: ReadingMission, lang: Lang) => `${readingPath(lang)}mission/${mission.id}/`;
+/** Picture key (public/learn/img, scripts/learn-images.json). */
+export const missionCoverKey = (mission: ReadingMission) => `mission-${mission.id}`;
 export const missionAudio = (document: MissionDocument) => document.lines.join(' ');
 export const missionVoice = (document: MissionDocument): Voice => document.voice ?? 'f';

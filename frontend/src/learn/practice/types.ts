@@ -15,7 +15,9 @@ export type Sentence = [fr: string, en: string];
  */
 export interface Para { s: Sentence[]; who?: number; lead?: boolean; lines?: boolean }
 
-export type TextGenre = 'portrait' | 'story' | 'dialogue' | 'email' | 'article' | 'notice';
+export type TextGenre =
+  | 'portrait' | 'story' | 'dialogue' | 'email' | 'article' | 'notice'
+  | 'postcard' | 'ad' | 'recipe' | 'interview' | 'forum' | 'letter' | 'column';
 
 export type QuestionSkill = 'global' | 'detail' | 'vocab' | 'inference';
 

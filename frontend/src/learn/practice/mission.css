@@ -3,9 +3,16 @@
 .rxm-feature h2 span { margin-inline-start: 8px; padding: 3px 8px; border-radius: 99px; background: #f3eee6; color: #684b31; font: 700 .72rem/1.4 var(--sans); vertical-align: middle; }
 .rxm-feature-intro { color: var(--muted); }
 .rxm-feature .rxm-levels { margin-block: 14px; }
-.rxm-feature-link { display: flex; flex-direction: column; align-items: start; gap: 12px; height: 100%; padding: 15px; border: 1px solid var(--line); border-radius: 15px; background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); }
-.rxm-feature-link:hover { border-color: var(--blue-line); background: #fbfcfe; }
-.rxm-feature-copy { flex: 1; min-width: 0; }
+.rxm-feature-link { display: flex; flex-direction: column; align-items: stretch; height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); transition: border-color .2s, box-shadow .2s, transform .2s; }
+.rxm-feature-link:hover { border-color: var(--blue-line); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.rxm-feature-img { border-radius: 0; }
+.rxm-feature-copy { flex: 1; min-width: 0; padding: 13px 15px 0; }
+.rxm-feature-cta { padding: 10px 15px 14px; }
+.rxm-feature-link:hover .rxm-feature-cta { text-decoration: underline; text-underline-offset: 3px; }
+.rxm-hero-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 32%); gap: 20px; align-items: center; }
+.rxm-hero-cover { overflow: hidden; aspect-ratio: 16 / 9; border: 1px solid var(--line); border-radius: 14px; background: var(--paper-2); }
+.rxm-hero-cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+@media (prefers-reduced-motion: reduce) { .rxm-feature-link, .rxm-feature-link:hover { transition: none; transform: none; } }
 .rxm-feature-copy h3 { margin: 8px 0 4px; font-size: 1.125rem; }
 .rxm-feature-copy p { color: var(--muted); font-size: .9rem; line-height: 1.45; }
 .rxm-feature-cta { font-size: .85rem; }
@@ -61,6 +68,8 @@ button.rxm-line[aria-pressed="true"] { border-color: #c29445; background: #fff8e
 .rxm-page mark { border-radius: 3px; background: #fff0c3; color: inherit; }
 .rxm-page [tabindex="-1"] { scroll-margin-top: 110px; }
 @media (max-width: 600px) {
+  .rxm-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .rxm-hero-cover { order: -1; aspect-ratio: 2.6 / 1; max-height: 150px; }
   .rxm-stages li { display: grid; gap: 4px; padding: 7px; }
   .rxm-step-dot { width: 22px; }
   .rxm-doc-header { grid-template-columns: auto minmax(0, 1fr); }

@@ -15,7 +15,7 @@ import { TEXTS, readingPath } from '../meta';
 import { SkillTabs, TextCard } from '../parts';
 import { libraryJsonLd } from '../schema';
 import { textStatus } from '../stats';
-import { MISSIONS, missionPath } from '../missions';
+import { MISSIONS, missionCoverKey, missionPath } from '../missions';
 import '../practice.css';
 import '../mission.css';
 
@@ -101,8 +101,14 @@ export default function ReadingLibraryPage({ lang, canonical = true }: { lang: L
           {missions.map(m => (
             <li key={m.id}>
               <Link className="rxm-feature-link" to={missionPath(m, lang)} aria-label={tx(m.title, lang)}>
+                <div className="rx-card-img rxm-feature-img">
+                  <img src={imageUrl(missionCoverKey(m), 640)} srcSet={`${imageUrl(missionCoverKey(m), 640)} 640w, ${imageUrl(missionCoverKey(m), 1200)} 1200w`}
+                    sizes="(min-width: 1200px) 368px, (min-width: 1000px) 32vw, (min-width: 640px) 46vw, calc(100vw - 36px)"
+                    alt="" width="640" height="360" loading="lazy" decoding="async" />
+                  <LevelChip level={m.level} size="sm" />
+                </div>
                 <div className="rxm-feature-copy">
-                  <div className="rxm-tags"><LevelChip level={m.level} size="sm" /> {lang === 'fr' ? `${m.documents.length} étapes` : `${m.documents.length} steps`} · {m.minutes} min</div>
+                  <div className="rxm-tags">{lang === 'fr' ? `${m.documents.length} étapes` : `${m.documents.length} steps`} · {m.minutes} min</div>
                   <h3>{tx(m.title, lang)}</h3>
                   <p>{tx(m.summary, lang)}</p>
                 </div>

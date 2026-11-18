@@ -150,8 +150,25 @@ function pcmFrom(buf) {
   return buf.subarray(44);
 }
 
+// Practice recordings (`sealed`: listening passages, mission documents) are
+// published scrambled as <key>.dat, not as a playable mp3: the page undoes it
+// (src/learn/sealedAudio.ts, same key as scripts/practice-audio.mjs).
+const MASK = Buffer.from('lfwn-lecture-2026', 'utf8');
+const scramble = buf => { const out = Buffer.from(buf); for (let i = 0; i < out.length; i++) out[i] ^= MASK[i % MASK.length] ^ (i & 0xff); return out; };
+const mp3Of = key => path.join(AUDIO_DIR, `${key}.mp3`);
+const datOf = key => path.join(AUDIO_DIR, `${key}.dat`);
+/** Puts a recording in the form its phrase needs (the transform is its own inverse). */
+async function settle({ key, sealed }) {
+  const [from, to] = sealed ? [mp3Of(key), datOf(key)] : [datOf(key), mp3Of(key)];
+  if (!existsSync(from)) return;
+  await fs.writeFile(to, scramble(await fs.readFile(from)));
+  await fs.rm(from);
+}
+const recorded = a => existsSync(mp3Of(a.key)) || existsSync(datOf(a.key));
+const fileOf = a => (existsSync(datOf(a.key)) ? datOf(a.key) : mp3Of(a.key));
+
 let ttsModel = 0;
-async function genAudio({ key, text, voice }) {
+async function genAudio({ key, text, voice, sealed }) {
   // The bare text: an instruction before it is sometimes read aloud too.
   const prompt = text;
   const res = await retry(async () => {
@@ -175,15 +192,19 @@ async function genAudio({ key, text, voice }) {
   // Trim leading/trailing silence, normalise loudness, small mono mp3.
   ffmpeg('-f', 's16le', '-ar', String(rate), '-ac', '1', '-i', raw,
     '-af', 'silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.05,areverse,silenceremove=start_periods=1:start_threshold=-45dB:start_silence=0.12,areverse,loudnorm=I=-17:TP=-1.5:LRA=11',
-    '-ar', '24000', '-ac', '1', '-b:a', '48k', path.join(AUDIO_DIR, `${key}.mp3`));
+    '-ar', '24000', '-ac', '1', '-b:a', '48k', mp3Of(key));
+  await settle({ key, sealed });
 }
+
+// A recording kept from before is put in the form its phrase needs (sealed or
+// not), whatever this run does: never recorded again for that.
+if (existsSync(AUDIO_DIR)) for (const a of media.audio) await settle(a);
 
 if (doAudio) {
   await fs.mkdir(AUDIO_DIR, { recursive: true });
   const todo = media.audio.filter(a => {
-    const f = path.join(AUDIO_DIR, `${a.key}.mp3`);
-    if (force || !existsSync(f)) return true;
-    return maxWords > 0 && wordCount(a.text) <= maxWords && statSync(f).mtimeMs < before;
+    if (force || !recorded(a)) return true;
+    return maxWords > 0 && wordCount(a.text) <= maxWords && statSync(fileOf(a)).mtimeMs < before;
   });
   console.log(`Audio to generate: ${todo.length}`);
   const r = await pool(todo, 2, genAudio);
@@ -192,13 +213,17 @@ if (doAudio) {
 
 // The manifest lists the recordings that exist, whatever this run did.
 {
-  const files = existsSync(AUDIO_DIR) ? (await fs.readdir(AUDIO_DIR)).filter(f => f.endsWith('.mp3')).map(f => f.slice(0, -4)) : [];
-  const used = new Set(media.audio.map(a => a.key));
-  const keys = files.filter(k => used.has(k)).sort();
+  const files = existsSync(AUDIO_DIR) ? (await fs.readdir(AUDIO_DIR)).filter(f => /\.(mp3|dat)$/.test(f)) : [];
+  const used = new Map(media.audio.map(a => [a.key, a]));
+  // A sealed phrase is listed once its .dat exists, a plain one once its mp3 does.
+  const fits = f => { const a = used.get(f.slice(0, -4)); return !!a && f.endsWith(a.sealed ? '.dat' : '.mp3'); };
+  const keys = files.filter(fits).map(f => f.slice(0, -4)).sort();
+  const sealed = keys.filter(k => used.get(k).sealed);
   // Recordings no phrase uses any more (text edited) are removed.
-  for (const k of files.filter(k => !used.has(k))) await fs.rm(path.join(AUDIO_DIR, `${k}.mp3`));
-  await fs.writeFile(MANIFEST, `${JSON.stringify({ keys })}\n`);
-  console.log(`✓ audio manifest: ${keys.length} recordings (${files.length - keys.length} unused removed)`);
+  const unused = files.filter(f => !used.has(f.slice(0, -4)));
+  for (const f of unused) await fs.rm(path.join(AUDIO_DIR, f));
+  await fs.writeFile(MANIFEST, `${JSON.stringify({ keys, sealed })}\n`);
+  console.log(`✓ audio manifest: ${keys.length} recordings, ${sealed.length} sealed (${unused.length} unused removed)`);
 }
 
 // Picture versions: the server caches .webp for a year, so each URL carries a

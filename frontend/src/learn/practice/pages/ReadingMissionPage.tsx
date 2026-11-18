@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeftOutlined, ArrowRightOutlined, CheckOutlined, FileTextOutlined, MailOutlined, MessageOutlined, SoundOutlined } from '@ant-design/icons';
-import { hasRecording, speak, stop, usePlaying } from '../../audio';
+import { hasRecording, prefetchRecording, speak, stop, usePlaying } from '../../audio';
+import { imageUrl } from '../../categories';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang, type Voice } from '../../types';
 import { readingPath } from '../meta';
-import { missionAudio, missionPath, missionVoice, type ReadingMission } from '../missions';
+import { missionAudio, missionCoverKey, missionPath, missionVoice, type ReadingMission } from '../missions';
 import '../mission.css';
 
 const labels = {
@@ -29,7 +30,10 @@ const icons = { email: MailOutlined, sms: MessageOutlined, notice: FileTextOutli
 function DocumentAudio({ text, lang, voice }: { text: string; lang: Lang; voice: Voice }) {
   const playing = usePlaying(text, voice);
   const c = labels[lang];
-  if (!hasRecording(text, voice)) return null;
+  const available = hasRecording(text, voice);
+  // The recording is sealed (not offered for download): loaded ahead so a tap starts it at once.
+  useEffect(() => { if (available) prefetchRecording(text, voice); }, [available, text, voice]);
+  if (!available) return null;
   return <button type="button" className="rxm-audio" onClick={() => { if (playing) stop(); else void speak(text, { voice }); }}>
     <SoundOutlined aria-hidden /> {playing ? c.stop : c.listen}
   </button>;
@@ -75,9 +79,17 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
           <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [c.library, readingPath(lang)], [tx(mission.title, lang)]]} />
           <header className="rxm-hero">
             <Link to={readingPath(lang)} className="rxm-back"><ArrowLeftOutlined aria-hidden /> {c.back}</Link>
-            <p className="rxm-tags"><LevelChip level={mission.level} size="sm" /> {c.mission} · {mission.minutes} min</p>
-            <h1>{tx(mission.title, lang)}</h1>
-            <p className="rxm-objective">{tx(mission.brief, lang)}</p>
+            <div className="rxm-hero-grid">
+              <div>
+                <p className="rxm-tags"><LevelChip level={mission.level} size="sm" /> {c.mission} · {mission.minutes} min</p>
+                <h1>{tx(mission.title, lang)}</h1>
+                <p className="rxm-objective">{tx(mission.brief, lang)}</p>
+              </div>
+              <div className="rxm-hero-cover">
+                <img src={imageUrl(missionCoverKey(mission), 640)} srcSet={`${imageUrl(missionCoverKey(mission), 640)} 640w, ${imageUrl(missionCoverKey(mission), 1200)} 1200w`}
+                  sizes="(max-width: 600px) calc(100vw - 36px), 260px" alt="" width="640" height="360" decoding="async" />
+              </div>
+            </div>
           </header>
 
           <div className="rxm-workspace">

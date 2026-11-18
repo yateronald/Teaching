@@ -184,8 +184,11 @@ const TextBody = memo(function TextBody({ text, sentences, current, translate, g
 
 const VOICE_ICON: Record<NarrationId, React.ReactNode> = { f: <WomanOutlined />, m: <ManOutlined />, d: <TeamOutlined /> };
 
-function PlayerBar({ n, lang }: { n: NarrationApi; lang: Lang }) {
+/** `many`: the several-voice version is an interview or a forum thread, not a dialogue. */
+function PlayerBar({ n, lang, many = false }: { n: NarrationApi; lang: Lang; many?: boolean }) {
   const c = P[lang].player;
+  const voiceTitle = (v: NarrationId) => (many && v === 'd' ? c.voiceMany : c.voice[v]);
+  const voiceTag = (v: NarrationId) => (many && v === 'd' ? c.voiceManyShort : c.voiceShort[v]);
   const d = n.meta?.d ?? 0;
   const idx = RATES.indexOf(n.rate);
   const shown = Math.min(n.time, d);
@@ -216,9 +219,9 @@ function PlayerBar({ n, lang }: { n: NarrationApi; lang: Lang }) {
             <button
               key={v} type="button" role="radio" aria-checked={v === n.version}
               className={`is-${v}${v === n.version ? ' is-on' : ''}`}
-              onClick={() => n.choose(v, n.playing)} aria-label={c.voice[v]} title={c.voice[v]}
+              onClick={() => n.choose(v, n.playing)} aria-label={voiceTitle(v)} title={voiceTitle(v)}
             >
-              {VOICE_ICON[v]}<span className="rx-label">{c.voiceShort[v]}</span>
+              {VOICE_ICON[v]}<span className="rx-label">{voiceTag(v)}</span>
             </button>
           ))}
         </div>
@@ -613,7 +616,7 @@ function TextView({ text, meta, lang }: { text: ReadingText; meta: TextMeta; lan
                   <button type="button" className="rx-follow" onClick={follow}><AimOutlined aria-hidden />{c.text.follow}</button>
                 )}
                 {n.version && !n.failed
-                  ? <PlayerBar n={n} lang={lang} />
+                  ? <PlayerBar n={n} lang={lang} many={meta.genre !== 'dialogue'} />
                   : <p className="rx-noaudio"><InfoCircleOutlined aria-hidden /> {n.failed ? c.player.failed : c.player.noAudio}</p>}
               </div>
             </article>

@@ -41,7 +41,7 @@ const en = {
       ['Answer the questions', 'Five to nine questions depending on the text. Check your answers, then go back to the passages that explain them.'],
       ['Keep what you learned', 'A language point explained with examples, and the words to remember with their sound.'],
     ] as [string, string][],
-    soonText: 'Listening, dictation, grammar and vocabulary libraries are on their way, built the same way.',
+    soonText: 'Dictation, grammar and vocabulary practice are coming next.',
     faqTitle: 'Questions about the reading texts',
     faq: [
       ['Are the texts and recordings free?', 'Yes. Every text and its recording are free, with no account. Your progress is kept in this browser.'],
@@ -94,6 +94,8 @@ const en = {
     keys: 'Space: play or pause · ← →: previous or next sentence',
     voice: { f: 'Woman’s voice', m: 'Man’s voice', d: 'Dialogue, two voices' } as Record<NarrationId, string>,
     voiceShort: { f: 'Woman', m: 'Man', d: 'Dialogue' } as Record<NarrationId, string>,
+    /** The several-voice version of an interview or a forum thread (not a dialogue). */
+    voiceMany: 'Several voices, one per speaker', voiceManyShort: 'Voices',
     noAudio: 'The recording of this text is on its way. You can already read it and answer the questions.',
     failed: 'The recording could not be loaded. Check your connection and reload the page.',
   },
@@ -127,7 +129,10 @@ const en = {
       review: (c: number, n: number) => `${c}/${n} · to review`,
       done: (c: number, n: number) => `${c}/${n} · mastered`,
     },
-    genre: { portrait: 'Portrait', story: 'Story', dialogue: 'Dialogue', email: 'Email', article: 'Article', notice: 'Note' } as Record<TextGenre, string>,
+    genre: {
+      portrait: 'Portrait', story: 'Story', dialogue: 'Dialogue', email: 'Email', article: 'Article', notice: 'Note',
+      postcard: 'Postcard', ad: 'Job ad', recipe: 'Recipe', interview: 'Interview', forum: 'Forum', letter: 'Letter', column: 'Column',
+    } as Record<TextGenre, string>,
     audio: 'Audio',
   },
 };
@@ -173,7 +178,7 @@ const fr: Copy = {
       ['Répondez aux questions', 'Cinq à neuf questions selon le texte. Vérifiez vos réponses, puis revenez aux passages qui les justifient.'],
       ['Retenez l’essentiel', 'Un point de langue expliqué avec des exemples, et les mots à retenir avec leur prononciation.'],
     ],
-    soonText: 'Les bibliothèques d’écoute, de dictée, de grammaire et de vocabulaire arrivent bientôt, construites de la même façon.',
+    soonText: 'Les exercices de dictée, de grammaire et de vocabulaire arrivent bientôt.',
     faqTitle: 'Questions sur les textes de lecture',
     faq: [
       ['Les textes et les enregistrements sont-ils gratuits ?', 'Oui. Tous les textes et leurs enregistrements sont gratuits, sans compte. Votre progression est conservée dans ce navigateur.'],
@@ -226,6 +231,7 @@ const fr: Copy = {
     keys: 'Espace : lecture ou pause · ← → : phrase précédente ou suivante',
     voice: { f: 'Voix de femme', m: 'Voix d’homme', d: 'Dialogue à deux voix' },
     voiceShort: { f: 'Femme', m: 'Homme', d: 'Dialogue' },
+    voiceMany: 'Plusieurs voix, une par personne', voiceManyShort: 'Plusieurs voix',
     noAudio: 'L’enregistrement de ce texte arrive bientôt. Vous pouvez déjà le lire et répondre aux questions.',
     failed: 'L’enregistrement n’a pas pu être chargé. Vérifiez votre connexion et rechargez la page.',
   },
@@ -259,7 +265,10 @@ const fr: Copy = {
       review: (c: number, n: number) => `${c}/${n} · à revoir`,
       done: (c: number, n: number) => `${c}/${n} · maîtrisé`,
     },
-    genre: { portrait: 'Portrait', story: 'Récit', dialogue: 'Dialogue', email: 'Courriel', article: 'Article', notice: 'Message' },
+    genre: {
+      portrait: 'Portrait', story: 'Récit', dialogue: 'Dialogue', email: 'Courriel', article: 'Article', notice: 'Message',
+      postcard: 'Carte postale', ad: 'Annonce', recipe: 'Recette', interview: 'Interview', forum: 'Forum', letter: 'Lettre', column: 'Chronique',
+    },
     audio: 'Audio',
   },
 };

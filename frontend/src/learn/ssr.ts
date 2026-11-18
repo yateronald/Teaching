@@ -13,6 +13,7 @@ import { allLevelPages, categoryLevelPath, levelPath } from './levels';
 import { GAMES, gamePath, gamesPath } from './games/meta';
 import { TEXTS, practicePath, readingPath, textPath } from './practice/meta';
 import { MISSIONS, missionPath } from './practice/missions';
+import { LISTENING, exercisePath, listeningPath } from './practice/listening/catalog';
 import { checkText } from './practice/model';
 import { registerText } from './practice/registry';
 import type { ReadingText } from './practice/types';
@@ -77,5 +78,7 @@ export function learnPages(): LearnPage[] {
   both(readingPath, '0.8');
   TEXTS.forEach(t => both(l => textPath(t, l), '0.7'));
   MISSIONS.forEach(m => both(l => missionPath(m, l), '0.7', false));
+  both(listeningPath, '0.8');
+  LISTENING.forEach(e => both(l => exercisePath(e, l), '0.7'));
   return pages;
 }

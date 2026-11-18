@@ -2,12 +2,35 @@
 // scripts/learn-media.mjs (native-sounding neural voices) under
 // /learn/audio/<key>.mp3; the list of recordings that exist is
 // audio-manifest.json. Only these recordings are played: never the browser's
-// synthetic voice.
+// synthetic voice. The practice recordings (listening passages, mission
+// documents) are stored scrambled instead, as /learn/audio/<key>.dat
+// (`sealed` in the manifest, sealedAudio.ts): not offered for download.
 import { useSyncExternalStore } from 'react';
 import manifest from './audio-manifest.json';
+import { loadSealed, sealedReady } from './sealedAudio';
 import type { Voice } from './types';
 
 const AVAILABLE = new Set<string>((manifest as { keys: string[] }).keys);
+const SEALED = new Set<string>((manifest as { sealed?: string[] }).sealed ?? []);
+
+/** Where a recording is: a plain mp3, or the scrambled file of a practice recording. */
+const srcOf = (key: string) => (SEALED.has(key) ? `/learn/audio/${key}.dat` : `/learn/audio/${key}.mp3`);
+
+/**
+ * The playable address of a recording (a blob: address for a sealed one), for a
+ * page that plays it with its own player. Null when there is no recording.
+ */
+export function recordingUrl(text: string, voice: Voice = 'f'): Promise<string> | null {
+  const key = audioKey(text, voice);
+  if (!AVAILABLE.has(key)) return null;
+  return SEALED.has(key) ? loadSealed(srcOf(key)) : Promise.resolve(srcOf(key));
+}
+
+/** Loads a sealed recording ahead, so that a tap on its button starts it at once. */
+export function prefetchRecording(text: string, voice: Voice = 'f') {
+  const key = audioKey(text, voice);
+  if (SEALED.has(key) && typeof window !== 'undefined') loadSealed(srcOf(key)).catch(() => {});
+}
 
 // Single words the voice mistakes for a homophone when said alone (checked by
 // transcription): it is given a spelling that sounds right. Only the audio
@@ -91,14 +114,20 @@ export function speak(text: string, opts: { voice?: Voice; rate?: number } = {})
   const synth = () => { done(); return Promise.resolve(); };
 
   if (!AVAILABLE.has(key)) return synth();
-  return new Promise<void>(resolve => {
-    const a = new Audio(`/learn/audio/${key}.mp3`);
+  const start = (url: string) => new Promise<void>(resolve => {
+    if (playing !== key) { resolve(); return; }
+    const a = new Audio(url);
     current = a;
     a.playbackRate = rate;
     a.onended = () => { done(); resolve(); };
     a.onerror = () => { synth().then(resolve); };
     a.play().catch(() => { synth().then(resolve); });
   });
+  if (!SEALED.has(key)) return start(srcOf(key));
+  // Sealed: at once when already loaded (a tap may start the sound), else when it arrives.
+  const url = sealedReady(srcOf(key));
+  if (url) return start(url);
+  return loadSealed(srcOf(key)).then(start, () => synth());
 }
 
 /** Plays phrases one after the other (dialogues). */

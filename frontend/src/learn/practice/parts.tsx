@@ -7,7 +7,7 @@ import type { Progress } from '../progress';
 import { LevelChip, useMounted } from '../shell';
 import { tx, type Lang } from '../types';
 import { P } from './copy';
-import { SKILLS, TEXTS, readingPath, textMinutes, textPath } from './meta';
+import { SKILLS, TEXTS, readingPath, skillPath, textMinutes, textPath } from './meta';
 import { textStatus } from './stats';
 import type { SkillId, TextMeta } from './types';
 import './practice.css';
@@ -86,7 +86,7 @@ export function SkillTabs({ lang, active }: { lang: Lang; active: SkillId }) {
         {SKILLS.map(s => (
           <li key={s.id}>
             {s.ready ? (
-              <Link to={s.id === 'reading' ? readingPath(lang) : '#'} className={s.id === active ? 'is-on' : ''} aria-current={s.id === active ? 'page' : undefined}>
+              <Link to={skillPath(s, lang)} className={s.id === active ? 'is-on' : ''} aria-current={s.id === active ? 'page' : undefined}>
                 {tx(s.name, lang)}
               </Link>
             ) : (

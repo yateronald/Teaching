@@ -36,7 +36,7 @@ try {
       const key = audioKey(words, voice);
       assert(keys.has(key), `${m.id}: add recording to the generation input`);
       assert(hasRecording(words, voice), `${m.id}: missing ${voice} recording`);
-      assert((await stat(`public/learn/audio/${key}.mp3`)).size > 0);
+      assert((await stat(`public/learn/audio/${key}.dat`)).size > 0);
       tracks++;
     }
   }

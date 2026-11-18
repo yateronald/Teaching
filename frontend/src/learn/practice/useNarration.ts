@@ -10,6 +10,7 @@
 // download manager to catch.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { beforeSpeak, stop as stopPhrase } from '../audio';
+import { loadSealed, sealedReady } from '../sealedAudio';
 import audioIndex from './text-audio.json';
 import type { Narration, NarrationId } from './types';
 
@@ -24,34 +25,7 @@ const narrationSrc = (textId: string, n: NarrationId) => {
 };
 export const hasNarration = (textId: string) => Object.keys(INDEX[textId] ?? {}).length > 0;
 
-/** The same key as scripts/practice-audio.mjs. */
-const KEY = new TextEncoder().encode('lfwn-lecture-2026');
-function unscramble(u: Uint8Array) {
-  for (let i = 0; i < u.length; i++) u[i] ^= KEY[i % KEY.length] ^ (i & 0xff);
-}
-
-/** Recordings ready to play in this visit (in memory), and the ones on their way. */
-const ready = new Map<string, string>();
-const pending = new Map<string, Promise<string>>();
-function load(src: string): Promise<string> {
-  const hit = ready.get(src);
-  if (hit) return Promise.resolve(hit);
-  let p = pending.get(src);
-  if (!p) {
-    p = fetch(src)
-      .then(r => { if (!r.ok) throw new Error(`audio ${r.status}`); return r.arrayBuffer(); })
-      .then(buf => {
-        const bytes = new Uint8Array(buf);
-        unscramble(bytes);
-        const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/mpeg' }));
-        ready.set(src, url);
-        return url;
-      })
-      .finally(() => pending.delete(src));
-    pending.set(src, p);
-  }
-  return p;
-}
+const load = loadSealed;
 
 export const RATES = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.2, 1.3, 1.4, 1.5];
 
@@ -133,7 +107,7 @@ export function useNarration(textId: string, offered: NarrationId[]): NarrationA
     // Animation frames stop in a background tab: the audio’s own clock takes over.
     a.ontimeupdate = () => { if (performance.now() - lastTick.current > 300) { lastTick.current = performance.now(); setTime(a.currentTime); } };
     audio.current = a;
-    const url = ready.get(src);
+    const url = sealedReady(src);
     if (url) a.src = url;
     else {
       setLoading(true);

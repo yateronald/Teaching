@@ -12,6 +12,8 @@ import type { Narration, NarrationId, ReadingText, TextGenre, TextMeta } from '.
 const LEVEL_SAID: Record<Level, string> = { A1: 'A un', A2: 'A deux', B1: 'B un', B2: 'B deux', C1: 'C un', C2: 'C deux' };
 const GENRE_SAID: Record<TextGenre, string> = {
   portrait: 'un court texte', story: 'une petite histoire', dialogue: 'un dialogue', email: 'un courriel', article: 'un article', notice: 'un message',
+  postcard: 'une carte postale', ad: 'une offre d’emploi', recipe: 'une recette', interview: 'une interview',
+  forum: 'une discussion sur un forum', letter: 'une lettre', column: 'une chronique',
 };
 /** « Le marchand » becomes « le marchand » inside a sentence. */
 const inSentence = (name: string) => (/^(Le|La|Les|L’)(\s|$)/.test(name) || name.startsWith('L’') ? name.charAt(0).toLowerCase() + name.slice(1) : name);
@@ -21,7 +23,8 @@ const inSentence = (name: string) => (/^(Le|La|Les|L’)(\s|$)/.test(name) || na
  * `k` (the text’s place in the list) varies the closing line.
  */
 export function spokenFrame(meta: TextMeta, text: ReadingText, k: number) {
-  const what = text.speakers && text.speakers.length === 2
+  // A dialogue names its two speakers; an interview or a forum keeps its genre.
+  const what = meta.genre === 'dialogue' && text.speakers && text.speakers.length === 2
     ? `un dialogue entre ${inSentence(text.speakers[0].name)} et ${inSentence(text.speakers[1].name)}`
     : GENRE_SAID[meta.genre];
   const level = LEVEL_SAID[meta.level];
