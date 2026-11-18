@@ -7,7 +7,7 @@ import { PLACEMENT } from './content/placement';
 import { CAST, EPISODES, playerLines } from './games/story';
 import { DAILY_WORDS, GENDER_NOUNS, PAIR_DECKS, numberCall, withArticle } from './games/words';
 import { TEXTS } from './practice/meta';
-import { MISSIONS, missionAudio } from './practice/missions';
+import { MISSIONS, missionAudio, missionVoice } from './practice/missions';
 import type { ReadingText } from './practice/types';
 import type { Lesson, Step, Voice } from './types';
 
@@ -83,7 +83,7 @@ export function collectMedia() {
   // ── Reading texts: their picture, the words explained and the language-point
   // examples (the texts themselves are read by scripts/practice-audio.mjs). ──
   TEXTS.forEach(t => images.add(t.image));
-  MISSIONS.forEach(m => m.documents.forEach(d => add(missionAudio(d))));
+  MISSIONS.forEach(m => m.documents.forEach(d => add(missionAudio(d), missionVoice(d))));
   for (const mod of Object.values(textModules)) {
     mod.default.glossary.forEach(g => add(g.fr));
     mod.default.focus.examples.forEach(e => add(e.fr));

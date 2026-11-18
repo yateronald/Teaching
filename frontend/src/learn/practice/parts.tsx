@@ -56,21 +56,23 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
   return (
     <article className="rx-card">
       <div className="rx-card-img">
-        <img src={imageUrl(text.image, 640)} alt="" loading="lazy" width="640" height="360" />
+        <img src={imageUrl(text.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
         <LevelChip level={text.level} size="sm" />
       </div>
       <div className="rx-card-body">
-        <p className="rx-card-kicker">{c.learn.genre[text.genre]} · {tx(text.theme, lang)}</p>
+        <p className="rx-card-kicker"><strong>{c.learn.genre[text.genre]}</strong> <span aria-hidden="true">·</span> {tx(text.theme, lang)}</p>
         <h3><Link to={textPath(text, lang)} className="lx-stretch">{text.title}</Link></h3>
         <p className="rx-card-sub">{tx(text.subtitle, lang)}</p>
         <div className="rx-card-meta">
           <span><ReadOutlined aria-hidden /> {c.text.words(text.words)}</span>
           <span><ClockCircleOutlined aria-hidden /> {c.text.minutes(textMinutes(text))}</span>
           <span><SoundOutlined aria-hidden /> {c.learn.audio}</span>
+        </div>
+        <div className="rx-card-footer">
           <StatusChip p={p} text={text} lang={lang} />
+          <span className="rx-card-go" aria-hidden="true">{c.library.readCard}<ArrowRightOutlined /></span>
         </div>
       </div>
-      <span className="lx-round-arrow rx-card-go" aria-hidden><ArrowRightOutlined /></span>
     </article>
   );
 }

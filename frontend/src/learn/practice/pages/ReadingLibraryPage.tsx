@@ -2,7 +2,7 @@
 // of reading texts, with the learner’s reading score.
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckOutlined, CustomerServiceOutlined, DownOutlined, FileTextOutlined, ReadOutlined, SoundOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckOutlined, CloseOutlined, CustomerServiceOutlined, DownOutlined, FileTextOutlined, ReadOutlined, SearchOutlined, SoundOutlined } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
 import { LEVEL_COPY } from '../../levels';
 import { hubPath, placementPath } from '../../paths';
@@ -22,6 +22,7 @@ import '../mission.css';
 type Filter = 'all' | 'starters' | 'todo' | 'review' | 'done';
 const FILTERS: Filter[] = ['all', 'starters', 'todo', 'review', 'done'];
 const HOW_ICONS = [<SoundOutlined />, <CheckOutlined />, <FileTextOutlined />];
+const searchable = (value: string) => value.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/œ/g, 'oe').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
 /** `canonical` is false on /learn/practice/, which shows the same library. */
 export default function ReadingLibraryPage({ lang, canonical = true }: { lang: Lang; canonical?: boolean }) {
@@ -31,16 +32,30 @@ export default function ReadingLibraryPage({ lang, canonical = true }: { lang: L
   const p = useProgress();
   const [filter, setFilter] = useState<Filter>('all');
   const [level, setLevel] = useState<Level | 'all'>('all');
+  const [missionLevel, setMissionLevel] = useState<Level | 'all'>('all');
+  const [query, setQuery] = useState('');
   const levels = useMemo(() => LEVELS.filter(x => TEXTS.some(t => t.level === x)), []);
+  const matched = useMemo(() => {
+    const terms = searchable(query).split(' ').filter(Boolean);
+    if (!terms.length) return TEXTS;
+    return TEXTS.filter(t => {
+      const haystack = searchable([t.title, tx(t.theme, lang), tx(t.subtitle, lang), c.learn.genre[t.genre]].join(' '));
+      return terms.every(term => haystack.includes(term));
+    });
+  }, [query, lang, c]);
 
   const keep = (f: Filter, t: (typeof TEXTS)[number]) => {
     if (f === 'starters') return !!t.starter;
     if (f === 'all') return true;
     return textStatus(p, t).status === f;
   };
-  const count = (f: Filter) => TEXTS.filter(t => keep(f, t)).length;
-  const list = TEXTS.filter(t => keep(filter, t) && (level === 'all' || t.level === level));
+  const matchesLevel = (t: (typeof TEXTS)[number]) => level === 'all' || t.level === level;
+  const count = (f: Filter) => matched.filter(t => matchesLevel(t) && keep(f, t)).length;
+  const filtered = matched.filter(t => keep(filter, t));
+  const list = filtered.filter(matchesLevel);
   const groups = LEVELS.filter(x => list.some(t => t.level === x));
+  const missionLevels = LEVELS.filter(x => MISSIONS.some(m => m.level === x));
+  const missions = MISSIONS.filter(m => missionLevel === 'all' || m.level === missionLevel);
 
   return (
     <LearnShell
@@ -67,59 +82,76 @@ export default function ReadingLibraryPage({ lang, canonical = true }: { lang: L
               <summary>{l.showMore}<DownOutlined aria-hidden /></summary>
               {l.more.map(x => <p key={x}>{x}</p>)}
             </details>
-            <div className="rx-filters" role="group" aria-label={l.filters.all}>
-              {FILTERS.map(f => {
-                const n = count(f);
-                if (f !== 'all' && f !== 'starters' && n === 0) return null;
-                return (
-                  <button key={f} type="button" className={filter === f ? 'is-on' : ''} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-                    {f === 'starters' && <ReadOutlined aria-hidden />}{l.filters[f]}<span className="rx-count">{n}</span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </div>
       </section>
 
       <section className="lp-wrap rxm-feature" aria-labelledby="rxm-feature-title">
         <h2 id="rxm-feature-title">{lang === 'fr' ? 'Missions de lecture' : 'Reading missions'} <span>{c.isNew}</span></h2>
-        {MISSIONS.map(m => (
-          <Link className="rxm-feature-link" key={m.id} to={missionPath(m, lang)}>
-            <div className="rxm-doc-icon"><FileTextOutlined aria-hidden /></div>
-            <div className="rxm-feature-copy">
-              <div className="rxm-tags"><LevelChip level={m.level} size="sm" /> {m.documents.length} documents · {m.minutes} min</div>
-              <h3>{tx(m.title, lang)}</h3>
-              <p>{tx(m.summary, lang)}</p>
-            </div>
-            <span className="rxm-feature-cta">{lang === 'fr' ? 'Essayer la mission' : 'Try the mission'} <ArrowRightOutlined aria-hidden /></span>
-          </Link>
-        ))}
+        <p className="rxm-feature-intro">{lang === 'fr' ? 'Une situation, trois indices à repérer et une décision à préparer.' : 'One situation, three clues to find and a decision to make.'}</p>
+        <div className="lx-levels rx-levels rxm-levels" role="group" aria-label={lang === 'fr' ? 'Niveaux des missions' : 'Mission levels'}>
+          <button type="button" className={missionLevel === 'all' ? 'is-on' : ''} aria-pressed={missionLevel === 'all'} onClick={() => setMissionLevel('all')}>{l.allLevels}<span>{MISSIONS.length}</span></button>
+          {missionLevels.map(x => (
+            <button key={x} type="button" className={missionLevel === x ? 'is-on' : ''} aria-pressed={missionLevel === x} onClick={() => setMissionLevel(x)}>
+              <b>{x}</b><span>{MISSIONS.filter(m => m.level === x).length}</span>
+            </button>
+          ))}
+        </div>
+        <ul className="rx-cards rxm-feature-grid">
+          {missions.map(m => (
+            <li key={m.id}>
+              <Link className="rxm-feature-link" to={missionPath(m, lang)} aria-label={tx(m.title, lang)}>
+                <div className="rxm-feature-copy">
+                  <div className="rxm-tags"><LevelChip level={m.level} size="sm" /> {lang === 'fr' ? `${m.documents.length} étapes` : `${m.documents.length} steps`} · {m.minutes} min</div>
+                  <h3>{tx(m.title, lang)}</h3>
+                  <p>{tx(m.summary, lang)}</p>
+                </div>
+                <span className="rxm-feature-cta">{lang === 'fr' ? 'Essayer la mission' : 'Try the mission'} <ArrowRightOutlined aria-hidden /></span>
+              </Link>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="lp-section rx-lib-list" aria-labelledby="rx-all-title">
         <div className="lp-wrap">
           <header className="rx-list-head">
             <h2 id="rx-all-title">{filter === 'starters' ? l.startTitle : l.allTitle}</h2>
+            <div className="rx-search">
+              <SearchOutlined aria-hidden />
+              <input type="search" aria-label={l.search} placeholder={l.searchPlaceholder} value={query} onChange={e => setQuery(e.target.value)} />
+              {query && <button type="button" aria-label={l.clearSearch} onClick={e => { e.currentTarget.parentElement?.querySelector('input')?.focus(); setQuery(''); }}><CloseOutlined aria-hidden /></button>}
+            </div>
+          </header>
+          <div className="rx-library-controls">
             <div className="lx-levels rx-levels" role="group" aria-label={ui.level}>
               <button type="button" className={level === 'all' ? 'is-on' : ''} aria-pressed={level === 'all'} onClick={() => setLevel('all')}>{l.allLevels}</button>
               {levels.map(x => (
                 <button key={x} type="button" className={level === x ? 'is-on' : ''} aria-pressed={level === x} onClick={() => setLevel(x)}>
-                  <b>{x}</b> {tx(LEVEL_COPY[x].name, lang)}<span>{TEXTS.filter(t => t.level === x).length}</span>
+                  <b>{x}</b> <span className="rx-level-name">{tx(LEVEL_COPY[x].name, lang)}</span><span>{filtered.filter(t => t.level === x).length}</span>
                 </button>
               ))}
             </div>
-          </header>
+            <div className="rx-filters" role="group" aria-label={l.filtersLabel}>
+              {FILTERS.map(f => {
+                const n = count(f);
+                if (f !== filter && f !== 'all' && f !== 'starters' && n === 0) return null;
+                return <button key={f} type="button" className={filter === f ? 'is-on' : ''} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                  {f === 'starters' && <ReadOutlined aria-hidden />}{l.filters[f]}<span className="rx-count">{n}</span>
+                </button>;
+              })}
+            </div>
+          </div>
           {filter === 'starters' && <p className="rx-list-sub">{l.startSub}</p>}
           <p className="lx-results" aria-live="polite">{l.results(list.length)}</p>
           {groups.length ? groups.map(x => (
             <div key={x} className="rx-level-group">
-              <h3><LevelChip level={x} size="sm" /> {tx(LEVEL_COPY[x].name, lang)}</h3>
+              <header className="rx-level-heading"><h3><LevelChip level={x} size="sm" /> {tx(LEVEL_COPY[x].name, lang)}</h3></header>
               <ul className="rx-cards">
                 {list.filter(t => t.level === x).map(t => <li key={t.id}><TextCard text={t} lang={lang} p={p} /></li>)}
               </ul>
             </div>
-          )) : <p className="lx-empty">{l.empty}</p>}
+          )) : <div className="rx-empty"><p>{l.empty}</p><button type="button" className="lp-btn lp-btn-ghost" onClick={() => { setQuery(''); setLevel('all'); setFilter('all'); }}>{l.resetFilters}</button></div>}
           <p className="rx-soon"><CustomerServiceOutlined aria-hidden /> {l.soonText}</p>
         </div>
       </section>

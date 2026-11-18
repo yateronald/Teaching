@@ -1,0 +1,118 @@
+import { makeMission, type MissionDraft } from './missionAuthoring';
+
+const drafts: MissionDraft[] = [
+  {
+    id: "le-concert-sous-la-pluie", minutes: 5,
+    title: ["Le concert sous la pluie","The concert in the rain"],
+    summary: ["Retrouvez le nouveau lieu et vérifiez ce que prévoit le billet.","Find the new venue and check what the ticket covers."],
+    brief: ["Lina a acheté des places pour un concert en plein air. Il pleut : aidez-la à savoir quoi faire.","Lina bought tickets for an outdoor concert. It is raining: help her figure out what to do."],
+    recipient: "Lina",
+    outcome: [["Votre soirée est organisée","Your evening is sorted"],["Voir le plan de la soirée","See the evening plan"]],
+    tip: ["Un changement de lieu ne signifie pas une annulation. Repérez séparément le lieu, l’heure et les conditions du billet.","A venue change does not mean cancellation. Check the venue, time and ticket conditions separately."],
+    documents: [
+      {
+        kind: "notice", voice: "m2", label: ["Annonce du festival","Festival notice"], detail: ["Mise à jour · vendredi","Update · Friday"],
+        title: "Concert de ce soir",
+        lines: [
+          "Le marché de nuit est annulé à cause de la pluie.",
+          "Le concert est maintenu, mais il aura lieu au gymnase des Peupliers.",
+        ],
+        line: 1, highlight: "au gymnase des Peupliers",
+        question: ["Où le concert aura-t-il lieu ?","Where will the concert take place?"],
+        hint: ["« Maintenu » signifie que le concert n’est pas annulé.","« Maintenu » means the concert has not been cancelled."],
+        retry: ["Le marché de nuit et le concert sont deux événements différents.","The night market and the concert are two different events."],
+        clue: ["Lieu","Venue"], value: "Gymnase",
+        messagePart: "Le concert a lieu au gymnase des Peupliers.",
+        takeaway: ["« Mais » introduit un changement : le concert a bien lieu, ailleurs.","« Mais » introduces a change: the concert still takes place, but somewhere else."],
+      },
+      {
+        kind: "email", voice: "f2", label: ["Billetterie","Ticket office"], detail: ["Envoyé aux personnes inscrites","Sent to ticket holders"],
+        title: "Votre billet reste valable",
+        lines: [
+          "Vous pouvez présenter le billet déjà acheté, sur papier ou sur votre téléphone.",
+          "Seules les personnes sans billet doivent passer à la caisse.",
+        ],
+        line: 0, highlight: "le billet déjà acheté",
+        question: ["Quel passage dit ce que Lina peut faire avec son billet ?","Which passage says what Lina can do with her ticket?"],
+        hint: ["Lina a déjà acheté son billet.","Lina already bought her ticket."],
+        retry: ["La caisse concerne seulement les personnes qui n’ont pas encore de billet.","The ticket desk is only for people without a ticket."],
+        clue: ["Billet","Ticket"], value: "Même billet",
+        messagePart: "Garde ton billet : tu peux le montrer sur ton téléphone.",
+        takeaway: ["« Déjà acheté » renvoie à son billet actuel. Elle n’a rien à racheter.","« Déjà acheté » refers to her current ticket. She does not need another one."],
+      },
+      {
+        kind: "sms", voice: "f2", label: ["SMS de l’organisatrice","Text from the organiser"], detail: ["Vendredi · après-midi","Friday · afternoon"],
+        title: "Portes et concert",
+        lines: [
+          "Les portes du gymnase ouvrent à dix-neuf heures.",
+          "Le groupe commence à jouer à vingt heures.",
+        ],
+        line: 1, highlight: "commence à jouer à vingt heures",
+        question: ["Lina veut entendre le début du concert. Quelle phrase lui donne l’heure du spectacle ?","Lina wants to catch the start. Which sentence gives the time of the performance?"],
+        hint: ["« Ouvrent » parle des portes. Cherchez le moment où le groupe joue.","« Ouvrent » refers to the doors. Look for when the band plays."],
+        retry: ["À dix-neuf heures, on peut entrer ; la musique commence plus tard.","At seven you can go in; the music starts later."],
+        clue: ["Concert","Show"], value: "20 h",
+        messagePart: "Le concert commence à 20 h.",
+        takeaway: ["Les portes ouvrent avant le début du spectacle.","The doors open before the performance starts."],
+      },
+    ],
+  },
+  {
+    id: "un-livre-pour-malik", minutes: 5,
+    title: ["Un livre pour Malik","A book for Malik"],
+    summary: ["Aidez Malik à réserver un livre et à le retirer à la bibliothèque.","Help Malik reserve and collect a library book."],
+    brief: ["Malik cherche un roman pour le week-end. Retrouvez l’exemplaire disponible, le dernier jour de retrait et ce qu’il doit montrer.","Malik wants a novel for the weekend. Find the available copy, the last pickup day and what he must show."],
+    recipient: "Malik",
+    outcome: [["Votre fiche de retrait est prête","Your pickup note is ready"],["Voir la fiche","See the pickup note"]],
+    tip: ["Pour préparer une visite, relevez trois choses : le lieu, la date limite et la pièce demandée.","To plan a visit, look for the place, the deadline and any document you need to bring."],
+    documents: [
+      {
+        kind: "notice", voice: "f2", label: ["Catalogue","Catalogue"], detail: ["Bibliothèques du quartier","Neighbourhood libraries"],
+        title: "Les jardins de l’aube",
+        lines: [
+          "À la bibliothèque du Centre, le roman est déjà emprunté.",
+          "À la bibliothèque des Tilleuls, il reste un exemplaire disponible.",
+        ],
+        line: 1, highlight: "un exemplaire disponible",
+        question: ["Où Malik peut-il trouver le livre maintenant ?","Where can Malik find the book now?"],
+        hint: ["« Emprunté » signifie qu’un autre lecteur a le livre.","« Emprunté » means another reader has the book."],
+        retry: ["Au Centre, le livre n’est pas disponible pour le moment.","The book is not currently available at the Centre branch."],
+        clue: ["Bibliothèque","Library"], value: "Les Tilleuls",
+        messagePart: "Le roman t’attend à la bibliothèque des Tilleuls.",
+        takeaway: ["« Disponible » indique que l’exemplaire peut être réservé.","« Disponible » tells you the copy can be reserved."],
+      },
+      {
+        kind: "email", voice: "m2", label: ["Courriel de réservation","Reservation email"], detail: ["Reçu mercredi","Received Wednesday"],
+        title: "Votre réservation est prête",
+        lines: [
+          "Vous pouvez venir chercher le livre jusqu’à vendredi soir inclus.",
+          "Samedi matin, il sera remis en rayon si vous n’êtes pas venu.",
+        ],
+        line: 0, highlight: "jusqu’à vendredi soir inclus",
+        question: ["Quel passage donne la dernière possibilité de retrait ?","Which passage gives the latest pickup time?"],
+        hint: ["« Jusqu’à » introduit la date limite.","« Jusqu’à » introduces the deadline."],
+        retry: ["Samedi, la réservation n’est plus valable.","On Saturday the reservation is no longer valid."],
+        clue: ["Date limite","Deadline"], value: "Vendredi soir",
+        messagePart: "Tu peux le retirer jusqu’à vendredi soir.",
+        takeaway: ["« Inclus » précise que le vendredi compte encore.","« Inclus » tells you that Friday still counts."],
+      },
+      {
+        kind: "sms", voice: "m2", label: ["SMS de la bibliothèque","Library text"], detail: ["Au moment du retrait","At pickup"],
+        title: "Au comptoir",
+        lines: [
+          "Le titre du livre est déjà enregistré dans votre dossier.",
+          "Pour retirer le livre, montrez votre carte de lecteur à l’accueil.",
+        ],
+        line: 1, highlight: "montrez votre carte de lecteur",
+        question: ["Quel passage indique ce qu’il faut présenter ?","Which passage tells you what to show?"],
+        hint: ["Cherchez « montrez ».","Look for « montrez »."],
+        retry: ["Le titre est déjà enregistré. Ce n’est pas ce que Malik doit présenter.","The title is already registered. It is not what Malik needs to show."],
+        clue: ["À présenter","Bring"], value: "Carte de lecteur",
+        messagePart: "Montre ta carte de lecteur à l’accueil.",
+        takeaway: ["Le verbe « montrez » introduit une action à faire au comptoir.","The verb « montrez » introduces an action you need to take at the desk."],
+      },
+    ],
+  },
+];
+
+export const a2Missions = drafts.map(draft => makeMission("A2", draft));

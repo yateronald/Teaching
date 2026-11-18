@@ -1,0 +1,118 @@
+import { makeMission, type MissionDraft } from './missionAuthoring';
+
+const drafts: MissionDraft[] = [
+  {
+    id: "un-gouter-au-marche", minutes: 4,
+    title: ["Un goûter au marché","A snack at the market"],
+    summary: ["Préparez un goûter avec trois petites courses.","Plan a snack with three simple purchases."],
+    brief: ["Nora vous attend au parc. Retrouvez quel fruit, quelle boisson et quel pain acheter.","Nora is waiting at the park. Find out which fruit, drink and bread to buy."],
+    recipient: "Nora",
+    outcome: [["La liste du goûter est prête","Your snack list is ready"],["Voir ma liste","See my list"]],
+    tip: ["Dans une liste, cherchez d’abord le nom de l’objet, puis sa quantité ou son prix.","In a list, find the name of the item first, then its quantity or price."],
+    documents: [
+      {
+        kind: "sms", voice: "f2", label: ["SMS de Nora","Text from Nora"], detail: ["Avant le marché","Before the market"],
+        title: "Un fruit pour le goûter",
+        lines: [
+          "Pour le goûter, prends deux poires.",
+          "Les pommes sont pour demain.",
+        ],
+        line: 0, highlight: "deux poires",
+        question: ["Quel fruit faut-il acheter pour le goûter ?","Which fruit should you buy for the snack?"],
+        hint: ["Cherchez « pour le goûter ».","Look for « pour le goûter »."],
+        retry: ["Les pommes sont pour un autre jour.","The apples are for a different day."],
+        clue: ["Fruit","Fruit"], value: "2 poires",
+        messagePart: "Je prends deux poires.",
+        takeaway: ["« Prends deux poires » indique ce qu’il faut acheter.","« Prends deux poires » tells you what to buy."],
+      },
+      {
+        kind: "notice", voice: "m2", label: ["Carte du stand","Stall menu"], detail: ["Stand des boissons","Drinks stall"],
+        title: "Les boissons fraîches",
+        lines: [
+          "Le jus de pomme coûte deux euros.",
+          "L’eau coûte un euro.",
+        ],
+        line: 1, highlight: "L’eau coûte un euro",
+        question: ["Votre budget pour la boisson est d’un euro. Quelle ligne choisir ?","You have one euro for a drink. Which line should you pick?"],
+        hint: ["Comparez les deux prix après « coûte ».","Compare the two prices after « coûte »."],
+        retry: ["Le jus coûte deux euros : c’est trop pour votre budget.","The juice costs two euros, which is over your budget."],
+        clue: ["Boisson","Drink"], value: "Eau",
+        messagePart: "Je prends aussi de l’eau.",
+        takeaway: ["« Un euro » correspond au budget.","« Un euro » matches your budget."],
+      },
+      {
+        kind: "email", voice: "f2", label: ["Message de Nora","Note from Nora"], detail: ["Avant de partir","Before leaving"],
+        title: "Un peu de pain",
+        lines: [
+          "Prends une petite baguette, s’il te plaît.",
+          "Ne prends pas de pain complet.",
+        ],
+        line: 0, highlight: "une petite baguette",
+        question: ["Quel pain Nora demande-t-elle ?","Which bread does Nora ask for?"],
+        hint: ["« Ne prends pas » dit ce qu’il faut éviter.","« Ne prends pas » tells you what to avoid."],
+        retry: ["Cette phrase indique ce qu’elle ne veut pas.","This sentence tells you what she does not want."],
+        clue: ["Pain","Bread"], value: "Baguette",
+        messagePart: "Pour le pain, je prends une petite baguette.",
+        takeaway: ["La première phrase demande la baguette ; la seconde écarte le pain complet.","The first line asks for a baguette; the second rules out wholemeal bread."],
+      },
+    ],
+  },
+  {
+    id: "atelier-dessin-du-samedi", minutes: 4,
+    title: ["L’atelier dessin du samedi","Saturday drawing class"],
+    summary: ["Aidez Sami à arriver au bon endroit avec le bon matériel.","Help Sami get to the right place with the right supplies."],
+    brief: ["Sami veut essayer le dessin. Préparez son premier rendez-vous.","Sami wants to try drawing. Get him ready for his first session."],
+    recipient: "Sami",
+    outcome: [["Sami peut préparer son sac","Sami can get his bag ready"],["Voir les consignes","See the instructions"]],
+    tip: ["Les mots « premier », « seulement » et « apporter » aident à repérer une consigne.","Words like « premier », « seulement » and « apporter » help you spot instructions."],
+    documents: [
+      {
+        kind: "notice", voice: "f2", label: ["Affiche","Poster"], detail: ["Maison de quartier","Community centre"],
+        title: "Les ateliers du samedi",
+        lines: [
+          "Le cours de dessin commence à dix heures.",
+          "Le cours de danse commence à onze heures.",
+        ],
+        line: 0, highlight: "dessin commence à dix heures",
+        question: ["À quelle heure est le cours de dessin ?","What time is the drawing class?"],
+        hint: ["Cherchez « dessin », pas « danse ».","Look for « dessin », not « danse »."],
+        retry: ["Onze heures, c’est l’heure de la danse.","Eleven is the time for dance."],
+        clue: ["Heure","Time"], value: "10 h",
+        messagePart: "L’atelier dessin commence à 10 h.",
+        takeaway: ["Le nom de l’activité vient avant son heure.","The activity name comes before its time."],
+      },
+      {
+        kind: "sms", voice: "m2", label: ["SMS de l’animateur","Text from the tutor"], detail: ["Samedi matin","Saturday morning"],
+        title: "Devant la salle",
+        lines: [
+          "La salle bleue est pour la danse.",
+          "Pour le dessin, attends devant la salle verte.",
+        ],
+        line: 1, highlight: "devant la salle verte",
+        question: ["Où Sami doit-il attendre ?","Where should Sami wait?"],
+        hint: ["Relevez la couleur après « attends devant ».","Look for the colour after « attends devant »."],
+        retry: ["La salle bleue est pour une autre activité.","The blue room is for another activity."],
+        clue: ["Salle","Room"], value: "Salle verte",
+        messagePart: "Attends devant la salle verte.",
+        takeaway: ["« Devant » indique où se placer avant d’entrer.","« Devant » tells you where to wait before going in."],
+      },
+      {
+        kind: "email", voice: "f2", label: ["Courriel d’accueil","Welcome email"], detail: ["Premier atelier","First session"],
+        title: "Le matériel à apporter",
+        lines: [
+          "Apporte seulement un crayon.",
+          "Le papier est déjà sur la table.",
+        ],
+        line: 0, highlight: "seulement un crayon",
+        question: ["Que doit apporter Sami ?","What should Sami bring?"],
+        hint: ["Cherchez le verbe « apporte ».","Look for the verb « apporte »."],
+        retry: ["Il y a déjà du papier dans la salle.","The room already has paper."],
+        clue: ["Matériel","Supplies"], value: "Un crayon",
+        messagePart: "Apporte juste un crayon.",
+        takeaway: ["« Seulement » indique qu’un crayon suffit.","« Seulement » means that one pencil is enough."],
+      },
+    ],
+  },
+];
+
+export const a1Missions = drafts.map(draft => makeMission("A1", draft));
