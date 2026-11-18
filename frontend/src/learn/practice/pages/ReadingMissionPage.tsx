@@ -15,14 +15,14 @@ const labels = {
     documents: 'Consultez les documents', choice: 'Quel message envoyez-vous à Élise ?',
     compare: 'Vous pouvez revenir aux documents à tout moment.',
     submit: 'Vérifier mon message', right: 'Élise a les bonnes indications !', wrong: 'Il manque une information',
-    correction: 'Les trois indices à croiser', retry: 'Recommencer', tip: 'À retenir', listen: 'Écouter', stop: 'Arrêter',
+    solution: 'Le message à envoyer', correction: 'Les trois indices à croiser', retry: 'Recommencer', tip: 'À retenir', listen: 'Écouter', stop: 'Arrêter',
   },
   en: {
     back: 'Back to the library', library: 'Reading', mission: 'Reading mission', brief: 'Your objective',
     documents: 'Check the documents', choice: 'Which message will you send to Élise?',
     compare: 'You can return to the documents at any time.',
     submit: 'Check my message', right: 'Élise has the right directions!', wrong: 'One detail needs checking',
-    correction: 'Putting the three clues together', retry: 'Try again', tip: 'Remember', listen: 'Listen', stop: 'Stop',
+    solution: 'The message to send', correction: 'Putting the three clues together', retry: 'Try again', tip: 'Remember', listen: 'Listen', stop: 'Stop',
   },
 };
 
@@ -87,8 +87,10 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
                 </div>
                 <div className="rxm-doc-body">
                   {document.lines.map(line => {
-                    const i = checked ? line.indexOf(document.evidence) : -1;
-                    return <p key={line}>{i < 0 ? line : <>{line.slice(0, i)}<mark>{document.evidence}</mark>{line.slice(i + document.evidence.length)}</>}</p>;
+                    const passage = checked ? document.evidence.find(e => line.includes(e)) : undefined;
+                    if (!passage) return <p key={line}>{line}</p>;
+                    const i = line.indexOf(passage);
+                    return <p key={line}>{line.slice(0, i)}<mark>{passage}</mark>{line.slice(i + passage.length)}</p>;
                   })}
                 </div>
               </article>
@@ -115,18 +117,19 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
             <section className="rxm-panel rxm-result" aria-labelledby="rxm-result">
               <h2 id="rxm-result" ref={result} tabIndex={-1}>{selected === mission.correct && <CheckOutlined aria-hidden />} {selected === mission.correct ? c.right : c.wrong}</h2>
               <p>{tx(mission.answers[selected].feedback, lang)}</p>
+              {selected !== mission.correct && <p className="rxm-objective"><strong>{c.solution}</strong> <span lang="fr">{mission.answers[mission.correct].message}</span></p>}
               <h3>{c.correction}</h3>
               <ul className="rxm-evidence">
                 {mission.documents.map(doc => (
                   <li key={doc.id}>
                     <strong>{tx(doc.label, lang)}</strong>
-                    <blockquote lang="fr"><mark>{doc.evidence}</mark></blockquote>
+                    <blockquote lang="fr">{doc.evidence.map(passage => <p key={passage}><mark>{passage}</mark></p>)}</blockquote>
                     <p>{tx(doc.takeaway, lang)}</p>
                   </li>
                 ))}
               </ul>
               <p className="rxm-objective"><strong>{c.tip}</strong> {tx(mission.tip, lang)}</p>
-              <button className="lp-btn lp-btn-outline" type="button" onClick={() => { stop(); setChecked(false); setSelected(null); setOpenDoc(0); choice.current?.focus(); }}>{c.retry}</button>
+              <button className="lp-btn lp-btn-ghost" type="button" onClick={() => { stop(); setChecked(false); setSelected(null); setOpenDoc(0); choice.current?.focus(); }}>{c.retry}</button>
             </section>
           )}
         </div>

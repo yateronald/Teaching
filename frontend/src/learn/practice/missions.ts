@@ -8,7 +8,7 @@ type MissionDocument = {
   labelDetail: T;
   title: string;
   lines: string[];
-  evidence: string;
+  evidence: string[];
   takeaway: T;
 };
 
@@ -51,7 +51,7 @@ export const MISSIONS: ReadingMission[] = [{
         'Bonjour, votre cours de français est confirmé pour jeudi à dix-huit heures trente.',
         'Rendez-vous en salle douze. L’entrée principale se trouve rue des Lilas.',
       ],
-      evidence: 'jeudi à dix-huit heures trente.',
+      evidence: ['jeudi à dix-huit heures trente.'],
       takeaway: b('The original email gives the time. The text updates the room but not the time.', 'Le courriel fixe l’heure. Le SMS change la salle, pas l’horaire.'),
     },
     {
@@ -64,7 +64,7 @@ export const MISSIONS: ReadingMission[] = [{
         'Bonjour ! À cause d’une réunion, le cours de ce soir aura lieu en salle huit, et non en salle douze.',
         'L’horaire ne change pas. À tout à l’heure !',
       ],
-      evidence: 'le cours de ce soir aura lieu en salle huit, et non en salle douze.',
+      evidence: ['le cours de ce soir aura lieu en salle huit, et non en salle douze.', 'L’horaire ne change pas.'],
       takeaway: b('The same-day update replaces the room in the original email.', 'Le SMS du jour remplace le numéro de salle indiqué dans le courriel.'),
     },
     {
@@ -77,7 +77,7 @@ export const MISSIONS: ReadingMission[] = [{
         'Ce jeudi, l’entrée rue des Lilas ferme à dix-huit heures pour travaux.',
         'Après cette heure, entrez par la cour, rue des Érables.',
       ],
-      evidence: 'Après cette heure, entrez par la cour, rue des Érables.',
+      evidence: ['l’entrée rue des Lilas ferme à dix-huit heures pour travaux.', 'Après cette heure, entrez par la cour, rue des Érables.'],
       takeaway: b('By 6:30 p.m., the main entrance will be closed. Use the courtyard on Rue des Érables.', 'À 18 h 30, l’entrée principale est fermée. Il faut passer par la cour, rue des Érables.'),
     },
   ],
