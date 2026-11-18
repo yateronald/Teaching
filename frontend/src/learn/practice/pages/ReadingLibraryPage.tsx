@@ -15,7 +15,9 @@ import { TEXTS, readingPath } from '../meta';
 import { SkillTabs, TextCard } from '../parts';
 import { libraryJsonLd } from '../schema';
 import { textStatus } from '../stats';
+import { MISSIONS, missionPath } from '../missions';
 import '../practice.css';
+import '../mission.css';
 
 type Filter = 'all' | 'starters' | 'todo' | 'review' | 'done';
 const FILTERS: Filter[] = ['all', 'starters', 'todo', 'review', 'done'];
@@ -78,6 +80,21 @@ export default function ReadingLibraryPage({ lang, canonical = true }: { lang: L
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="lp-wrap rxm-feature" aria-labelledby="rxm-feature-title">
+        <h2 id="rxm-feature-title">{lang === 'fr' ? 'Missions de lecture' : 'Reading missions'} <span>{c.isNew}</span></h2>
+        {MISSIONS.map(m => (
+          <Link className="rxm-feature-link" key={m.id} to={missionPath(m, lang)}>
+            <div className="rxm-doc-icon"><FileTextOutlined aria-hidden /></div>
+            <div className="rxm-feature-copy">
+              <div className="rxm-tags"><LevelChip level={m.level} size="sm" /> {m.documents.length} documents · {m.minutes} min</div>
+              <h3>{tx(m.title, lang)}</h3>
+              <p>{tx(m.summary, lang)}</p>
+            </div>
+            <span className="rxm-feature-cta">{lang === 'fr' ? 'Essayer la mission' : 'Try the mission'} <ArrowRightOutlined aria-hidden /></span>
+          </Link>
+        ))}
       </section>
 
       <section className="lp-section rx-lib-list" aria-labelledby="rx-all-title">

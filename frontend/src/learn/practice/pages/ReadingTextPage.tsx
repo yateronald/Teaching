@@ -25,7 +25,7 @@ import { UI } from '../../ui';
 import { trackLearning } from '../../../utils/siteAnalytics';
 import { P } from '../copy';
 import { TEXTS, readingPath, textMinutes, textPath } from '../meta';
-import { evidenceOf, fmtTime, locate, narrationsOf, pct, sentencesOf, type FlatSentence, type Span } from '../model';
+import { evidenceOf, fmtTime, isSpokenTitle, locate, narrationsOf, pct, sentencesOf, type FlatSentence, type Span } from '../model';
 import { ScoreRing, TextCard } from '../parts';
 import { useText } from '../registry';
 import { textJsonLd } from '../schema';
@@ -437,17 +437,15 @@ function TextView({ text, meta, lang }: { text: ReadingText; meta: TextMeta; lan
     return () => { target.removeEventListener('wheel', off); target.removeEventListener('touchmove', off); };
   }, [playing, wide]);
 
-  // The narrator’s introduction (before the first sentence): the title lights up.
-  const firstStart = n.meta?.s[0]?.[0] ?? 0;
-  const introOn = playing && n.time < firstStart - 0.3;
+  const titleOn = playing && isSpokenTitle(n.meta, n.time);
 
-  // While the voice reads, the sentence being read (or the title, during the introduction) stays in view.
+  // Only follow the title when it is being spoken, not during the greeting or cue.
   useEffect(() => {
-    if (!playing || hidden || (!wide && view !== 'text')) return;
+    if (!playing || (current < 0 && !titleOn) || hidden || (!wide && view !== 'text')) return;
     if (Date.now() < followOff.current) return;
     setAway(false);
     bring(current < 0 ? title.current : inner.current?.querySelector(`.rx-s[data-i="${current}"]`));
-  }, [current, playing, hidden, wide, view, bring]);
+  }, [current, titleOn, playing, hidden, wide, view, bring]);
 
   const follow = () => {
     followOff.current = 0;
@@ -566,7 +564,7 @@ function TextView({ text, meta, lang }: { text: ReadingText; meta: TextMeta; lan
                     <figcaption><b>{c.text.before}</b> {tx(text.warmup, lang)}</figcaption>
                   </figure>
                   <header className="rx-text-head">
-                    <h1 ref={title} className={introOn ? 'is-intro' : undefined}><span>{meta.title}</span></h1>
+                    <h1 ref={title} className={titleOn ? 'is-intro' : undefined}><span>{meta.title}</span></h1>
                     <p className="rx-text-meta">
                       <span>{tx(meta.theme, lang)}</span>
                       <span><ReadOutlined aria-hidden /> {c.text.words(meta.words)}</span>

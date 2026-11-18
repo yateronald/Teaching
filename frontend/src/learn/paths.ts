@@ -14,6 +14,7 @@ import { COURSES, coursePath } from './catalog';
 import { categoryLevels, LEVEL_SLUG, levelFromSlug } from './levels';
 import { GAMES, GAMES_SLUG, type GameMeta } from './games/meta';
 import { PRACTICE_SLUG, TEXTS, skillById } from './practice/meta';
+import { MISSIONS, type ReadingMission } from './practice/missions';
 import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
@@ -48,6 +49,7 @@ export type LearnRoute =
   | { type: 'practice'; lang: Lang }
   | { type: 'reading'; lang: Lang }
   | { type: 'text'; lang: Lang; text: TextMeta }
+  | { type: 'reading-mission'; lang: Lang; mission: ReadingMission }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -67,6 +69,10 @@ export function resolveLearnPath(pathname: string): LearnRoute {
     if (rest.length === 1) return { type: 'practice', lang };
     if (rest[1] !== skillById('reading').slug[lang]) return { type: 'none', lang };
     if (rest.length === 2) return { type: 'reading', lang };
+    if (rest[2] === 'mission' && rest.length === 4) {
+      const mission = MISSIONS.find(m => m.id === rest[3]);
+      return mission ? { type: 'reading-mission', lang, mission } : { type: 'none', lang };
+    }
     const text = rest.length === 3 ? TEXTS.find(t => t.slug === rest[2]) : undefined;
     return text ? { type: 'text', lang, text } : { type: 'none', lang };
   }

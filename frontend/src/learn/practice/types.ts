@@ -81,8 +81,8 @@ export interface TextMeta {
 /**
  * The recordings of a text (src/learn/practice/text-audio.json, written by
  * scripts/practice-audio.mjs): `v` content version, `d` duration in seconds,
- * `s` start and end of each sentence, in seconds.
+ * `s` start and end of each sentence, and `title` the spoken title alone.
  */
-export interface Narration { v: string; d: number; s: [number, number][] }
+export interface Narration { v: string; d: number; s: [number, number][]; title?: [number, number] }
 /** f: a woman reads, m: a man reads, d: a dialogue with both voices. */
 export type NarrationId = 'f' | 'm' | 'd';

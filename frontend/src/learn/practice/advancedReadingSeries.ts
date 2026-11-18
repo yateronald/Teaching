@@ -1,0 +1,55 @@
+import { b } from '../types';
+import type { TextMeta } from './types';
+
+export const advancedReadingSeries: TextMeta[] = [
+  {
+    id: "l-ombre-que-les-chiffres-ne-voient-pas",
+    slug: "l-ombre-que-les-chiffres-ne-voient-pas",
+    title: "L’ombre que les chiffres ne voient pas",
+    subtitle: b("A fictional feature examines what precise measurements miss when a public square is redesigned.", "Un reportage fictif examine ce que des mesures précises laissent dans l’ombre quand on aménage une place."),
+    level: "C1", genre: "article",
+    theme: b("Cities and data", "La ville et les données"),
+    focus: b("Conceding to define the limits", "Concéder pour mieux délimiter"),
+    image: "text-l-ombre-que-les-chiffres-ne-voient-pas", words: 421, questions: 9,
+  },
+  {
+    id: "le-vendredi-des-absents",
+    slug: "le-vendredi-des-absents",
+    title: "Le vendredi des absents",
+    subtitle: b("A woman clears her father’s workshop. Objects and silences give her a different way to read his life.", "Une femme range l’atelier de son père. Les objets et les silences lui apprennent une autre manière de lire sa vie."),
+    level: "C1", genre: "story",
+    theme: b("Family relationships", "Les liens familiaux"),
+    focus: b("Reading a quiet echo", "Lire une reprise discrète"),
+    image: "text-le-vendredi-des-absents", words: 314, questions: 9,
+  },
+  {
+    id: "les-voix-qu-on-ne-peut-pas-emprunter",
+    slug: "les-voix-qu-on-ne-peut-pas-emprunter",
+    title: "Les voix qu’on ne peut pas emprunter",
+    subtitle: b("An oral-history project reconsiders what it means to agree to the publication of an interview.", "Un projet d’archives sonores remet en question ce que signifie donner son accord à la diffusion d’un témoignage."),
+    level: "C1", genre: "article",
+    theme: b("Memory and archives", "La mémoire et les archives"),
+    focus: b("A parenthesis that signals distance", "L’incise qui signale une distance"),
+    image: "text-les-voix-qu-on-ne-peut-pas-emprunter", words: 302, questions: 9,
+  },
+  {
+    id: "un-accord-qui-n-engage-personne",
+    slug: "un-accord-qui-n-engage-personne",
+    title: "Un accord qui n’engage personne",
+    subtitle: b("In a work email, a lead distinguishes the proposal her team supports from the commitment it can actually make.", "Dans un courriel de travail, une responsable distingue ce que son équipe soutient de ce qu’elle peut réellement promettre."),
+    level: "C1", genre: "email",
+    theme: b("Professional correspondence", "Les écrits professionnels"),
+    focus: b("Diplomacy without blurring the point", "Formuler une réserve sans la diluer"),
+    image: "text-un-accord-qui-n-engage-personne", words: 266, questions: 9,
+  },
+  {
+    id: "ce-que-la-traduction-emporte",
+    slug: "ce-que-la-traduction-emporte",
+    title: "Ce que la traduction emporte",
+    subtitle: b("A translator recalls a familiar word that no equivalent seemed able to carry without shifting the scene.", "Une traductrice revient sur un mot familier qu’aucune traduction ne semblait pouvoir rendre sans déplacer la scène."),
+    level: "C1", genre: "article",
+    theme: b("Language and translation", "Les langues et la traduction"),
+    focus: b("Reading what an expression does", "Lire ce que fait une formule"),
+    image: "text-ce-que-la-traduction-emporte", words: 419, questions: 9,
+  },
+];

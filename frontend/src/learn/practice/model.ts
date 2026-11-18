@@ -1,7 +1,7 @@
 // Reading a text: its sentences in order, where a word or an answer sits in
 // it, and the checks the build runs on every text (ssr.ts).
 import type { Lang, Level } from '../types';
-import type { NarrationId, ReadingText, TextGenre, TextMeta } from './types';
+import type { Narration, NarrationId, ReadingText, TextGenre, TextMeta } from './types';
 
 // ── What the voice says around the text ──
 // The recording does not start cold on the first sentence: the narrator greets
@@ -17,26 +17,29 @@ const GENRE_SAID: Record<TextGenre, string> = {
 const inSentence = (name: string) => (/^(Le|La|Les|L’)(\s|$)/.test(name) || name.startsWith('L’') ? name.charAt(0).toLowerCase() + name.slice(1) : name);
 
 /**
- * The narrator’s introduction and closing line for a text. `k` (its place in
- * the list) picks one of three wordings, so that the texts do not all sound
- * the same.
+ * The narrator’s opening is split so the title has its own playback cue.
+ * `k` (the text’s place in the list) varies the closing line.
  */
-export function spokenFrame(meta: TextMeta, text: ReadingText, k: number): { intro: string; outro: string } {
+export function spokenFrame(meta: TextMeta, text: ReadingText, k: number) {
   const what = text.speakers && text.speakers.length === 2
     ? `un dialogue entre ${inSentence(text.speakers[0].name)} et ${inSentence(text.speakers[1].name)}`
     : GENRE_SAID[meta.genre];
   const level = LEVEL_SAID[meta.level];
-  const intros = [
-    `Bonjour et bienvenue ! Aujourd’hui, nous allons étudier ${what}, de niveau ${level}. Son titre : « ${meta.title} ». Écoutez bien et suivez le texte des yeux. Nous allons commencer.`,
-    `Bonjour ! Aujourd’hui, nous allons étudier ensemble ${what}, de niveau ${level}, qui s’intitule « ${meta.title} ». Prenez votre temps, et lisez en même temps que vous écoutez. Nous allons commencer.`,
-    `Bonjour à tous ! Dans cette leçon, nous allons étudier ${what}, de niveau ${level} : « ${meta.title} ». Écoutez attentivement. Nous allons commencer.`,
-  ];
+  const greeting = `Bonjour ! Aujourd’hui, nous allons lire ${what}, de niveau ${level}. Voici le titre.`;
+  const title = /[.?!]$/.test(meta.title) ? meta.title : `${meta.title}.`;
+  const cue = 'Commençons.';
   const outros = [
     'C’est la fin du texte. À vous maintenant : répondez aux questions !',
     'Voilà, le texte est terminé. Maintenant, répondez aux questions pour vérifier ce que vous avez compris.',
     'Fin du texte. Merci pour votre écoute, et passons maintenant aux questions !',
   ];
-  return { intro: intros[k % intros.length], outro: outros[k % outros.length] };
+  return { greeting, title, cue, outro: outros[k % outros.length] };
+}
+
+/** Untimed legacy audio stays unhighlighted until its title can be aligned. */
+export function isSpokenTitle(narration: Narration | undefined, time: number): boolean {
+  const span = narration?.title;
+  return !!span && time >= span[0] && time < span[1];
 }
 
 export interface FlatSentence { i: number; p: number; fr: string; en: string }

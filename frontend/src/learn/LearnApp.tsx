@@ -16,6 +16,7 @@ import GamesHubPage from './pages/GamesHubPage';
 import GamePage from './pages/GamePage';
 import ReadingLibraryPage from './practice/pages/ReadingLibraryPage';
 import ReadingTextPage from './practice/pages/ReadingTextPage';
+import ReadingMissionPage from './practice/pages/ReadingMissionPage';
 import { loadText } from './practice/registry';
 
 export default function LearnApp({ lang: _lang }: { lang: Lang }) {
@@ -35,6 +36,7 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'practice': return <ReadingLibraryPage lang={route.lang} canonical={false} />;
     case 'reading': return <ReadingLibraryPage lang={route.lang} />;
     case 'text': return <ReadingTextPage key={route.text.id} lang={route.lang} meta={route.text} />;
+    case 'reading-mission': return <ReadingMissionPage key={route.mission.id} lang={route.lang} mission={route.mission} />;
     default: return <NotFound lang={route.lang} />;
   }
 }

@@ -6,6 +6,8 @@
 import { LEARN_BASE } from '../categories';
 import { b, type Lang, type T } from '../types';
 import type { SkillId, TextMeta } from './types';
+import { readingSeries } from './readingSeries';
+import { advancedReadingSeries } from './advancedReadingSeries';
 
 export const PRACTICE_SLUG: Record<Lang, string> = { en: 'practice', fr: 'pratique' };
 
@@ -216,6 +218,19 @@ export const TEXTS: TextMeta[] = [
     questions: 6,
   },
   {
+    id: 'le-velo-qui-attendait-au-sous-sol',
+    slug: 'le-velo-qui-attendait-au-sous-sol',
+    title: 'Le vélo qui attendait au sous-sol',
+    subtitle: b('A flat tyre leads a woman to a neighbourhood workshop where she learns to repair her bike herself.', 'Un pneu à plat conduit une cycliste dans un atelier de quartier où elle apprend à réparer son vélo elle-même.'),
+    level: 'B1',
+    genre: 'story',
+    theme: b('Neighbourhood life', 'La vie de quartier'),
+    focus: b('Imparfait and passé composé', 'Imparfait et passé composé'),
+    image: 'text-bike-workshop',
+    words: 235,
+    questions: 8,
+  },
+  {
     id: 'faut-il-interdire-le-telephone-a-l-ecole',
     slug: 'faut-il-interdire-le-telephone-a-l-ecole',
     title: 'Faut-il interdire le téléphone à l’école ?',
@@ -228,6 +243,8 @@ export const TEXTS: TextMeta[] = [
     words: 225,
     questions: 6,
   },
+  ...readingSeries,
+  ...advancedReadingSeries,
 ];
 
 export const textById = (id: string) => TEXTS.find(t => t.id === id);

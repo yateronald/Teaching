@@ -9,12 +9,12 @@
 //   node scripts/practice-audio.mjs --qa [--fix]       transcribe each recording and compare it with the text;
 //                                                      --fix forgets the paragraphs that do not match, so the
 //                                                      next run records them again
-//   node scripts/practice-audio.mjs --redo <text-id>:<f|m>:<paragraph number | intro | outro>[,…]
+//   node scripts/practice-audio.mjs --redo <text-id>:<f|m>:<paragraph number | greeting | title | cue | outro>[,…]
 //                                                      record some paragraphs again (numbered from 1)
 //
 // A recording opens like a lesson: the narrator greets the learner, says what
-// they will study and its level, reads the title and says « Nous allons
-// commencer » (model.ts, spokenFrame); then the text is read word for word;
+// they will study and its level, reads the title and says « Commençons »
+// (model.ts, spokenFrame); then the text is read word for word;
 // a short closing line sends the learner to the questions.
 //
 // Each paragraph is read in one take (natural sentence melody); the sentences
@@ -271,7 +271,7 @@ const frames = new Map(texts.map((t, k) => [t.id, spokenFrame(TEXTS[k], t, k)]))
 const index = existsSync(INDEX) ? JSON.parse(await fs.readFile(INDEX, 'utf8')) : {};
 const round = x => Math.round(x * 1000) / 1000;
 // Pauses around the narrator’s lines, in seconds.
-const INTRO_GAP = 1.0, OUTRO_GAP = 1.2;
+const INTRO_GAP = 0.85, OUTRO_GAP = 1.2, TITLE_GAP = 0.32, CUE_GAP = 0.45;
 
 /** The recordings of one text: f, m and, for a dialogue, d (introduced by the woman’s voice). */
 async function record(text) {
@@ -281,17 +281,23 @@ async function record(text) {
   const takes = { f: [], m: [] };
   const intro = {}, outro = {};
   for (const v of ['f', 'm']) {
-    intro[v] = await paragraph([frame.intro], v);
+    intro[v] = {
+      greeting: await paragraph([frame.greeting], v),
+      title: await paragraph([frame.title], v),
+      cue: await paragraph([frame.cue], v),
+    };
     for (const para of text.paras) takes[v].push(await paragraph(para.s.map(s => s[0]), v));
     outro[v] = await paragraph([frame.outro], v);
   }
   const out = {};
   for (const v of versions) {
     const narrator = v === 'd' ? 'f' : v;
-    // The greeting, what we study, the title, « Nous allons commencer. »
-    const parts = [silence(LEAD), intro[narrator].pcm, silence(INTRO_GAP)];
+    // Only the isolated title gets a highlight; the greeting and cue do not.
+    const { greeting, title, cue } = intro[narrator];
+    const titleAt = LEAD + secs(greeting.pcm) + TITLE_GAP;
+    const parts = [silence(LEAD), greeting.pcm, silence(TITLE_GAP), title.pcm, silence(CUE_GAP), cue.pcm, silence(INTRO_GAP)];
     const spans = [];
-    let t = LEAD + secs(intro[narrator].pcm) + INTRO_GAP;
+    let t = titleAt + secs(title.pcm) + CUE_GAP + secs(cue.pcm) + INTRO_GAP;
     text.paras.forEach((para, p) => {
       const voice = v === 'd' ? (text.speakers[para.who]?.voice ?? 'f') : v;
       const take = takes[voice][p];
@@ -316,7 +322,7 @@ async function record(text) {
     const bytes = await fs.readFile(mp3);
     // Stored scrambled: no audio file on the site to download (the page puts it back in order).
     await fs.writeFile(dat, scramble(bytes));
-    out[v] = { v: sha(bytes).slice(0, 8), d: round(secs(pcm)), s: spans };
+    out[v] = { v: sha(bytes).slice(0, 8), d: round(secs(pcm)), title: title.spans[0].map(t => round(titleAt + t)), s: spans };
     console.log(`  → ${path.relative(root, dat)} (${secs(pcm).toFixed(1)} s, ${spans.length} sentences)`);
   }
   return out;
@@ -335,7 +341,7 @@ async function check(text) {
     norm(fr).split(' ').filter(Boolean).forEach(w => words.push({ w, s }));
   };
   const frame = frames.get(text.id);
-  add(frame.intro, -1);
+  for (const part of ['greeting', 'title', 'cue']) add(frame[part], -1);
   text.paras.forEach((para, p) => para.s.forEach(([fr]) => add(fr, p)));
   add(frame.outro, -1);
   const bad = new Set();
@@ -392,8 +398,8 @@ await fs.mkdir(OUT_DIR, { recursive: true });
 const forgotten = new Set();
 for (const [id, v, n] of redo) {
   const text = texts.find(t => t.id === id);
-  // A paragraph number, or « intro » / « outro » for the narrator’s lines.
-  const spoken = n === 'intro' || n === 'outro' ? frames.get(id)?.[n] : text?.paras[Number(n) - 1]?.s.map(s => s[0]).join(' ');
+  // A paragraph number or one of the narrator’s named segments.
+  const spoken = ['greeting', 'title', 'cue', 'outro'].includes(n) ? frames.get(id)?.[n] : text?.paras[Number(n) - 1]?.s.map(s => s[0]).join(' ');
   if (!text || !spoken || !VOICES[v]) { console.error(`✗ --redo ${id}:${v}:${n}: no such text, voice or paragraph`); process.exit(1); }
   const key = sha(`${TTS_MODEL}|${VOICES[v]}|${spoken}`).slice(0, 20);
   await fs.rm(path.join(CACHE, `${key}.json`), { force: true });
