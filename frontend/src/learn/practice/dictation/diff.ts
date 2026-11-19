@@ -1,6 +1,7 @@
 // Smart French dictation word-by-word aligner, orthographic error classifier,
-// guided-blank parser, /20 French grader, and local progress storage.
-import type { DictationMode } from './types';
+// guided-blank, homophone-duel & grammar-cue parsers, /20 French grader,
+// and local progress storage.
+import type { DictationMode, GrammarSlot, HomophoneSlot } from './types';
 
 export type DiffStatus = 'ok' | 'accent' | 'wrong' | 'missing' | 'extra';
 
@@ -165,8 +166,10 @@ export function evaluateSentence(typedText: string, expectedText: string): Sente
   };
 }
 
-/** Parts of a sentence split for Guided-Blanks mode. */
-export type GuidedPart = { kind: 'text'; value: string } | { kind: 'blank'; index: number; answer: string };
+/** Parts of a passage split for Guided-Blanks, Homophone-Duel or Grammar-Cue modes. */
+export type GuidedPart =
+  | { kind: 'text'; value: string }
+  | { kind: 'blank'; index: number; answer: string; cue?: string; options?: string[] };
 
 export function parseGuidedSentence(sentence: string, blanks: string[]): GuidedPart[] {
   const parts: GuidedPart[] = [];
@@ -179,6 +182,42 @@ export function parseGuidedSentence(sentence: string, blanks: string[]): GuidedP
     if (!m) continue;
     if (m.index > 0) parts.push({ kind: 'text', value: rest.slice(0, m.index) });
     parts.push({ kind: 'blank', index: idx++, answer: m[0] });
+    rest = rest.slice(m.index + m[0].length);
+  }
+  if (rest) parts.push({ kind: 'text', value: rest });
+  return parts;
+}
+
+/** Parse a passage into sequential inline homophone-choice pills ("Duel de mots"). */
+export function parseHomophoneParts(sentence: string, slots: HomophoneSlot[]): GuidedPart[] {
+  const parts: GuidedPart[] = [];
+  let rest = sentence;
+  let idx = 0;
+  for (const slot of slots) {
+    const escaped = slot.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?<!\\p{L})${escaped}(?!\\p{L})`, 'u');
+    const m = re.exec(rest);
+    if (!m) continue;
+    if (m.index > 0) parts.push({ kind: 'text', value: rest.slice(0, m.index) });
+    parts.push({ kind: 'blank', index: idx++, answer: m[0], options: slot.options });
+    rest = rest.slice(m.index + m[0].length);
+  }
+  if (rest) parts.push({ kind: 'text', value: rest });
+  return parts;
+}
+
+/** Parse a passage into sequential inline blanks paired with infinitive / lemma cues ("Verbes & accords"). */
+export function parseGrammarParts(sentence: string, cues: GrammarSlot[]): GuidedPart[] {
+  const parts: GuidedPart[] = [];
+  let rest = sentence;
+  let idx = 0;
+  for (const item of cues) {
+    const escaped = item.target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(`(?<!\\p{L})${escaped}(?!\\p{L})`, 'u');
+    const m = re.exec(rest);
+    if (!m) continue;
+    if (m.index > 0) parts.push({ kind: 'text', value: rest.slice(0, m.index) });
+    parts.push({ kind: 'blank', index: idx++, answer: m[0], cue: item.cue });
     rest = rest.slice(m.index + m[0].length);
   }
   if (rest) parts.push({ kind: 'text', value: rest });

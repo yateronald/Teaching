@@ -1,10 +1,11 @@
 // /learn/practice/dictation/<slug>/ and /fr/apprendre/pratique/dictee/<slug>/:
-// Authentic French Dictation Studio:
-//  - ONE coherent narrative French story, ONE continuous studio audio player
-//    (Claire · woman or Thomas · man) with speed 0.65x–1.15x, seek bar, and -5 s.
-//  - Write directly on the ruled French dictation sheet (or Guided inline blanks)
-//    while listening, with Alt+P play/pause & Alt+ArrowLeft rewind shortcuts.
-//  - Instant /20 word-by-word orthographic correction, exact text, traps & rules.
+// Authentic French Dictation Studio supporting 4 pedagogical methods:
+//  1. Classic story ('story'):         Full sheet or Guided blanks
+//  2. Homophone duel ('homophones'):   Live inline sound-alike choice pills or Full sheet
+//  3. Verbs & agreements ('conjugation'): Inline blanks with infinitive/lemma cues or Full sheet
+//  4. Exam challenge ('exam'):         3-listen counter, live timer & no-hint exam mode toggle
+// Always ONE coherent French text, ONE continuous studio audio (Claire · woman & Thomas · man),
+// anti-clipboard protection, French accent bar, and instant /20 word-by-word correction.
 import {
   useEffect, useMemo, useRef, useState,
   type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent,
@@ -12,8 +13,9 @@ import {
 import { Link } from 'react-router-dom';
 import {
   ArrowLeftOutlined, ArrowRightOutlined, BulbOutlined, CheckOutlined,
-  CustomerServiceOutlined, DeleteOutlined, EditOutlined, ReloadOutlined,
-  SoundOutlined, UserOutlined,
+  ClockCircleOutlined, CustomerServiceOutlined, DeleteOutlined, EditOutlined,
+  FormOutlined, ReloadOutlined, SafetyCertificateOutlined, SoundOutlined,
+  SwapOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { chime, prefetchRecording, speak, stop } from '../../audio';
 import { imageUrl } from '../../categories';
@@ -26,15 +28,32 @@ import { DICTATIONS, dictationCoursePath, dictationPath } from './catalog';
 import { DICT_COPY } from './copy';
 import {
   buildHint, countWords, evaluateGuided, evaluateSentence, formatGrade,
-  gradeOutOf20, parseGuidedSentence, saveDictationBest, type SentenceEvaluation,
+  gradeOutOf20, parseGrammarParts, parseGuidedSentence, parseHomophoneParts,
+  saveDictationBest, type GuidedPart, type SentenceEvaluation,
 } from './diff';
-import type { DictationCourse, DictationMode, DictationVoice } from './types';
+import {
+  courseMethod, type DictationCourse, type DictationMode, type DictationVoice,
+} from './types';
 import '../practice.css';
 import './dictation.css';
 
 const SITE = 'https://www.learnfrenchwithnatives.com';
 const ACCENTS = ['é', 'è', 'ê', 'ë', 'à', 'â', 'ç', 'î', 'ô', 'ù', 'û', 'œ', '’', 'É', 'À'];
 const RATES = [0.65, 0.75, 0.85, 1, 1.15];
+const MAX_EXAM_LISTENS = 3;
+
+function defaultModeFor(course: DictationCourse): DictationMode {
+  const m = courseMethod(course);
+  if (m === 'homophones' && course.homophones?.length) return 'duel';
+  if (m === 'conjugation' && course.grammarCues?.length) return 'grammar';
+  return 'full';
+}
+
+function fmtClock(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
 
 function DiffFlow({ evalResult }: { evalResult: SentenceEvaluation }) {
   return (
@@ -64,31 +83,62 @@ function DiffFlow({ evalResult }: { evalResult: SentenceEvaluation }) {
 
 export default function DictationCoursePage({ lang, course }: { lang: Lang; course: DictationCourse }) {
   const c = DICT_COPY[lang];
+  const method = courseMethod(course);
   const nextCourse = useMemo(() => {
     const idx = DICTATIONS.findIndex(d => d.id === course.id);
     return idx >= 0 && idx + 1 < DICTATIONS.length ? DICTATIONS[idx + 1] : undefined;
   }, [course.id]);
+
   const targetWordCount = useMemo(() => countWords(course.text), [course.text]);
+
   const guidedParts = useMemo(
     () => parseGuidedSentence(course.text, course.blanks),
     [course.text, course.blanks],
   );
-  const totalBlanks = useMemo(
-    () => guidedParts.filter(p => p.kind === 'blank').length,
-    [guidedParts],
+  const duelParts = useMemo(
+    () => (course.homophones?.length ? parseHomophoneParts(course.text, course.homophones) : []),
+    [course.text, course.homophones],
+  );
+  const grammarParts = useMemo(
+    () => (course.grammarCues?.length ? parseGrammarParts(course.text, course.grammarCues) : []),
+    [course.text, course.grammarCues],
   );
 
-  // Studio controls (single audio, single voice toggle, single mode toggle)
+  // Available studio modes tailored to the course's pedagogical method.
+  const availableModes = useMemo<DictationMode[]>(() => {
+    if (method === 'homophones' && duelParts.length) return ['duel', 'full'];
+    if (method === 'conjugation' && grammarParts.length) return ['grammar', 'full'];
+    return ['full', 'guided'];
+  }, [method, duelParts.length, grammarParts.length]);
+
+  // Studio controls
   const [voice, setVoice] = useState<DictationVoice>('f');
-  const [mode, setMode] = useState<DictationMode>('full');
-  const [rate, setRate] = useState(0.85);
+  const [mode, setMode] = useState<DictationMode>(() => defaultModeFor(course));
+  const [rate, setRate] = useState(method === 'exam' ? 1 : 0.85);
   const [showHint, setShowHint] = useState(false);
   const [pasteBlocked, setPasteBlocked] = useState(false);
 
+  // Exam challenge mode state (3-listen limit + live timer + hint lock)
+  const [examMode, setExamMode] = useState(method === 'exam');
+  const [examListens, setExamListens] = useState(0);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [timerRunning, setTimerRunning] = useState(false);
+
+  const activeParts = useMemo<GuidedPart[]>(() => {
+    if (mode === 'duel') return duelParts;
+    if (mode === 'grammar') return grammarParts;
+    return guidedParts;
+  }, [mode, duelParts, grammarParts, guidedParts]);
+
+  const totalSlots = useMemo(
+    () => activeParts.filter(p => p.kind === 'blank').length,
+    [activeParts],
+  );
+
   // Writing state
   const [draft, setDraft] = useState('');
-  const [guidedValues, setGuidedValues] = useState<string[]>(() => new Array<string>(totalBlanks).fill(''));
-  const [focusedBlank, setFocusedBlank] = useState(0);
+  const [slotValues, setSlotValues] = useState<string[]>(() => new Array<string>(totalSlots).fill(''));
+  const [focusedSlot, setFocusedSlot] = useState(0);
 
   // Correction state
   const [checked, setChecked] = useState<{
@@ -102,6 +152,10 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
   const blankRefs = useRef<(HTMLInputElement | null)[]>([]);
   const startedRef = useRef(false);
   const pasteTimerRef = useRef<number | null>(null);
+  const examModeRef = useRef(examMode);
+  const examListensRef = useRef(examListens);
+  examModeRef.current = examMode;
+  examListensRef.current = examListens;
 
   // Prefetch both voices so switching Claire <-> Thomas is instantaneous.
   useEffect(() => {
@@ -114,14 +168,60 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
     if (pasteTimerRef.current !== null) window.clearTimeout(pasteTimerRef.current);
   }, []);
 
-  // Reset studio state cleanly when navigating directly to the next dictation.
+  // Reset studio state cleanly when switching to a different dictation course.
   useEffect(() => {
+    const nextMode = defaultModeFor(course);
+    const isExam = courseMethod(course) === 'exam';
+    setMode(nextMode);
+    setRate(isExam ? 1 : 0.85);
+    setExamMode(isExam);
+    setExamListens(0);
+    setElapsedSec(0);
+    setTimerRunning(false);
     setDraft('');
-    setGuidedValues(new Array<string>(totalBlanks).fill(''));
-    setFocusedBlank(0);
     setChecked(null);
     setShowHint(false);
-  }, [course.id, totalBlanks]);
+    startedRef.current = false;
+  }, [course]);
+
+  // Reset slot input values when course or active slot mode changes.
+  useEffect(() => {
+    setSlotValues(new Array<string>(totalSlots).fill(''));
+    setFocusedSlot(0);
+  }, [course.id, mode, totalSlots]);
+
+  // Live exam elapsed timer (ticks once started until corrected).
+  useEffect(() => {
+    if (!examMode || !timerRunning || checked) return undefined;
+    const id = window.setInterval(() => setElapsedSec(s => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [examMode, timerRunning, checked]);
+
+  // Enforce authentic 3-listen exam protocol on the shared <audio> element.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return undefined;
+    const onPlay = () => {
+      if (examModeRef.current) {
+        setTimerRunning(true);
+        if (examListensRef.current >= MAX_EXAM_LISTENS) {
+          a.pause();
+          a.currentTime = 0;
+        }
+      }
+    };
+    const onEnded = () => {
+      if (examModeRef.current) {
+        setExamListens(n => Math.min(MAX_EXAM_LISTENS, n + 1));
+      }
+    };
+    a.addEventListener('play', onPlay);
+    a.addEventListener('ended', onEnded);
+    return () => {
+      a.removeEventListener('play', onPlay);
+      a.removeEventListener('ended', onEnded);
+    };
+  }, [course.id, voice]);
 
   // Hands-on-keyboard shortcuts: Alt+P toggles Play/Pause, Alt+ArrowLeft rewinds 5 s.
   useEffect(() => {
@@ -132,6 +232,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
       const k = e.key.toLowerCase();
       if (k === 'p') {
         e.preventDefault();
+        if (examModeRef.current && examListensRef.current >= MAX_EXAM_LISTENS) return;
         if (a.paused) a.play().catch(() => {});
         else a.pause();
       } else if (e.key === 'ArrowLeft') {
@@ -144,6 +245,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
   }, []);
 
   const markStarted = () => {
+    if (examMode && !timerRunning) setTimerRunning(true);
     if (startedRef.current) return;
     startedRef.current = true;
     trackLearning({ kind: 'lesson', action: 'start', course: 'practice-dictation', item: course.id, title: 'Dictation', itemTitle: course.title });
@@ -197,10 +299,22 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
     if (next === mode) return;
     setMode(next);
     setChecked(null);
+    if (next !== 'full') setExamMode(false);
+  };
+
+  const toggleExamMode = (nextExam: boolean) => {
+    setExamMode(nextExam);
+    if (nextExam) {
+      setMode('full');
+      setShowHint(false);
+      setExamListens(0);
+      setElapsedSec(0);
+      setTimerRunning(false);
+    }
   };
 
   const insertAccent = (ch: string) => {
-    if (checked) return;
+    if (checked || mode === 'duel') return;
     if (mode === 'full') {
       const el = textareaRef.current;
       if (!el) { setDraft(d => d + ch); return; }
@@ -213,13 +327,13 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
         el.setSelectionRange(start + ch.length, start + ch.length);
       });
     } else {
-      const idx = Math.min(focusedBlank, Math.max(0, totalBlanks - 1));
+      const idx = Math.min(focusedSlot, Math.max(0, totalSlots - 1));
       const el = blankRefs.current[idx];
-      const cur = guidedValues[idx] ?? '';
+      const cur = slotValues[idx] ?? '';
       const start = el?.selectionStart ?? cur.length;
       const end = el?.selectionEnd ?? cur.length;
       const updated = cur.slice(0, start) + ch + cur.slice(end);
-      setGuidedValues(arr => arr.map((v, k) => (k === idx ? updated : v)));
+      setSlotValues(arr => arr.map((v, k) => (k === idx ? updated : v)));
       requestAnimationFrame(() => {
         el?.focus();
         el?.setSelectionRange(start + ch.length, start + ch.length);
@@ -228,21 +342,23 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
   };
 
   const typedWordCount = useMemo(() => countWords(draft), [draft]);
-  const filledBlanksCount = useMemo(
-    () => guidedValues.filter(v => v.trim().length > 0).length,
-    [guidedValues],
+  const filledSlotsCount = useMemo(
+    () => slotValues.filter(v => v.trim().length > 0).length,
+    [slotValues],
   );
-  const canCheck = mode === 'full' ? typedWordCount > 0 : filledBlanksCount > 0;
+  const canCheck = mode === 'full' ? typedWordCount > 0 : filledSlotsCount > 0;
+  const examLocked = examMode && examListens >= MAX_EXAM_LISTENS;
 
   const handleCorrect = () => {
     if (!canCheck) return;
     audioRef.current?.pause();
     stop();
     markStarted();
+    setTimerRunning(false);
 
     const overall = mode === 'full'
       ? evaluateSentence(draft, course.text)
-      : evaluateGuided(guidedValues, guidedParts);
+      : evaluateGuided(slotValues, activeParts);
 
     const grade = gradeOutOf20(overall.points, overall.totalWords);
     const pct = overall.totalWords > 0 ? Math.round((overall.points / overall.totalWords) * 100) : 0;
@@ -259,11 +375,26 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
     if (opts?.nextVoice) setVoice(opts.nextVoice);
     if (opts?.nextMode) setMode(opts.nextMode);
     setDraft('');
-    setGuidedValues(new Array<string>(totalBlanks).fill(''));
+    setSlotValues(new Array<string>(totalSlots).fill(''));
     setChecked(null);
     setShowHint(false);
+    setExamListens(0);
+    setElapsedSec(0);
+    setTimerRunning(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+  };
+
+  const sheetHeading =
+    mode === 'duel' ? c.duelSheetLabel
+      : mode === 'grammar' ? c.grammarSheetLabel
+        : c.sheetLabel;
+
+  const modeIcon = (m: DictationMode) => {
+    if (m === 'duel') return <SwapOutlined aria-hidden />;
+    if (m === 'grammar') return <FormOutlined aria-hidden />;
+    if (m === 'guided') return <BulbOutlined aria-hidden />;
+    return <EditOutlined aria-hidden />;
   };
 
   return (
@@ -305,7 +436,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
             </div>
 
             <div className="dx-mode-pills" role="group" aria-label={c.chooseMode}>
-              {(['full', 'guided'] as DictationMode[]).map(m => (
+              {availableModes.map(m => (
                 <button
                   key={m}
                   type="button"
@@ -313,7 +444,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                   aria-pressed={mode === m}
                   onClick={() => changeMode(m)}
                 >
-                  {m === 'full' ? <EditOutlined aria-hidden /> : <BulbOutlined aria-hidden />}
+                  {modeIcon(m)}
                   {c.modeLabel[m]}
                 </button>
               ))}
@@ -326,34 +457,65 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
       <div className="dx-desk-stage">
         <div className="lp-wrap dx-desk-wrap">
           <div className="dx-desk-meta">
-            <span className="dx-desk-theme">{tx(course.theme, lang)} · {c.words(targetWordCount)} · {course.minutes} min</span>
+            <span className="dx-desk-theme">
+              <span className={`dx-method-chip is-${method}`}>{c.methodLabel[method]}</span>
+              {tx(course.theme, lang)} · {c.words(targetWordCount)} · {course.minutes} min
+            </span>
             <ul className="dx-focus-inline">
               {course.focus.map(f => <li key={tx(f, lang)}>{tx(f, lang)}</li>)}
             </ul>
           </div>
 
           {/* ── Single Unified Audio Console (One coherent audio, 2 voices, 5 speeds) ── */}
-          <section className="dx-console" aria-label={c.audioTrackLabel}>
+          <section className={`dx-console${examLocked ? ' is-exam-locked' : ''}`} aria-label={c.audioTrackLabel}>
             <div className="dx-console-flag" aria-hidden><i /><i /><i /></div>
             <div className="dx-console-head">
               <span className="dx-console-k">
                 <CustomerServiceOutlined aria-hidden /> {c.audioTrackLabel} · {c.voiceName[voice]}
               </span>
-              <div className="dx-speed-pills" role="group" aria-label={c.speedLabel}>
-                {RATES.map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    className={rate === r ? 'is-on' : ''}
-                    aria-pressed={rate === r}
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => setRate(r)}
-                  >
-                    {String(r).replace('.', lang === 'fr' ? ',' : '.')}×
-                  </button>
-                ))}
+
+              <div className="dx-console-right">
+                {method === 'exam' && (
+                  <div className="dx-exam-bar">
+                    {examMode && (
+                      <>
+                        <span className={`dx-exam-stat${examLocked ? ' is-done' : ''}`}>
+                          <SafetyCertificateOutlined aria-hidden /> {c.examListens(examListens, MAX_EXAM_LISTENS)}
+                        </span>
+                        <span className="dx-exam-stat">
+                          <ClockCircleOutlined aria-hidden /> {fmtClock(elapsedSec)}
+                        </span>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      className={`dx-exam-toggle${examMode ? ' is-on' : ''}`}
+                      aria-pressed={examMode}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => toggleExamMode(!examMode)}
+                    >
+                      {examMode ? c.examModeOn : c.examModeFree}
+                    </button>
+                  </div>
+                )}
+
+                <div className="dx-speed-pills" role="group" aria-label={c.speedLabel}>
+                  {RATES.map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      className={rate === r ? 'is-on' : ''}
+                      aria-pressed={rate === r}
+                      onMouseDown={e => e.preventDefault()}
+                      onClick={() => setRate(r)}
+                    >
+                      {String(r).replace('.', lang === 'fr' ? ',' : '.')}×
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
+
             <ListeningPlayer
               text={course.text}
               voice={voice}
@@ -362,22 +524,30 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
               audio={audioRef}
               onHeard={markStarted}
             />
+
+            {examLocked && !checked && (
+              <p className="dx-exam-lock-msg" role="status">
+                {c.examLimitReached}
+              </p>
+            )}
           </section>
 
           {/* ════════ LIVE WRITING PAPER (Immediately Below the Audio) ════════ */}
           {!checked ? (
-            <section className="dx-paper" aria-label={c.sheetLabel}>
+            <section className="dx-paper" aria-label={sheetHeading}>
               <div className="dx-paper-head">
                 <span className="dx-paper-title">
-                  <EditOutlined aria-hidden /> {c.sheetLabel}
+                  {modeIcon(mode)} {sheetHeading}
                 </span>
                 <div className="dx-paper-tools">
                   <span className="dx-word-count">
                     {mode === 'full'
                       ? c.wordProgress(typedWordCount, targetWordCount)
-                      : c.blanksProgress(filledBlanksCount, totalBlanks)}
+                      : mode === 'duel'
+                        ? c.duelProgress(filledSlotsCount, totalSlots)
+                        : c.blanksProgress(filledSlotsCount, totalSlots)}
                   </span>
-                  {mode === 'full' && (
+                  {mode === 'full' && !examMode && (
                     <button
                       type="button"
                       className={`dx-hint-btn${showHint ? ' is-on' : ''}`}
@@ -388,10 +558,13 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                       <BulbOutlined aria-hidden /> {showHint ? c.hintHide : c.hintShow}
                     </button>
                   )}
+                  {mode === 'full' && examMode && (
+                    <span className="dx-exam-hint-lock">{c.examHintLocked}</span>
+                  )}
                 </div>
               </div>
 
-              {showHint && mode === 'full' && (
+              {showHint && mode === 'full' && !examMode && (
                 <div className="dx-hint-box">
                   <small>{c.hintTitle}</small>
                   <code lang="fr">{buildHint(course.text)}</code>
@@ -414,32 +587,62 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                   spellCheck={false}
                   {...antiClipboardProps}
                 />
-              ) : (
-                <div className="dx-guided-paragraph" lang="fr">
-                  {guidedParts.map((part, pi) =>
+              ) : mode === 'duel' ? (
+                <div className="dx-guided-paragraph dx-duel-paragraph" lang="fr">
+                  {activeParts.map((part, pi) =>
                     part.kind === 'text' ? (
                       <span key={pi}>{part.value}</span>
                     ) : (
-                      <input
-                        key={pi}
-                        ref={el => { blankRefs.current[part.index] = el; }}
-                        type="text"
-                        className="dx-blank-input"
-                        style={{ width: `${Math.max(7, part.answer.length + 3)}ch` }}
-                        value={guidedValues[part.index] ?? ''}
-                        onFocus={() => setFocusedBlank(part.index)}
-                        onChange={e => {
-                          markStarted();
-                          const val = e.target.value;
-                          setGuidedValues(arr => arr.map((v, k) => (k === part.index ? val : v)));
-                        }}
-                        aria-label={`${c.sheetLabel} (${part.index + 1})`}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        {...antiClipboardProps}
-                      />
+                      <span key={pi} className="dx-duel-group" role="group" aria-label={`${c.duelSheetLabel} (${part.index + 1})`}>
+                        {(part.options ?? [part.answer]).map(opt => {
+                          const picked = slotValues[part.index] === opt;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              className={`dx-duel-opt${picked ? ' is-picked' : ''}`}
+                              aria-pressed={picked}
+                              onClick={() => {
+                                markStarted();
+                                setSlotValues(arr => arr.map((v, k) => (k === part.index ? opt : v)));
+                              }}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </span>
+                    ),
+                  )}
+                </div>
+              ) : (
+                <div className="dx-guided-paragraph" lang="fr">
+                  {activeParts.map((part, pi) =>
+                    part.kind === 'text' ? (
+                      <span key={pi}>{part.value}</span>
+                    ) : (
+                      <span key={pi} className="dx-slot-wrap">
+                        <input
+                          ref={el => { blankRefs.current[part.index] = el; }}
+                          type="text"
+                          className="dx-blank-input"
+                          style={{ width: `${Math.max(7, part.answer.length + 3)}ch` }}
+                          value={slotValues[part.index] ?? ''}
+                          onFocus={() => setFocusedSlot(part.index)}
+                          onChange={e => {
+                            markStarted();
+                            const val = e.target.value;
+                            setSlotValues(arr => arr.map((v, k) => (k === part.index ? val : v)));
+                          }}
+                          aria-label={part.cue ? `${part.cue} (${part.index + 1})` : `${c.sheetLabel} (${part.index + 1})`}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          {...antiClipboardProps}
+                        />
+                        {part.cue && <span className="dx-cue-tag">{part.cue}</span>}
+                      </span>
                     ),
                   )}
                 </div>
@@ -451,20 +654,22 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                 </p>
               )}
 
-              {/* Built-in French Accent Bar + Submit Row */}
+              {/* Built-in French Accent Bar (shown for typing modes) + Submit Row */}
               <div className="dx-paper-foot">
-                <div className="dx-accents" role="group" aria-label={c.accentsLabel}>
-                  {ACCENTS.map(ch => (
-                    <button
-                      key={ch}
-                      type="button"
-                      onMouseDown={e => e.preventDefault()}
-                      onClick={() => insertAccent(ch)}
-                    >
-                      {ch}
-                    </button>
-                  ))}
-                </div>
+                {mode !== 'duel' && (
+                  <div className="dx-accents" role="group" aria-label={c.accentsLabel}>
+                    {ACCENTS.map(ch => (
+                      <button
+                        key={ch}
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => insertAccent(ch)}
+                      >
+                        {ch}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="dx-paper-actions">
                   <span className="dx-shortcut-note">{c.shortcutHint}</span>
@@ -473,7 +678,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                       <button
                         type="button"
                         className="lp-btn lp-btn-ghost lp-btn-sm"
-                        onClick={() => { setDraft(''); setGuidedValues(new Array<string>(totalBlanks).fill('')); }}
+                        onClick={() => { setDraft(''); setSlotValues(new Array<string>(totalSlots).fill('')); }}
                       >
                         <DeleteOutlined /> {c.clearBtn}
                       </button>
@@ -496,7 +701,10 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
               <section className="dx-score-card" aria-label={c.summaryEyebrow}>
                 <ScoreRing value={checked.grade / 20} label={`${formatGrade(checked.grade, lang)}/20`} />
                 <div className="dx-score-copy">
-                  <p className="lp-eyebrow">{c.summaryEyebrow} · {checked.pct}% · {c.modeLabel[mode]}</p>
+                  <p className="lp-eyebrow">
+                    {c.summaryEyebrow} · {checked.pct}% · {c.modeLabel[mode]}
+                    {examMode ? ` · ${fmtClock(elapsedSec)}` : ''}
+                  </p>
                   <h2>{c.verdict(checked.grade)}</h2>
 
                   <dl className="dx-kpis">
@@ -525,7 +733,7 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
                     >
                       <UserOutlined /> {c.retryOtherVoice(voice)}
                     </button>
-                    {mode === 'guided' && (
+                    {mode !== 'full' && (
                       <button
                         type="button"
                         className="lp-btn lp-btn-ghost lp-btn-sm"

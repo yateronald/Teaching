@@ -1,13 +1,14 @@
 // /learn/practice/dictation/ and /fr/apprendre/pratique/dictee/: Dictation Studio Library.
 // Compact 2-column hero with live Woman & Man studio voice preview, studio toolbar
-// (level filter, live search, Grid/List view toggle), sleek 4-column editorial
-// cards with progressive pagination matching Reading & Listening, and 3-step method strip.
+// (level filter, 4-method filter row, live search, Grid/List view toggle), sleek
+// 4-column editorial cards with progressive pagination, and 3-step method strip.
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
   CheckOutlined, CloseOutlined, CustomerServiceOutlined, DownOutlined,
-  EditOutlined, PlayCircleFilled, SearchOutlined, SoundOutlined, UpOutlined,
+  EditOutlined, FormOutlined, PlayCircleFilled, SafetyCertificateOutlined,
+  SearchOutlined, SoundOutlined, SwapOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
 import { speak, stop, usePlaying } from '../../audio';
@@ -21,7 +22,9 @@ import { SkillTabs } from '../parts';
 import { DICTATIONS, dictationCoursePath, dictationPath } from './catalog';
 import { DICT_COPY } from './copy';
 import { countWords, formatGrade, readDictationBest } from './diff';
-import type { DictationVoice } from './types';
+import {
+  courseMethod, DICTATION_METHODS, type DictationMethod, type DictationVoice,
+} from './types';
 import '../practice.css';
 import './dictation.css';
 
@@ -30,6 +33,13 @@ const SAMPLE_PHRASE = DICTATIONS[0].text;
 const HOW_ICONS = [<CustomerServiceOutlined />, <EditOutlined />, <CheckOutlined />];
 const PAGE_GRID = 12;
 const PAGE_LIST = 16;
+
+function MethodIcon({ method }: { method: DictationMethod }) {
+  if (method === 'homophones') return <SwapOutlined aria-hidden />;
+  if (method === 'conjugation') return <FormOutlined aria-hidden />;
+  if (method === 'exam') return <SafetyCertificateOutlined aria-hidden />;
+  return <EditOutlined aria-hidden />;
+}
 
 function VoiceSampleButton({ voice, lang }: { voice: DictationVoice; lang: Lang }) {
   const c = DICT_COPY[lang];
@@ -58,6 +68,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
   const mounted = useMounted();
 
   const [level, setLevel] = useState<Level | 'all'>('all');
+  const [methodFilter, setMethodFilter] = useState<DictationMethod | 'all'>('all');
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [limit, setLimit] = useState(PAGE_GRID);
@@ -65,28 +76,34 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
   const baseLimit = view === 'list' ? PAGE_LIST : PAGE_GRID;
 
   useEffect(() => () => { stop(); }, []);
-  useEffect(() => { setLimit(baseLimit); }, [level, query, baseLimit]);
+  useEffect(() => { setLimit(baseLimit); }, [level, methodFilter, query, baseLimit]);
 
   const availableLevels = useMemo(
     () => LEVELS.filter(lv => DICTATIONS.some(d => d.level === lv)),
     [],
   );
 
+  const levelScoped = useMemo(
+    () => (level === 'all' ? DICTATIONS : DICTATIONS.filter(d => d.level === level)),
+    [level],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return DICTATIONS.filter(d => {
-      if (level !== 'all' && d.level !== level) return false;
+    return levelScoped.filter(d => {
+      if (methodFilter !== 'all' && courseMethod(d) !== methodFilter) return false;
       if (!q) return true;
       const hay = [
         d.title,
         d.level,
+        c.methodLabel[courseMethod(d)],
         tx(d.subtitle, lang),
         tx(d.theme, lang),
         ...d.focus.map(f => tx(f, lang)),
       ].join(' ').toLowerCase();
       return hay.includes(q);
     });
-  }, [level, query, lang]);
+  }, [levelScoped, methodFilter, query, lang, c.methodLabel]);
 
   const visibleCount = mounted ? Math.min(limit, filtered.length) : filtered.length;
   const remaining = Math.max(0, filtered.length - visibleCount);
@@ -157,7 +174,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
             </div>
           </header>
 
-          {/* Studio Toolbar: Level pills · Search · Grid / List toggle */}
+          {/* Studio Toolbar: Level pills · Search · Grid / List toggle · Method filter row */}
           <div className="rxl-toolbar">
             <div className="rxl-level-pills" role="group" aria-label={lang === 'fr' ? 'Filtrer par niveau' : 'Filter by level'}>
               <button type="button" className={level === 'all' ? 'is-on' : ''} aria-pressed={level === 'all'} onClick={() => setLevel('all')}>
@@ -196,12 +213,38 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                 </button>
               </div>
             </div>
+
+            <div className="rx-status-row" role="group" aria-label={lang === 'fr' ? 'Filtrer par méthode' : 'Filter by method'}>
+              <button
+                type="button"
+                className={methodFilter === 'all' ? 'is-on' : ''}
+                aria-pressed={methodFilter === 'all'}
+                onClick={() => setMethodFilter('all')}
+              >
+                {c.allMethods} <span className="rx-count">{levelScoped.length}</span>
+              </button>
+              {DICTATION_METHODS.map(m => {
+                const cnt = levelScoped.filter(d => courseMethod(d) === m).length;
+                if (cnt === 0) return null;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    className={methodFilter === m ? 'is-on' : ''}
+                    aria-pressed={methodFilter === m}
+                    onClick={() => setMethodFilter(methodFilter === m ? 'all' : m)}
+                  >
+                    <MethodIcon method={m} /> {c.methodLabel[m]} <span className="rx-count">{cnt}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {filtered.length === 0 ? (
             <div className="rxl-empty">
               <p>{c.emptySearch}</p>
-              <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => { setQuery(''); setLevel('all'); }}>
+              <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => { setQuery(''); setLevel('all'); setMethodFilter('all'); }}>
                 {c.resetFilters}
               </button>
             </div>
@@ -212,6 +255,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                   const hide = mounted && idx >= limit;
                   const words = countWords(d.text);
                   const best = mounted ? readDictationBest(d.id) : undefined;
+                  const m = courseMethod(d);
                   const to = dictationCoursePath(d, lang);
                   return (
                     <li key={d.id} hidden={hide || undefined}>
@@ -228,7 +272,13 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                             decoding="async"
                           />
                           <LevelChip level={d.level} size="sm" />
-                          {best && <span className="dx-card-best">{c.best(formatGrade(best.grade, lang))}</span>}
+                          {best ? (
+                            <span className="dx-card-best">{c.best(formatGrade(best.grade, lang))}</span>
+                          ) : m !== 'story' ? (
+                            <span className={`dx-card-method is-${m}`}>
+                              <MethodIcon method={m} /> {c.methodShort[m]}
+                            </span>
+                          ) : null}
                           <span className="dx-card-pill">
                             <SoundOutlined aria-hidden /> {tx(d.theme, lang)} · {lang === 'fr' ? '2 voix' : '2 voices'}
                           </span>
@@ -236,7 +286,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
 
                         <div className="dx-card-body">
                           <p className="dx-card-inline-tag">
-                            <SoundOutlined aria-hidden /> {tx(d.theme, lang)}
+                            <MethodIcon method={m} /> {c.methodShort[m]} · {tx(d.theme, lang)}
                           </p>
                           <h3 id={`dx-t-${d.id}`} lang="fr">{d.title}</h3>
                           <p className="dx-card-sub">{tx(d.subtitle, lang)}</p>

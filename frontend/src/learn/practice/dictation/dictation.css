@@ -163,6 +163,26 @@
   font-weight: 800;
   box-shadow: 0 2px 6px rgba(14, 31, 77, 0.28);
 }
+.dx-card-method {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(11, 23, 51, 0.84);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 750;
+  box-shadow: 0 2px 6px rgba(14, 31, 77, 0.28);
+}
+.dx-card-method.is-homophones { background: rgba(111, 66, 193, 0.9); }
+.dx-card-method.is-conjugation { background: rgba(13, 122, 95, 0.9); }
+.dx-card-method.is-exam { background: rgba(194, 48, 59, 0.9); }
 .dx-card-pill {
   position: absolute;
   left: 8px;
@@ -388,12 +408,30 @@
   margin-bottom: 12px;
 }
 .dx-desk-theme {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
   font-size: 12.5px;
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--subtle);
 }
+.dx-method-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.dx-method-chip.is-homophones { background: #f2ecff; color: #5b32b4; }
+.dx-method-chip.is-conjugation { background: #e8f6f0; color: #0b6d53; }
+.dx-method-chip.is-exam { background: #fdecee; color: #b52431; }
 .dx-focus-inline {
   display: flex;
   flex-wrap: wrap;
@@ -454,6 +492,70 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #a9c4ff;
+}
+.dx-console-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.dx-exam-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dx-exam-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.11);
+  color: #eef3ff;
+  font-size: 11.5px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+.dx-exam-stat.is-done {
+  background: rgba(217, 65, 78, 0.35);
+  color: #ffd6da;
+}
+.dx-exam-toggle {
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbe6fb;
+  font-size: 11.5px;
+  font-weight: 750;
+  transition: background 0.14s, border-color 0.14s, color 0.14s;
+}
+.dx-exam-toggle:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.dx-exam-toggle.is-on {
+  border-color: #f38a94;
+  background: rgba(204, 41, 54, 0.42);
+  color: #fff;
+}
+.dx-console.is-exam-locked .rx-pl-play {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.dx-exam-lock-msg {
+  margin: 10px 0 0 !important;
+  padding: 7px 11px;
+  border-radius: 9px;
+  background: rgba(217, 65, 78, 0.22);
+  border: 1px solid rgba(243, 138, 148, 0.45);
+  color: #ffe3e6;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+.dx-exam-hint-lock {
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--subtle);
 }
 .dx-speed-pills {
   display: inline-flex;
@@ -648,6 +750,59 @@
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .dx-blank-input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(24, 57, 97, 0.12); }
+
+/* Grammatical dictation: inline blank + subtle base-form cue */
+.dx-slot-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  margin: 0 3px;
+}
+.dx-slot-wrap .dx-blank-input { margin: 0; }
+.dx-cue-tag {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #e8f6f0;
+  border: 1px solid #bce2d3;
+  color: #0b6d53;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+/* Homophone Duel: sleek inline sound-alike pill switcher */
+.dx-duel-paragraph { line-height: 2.35; }
+.dx-duel-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 4px;
+  padding: 2px;
+  border: 1.5px solid #d7c9f5;
+  border-radius: 10px;
+  background: #f8f5ff;
+  vertical-align: middle;
+  line-height: 1.25;
+}
+.dx-duel-opt {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-family: var(--display);
+  font-size: 14.5px;
+  font-weight: 700;
+  color: #4b3878;
+  transition: background 0.14s, color 0.14s, box-shadow 0.14s;
+}
+.dx-duel-opt:hover { background: rgba(91, 50, 180, 0.1); color: #361c75; }
+.dx-duel-opt.is-picked {
+  background: #5b32b4;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(91, 50, 180, 0.28);
+}
 
 .dx-paste-notice {
   margin: 10px 0 0 !important;
