@@ -25,6 +25,7 @@ import { DIALOGUES, dialoguePath } from './practice/dialogues/meta';
 import { checkDialogue } from './practice/dialogues/check';
 import { registerDialogue } from './practice/dialogues/registry';
 import type { Dialogue } from './practice/dialogues/types';
+import { DICTATIONS, dictationCoursePath, dictationPath } from './practice/dictation/catalog';
 import { c1Listening } from './practice/listening/c1';
 import { c2Listening } from './practice/listening/c2';
 import { registerAdvanced } from './practice/listening/advanced';
@@ -129,5 +130,7 @@ export function learnPages(): LearnPage[] {
   LISTENING.forEach(e => both(l => exercisePath(e, l), '0.7'));
   EAR.forEach(e => both(l => earPath(e, l), '0.7'));
   DIALOGUES.forEach(d => both(l => dialoguePath(d, l), '0.7'));
+  both(dictationPath, '0.8');
+  DICTATIONS.forEach(d => both(l => dictationCoursePath(d, l), '0.7'));
   return pages;
 }

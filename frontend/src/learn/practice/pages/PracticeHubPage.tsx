@@ -6,8 +6,8 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRightOutlined, AudioOutlined, CheckOutlined, ClockCircleOutlined,
-  CommentOutlined, CompassOutlined, CustomerServiceOutlined, ReadOutlined,
-  SoundOutlined, ThunderboltOutlined,
+  CommentOutlined, CompassOutlined, CustomerServiceOutlined, EditOutlined,
+  ReadOutlined, SoundOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
 import { hubPath, placementPath } from '../../paths';
@@ -20,6 +20,7 @@ import { MISSIONS, missionPath } from '../missions';
 import { DIALOGUES, dialoguePath } from '../dialogues/meta';
 import { EAR, earPath } from '../ear/meta';
 import { LISTENING, exercisePath, listeningPath } from '../listening/catalog';
+import { DICTATIONS, dictationCoursePath, dictationPath } from '../dictation/catalog';
 import { skillOverview } from '../overview';
 import { SkillTabs } from '../parts';
 import '../practice.css';
@@ -50,7 +51,8 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
 
   const readingTotal = TEXTS.length + MISSIONS.length;
   const listeningTotal = DIALOGUES.length + EAR.length + LISTENING.length;
-  const totalAll = readingTotal + listeningTotal;
+  const dictationTotal = DICTATIONS.length;
+  const totalAll = readingTotal + listeningTotal + dictationTotal;
 
   // Build 4 curated 1-click quick-start activities for the selected CEFR level.
   const quickPicks = useMemo<QuickPick[]>(() => {
@@ -220,6 +222,16 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
                     <ArrowRightOutlined className="px-hc-go" aria-hidden />
                   </Link>
                 </li>
+                <li>
+                  <Link to={dictationPath(lang)}>
+                    <span className="px-hc-ico"><EditOutlined /></span>
+                    <span>
+                      <strong>{lang === 'fr' ? 'Atelier de dictée' : 'Dictation studio'}</strong>
+                      <small>{dictationTotal} {lang === 'fr' ? (dictationTotal > 1 ? 'dictées' : 'dictée') : (dictationTotal > 1 ? 'dictations' : 'dictation')} · {lang === 'fr' ? '2 voix natives' : '2 native voices'} · A1</small>
+                    </span>
+                    <ArrowRightOutlined className="px-hc-go" aria-hidden />
+                  </Link>
+                </li>
               </ul>
               <Link to={placementPath(lang)} className="px-hc-foot">
                 <ThunderboltOutlined aria-hidden />
@@ -242,20 +254,27 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
             <p>{p.skillsSub}</p>
           </header>
 
-          <ul className="px-flagships">
+          <ul className="px-flagships is-three">
             {openSkills.map(s => {
               const isReading = s.id === 'reading';
-              const total = isReading ? readingTotal : listeningTotal;
+              const isListening = s.id === 'listening';
+              const total = isReading ? readingTotal : isListening ? listeningTotal : dictationTotal;
+              const levelSpan = isReading ? 'A1–C1' : isListening ? 'A1–C2' : 'A1';
               const subtracks = isReading
                 ? [
                     { label: lang === 'fr' ? 'Textes avec audio' : 'Texts with audio', count: TEXTS.length, to: `${readingPath(lang)}#texts`, icon: <ReadOutlined /> },
                     { label: lang === 'fr' ? 'Missions de lecture' : 'Reading missions', count: MISSIONS.length, to: `${readingPath(lang)}#missions`, icon: <CompassOutlined /> },
                   ]
-                : [
-                    { label: lang === 'fr' ? 'Dialogues du quotidien' : 'Everyday dialogues', count: DIALOGUES.length, to: `${listeningPath(lang)}#dialogues`, icon: <CommentOutlined /> },
-                    { label: lang === 'fr' ? 'Entraîner son oreille' : 'Ear training', count: EAR.length, to: `${listeningPath(lang)}#ear`, icon: <AudioOutlined /> },
-                    { label: lang === 'fr' ? 'Documents réels' : 'Real documents', count: LISTENING.length, to: `${listeningPath(lang)}#documents`, icon: <SoundOutlined /> },
-                  ];
+                : isListening
+                  ? [
+                      { label: lang === 'fr' ? 'Dialogues du quotidien' : 'Everyday dialogues', count: DIALOGUES.length, to: `${listeningPath(lang)}#dialogues`, icon: <CommentOutlined /> },
+                      { label: lang === 'fr' ? 'Entraîner son oreille' : 'Ear training', count: EAR.length, to: `${listeningPath(lang)}#ear`, icon: <AudioOutlined /> },
+                      { label: lang === 'fr' ? 'Documents réels' : 'Real documents', count: LISTENING.length, to: `${listeningPath(lang)}#documents`, icon: <SoundOutlined /> },
+                    ]
+                  : [
+                      { label: DICTATIONS[0].title, count: DICTATIONS.length, to: dictationCoursePath(DICTATIONS[0], lang), icon: <EditOutlined /> },
+                      { label: lang === 'fr' ? '2 voix · Femme & Homme' : '2 voices · Woman & Man', count: 2, to: dictationPath(lang), icon: <SoundOutlined /> },
+                    ];
               return (
                 <li key={s.id}>
                   <article className="px-flagship">
@@ -263,7 +282,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
                       <img
                         src={imageUrl(s.image, 640)}
                         srcSet={`${imageUrl(s.image, 640)} 640w, ${imageUrl(s.image, 1200)} 1200w`}
-                        sizes="(min-width: 1000px) 560px, calc(100vw - 36px)"
+                        sizes="(min-width: 1000px) 380px, calc(100vw - 36px)"
                         alt=""
                         width="640"
                         height="360"
@@ -272,7 +291,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
                       />
                       <span className="px-flagship-live">{lang === 'fr' ? 'Disponible' : 'Open now'}</span>
                       <span className="px-flagship-badge">
-                        {total} {lang === 'fr' ? 'activités' : 'activities'} · {isReading ? 'A1–C1' : 'A1–C2'}
+                        {total} {lang === 'fr' ? (total > 1 ? 'activités' : 'activité') : (total > 1 ? 'activities' : 'activity')} · {levelSpan}
                       </span>
                     </Link>
 

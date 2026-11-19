@@ -21,6 +21,8 @@ import { EAR, EAR_SLUG } from './practice/ear/meta';
 import type { EarMeta } from './practice/ear/types';
 import { DIALOGUES, DIALOGUE_SLUG } from './practice/dialogues/meta';
 import type { DialogueMeta } from './practice/dialogues/types';
+import { DICTATIONS } from './practice/dictation/catalog';
+import type { DictationCourse } from './practice/dictation/types';
 import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
@@ -60,6 +62,8 @@ export type LearnRoute =
   | { type: 'listening-exercise'; lang: Lang; exercise: ListeningExercise }
   | { type: 'ear-course'; lang: Lang; ear: EarMeta }
   | { type: 'dialogue'; lang: Lang; dialogue: DialogueMeta }
+  | { type: 'dictation'; lang: Lang }
+  | { type: 'dictation-course'; lang: Lang; dictation: DictationCourse }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -91,6 +95,11 @@ export function resolveLearnPath(pathname: string): LearnRoute {
       }
       const exercise = rest.length === 3 ? LISTENING.find(item => item.id === rest[2]) : undefined;
       return exercise ? { type: 'listening-exercise', lang, exercise } : { type: 'none', lang };
+    }
+    if (rest[1] === skillById('dictation').slug[lang]) {
+      if (rest.length === 2) return { type: 'dictation', lang };
+      const dictation = rest.length === 3 ? DICTATIONS.find(d => d.slug === rest[2]) : undefined;
+      return dictation ? { type: 'dictation-course', lang, dictation } : { type: 'none', lang };
     }
     if (rest[1] !== skillById('reading').slug[lang]) return { type: 'none', lang };
     if (rest.length === 2) return { type: 'reading', lang };

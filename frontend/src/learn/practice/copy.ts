@@ -42,7 +42,8 @@ const en = {
       },
       dictation: {
         line: 'Write what you hear',
-        desc: 'Listen and write, sentence by sentence, then compare word for word: spelling, agreements and accents.',
+        desc: 'Listen and write, sentence by sentence, in a woman’s or man’s voice, then compare word for word: spelling, agreements and accents.',
+        count: (n: number) => (n === 1 ? '1 dictation · 2 native voices' : `${n} dictations · 2 native voices`),
       },
       grammar: {
         line: 'Rules in action',
@@ -231,7 +232,8 @@ const fr: Copy = {
       },
       dictation: {
         line: 'Écrire ce que l’on entend',
-        desc: 'Écoutez et écrivez, phrase par phrase, puis comparez mot à mot : orthographe, accords et accents.',
+        desc: 'Écoutez et écrivez, phrase par phrase, avec une voix de femme ou d’homme, puis comparez mot à mot : orthographe, accords et accents.',
+        count: (n: number) => (n === 1 ? '1 dictée · 2 voix natives' : `${n} dictées · 2 voix natives`),
       },
       grammar: {
         line: 'Les règles en action',

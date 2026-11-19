@@ -16,6 +16,8 @@ import type { ReadingText } from './practice/types';
 import type { EarCourse } from './practice/ear/types';
 import type { Dialogue } from './practice/dialogues/types';
 import { DIALOGUES, dialogueCoverKey } from './practice/dialogues/meta';
+import { DICTATIONS } from './practice/dictation/catalog';
+import { DICTATION_VOICES } from './practice/dictation/types';
 import type { Lesson, Step, Voice } from './types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
@@ -117,6 +119,14 @@ export function collectMedia() {
   for (const mod of Object.values(dialogueModules)) {
     Object.values(mod.default).forEach(d => d.lines.forEach(l => seal(l.fr, d.speakers[l.who].voice)));
   }
+  // Dictations: ONE continuous coherent passage audio + rule examples in BOTH native voices (woman & man).
+  DICTATIONS.forEach(d => {
+    images.add(d.image);
+    DICTATION_VOICES.forEach(v => {
+      seal(d.text, v);
+      d.rules.forEach(r => r.examples.forEach(ex => seal(ex.fr, v)));
+    });
+  });
   for (const mod of Object.values(textModules)) {
     mod.default.glossary.forEach(g => add(g.fr));
     mod.default.focus.examples.forEach(e => add(e.fr));

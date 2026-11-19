@@ -24,6 +24,8 @@ import EarCoursePage from './practice/ear/EarCoursePage';
 import { loadEar } from './practice/ear/registry';
 import DialoguePage from './practice/dialogues/DialoguePage';
 import { loadDialogue } from './practice/dialogues/registry';
+import DictationLibraryPage from './practice/dictation/DictationLibraryPage';
+import DictationCoursePage from './practice/dictation/DictationCoursePage';
 import { loadAdvanced } from './practice/listening/advanced';
 import { loadText } from './practice/registry';
 
@@ -49,6 +51,8 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'listening-exercise': return <ListeningExercisePage key={route.exercise.id} lang={route.lang} exercise={route.exercise} />;
     case 'ear-course': return <EarCoursePage key={route.ear.id} lang={route.lang} meta={route.ear} />;
     case 'dialogue': return <DialoguePage key={route.dialogue.id} lang={route.lang} meta={route.dialogue} />;
+    case 'dictation': return <DictationLibraryPage lang={route.lang} />;
+    case 'dictation-course': return <DictationCoursePage key={route.dictation.id} lang={route.lang} course={route.dictation} />;
     default: return <NotFound lang={route.lang} />;
   }
 }

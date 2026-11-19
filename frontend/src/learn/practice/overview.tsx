@@ -10,6 +10,7 @@ import { MISSIONS } from './missions';
 import { LISTENING } from './listening/catalog';
 import { EAR } from './ear/meta';
 import { DIALOGUES } from './dialogues/meta';
+import { DICTATIONS } from './dictation/catalog';
 import type { SkillId } from './types';
 
 export interface SkillOverview {
@@ -51,6 +52,9 @@ export function skillOverview(lang: Lang): SkillOverview[] {
     }
     if (s.id === 'listening') {
       return { ...base, path: skillPath(s, lang), count: c.skill.listening.count(LISTENING.length, DIALOGUES.length, EAR.length), levels: at([...LISTENING.map(e => e.level), ...DIALOGUES.map(d => d.level), ...EAR.map(e => e.level)]) };
+    }
+    if (s.id === 'dictation') {
+      return { ...base, path: skillPath(s, lang), count: c.skill.dictation.count(DICTATIONS.length), levels: at(DICTATIONS.map(d => d.level)) };
     }
     return { ...base, path: skillPath(s, lang), count: undefined };
   });

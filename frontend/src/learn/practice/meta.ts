@@ -23,7 +23,7 @@ export interface SkillMeta {
 export const SKILLS: SkillMeta[] = [
   { id: 'reading', slug: { en: 'reading', fr: 'lecture' }, name: b('Reading', 'Lecture'), ready: true },
   { id: 'listening', slug: { en: 'listening', fr: 'ecoute' }, name: b('Listening', 'Écoute'), ready: true },
-  { id: 'dictation', slug: { en: 'dictation', fr: 'dictee' }, name: b('Dictation', 'Dictée'), ready: false },
+  { id: 'dictation', slug: { en: 'dictation', fr: 'dictee' }, name: b('Dictation', 'Dictée'), ready: true },
   { id: 'grammar', slug: { en: 'grammar', fr: 'grammaire' }, name: b('Grammar', 'Grammaire'), ready: false },
   { id: 'vocabulary', slug: { en: 'vocabulary', fr: 'vocabulaire' }, name: b('Vocabulary', 'Vocabulaire'), ready: false },
 ];

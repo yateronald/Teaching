@@ -5,15 +5,14 @@
 import { useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { CaretRightFilled, LoadingOutlined, PauseOutlined, UndoOutlined } from '@ant-design/icons';
 import { recordingUrl, stop as stopPhrase } from '../../audio';
-import type { Lang } from '../../types';
+import type { Lang, Voice } from '../../types';
 import { fmtTime } from '../model';
 import { listeningCopy } from './copy';
-import type { ListeningVoice } from './types';
 import '../practice.css';
 
 interface Props {
   text: string;
-  voice: ListeningVoice;
+  voice: Voice;
   rate: number;
   lang: Lang;
   /** The audio element, for the page to pause it or start it again. */

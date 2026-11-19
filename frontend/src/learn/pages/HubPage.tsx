@@ -29,6 +29,7 @@ import { MISSIONS } from '../practice/missions';
 import { DIALOGUES } from '../practice/dialogues/meta';
 import { EAR } from '../practice/ear/meta';
 import { LISTENING, listeningPath } from '../practice/listening/catalog';
+import { DICTATIONS, dictationPath } from '../practice/dictation/catalog';
 import '../games/games.css';
 import '../practice/practice.css';
 import './hub.css';
@@ -289,7 +290,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
 
   const readingTotal = TEXTS.length + MISSIONS.length;
   const listeningTotal = DIALOGUES.length + EAR.length + LISTENING.length;
-  const practiceTotal = readingTotal + listeningTotal;
+  const practiceTotal = readingTotal + listeningTotal + DICTATIONS.length;
 
   const starterPicks = useMemo<Record<PickTab, CourseMeta[]>>(() => {
     const pick = (ids: string[]) => ids.map(id => courseById(id)).filter((c): c is CourseMeta => Boolean(c));
@@ -604,8 +605,12 @@ export default function HubPage({ lang }: { lang: Lang }) {
                 {pc.practice.promoCta} <ArrowRightOutlined />
               </Link>
               <div className="hx-practice-soon">
+                <Link to={dictationPath(lang)} style={{ color: '#9ec0ff', fontWeight: 750 }}>
+                  {fr ? 'Nouveau : Atelier de dictée →' : 'New: Dictation studio →'}
+                </Link>
+                <span>·</span>
                 <strong>{pc.soon}</strong>
-                <span>{fr ? 'Dictée · Grammaire · Vocabulaire' : 'Dictation · Grammar · Vocabulary'}</span>
+                <span>{fr ? 'Grammaire · Vocabulaire' : 'Grammar · Vocabulary'}</span>
               </div>
             </div>
 
