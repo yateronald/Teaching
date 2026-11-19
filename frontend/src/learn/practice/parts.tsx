@@ -99,6 +99,7 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
       <div className="rx-card-img">
         <img src={imageUrl(text.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
         <LevelChip level={text.level} size="sm" />
+        <span className="rx-card-genre-pill"><SoundOutlined aria-hidden /> {c.learn.genre[text.genre]}</span>
       </div>
       <div className="rx-card-body">
         <p className="rx-card-kicker"><strong>{c.learn.genre[text.genre]}</strong> <span aria-hidden="true">·</span> {tx(text.theme, lang)}</p>
@@ -107,11 +108,10 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
         <div className="rx-card-meta">
           <span><ReadOutlined aria-hidden /> {c.text.words(text.words)}</span>
           <span><ClockCircleOutlined aria-hidden /> {c.text.minutes(textMinutes(text))}</span>
-          <span><SoundOutlined aria-hidden /> {c.learn.audio}</span>
         </div>
         <div className="rx-card-footer">
           <StatusChip p={p} text={text} lang={lang} />
-          <span className="rx-card-go" aria-hidden="true">{c.library.readCard}<ArrowRightOutlined /></span>
+          <span className="rx-card-go" aria-hidden="true">{c.library.readCard} <ArrowRightOutlined /></span>
         </div>
       </div>
     </article>
@@ -119,7 +119,7 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
 }
 
 /** Reading, Listening, Dictation, Grammar, Vocabulary: the open ones are links. */
-export function SkillTabs({ lang, active }: { lang: Lang; active: SkillId }) {
+export function SkillTabs({ lang, active }: { lang: Lang; active?: SkillId }) {
   const c = P[lang];
   return (
     <nav className="rx-tabs" aria-label={c.skills}>

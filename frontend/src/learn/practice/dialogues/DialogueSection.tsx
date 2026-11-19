@@ -1,5 +1,5 @@
-// The dialogues track on the listening library: what it trains, its four
-// steps, one tab per situation and, in each, its five dialogues (A1 → C1).
+// The dialogues track on the listening library: compact header + inline steps,
+// balanced 5×2 situation grid, and 5 sleek levelled cards (A1 → C1).
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ArrowRightOutlined, CheckCircleFilled } from '@ant-design/icons';
@@ -12,7 +12,7 @@ import type { ThemeId } from './types';
 import { readBest } from './util';
 import './dialogues.css';
 
-export function DialogueSection({ lang }: { lang: Lang }) {
+export function DialogueSection({ lang, hidden = false }: { lang: Lang; hidden?: boolean }) {
   const c = DLGC[lang];
   const mounted = useMounted();
   const best = mounted ? readBest() : {};
@@ -22,27 +22,54 @@ export function DialogueSection({ lang }: { lang: Lang }) {
   const section = useRef<HTMLElement>(null);
   const list = DIALOGUES.filter(d => d.theme === theme);
 
-  // Arriving from a dialogue (« back to the dialogues »): the section, not the top of the page.
+  // Arriving from a dialogue (« back to the dialogues »): scroll to the section.
   useEffect(() => {
     if (location.hash === '#dialogues') section.current?.scrollIntoView({ block: 'start' });
   }, [location.hash]);
 
   return (
-    <section ref={section} id="dialogues" className="lp-wrap dlg-track" aria-labelledby="dlg-track-title">
-      <p className="ear-track-k">{c.trackK}</p>
-      <h2 id="dlg-track-title">{c.trackTitle[0]} <em>{c.trackTitle[1]}</em></h2>
-      <p className="dlg-track-intro">{c.trackIntro}</p>
-      <ol className="dlg-track-method">
-        {c.method.map(([t, d], k) => <li key={t}><span>{k + 1}</span><b>{t}</b><small>{d}</small></li>)}
-      </ol>
+    <section ref={section} id="dialogues" className="lp-wrap dlg-track" aria-labelledby="dlg-track-title" hidden={hidden || undefined}>
+      <header className="rxl-sec-head">
+        <div className="rxl-sec-head-copy">
+          <p className="ear-track-k">{c.trackK}</p>
+          <h2 id="dlg-track-title">{c.trackTitle[0]} <em>{c.trackTitle[1]}</em></h2>
+          <p className="dlg-track-intro">{c.trackIntro}</p>
+        </div>
+        <ol className="rxl-method-strip" aria-label={c.track}>
+          {c.method.map(([t, d], k) => (
+            <li key={t} title={d}>
+              <span>{k + 1}</span>
+              <div><b>{t}</b><small>{d}</small></div>
+            </li>
+          ))}
+        </ol>
+      </header>
+
       <div className="dlg-themes" role="tablist" aria-label={c.situations}>
-        {THEMES.map(t => (
-          <button key={t.id} type="button" role="tab" id={`dlg-tab-${t.id}`} aria-selected={theme === t.id} aria-controls="dlg-panel"
-            className={theme === t.id ? 'is-on' : ''} onClick={() => setTheme(t.id)}>
-            <ThemeIcon theme={t.id} /> {tx(t.name, lang)}
-          </button>
-        ))}
+        {THEMES.map(t => {
+          const items = DIALOGUES.filter(d => d.theme === t.id);
+          const done = mounted ? items.filter(d => best[d.id] !== undefined).length : 0;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              id={`dlg-tab-${t.id}`}
+              aria-selected={theme === t.id}
+              aria-controls="dlg-panel"
+              className={theme === t.id ? 'is-on' : ''}
+              onClick={() => setTheme(t.id)}
+            >
+              <ThemeIcon theme={t.id} />
+              <span className="dlg-theme-name">{tx(t.name, lang)}</span>
+              <span className={`dlg-theme-count${done > 0 ? ' is-done' : ''}`}>
+                {done > 0 ? `${done}/${items.length}` : items.length}
+              </span>
+            </button>
+          );
+        })}
       </div>
+
       <ul className="dlg-cards" id="dlg-panel" role="tabpanel" aria-labelledby={`dlg-tab-${theme}`}>
         {list.map((d, k) => (
           <li key={d.id}>
@@ -50,18 +77,15 @@ export function DialogueSection({ lang }: { lang: Lang }) {
               <div className="dlg-card-img">
                 <DialogueCover id={d.id} sizes="(min-width: 1140px) 230px, (min-width: 820px) 31vw, (min-width: 560px) 46vw, calc(100vw - 36px)" />
                 <LevelChip level={d.level} size="sm" />
+                <span className="dlg-card-step" aria-hidden>{k + 1}/{list.length}</span>
               </div>
               <div className="dlg-card-body">
-                <div className="dlg-card-top">
-                  <span className="dlg-card-step" aria-hidden>{k + 1}/{list.length}</span>
-                  <span className="dlg-card-wave" aria-hidden><i /><i /><i /></span>
-                </div>
                 <h3 id={`dlg-t-${d.id}`} lang="fr">{d.title}</h3>
                 <p className="dlg-card-sum">{tx(d.summary, lang)}</p>
                 <div className="dlg-card-foot">
                   {best[d.id] !== undefined
                     ? <span className="ear-card-best"><CheckCircleFilled aria-hidden /> {c.best(...best[d.id])}</span>
-                    : <span />}
+                    : <span className="dlg-card-wave" aria-hidden><i /><i /><i /></span>}
                   <span className="ear-card-go" aria-hidden>{c.start} <ArrowRightOutlined /></span>
                 </div>
               </div>
