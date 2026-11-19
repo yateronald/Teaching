@@ -46,18 +46,22 @@ export default function ExamPricing({ lang, onRequest, onDemo }: Props) {
           </div>
         </div>
 
-        <div className="lp-pricing-grid" data-reveal>
+        <div className="lp-pricing-grid" data-reveal data-stagger>
           {EXAM_PLANS.map((plan, i) => {
             const price = formatPlanPrice(plan.prices[currency], currency, lang);
             const offer = `${plan.name} — ${plan.days} ${c.duration} · ${price} · ${plan.written} ${c.written} + ${plan.oral} ${c.oral}`;
+            const featured = plan.id === 'intensive';
             return (
-              <article key={plan.id} className={`lp-price-card${plan.id === 'intensive' ? ' is-featured' : ''}`} aria-labelledby={`lp-price-${plan.id}`}>
+              <article key={plan.id} className={`lp-price-card${featured ? ' is-featured' : ''}`} aria-labelledby={`lp-price-${plan.id}`}>
+                {featured && (
+                  <span className="lp-price-badge">{lang === 'fr' ? 'Le plus choisi' : 'Most popular'}</span>
+                )}
                 <header>
                   <h3 id={`lp-price-${plan.id}`}>{plan.name}</h3>
                   <span className="lp-price-duration">{plan.days} {c.duration}</span>
                   <p>{c.descriptions[i]}</p>
                 </header>
-                <p className="lp-price-amount" aria-live="polite" aria-atomic="true">{price}</p>
+                <p key={currency} className="lp-price-amount is-swap" aria-live="polite" aria-atomic="true">{price}</p>
                 <dl className="lp-price-summary">
                   <div><dt>{c.reading}<span>{c.sequences}</span></dt><dd>{c.includedShort}</dd></div>
                   <div><dt>{c.listening}<span>{c.sequences}</span></dt><dd>{c.includedShort}</dd></div>

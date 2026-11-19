@@ -17,6 +17,7 @@ import SiteFooter from './SiteFooter';
 import ExamPricing from './ExamPricing';
 import { PRICING_COPY } from './examPlanContent';
 import { useDemoModal, usePublicPage } from './publicPage';
+import { imageUrl } from '../../learn/categories';
 import './LandingPage.css';
 // Imported (not in public/) so their file names carry a content hash: browsers
 // can then keep them for a year, and a new version always has a new name.
@@ -43,6 +44,37 @@ const PROGRAM_TOPICS: Record<string, TopicId[]> = {
   quebec: ['quebec'],
   diplomas: ['delf-dalf'],
   everyday: ['online', 'business', 'kids'],
+};
+const PROGRAM_IMAGES: Record<string, string> = {
+  canada: 'cat-tcf',
+  quebec: 'cat-tef',
+  diplomas: 'cat-delf',
+  everyday: 'cat-business',
+};
+const WRITING_REPORT: Record<Lang, {
+  title: string;
+  score: number;
+  level: string;
+  nclc: string;
+  criteria: [string, number][];
+  next: string;
+}> = {
+  en: {
+    title: 'Writing · Mock exam #2',
+    score: 14,
+    level: 'CEFR B2',
+    nclc: 'CLB 8',
+    criteria: [['Task fulfilment', 15], ['Text structure', 14], ['Vocabulary range', 13.5], ['Grammar accuracy', 13], ['Register & tone', 14.5]],
+    next: 'Next milestone: CLB 9, tighten connectors in Task 3',
+  },
+  fr: {
+    title: 'Expression écrite · Examen blanc n° 2',
+    score: 14,
+    level: 'CECR B2',
+    nclc: 'NCLC 8',
+    criteria: [['Respect de la consigne', 15], ['Structure du texte', 14], ['Richesse lexicale', 13.5], ['Précision grammaticale', 13], ['Registre et ton', 14.5]],
+    next: 'Prochain palier : NCLC 9, enrichir les connecteurs en tâche 3',
+  },
 };
 // 720w is what a typical phone needs (about 380 px wide at 1.75x density).
 const MARKSHEET_SRCSET = `${marksheet720} 720w, ${marksheet960} 960w, ${marksheet1600} 1600w`;
@@ -94,10 +126,13 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
   const c = LANDING[lang];
   const other: Lang = lang === 'en' ? 'fr' : 'en';
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const progressRef = useRef<HTMLDivElement | null>(null);
+  const shotsRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState('');
   const { openDemo, openExamOffer, modal } = useDemoModal();
   usePublicPage(lang);
   const [program, setProgram] = useState(0);
+  const [simMode, setSimMode] = useState<'eo' | 'ee'>('eo');
   const [quote, setQuote] = useState(0);
   const [video, setVideo] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -176,6 +211,40 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
     };
   }, []);
 
+  // Scroll progress bar + subtle desktop parallax on platform screenshots.
+  // Writes transform/CSS vars directly inside rAF — zero React re-renders.
+  useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const bar = progressRef.current;
+      if (bar) {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        const pct = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+        bar.style.transform = `scaleX(${pct})`;
+      }
+      const shots = shotsRef.current;
+      if (shots && !reduced && window.innerWidth > 960) {
+        const rect = shots.getBoundingClientRect();
+        const vh = window.innerHeight || 1;
+        if (rect.bottom > 0 && rect.top < vh) {
+          const offset = ((rect.top + rect.height * 0.5) / vh - 0.5) * 28;
+          shots.style.setProperty('--lp-py', `${offset.toFixed(1)}px`);
+        }
+      }
+    };
+    const onScroll = () => { if (!raf) raf = window.requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, []);
+
   // Rotating testimonials (paused on hover / focus, off with reduced motion).
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -206,6 +275,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         jsonLd={landingJsonLd(lang)}
       />
       <a href="#main" className="lp-skip">{c.skip}</a>
+      <div className="lp-scroll-bar" ref={progressRef} aria-hidden />
 
       {suggest && (
         <div className="lp-suggest" role="note">
@@ -249,22 +319,45 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
             </div>
 
             <div className="lp-hero-visual lp-hero-editorial">
-              <figure className="lp-lesson-photo">
-                <img
-                  src={lesson1200}
-                  srcSet={`${lesson720} 720w, ${lesson1200} 1200w`}
-                  sizes="(max-width: 960px) 92vw, 560px"
-                  width="1200"
-                  height="900"
-                  alt={c.hero.imageAlt}
-                  fetchPriority="high"
-                  decoding="async"
-                />
-                <figcaption>
-                  <span aria-hidden><MessageOutlined /></span>
-                  <div><strong>{c.hero.photoTitle}</strong><p>{c.hero.photoCaption}</p></div>
-                </figcaption>
-              </figure>
+              <div className="lp-hero-stage">
+                <figure className="lp-lesson-photo">
+                  <div className="lp-lesson-flag" aria-hidden><i /><i /><i /></div>
+                  <img
+                    src={lesson1200}
+                    srcSet={`${lesson720} 720w, ${lesson1200} 1200w`}
+                    sizes="(max-width: 960px) 92vw, 560px"
+                    width="1200"
+                    height="900"
+                    alt={c.hero.imageAlt}
+                    fetchPriority="high"
+                    decoding="async"
+                  />
+                  <figcaption>
+                    <span aria-hidden><MessageOutlined /></span>
+                    <div><strong>{c.hero.photoTitle}</strong><p>{c.hero.photoCaption}</p></div>
+                  </figcaption>
+                </figure>
+
+                <div className="lp-hero-chip is-live" aria-hidden>
+                  <span className="lp-live-dot" />
+                  <div>
+                    <strong>{c.hero.cardLive.title}</strong>
+                    <span>{c.hero.cardLive.sub}</span>
+                  </div>
+                </div>
+
+                <div className="lp-hero-chip is-score" aria-hidden>
+                  <span className="lp-hero-chip-k">{c.hero.cardResult.label}</span>
+                  <div className="lp-hero-chip-row">
+                    <strong>13<small>/20</small></strong>
+                    <em>{c.hero.cardResult.level}</em>
+                    <b>{c.hero.cardResult.nclc}</b>
+                  </div>
+                  <div className="lp-float-track">
+                    {NCLC_STEPS.map(s => <i key={s} className={s <= 8 ? 'is-on' : undefined} />)}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -283,9 +376,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
 
         {/* ── Stats ── */}
         <section className="lp-stats" aria-label={c.statsLabel}>
-          <div className="lp-wrap lp-stats-grid">
+          <div className="lp-wrap lp-stats-grid" data-reveal data-stagger>
             {c.stats.map(s => (
-              <div key={s.label} className="lp-stat" data-reveal>
+              <div key={s.label} className="lp-stat">
                 <strong><Counter value={s.value} suffix={s.suffix} lang={lang} /></strong>
                 <span>{s.label}</span>
               </div>
@@ -347,6 +440,12 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                   )}
                 </div>
                 <aside className="lp-program-card">
+                  {PROGRAM_IMAGES[item.id] && (
+                    <div className="lp-program-photo">
+                      <img src={imageUrl(PROGRAM_IMAGES[item.id], 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+                      <span>{item.levels}</span>
+                    </div>
+                  )}
                   <dl>
                     <div><dt>{c.programs.goal}</dt><dd>{item.goal}</dd></div>
                     <div><dt>{c.programs.format}</dt><dd>{item.format}</dd></div>
@@ -364,6 +463,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
 
         {/* ── Simulator ── */}
         <section id="simulator" className="lp-section lp-dark" aria-labelledby="lp-sim-title">
+          <div className="lp-ambient-orb" aria-hidden />
           <div className="lp-wrap lp-sim-grid">
             <div className="lp-sim-copy" data-reveal>
               <p className="lp-eyebrow is-light">{c.simulator.eyebrow}</p>
@@ -381,13 +481,27 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               <button type="button" className="lp-btn lp-btn-light" onClick={() => openExamOffer(PRICING_COPY[lang].demoRequestLabel)}>{c.simulator.cta}<ArrowRightOutlined /></button>
             </div>
             <figure className="lp-report" data-reveal aria-label={c.simulator.report.title}>
+              <div className="lp-report-flag" aria-hidden><i /><i /><i /></div>
               <header className="lp-report-head">
-                <span>{c.simulator.report.title}</span>
-                <span className="lp-report-badge">TCF Canada</span>
+                <span>{simMode === 'eo' ? c.simulator.report.title : WRITING_REPORT[lang].title}</span>
+                <div className="lp-report-switch" role="group" aria-label={lang === 'fr' ? 'Aperçu du rapport' : 'Report preview'}>
+                  <button type="button" className={simMode === 'eo' ? 'is-on' : ''} aria-pressed={simMode === 'eo'} onClick={() => setSimMode('eo')}>
+                    {lang === 'fr' ? 'Oral (EO)' : 'Speaking'}
+                  </button>
+                  <button type="button" className={simMode === 'ee' ? 'is-on' : ''} aria-pressed={simMode === 'ee'} onClick={() => setSimMode('ee')}>
+                    {lang === 'fr' ? 'Écrit (EE)' : 'Writing'}
+                  </button>
+                </div>
               </header>
               <div className="lp-report-score">
-                <div><span>{c.simulator.report.scoreLabel}</span><strong>13<small>/20</small></strong></div>
-                <div className="lp-report-badges"><b>{c.simulator.report.level}</b><b className="is-dark">{c.simulator.report.nclc}</b></div>
+                <div>
+                  <span>{c.simulator.report.scoreLabel}</span>
+                  <strong key={simMode} className="is-swap">{simMode === 'eo' ? 13 : WRITING_REPORT[lang].score}<small>/20</small></strong>
+                </div>
+                <div className="lp-report-badges">
+                  <b>{simMode === 'eo' ? c.simulator.report.level : WRITING_REPORT[lang].level}</b>
+                  <b className="is-dark">{simMode === 'eo' ? c.simulator.report.nclc : WRITING_REPORT[lang].nclc}</b>
+                </div>
               </div>
               <ol className="lp-report-track" aria-label={c.simulator.report.track}>
                 {NCLC_STEPS.map(s => (
@@ -395,15 +509,15 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                 ))}
               </ol>
               <ul className="lp-report-criteria">
-                {c.simulator.report.criteria.map(([label, score]) => (
+                {(simMode === 'eo' ? c.simulator.report.criteria : WRITING_REPORT[lang].criteria).map(([label, score]) => (
                   <li key={label}>
                     <span>{label}</span>
-                    <span className="lp-bar"><i style={{ '--w': `${(score / 20) * 100}%` } as React.CSSProperties} /></span>
+                    <span className="lp-bar"><i style={{ '--s': score / 20 } as React.CSSProperties} /></span>
                     <b>{String(score).replace('.', lang === 'fr' ? ',' : '.')}</b>
                   </li>
                 ))}
               </ul>
-              <p className="lp-report-next"><RiseOutlined /> {c.simulator.report.next}</p>
+              <p key={`next-${simMode}`} className="lp-report-next is-swap"><RiseOutlined /> {simMode === 'eo' ? c.simulator.report.next : WRITING_REPORT[lang].next}</p>
               <figcaption>{c.simulator.disclaimer}</figcaption>
             </figure>
           </div>
@@ -417,9 +531,9 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               <h2 id="lp-skills-title">{c.skills.title}</h2>
               <p>{c.skills.sub}</p>
             </header>
-            <div className="lp-skills">
+            <div className="lp-skills" data-reveal data-stagger>
               {c.skills.items.map((s, i) => (
-                <article key={s.code} className={`lp-skill is-${s.code.toLowerCase()}`} data-reveal>
+                <article key={s.code} className={`lp-skill is-${s.code.toLowerCase()}`}>
                   <header>
                     <span className="lp-skill-icon" aria-hidden>{SKILL_ICONS[i]}</span>
                     <span className="lp-skill-code">{s.code}</span>
@@ -490,11 +604,19 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                 ))}
               </ul>
             </div>
-            <div className="lp-shots" data-reveal>
+            <div className="lp-shots" ref={shotsRef} data-reveal>
               <figure className="lp-shot is-back">
+                <div className="lp-shot-bar" aria-hidden>
+                  <i /><i /><i />
+                  <span>{c.platform.features[0].title}</span>
+                </div>
                 <img src={dashboard800} srcSet={`${dashboard800} 800w, ${dashboard1400} 1084w`} sizes="(max-width: 900px) 80vw, 520px" width="1084" height="795" alt={c.platform.altDashboard} loading="lazy" decoding="async" />
               </figure>
               <figure className="lp-shot is-front">
+                <div className="lp-shot-bar" aria-hidden>
+                  <i /><i /><i />
+                  <span>{c.platform.features[2].title}</span>
+                </div>
                 <img src={marksheet960} srcSet={MARKSHEET_SRCSET} sizes="(max-width: 900px) 84vw, 560px" width="1600" height="900" alt={c.platform.altMarksheet} loading="lazy" decoding="async" />
               </figure>
             </div>
@@ -509,7 +631,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               <h2 id="lp-how-title">{c.how.title}</h2>
               <p>{c.how.sub}</p>
             </header>
-            <ol className="lp-steps" data-reveal>
+            <ol className="lp-steps" data-reveal data-stagger>
               {c.how.steps.map((s, i) => (
                 <li key={s.title} className="lp-step">
                   <span className="lp-step-dot" aria-hidden>{HOW_ICONS[i]}</span>
@@ -568,8 +690,8 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
                   <strong>{c.hero.rating.split('/')[0]}</strong>
                   <div><span className="lp-stars" aria-hidden>{[0, 1, 2, 3, 4].map(i => <StarFilled key={i} />)}</span><span>{c.reviews.summary}</span></div>
                 </div>
-                <figure className="lp-quote" aria-live="polite">
-                  <blockquote key={quote}>“{q.text}”</blockquote>
+                <figure key={quote} className="lp-quote is-swap" aria-live="polite">
+                  <blockquote>“{q.text}”</blockquote>
                   <figcaption>
                     <span className="lp-avatar" aria-hidden>{q.name.charAt(0)}</span>
                     <span><strong>{q.name}</strong><em>{q.role}</em></span>
@@ -603,7 +725,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
               <p>{c.faq.sub}</p>
               <a href={`mailto:${CONTACT_EMAIL}`} className="lp-faq-mail"><MailOutlined /> {c.faq.more}</a>
             </header>
-            <div className="lp-faq-list" data-reveal>
+            <div className="lp-faq-list" data-reveal data-stagger>
               {c.faq.items.map((item, i) => (
                 <details key={item.q} className="lp-faq-item" open={i === 0 || undefined}>
                   <summary><h3>{item.q}</h3><span className="lp-faq-icon" aria-hidden /></summary>
@@ -617,6 +739,7 @@ const LandingPage: React.FC<Props> = ({ lang = 'en' }) => {
         {/* ── Final call to action ── */}
         <section className="lp-finale" aria-labelledby="lp-finale-title">
           <div className="lp-wrap lp-finale-inner" data-reveal>
+            <div className="lp-ambient-orb" aria-hidden />
             <h2 id="lp-finale-title">{c.finale.title}</h2>
             <p>{c.finale.sub}</p>
             <div className="lp-finale-ctas">
