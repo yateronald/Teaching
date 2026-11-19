@@ -7,12 +7,53 @@ import type { Progress } from '../progress';
 import { LevelChip, useMounted } from '../shell';
 import { tx, type Lang } from '../types';
 import { P } from './copy';
-import { SKILLS, TEXTS, readingPath, skillPath, textMinutes, textPath } from './meta';
+import { SKILLS, TEXTS, practicePath, readingPath, skillPath, textMinutes, textPath } from './meta';
+import { skillOverview } from './overview';
 import { textStatus } from './stats';
 import type { SkillId, TextMeta } from './types';
 import './practice.css';
 
-/** The reading library, announced on the free-courses home and the Reading path. */
+/**
+ * The practice space, announced on the free-courses home: what the learner will
+ * practise, and its five skills (the open ones lead to their library).
+ */
+export function PracticePromo({ lang }: { lang: Lang }) {
+  const c = P[lang];
+  const p = c.practice;
+  return (
+    <aside className="rx-promo px-promo" aria-labelledby="px-promo-title">
+      <div className="rx-promo-copy">
+        <p className="rx-promo-k"><span className="rx-new">{c.isNew}</span>{p.promoEyebrow}</p>
+        <h2 id="px-promo-title">{p.promoTitle[0]} <em>{p.promoTitle[1]}</em></h2>
+        <p>{p.promo}</p>
+        <Link to={practicePath(lang)} className="lp-btn lp-btn-light">{p.promoCta}<ArrowRightOutlined /></Link>
+      </div>
+      <ul className="px-promo-list">
+        {skillOverview(lang).map(s => {
+          const inner = (
+            <>
+              <span className="px-promo-ico" aria-hidden>{s.icon}</span>
+              <span className="px-promo-txt">
+                <b>{s.name}</b>
+                <small>{s.ready ? [s.count ?? s.line, s.levels].filter(Boolean).join(' · ') : s.line}</small>
+              </span>
+              {s.ready ? <ArrowRightOutlined aria-hidden className="px-promo-go" /> : <span className="px-promo-soon">{c.soon}</span>}
+            </>
+          );
+          return (
+            <li key={s.id}>
+              {s.ready && s.path
+                ? <Link to={s.path}>{inner}</Link>
+                : <div className="is-soon" aria-disabled="true" title={c.soonTitle}>{inner}</div>}
+            </li>
+          );
+        })}
+      </ul>
+    </aside>
+  );
+}
+
+/** The reading library, announced on the Reading path. */
 export function ReadingPromo({ lang }: { lang: Lang }) {
   const c = P[lang];
   const picks = TEXTS.filter(t => t.starter).slice(0, 3);

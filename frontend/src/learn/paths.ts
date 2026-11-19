@@ -17,6 +17,10 @@ import { PRACTICE_SLUG, TEXTS, skillById } from './practice/meta';
 import { MISSIONS, type ReadingMission } from './practice/missions';
 import { LISTENING } from './practice/listening/catalog';
 import type { ListeningExercise } from './practice/listening/types';
+import { EAR, EAR_SLUG } from './practice/ear/meta';
+import type { EarMeta } from './practice/ear/types';
+import { DIALOGUES, DIALOGUE_SLUG } from './practice/dialogues/meta';
+import type { DialogueMeta } from './practice/dialogues/types';
 import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
 
@@ -54,6 +58,8 @@ export type LearnRoute =
   | { type: 'reading-mission'; lang: Lang; mission: ReadingMission }
   | { type: 'listening'; lang: Lang }
   | { type: 'listening-exercise'; lang: Lang; exercise: ListeningExercise }
+  | { type: 'ear-course'; lang: Lang; ear: EarMeta }
+  | { type: 'dialogue'; lang: Lang; dialogue: DialogueMeta }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -73,6 +79,16 @@ export function resolveLearnPath(pathname: string): LearnRoute {
     if (rest.length === 1) return { type: 'practice', lang };
     if (rest[1] === skillById('listening').slug[lang]) {
       if (rest.length === 2) return { type: 'listening', lang };
+      // Ear training: /learn/practice/listening/ear-training/<id>/
+      if (rest[2] === EAR_SLUG[lang]) {
+        const course = rest.length === 4 ? EAR.find(e => e.id === rest[3]) : undefined;
+        return course ? { type: 'ear-course', lang, ear: course } : { type: 'none', lang };
+      }
+      // Everyday dialogues: /learn/practice/listening/dialogues/<id>/
+      if (rest[2] === DIALOGUE_SLUG[lang]) {
+        const dialogue = rest.length === 4 ? DIALOGUES.find(d => d.id === rest[3]) : undefined;
+        return dialogue ? { type: 'dialogue', lang, dialogue } : { type: 'none', lang };
+      }
       const exercise = rest.length === 3 ? LISTENING.find(item => item.id === rest[2]) : undefined;
       return exercise ? { type: 'listening-exercise', lang, exercise } : { type: 'none', lang };
     }

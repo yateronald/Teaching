@@ -4,14 +4,17 @@ import { ArrowRightOutlined, CustomerServiceOutlined, SoundOutlined } from '@ant
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang } from '../../types';
+import { practicePath } from '../meta';
 import { SkillTabs } from '../parts';
 import { LISTENING, exercisePath, listeningPath } from './catalog';
 import { ListeningCover } from './ListeningCover';
+import { EarSection } from '../ear/EarSection';
+import { DialogueSection } from '../dialogues/DialogueSection';
 import { listeningCopy } from './copy';
 import type { ListeningExercise } from './types';
 import './listening.css';
 
-const levels = ['A1', 'A2', 'B1', 'B2'] as const;
+const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'] as const;
 
 export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
   const c = listeningCopy[lang];
@@ -21,17 +24,22 @@ export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
     seo={{ title: `${c.heading} · ${c.library}`, description: c.intro, path: listeningPath(lang) }}>
     <section className="rx-lib-hero">
       <div className="lp-wrap">
-        <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [lang === 'fr' ? 'Pratique' : 'Practice'], [c.library]]} />
+        <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [lang === 'fr' ? 'Pratique' : 'Practice', practicePath(lang)], [c.library]]} />
         <SkillTabs lang={lang} active="listening" />
         <div className="rxl-intro">
-          <p className="lp-eyebrow"><CustomerServiceOutlined aria-hidden /> {c.lab} · A1–B2</p>
+          <p className="lp-eyebrow"><CustomerServiceOutlined aria-hidden /> {c.lab} · A1–C2</p>
           <h1>{c.heading}</h1>
           <p>{c.intro}</p>
           <ol className="rxl-guide"><li>{c.step}</li><li>{c.answer}</li><li>{c.review}</li></ol>
         </div>
       </div>
     </section>
-    <section className="lp-wrap rxl-library" aria-label={c.library}>
+    <DialogueSection lang={lang} />
+    <EarSection lang={lang} />
+    <section className="lp-wrap rxl-library" aria-labelledby="rxl-docs-title">
+      <p className="ear-track-k">{c.docsK}</p>
+      <h2 id="rxl-docs-title" className="rxl-docs-title">{c.docsTitle}</h2>
+      <p className="rxl-docs-intro">{c.docsIntro}</p>
       <div className="lx-levels rx-levels" role="group" aria-label={c.levels}>
         <button type="button" aria-pressed={level === 'all'} className={level === 'all' ? 'is-on' : ''} onClick={() => setLevel('all')}>{c.all}</button>
         {levels.map(l => <button type="button" key={l} aria-pressed={level === l} className={level === l ? 'is-on' : ''} onClick={() => setLevel(l)}><b>{l}</b><span>{LISTENING.filter(e => e.level === l).length}</span></button>)}
@@ -48,7 +56,7 @@ export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
               <p className="rxl-card-format"><SoundOutlined aria-hidden /> {tx(e.format, lang)}</p>
               <h2 id={`rxl-title-${e.id}`} lang="fr">{e.title}</h2>
               <p className="rxl-card-summary">{tx(e.summary, lang)}</p>
-              <div className="rx-card-footer rxl-card-foot"><span>{c.questions(e.questions.length)}</span><span className="rx-card-go" aria-hidden="true">{c.start} <ArrowRightOutlined /></span></div>
+              <div className="rx-card-footer rxl-card-foot"><span>{c.questions(e.count ?? e.questions.length)}</span><span className="rx-card-go" aria-hidden="true">{c.start} <ArrowRightOutlined /></span></div>
             </div>
           </Link></li>
         ))}

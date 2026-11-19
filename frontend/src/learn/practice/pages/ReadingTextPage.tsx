@@ -24,7 +24,7 @@ import { gloss, tx, type Lang } from '../../types';
 import { UI } from '../../ui';
 import { trackLearning } from '../../../utils/siteAnalytics';
 import { P } from '../copy';
-import { TEXTS, readingPath, textMinutes, textPath } from '../meta';
+import { TEXTS, practicePath, readingPath, textMinutes, textPath } from '../meta';
 import { evidenceOf, fmtTime, isSpokenTitle, locate, narrationsOf, pct, sentencesOf, type FlatSentence, type Span } from '../model';
 import { ScoreRing, TextCard } from '../parts';
 import { useText } from '../registry';
@@ -684,7 +684,7 @@ export default function ReadingTextPage({ lang, meta }: { lang: Lang; meta: Text
         <div className="lp-wrap rx-top-bar">
           <Link to={readingPath(lang)} className="rx-back" aria-label={c.text.back} title={c.text.back}><LeftOutlined /></Link>
           <div className="rx-top-title">
-            <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [c.text.eyebrow, readingPath(lang)], [meta.title]]} />
+            <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [c.crumb, practicePath(lang)], [c.text.eyebrow, readingPath(lang)], [meta.title]]} />
           </div>
           <LevelChip level={meta.level} />
         </div>

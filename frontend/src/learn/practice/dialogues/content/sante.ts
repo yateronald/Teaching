@@ -1,0 +1,128 @@
+// Santé: the pharmacy (A1), an appointment by phone (A2), a consultation (B1),
+// leaving hospital (B2), choosing a treatment (C1).
+import { dialogue } from '../authoring';
+
+export default {
+  'a-la-pharmacie': dialogue('a-la-pharmacie', {
+    setting: ['Dans une pharmacie, un client explique son problème à la pharmacienne.', 'In a pharmacy, a customer explains his problem to the pharmacist.'],
+    speakers: [['La pharmacienne', 'f'], ['Le client', 'm']],
+    lines: [
+      [0, 'Bonjour monsieur, je peux vous aider ?', 'Hello sir, can I help you?'],
+      [1, 'Bonjour. J’ai mal à la tête depuis ce matin.', 'Hello. I have had a headache since this morning.'],
+      [0, 'Vous avez de la fièvre ?', 'Do you have a temperature?'],
+      [1, 'Non, pas de fièvre. Juste mal à la tête.', 'No, no temperature. Just a headache.'],
+      [0, 'Alors je vous conseille du paracétamol. Un comprimé, trois fois par jour maximum.', 'Then I recommend paracetamol. One tablet, three times a day at most.'],
+      [1, 'D’accord. C’est combien ?', 'All right. How much is it?'],
+      [0, 'Trois euros vingt.', 'Three euros twenty.'],
+      [1, 'Voilà. Merci beaucoup, au revoir !', 'Here you are. Thank you very much, goodbye!'],
+    ],
+    questions: [
+      ['Pourquoi le client va-t-il à la pharmacie ?', ['Il a mal à la tête.', 'Il a de la fièvre.', 'Il a mal au ventre.'], 0, 1, ['« J’ai mal à la tête depuis ce matin. »', '« J’ai mal à la tête depuis ce matin »: a headache.']],
+      ['Le client a-t-il de la fièvre ?', ['Oui', 'Non', 'Il ne sait pas'], 1, 3, ['« Non, pas de fièvre. »', '« Non, pas de fièvre »: no temperature.']],
+      ['Combien de comprimés par jour au maximum ?', ['Un', 'Deux', 'Trois'], 2, 4, ['« Un comprimé, trois fois par jour maximum » : trois comprimés au plus.', 'One tablet, three times a day at most: three tablets.']],
+      ['Combien coûte le médicament ?', ['2,30 €', '3,20 €', '13,20 €'], 1, 6, ['« Trois euros vingt » = 3,20 €.', '« Trois euros vingt » = €3.20.']],
+    ],
+    phrases: [1, 4, 5],
+    tip: ['La pharmacie (la croix verte) donne des conseils gratuits. Pour qu’un médicament soit remboursé, il faut une ordonnance du médecin et votre carte Vitale.', 'Pharmacies (the green cross) give free advice. For a medicine to be reimbursed, you need a doctor’s prescription and your carte Vitale.'],
+  }),
+
+  'prendre-rendez-vous-chez-le-medecin': dialogue('prendre-rendez-vous-chez-le-medecin', {
+    setting: ['Au téléphone : un patient appelle le cabinet de son médecin.', 'On the phone: a patient calls his doctor’s surgery.'],
+    speakers: [['La secrétaire', 'f'], ['Le patient', 'm']],
+    lines: [
+      [0, 'Cabinet du docteur Lambert, bonjour.', 'Doctor Lambert’s surgery, hello.'],
+      [1, 'Bonjour madame, je voudrais prendre rendez-vous avec le docteur Lambert, s’il vous plaît.', 'Hello, I would like to make an appointment with Doctor Lambert, please.'],
+      [0, 'C’est pour une urgence ?', 'Is it urgent?'],
+      [1, 'Non, c’est pour renouveler une ordonnance.', 'No, it is to renew a prescription.'],
+      [0, 'Je peux vous proposer jeudi à quatorze heures trente, ou lundi à neuf heures.', 'I can offer you Thursday at 2:30 p.m., or Monday at 9 a.m.'],
+      [1, 'Jeudi, ce n’est pas possible, je travaille. Lundi à neuf heures, c’est parfait.', 'Thursday is not possible, I am working. Monday at nine is perfect.'],
+      [0, 'Très bien. Vous êtes déjà venu au cabinet ?', 'Very good. Have you been to the surgery before?'],
+      [1, 'Oui, je m’appelle Karim Haddad.', 'Yes, my name is Karim Haddad.'],
+      [0, 'C’est noté, monsieur Haddad : lundi à neuf heures. N’oubliez pas votre carte Vitale.', 'That is noted, Mr Haddad: Monday at nine. Do not forget your carte Vitale.'],
+    ],
+    questions: [
+      ['Pourquoi le patient appelle-t-il ?', ['Pour une urgence', 'Pour renouveler une ordonnance', 'Pour annuler un rendez-vous'], 1, 3, ['« C’est pour renouveler une ordonnance. »', 'To renew a prescription.']],
+      ['Pourquoi refuse-t-il le jeudi ?', ['Il travaille.', 'Il est malade.', 'Le cabinet est fermé.'], 0, 5, ['« Jeudi, ce n’est pas possible, je travaille. »', 'He works on Thursday.']],
+      ['Quand est le rendez-vous ?', ['Jeudi à 14 h 30', 'Lundi à 9 h', 'Lundi à 14 h 30'], 1, 8, ['« Lundi à neuf heures. »', 'Monday at nine.']],
+      ['Que doit-il apporter ?', ['Sa carte Vitale', 'Son passeport', 'Une photo'], 0, 8, ['« N’oubliez pas votre carte Vitale. »', 'His carte Vitale.']],
+    ],
+    phrases: [1, 4, 5],
+    tip: ['Beaucoup de cabinets prennent aussi les rendez-vous en ligne. Déclarez un « médecin traitant » à l’Assurance maladie : vos consultations seront mieux remboursées.', 'Many surgeries also take appointments online. Register a « médecin traitant » (regular doctor) with the health insurance: your visits will be better reimbursed.'],
+  }),
+
+  'la-consultation': dialogue('la-consultation', {
+    setting: ['Dans le cabinet du médecin : une patiente tousse depuis plusieurs jours.', 'In the doctor’s office: a patient has been coughing for several days.'],
+    speakers: [['Le médecin', 'm'], ['La patiente', 'f']],
+    lines: [
+      [0, 'Alors, qu’est-ce qui vous amène aujourd’hui ?', 'So, what brings you here today?'],
+      [1, 'Depuis une semaine, je tousse beaucoup, surtout la nuit, et je suis très fatiguée.', 'For a week I have been coughing a lot, especially at night, and I am very tired.'],
+      [0, 'Vous avez eu de la fièvre ?', 'Have you had a temperature?'],
+      [1, 'Un peu au début, trente-huit, mais plus maintenant.', 'A little at the start, thirty-eight, but not any more.'],
+      [0, 'Je vais vous écouter. Respirez profondément… Vos poumons sont normaux. C’est probablement une bronchite virale.', 'I am going to listen to your chest. Breathe deeply… Your lungs are normal. It is probably viral bronchitis.'],
+      [1, 'Il me faut des antibiotiques ?', 'Do I need antibiotics?'],
+      [0, 'Non, les antibiotiques ne servent à rien contre un virus. Je vous prescris un sirop pour la toux et du repos. Si vous avez encore de la fièvre dans trois jours, revenez me voir.', 'No, antibiotics are useless against a virus. I am prescribing a cough syrup and rest. If you still have a temperature in three days, come back and see me.'],
+      [1, 'Et pour le travail ? Je travaille dans une école.', 'And what about work? I work in a school.'],
+      [0, 'Je vous fais un arrêt de travail de trois jours. Pensez à l’envoyer sous quarante-huit heures.', 'I am giving you three days of sick leave. Remember to send it within forty-eight hours.'],
+    ],
+    questions: [
+      ['Depuis combien de temps la patiente tousse-t-elle ?', ['Depuis trois jours', 'Depuis une semaine', 'Depuis un mois'], 1, 1, ['« Depuis une semaine, je tousse beaucoup. »', 'For a week.']],
+      ['Que pense le médecin ?', ['C’est une bronchite virale.', 'C’est une grippe.', 'C’est une allergie.'], 0, 4, ['« C’est probablement une bronchite virale. »', 'Probably viral bronchitis.']],
+      ['Pourquoi ne prescrit-il pas d’antibiotiques ?', ['Ils sont trop chers.', 'Ils ne servent à rien contre un virus.', 'Elle y est allergique.'], 1, 6, ['« Les antibiotiques ne servent à rien contre un virus. »', 'Antibiotics do not work against viruses.']],
+      ['Quand doit-elle revenir ?', ['Si elle a encore de la fièvre dans trois jours', 'Dans une semaine', 'Jamais'], 0, 6, ['« Si vous avez encore de la fièvre dans trois jours, revenez me voir. »', 'Only if she still has a temperature in three days.']],
+      ['Que doit-elle faire de l’arrêt de travail ?', ['L’envoyer sous 48 heures', 'Le garder chez elle', 'Le donner au pharmacien'], 0, 8, ['« Pensez à l’envoyer sous quarante-huit heures. »', 'Send it within 48 hours.']],
+    ],
+    phrases: [1, 5, 8],
+    tip: ['Un arrêt de travail s’envoie sous 48 heures : à l’Assurance maladie (souvent fait en ligne par le médecin) et à l’employeur. « Les antibiotiques, c’est pas automatique » était un célèbre slogan de santé publique.', 'Sick notes must be sent within 48 hours: to the health insurance (often done online by the doctor) and to the employer. « Antibiotics are not automatic » was a famous public-health slogan.'],
+  }),
+
+  'la-sortie-de-l-hopital': dialogue('la-sortie-de-l-hopital', {
+    setting: ['À l’hôpital, après une opération du genou : l’infirmière explique au patient comment se passera son retour à la maison.', 'At the hospital, after knee surgery: the nurse explains to the patient how his return home will go.'],
+    speakers: [['L’infirmière', 'f'], ['Monsieur Garnier', 'm']],
+    lines: [
+      [0, 'Bonjour monsieur Garnier. Le chirurgien a signé votre sortie : vous pouvez rentrer chez vous cet après-midi.', 'Hello Mr Garnier. The surgeon has signed your discharge: you can go home this afternoon.'],
+      [1, 'Enfin ! Et qu’est-ce que je dois faire, une fois à la maison ?', 'At last! And what do I need to do once I am home?'],
+      [0, 'Pendant dix jours, vous aurez une piqûre d’anticoagulant chaque soir. Une infirmière passera chez vous, l’ordonnance est prête.', 'For ten days you will have an anticoagulant injection every evening. A nurse will come to your home; the prescription is ready.'],
+      [1, 'Dix jours… Et pour marcher ?', 'Ten days… And for walking?'],
+      [0, 'Avec les béquilles, pendant au moins trois semaines. Ne portez rien de lourd, et ne conduisez pas tant que le chirurgien ne vous l’a pas autorisé.', 'With crutches, for at least three weeks. Do not carry anything heavy, and do not drive until the surgeon allows it.'],
+      [1, 'D’accord. Et la douleur ?', 'All right. And the pain?'],
+      [0, 'Prenez les antidouleurs prescrits, seulement si vous avez mal. En revanche, si le genou devient rouge, chaud ou très gonflé, ou si vous avez de la fièvre, appelez le service tout de suite.', 'Take the prescribed painkillers, only if you are in pain. However, if the knee becomes red, hot or very swollen, or if you have a temperature, call the ward immediately.'],
+      [1, 'Et quand est-ce que je revois le chirurgien ?', 'And when do I see the surgeon again?'],
+      [0, 'Votre consultation de contrôle est le douze, à dix heures. Le kiné commence dès lundi : appelez-le aujourd’hui pour fixer les séances.', 'Your follow-up appointment is on the twelfth at ten. Physiotherapy starts on Monday: call the physio today to book the sessions.'],
+      [1, 'Très bien. Merci pour tout, vous avez été formidables.', 'Very good. Thank you for everything, you have been wonderful.'],
+    ],
+    questions: [
+      ['Que fera une infirmière à domicile ?', ['Une piqûre chaque soir pendant dix jours', 'Un pansement une fois par semaine', 'Une prise de sang demain'], 0, 2, ['« Pendant dix jours, vous aurez une piqûre d’anticoagulant chaque soir. »', 'An injection every evening for ten days.']],
+      ['Combien de temps utilisera-t-il des béquilles ?', ['Dix jours', 'Au moins trois semaines', 'Jusqu’au douze'], 1, 4, ['« Avec les béquilles, pendant au moins trois semaines. »', 'At least three weeks.']],
+      ['Quand pourra-t-il conduire ?', ['Quand le chirurgien l’autorisera', 'Après dix jours', 'Dès lundi'], 0, 4, ['« Ne conduisez pas tant que le chirurgien ne vous l’a pas autorisé. »', 'Only when the surgeon allows it.']],
+      ['Dans quel cas doit-il appeler le service ?', ['Si le genou devient rouge, chaud ou très gonflé', 'S’il a un peu mal', 'S’il oublie une piqûre'], 0, 6, ['Ce sont des signes d’alerte (infection, complication) : il faut appeler tout de suite.', 'These are warning signs: call immediately.']],
+      ['Que doit-il faire aujourd’hui ?', ['Appeler le kiné', 'Voir le chirurgien', 'Acheter des béquilles'], 0, 8, ['« Appelez-le aujourd’hui pour fixer les séances » : le kiné.', 'Call the physio today.']],
+    ],
+    phrases: [1, 6, 8],
+    tip: ['« Le kiné », c’est le masseur-kinésithérapeute, le spécialiste de la rééducation. Ses séances sont remboursées sur ordonnance.', '« Le kiné » is the physiotherapist. Sessions are reimbursed with a prescription.'],
+  }),
+
+  'choisir-un-traitement': dialogue('choisir-un-traitement', {
+    setting: ['Chez une spécialiste : un patient souffre du dos et discute des traitements possibles.', 'At a specialist’s: a patient with back pain discusses the possible treatments.'],
+    speakers: [['La médecin', 'f'], ['Le patient', 'm']],
+    lines: [
+      [0, 'Votre IRM confirme une hernie discale, mais elle est modérée. Je vais être honnête : plusieurs options sont raisonnables, et c’est à vous de choisir en connaissance de cause.', 'Your MRI confirms a slipped disc, but a moderate one. I will be honest: several options are reasonable, and it is up to you to choose with full knowledge.'],
+      [1, 'Je vous avoue que j’aimerais surtout éviter l’opération.', 'I admit that above all I would like to avoid surgery.'],
+      [0, 'C’est compréhensible, et dans votre cas, rien ne l’impose pour l’instant. La première option, c’est la rééducation : six à huit semaines de kiné, avec des exercices à faire chez vous. Dans la majorité des cas, la douleur diminue nettement.', 'That is understandable, and in your case nothing requires it for now. The first option is rehabilitation: six to eight weeks of physiotherapy, with exercises to do at home. In most cases the pain clearly decreases.'],
+      [1, 'Et si ça ne suffit pas ?', 'And if that is not enough?'],
+      [0, 'On peut envisager une infiltration, c’est-à-dire une injection de cortisone près de la racine du nerf. Ça soulage souvent pendant plusieurs mois, sans pour autant traiter la cause.', 'We can consider an injection of cortisone near the nerve root. It often relieves the pain for several months, without treating the cause.'],
+      [1, 'Donc la chirurgie, ce serait en dernier recours ?', 'So surgery would be a last resort?'],
+      [0, 'Exactement, sauf signe d’alerte : une perte de force dans la jambe ou des troubles urinaires imposeraient d’opérer rapidement. Dans ce cas, il faudrait aller aux urgences sans attendre.', 'Exactly, unless there is a warning sign: loss of strength in the leg or urinary problems would require operating quickly. In that case you would have to go to A&E straight away.'],
+      [1, 'D’accord. Alors je commence par la kiné, quitte à reconsidérer la question dans deux mois.', 'All right. Then I will start with physiotherapy, even if it means reconsidering in two months.'],
+      [0, 'C’est une décision tout à fait raisonnable. On se revoit dans huit semaines pour faire le point.', 'That is a perfectly reasonable decision. We will meet again in eight weeks to review.'],
+    ],
+    questions: [
+      ['Que dit la médecin de l’opération ?', ['Rien ne l’impose pour l’instant.', 'Elle est urgente.', 'Elle est impossible.'], 0, 2, ['« Dans votre cas, rien ne l’impose pour l’instant. »', 'Nothing requires it for now.']],
+      ['Quel est l’effet de l’infiltration ?', ['Elle soulage souvent plusieurs mois, sans traiter la cause.', 'Elle guérit définitivement la hernie.', 'Elle remplace la kiné.'], 0, 4, ['« Ça soulage souvent pendant plusieurs mois, sans pour autant traiter la cause. »', 'Relief for months, but not a cure.']],
+      ['Dans quel cas faudrait-il opérer rapidement ?', ['En cas de perte de force dans la jambe', 'Si la kiné est trop longue', 'Si le patient le demande'], 0, 6, ['Perte de force ou troubles urinaires : ce sont des signes d’alerte.', 'Leg weakness or urinary problems are warning signs.']],
+      ['Que signifie « quitte à reconsidérer la question » ?', ['Même si cela oblige à y repenser plus tard', 'Pour ne plus jamais en parler', 'Afin d’éviter la kiné'], 0, 7, ['« Quitte à » : en acceptant le risque de devoir le faire.', '« Quitte à »: accepting that one may have to.']],
+      ['Que décide le patient ?', ['Commencer par la kiné', 'Faire une infiltration tout de suite', 'Se faire opérer'], 0, 7, ['« Alors je commence par la kiné. »', 'He starts with physiotherapy.']],
+    ],
+    phrases: [0, 3, 7],
+    tip: ['« En connaissance de cause » : après avoir reçu toutes les informations. En France, le patient a le droit d’être informé des bénéfices et des risques de chaque traitement, et de refuser un soin.', '« En connaissance de cause »: with all the information. In France, patients have the right to be told the benefits and risks of each treatment, and to refuse care.'],
+  }),
+};

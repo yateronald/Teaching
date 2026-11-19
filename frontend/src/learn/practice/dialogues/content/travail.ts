@@ -1,0 +1,128 @@
+// Travail: the first day (A1), a schedule change (A2), a job interview (B1),
+// the annual review (B2), negotiating remote work (C1).
+import { dialogue } from '../authoring';
+
+export default {
+  'le-premier-jour': dialogue('le-premier-jour', {
+    setting: ['Premier jour dans une entreprise : la responsable accueille un nouvel employé.', 'First day at a company: the team manager welcomes a new employee.'],
+    speakers: [['Claire', 'f'], ['Thomas', 'm']],
+    lines: [
+      [0, 'Bonjour, vous êtes Thomas ? Bienvenue ! Je suis Claire, la responsable de l’équipe.', 'Hello, are you Thomas? Welcome! I am Claire, the team manager.'],
+      [1, 'Bonjour Claire, enchanté.', 'Hello Claire, nice to meet you.'],
+      [0, 'Voici votre bureau, à côté de la fenêtre. Votre ordinateur est prêt.', 'Here is your desk, next to the window. Your computer is ready.'],
+      [1, 'Merci. À quelle heure est la pause déjeuner ?', 'Thank you. What time is the lunch break?'],
+      [0, 'De midi à treize heures trente. La cantine est au rez-de-chaussée.', 'From noon to one thirty. The canteen is on the ground floor.'],
+      [1, 'Et le soir, je finis à quelle heure ?', 'And what time do I finish in the evening?'],
+      [0, 'À dix-sept heures trente. Le vendredi, à seize heures.', 'At five thirty. On Fridays, at four.'],
+      [1, 'Parfait. Merci beaucoup !', 'Perfect. Thank you very much!'],
+    ],
+    questions: [
+      ['Qui est Claire ?', ['La responsable de l’équipe', 'Une collègue', 'La directrice de l’entreprise'], 0, 0, ['« Je suis Claire, la responsable de l’équipe. »', 'The team manager.']],
+      ['Où est le bureau de Thomas ?', ['À côté de la fenêtre', 'À côté de la porte', 'Au rez-de-chaussée'], 0, 2, ['« Voici votre bureau, à côté de la fenêtre. »', 'Next to the window.']],
+      ['Où est la cantine ?', ['Au rez-de-chaussée', 'Au premier étage', 'Dehors'], 0, 4, ['« La cantine est au rez-de-chaussée. »', 'On the ground floor.']],
+      ['À quelle heure finit-il le vendredi ?', ['À 16 h', 'À 17 h 30', 'À midi'], 0, 6, ['« Le vendredi, à seize heures. »', 'At 4 p.m.']],
+    ],
+    phrases: [1, 3, 5],
+    tip: ['Au travail, on se vouvoie en général au début. Si un collègue propose « on peut se tutoyer ? », c’est un signe de sympathie.', 'At work people usually say « vous » at first. If a colleague suggests « on peut se tutoyer ? », it is a friendly sign.'],
+  }),
+
+  'un-changement-d-horaire': dialogue('un-changement-d-horaire', {
+    setting: ['Dans un magasin : le responsable demande à une employée de venir un samedi.', 'In a shop: the manager asks an employee to come in on a Saturday.'],
+    speakers: [['Le responsable', 'm'], ['Inès', 'f']],
+    lines: [
+      [0, 'Inès, vous avez deux minutes ? J’ai une question pour la semaine prochaine.', 'Inès, do you have two minutes? I have a question about next week.'],
+      [1, 'Oui, bien sûr.', 'Yes, of course.'],
+      [0, 'Julien est en congé, et j’ai besoin de quelqu’un le samedi matin. Vous pourriez venir de huit heures à midi ?', 'Julien is on leave and I need someone on Saturday morning. Could you come from eight to noon?'],
+      [1, 'Samedi… Je dois vérifier. Normalement, je ne travaille pas le week-end.', 'Saturday… I need to check. Normally I do not work at weekends.'],
+      [0, 'Je sais. Bien sûr, vous pourrez récupérer : vous prendrez le lundi suivant.', 'I know. Of course you can take the time back: you will have the following Monday off.'],
+      [1, 'D’accord, c’est possible. Mais je ne peux pas arriver avant huit heures et demie : il n’y a pas de bus plus tôt.', 'All right, it is possible. But I cannot arrive before half past eight: there is no earlier bus.'],
+      [0, 'Pas de problème : de huit heures et demie à midi et demi, alors.', 'No problem: from half past eight to half past twelve, then.'],
+      [1, 'Parfait. Vous me l’envoyez par e-mail pour confirmer ?', 'Perfect. Will you send it to me by e-mail to confirm?'],
+      [0, 'Oui, je vous l’écris tout de suite.', 'Yes, I will write it right away.'],
+    ],
+    questions: [
+      ['Pourquoi le responsable a-t-il besoin d’Inès ?', ['Julien est en congé.', 'Inès l’a demandé.', 'Il y a beaucoup de clients.'], 0, 2, ['« Julien est en congé, et j’ai besoin de quelqu’un. »', 'Julien is on leave.']],
+      ['Quand récupérera-t-elle ?', ['Le lundi suivant', 'Le vendredi', 'Elle sera payée en plus.'], 0, 4, ['« Vous prendrez le lundi suivant. »', 'The following Monday.']],
+      ['Pourquoi ne peut-elle pas arriver avant 8 h 30 ?', ['Il n’y a pas de bus plus tôt.', 'Elle se lève tard.', 'Le magasin est fermé.'], 0, 5, ['« Il n’y a pas de bus plus tôt. »', 'There is no earlier bus.']],
+      ['Quels seront ses horaires samedi ?', ['8 h 30 – 12 h 30', '8 h – 12 h', '9 h – 13 h'], 0, 6, ['« De huit heures et demie à midi et demi. »', '8:30 to 12:30.']],
+    ],
+    phrases: [2, 5, 7],
+    tip: ['« Récupérer » des heures, c’est prendre du temps libre en échange d’heures travaillées en plus. Demandez toujours une confirmation écrite d’un changement d’horaire.', '« Récupérer » means taking time off in exchange for extra hours. Always ask for written confirmation of a schedule change.'],
+  }),
+
+  'l-entretien-d-embauche': dialogue('l-entretien-d-embauche', {
+    setting: ['Un entretien d’embauche pour un poste de réceptionniste dans un hôtel.', 'A job interview for a receptionist position in a hotel.'],
+    speakers: [['La recruteuse', 'f'], ['Le candidat', 'm']],
+    lines: [
+      [0, 'Bonjour, asseyez-vous. Alors, pourquoi avez-vous postulé pour ce poste de réceptionniste ?', 'Hello, have a seat. So, why did you apply for this receptionist position?'],
+      [1, 'J’aime le contact avec les clients, et je parle trois langues : le français, l’anglais et l’arabe. Dans un hôtel international comme le vôtre, c’est un atout.', 'I like dealing with customers, and I speak three languages: French, English and Arabic. In an international hotel like yours, that is an asset.'],
+      [0, 'Vous avez déjà travaillé dans l’hôtellerie ?', 'Have you worked in the hotel business before?'],
+      [1, 'Oui, deux ans dans un hôtel à Marseille, d’abord au restaurant, puis à l’accueil.', 'Yes, two years in a hotel in Marseille, first in the restaurant, then at reception.'],
+      [0, 'Très bien. Le poste implique de travailler le week-end et parfois la nuit. Ça vous pose un problème ?', 'Very good. The job involves working weekends and sometimes nights. Is that a problem for you?'],
+      [1, 'Non, je suis disponible. Je préférerais simplement connaître mon planning deux semaines à l’avance.', 'No, I am available. I would simply prefer to know my schedule two weeks in advance.'],
+      [0, 'C’est le cas chez nous. Quelles sont, d’après vous, vos qualités et vos défauts ?', 'That is how we do it. What would you say are your strengths and weaknesses?'],
+      [1, 'Je suis organisé et je reste calme quand il y a du monde. Mon défaut, c’est que j’ai du mal à déléguer, mais j’y travaille.', 'I am organised and I stay calm when it is busy. My weakness is that I find it hard to delegate, but I am working on it.'],
+      [0, 'Merci. Nous vous donnerons une réponse d’ici la fin de la semaine.', 'Thank you. We will give you an answer by the end of the week.'],
+    ],
+    questions: [
+      ['Pourquoi a-t-il postulé ?', ['Il aime le contact avec les clients et parle trois langues.', 'Il habite à côté.', 'Le salaire est élevé.'], 0, 1, ['Le contact avec les clients et ses trois langues.', 'Customer contact and three languages.']],
+      ['Quelle est son expérience ?', ['Deux ans dans un hôtel à Marseille', 'Aucune', 'Cinq ans dans un restaurant'], 0, 3, ['« Deux ans dans un hôtel à Marseille. »', 'Two years in a hotel in Marseille.']],
+      ['Que demande-t-il ?', ['Connaître son planning deux semaines à l’avance', 'Ne pas travailler la nuit', 'Avoir le week-end libre'], 0, 5, ['« Je préférerais connaître mon planning deux semaines à l’avance. »', 'His schedule two weeks ahead.']],
+      ['Quel est son défaut ?', ['Il a du mal à déléguer.', 'Il est souvent en retard.', 'Il parle trop.'], 0, 7, ['« J’ai du mal à déléguer, mais j’y travaille. »', 'He finds it hard to delegate.']],
+      ['Quand aura-t-il la réponse ?', ['D’ici la fin de la semaine', 'Dans un mois', 'Tout de suite'], 0, 8, ['« D’ici la fin de la semaine. »', 'By the end of the week.']],
+    ],
+    phrases: [1, 5, 7],
+    tip: ['En entretien, on vouvoie toujours le recruteur. Préparez la question « Quelles sont vos qualités et vos défauts ? » : elle revient presque toujours.', 'In an interview always use « vous ». Prepare the « strengths and weaknesses » question: it almost always comes up.'],
+  }),
+
+  'l-entretien-annuel': dialogue('l-entretien-annuel', {
+    setting: ['L’entretien annuel : une employée et son responsable font le bilan et parlent de l’avenir.', 'The annual review: an employee and her manager look back on the year and discuss the future.'],
+    speakers: [['Le responsable', 'm'], ['L’employée', 'f']],
+    lines: [
+      [0, 'Bon, faisons le bilan de l’année. Globalement, vos objectifs sont atteints, et l’équipe apprécie beaucoup votre travail.', 'Right, let us review the year. Overall your objectives have been met, and the team really appreciates your work.'],
+      [1, 'Merci. Justement, j’aimerais aborder la question de mon évolution. Cela fait trois ans que je suis au même poste.', 'Thank you. In fact, I would like to discuss my career development. I have been in the same position for three years.'],
+      [0, 'Je comprends. À quoi pensez-vous concrètement ?', 'I understand. What exactly do you have in mind?'],
+      [1, 'Le poste de cheffe de projet se libère en mars. J’ai déjà géré deux projets cette année, même si ce n’était pas officiel.', 'The project manager position becomes vacant in March. I already managed two projects this year, even if it was not official.'],
+      [0, 'C’est vrai, et vous l’avez très bien fait. En revanche, il vous manque une expérience de gestion budgétaire.', 'That is true, and you did it very well. However, you lack experience in budget management.'],
+      [1, 'Dans ce cas, est-ce que l’entreprise pourrait financer une formation ? Mon compte personnel de formation ne suffira pas.', 'In that case, could the company pay for a training course? My personal training account will not be enough.'],
+      [0, 'Ça me paraît envisageable. Je vais en parler aux ressources humaines, et nous pourrions prévoir une formation au premier trimestre.', 'That seems possible. I will talk to HR, and we could plan a course in the first quarter.'],
+      [1, 'Et pour le poste en mars ?', 'And what about the position in March?'],
+      [0, 'Je ne peux rien vous promettre, la décision ne dépend pas que de moi. Mais je soutiendrai votre candidature.', 'I cannot promise you anything, the decision is not mine alone. But I will support your application.'],
+    ],
+    questions: [
+      ['Quel est le bilan de l’année ?', ['Ses objectifs sont atteints.', 'Ses objectifs ne sont pas atteints.', 'Il n’y a pas de bilan.'], 0, 0, ['« Globalement, vos objectifs sont atteints. »', 'Objectives met.']],
+      ['Que souhaite l’employée ?', ['Devenir cheffe de projet', 'Changer d’équipe', 'Travailler moins'], 0, 3, ['Le poste de cheffe de projet qui se libère en mars.', 'The project manager position.']],
+      ['Que lui manque-t-il ?', ['Une expérience de gestion budgétaire', 'Un diplôme', 'De l’ancienneté'], 0, 4, ['« Il vous manque une expérience de gestion budgétaire. »', 'Budget management experience.']],
+      ['Que demande-t-elle ?', ['Que l’entreprise finance une formation', 'Une augmentation immédiate', 'Un congé'], 0, 5, ['« Est-ce que l’entreprise pourrait financer une formation ? »', 'Company-funded training.']],
+      ['Que promet le responsable pour le poste ?', ['Rien, mais il soutiendra sa candidature', 'Il lui promet le poste.', 'Il refuse sa candidature.'], 0, 8, ['« Je ne peux rien vous promettre… mais je soutiendrai votre candidature. »', 'No promise, but his support.']],
+    ],
+    phrases: [1, 5, 8],
+    tip: ['Le CPF (compte personnel de formation) permet à chaque salarié de financer des formations. L’entretien professionnel, au moins tous les deux ans, est le bon moment pour parler de son évolution.', 'The CPF (personal training account) lets every employee fund training. The career review, at least every two years, is the right time to discuss development.'],
+  }),
+
+  'negocier-le-teletravail': dialogue('negocier-le-teletravail', {
+    setting: ['Une salariée demande à son directeur de passer à deux jours de télétravail.', 'An employee asks her director to move to two days of remote work.'],
+    speakers: [['La salariée', 'f'], ['Le directeur', 'm']],
+    lines: [
+      [0, 'Merci de me recevoir. Je voulais vous présenter une demande : passer à deux jours de télétravail par semaine.', 'Thank you for seeing me. I wanted to put a request to you: moving to two days of remote work a week.'],
+      [1, 'Je vous écoute, mais je vous préviens : la direction est assez réservée sur le sujet depuis la fusion.', 'I am listening, but I warn you: management has been rather cautious on the subject since the merger.'],
+      [0, 'Je le sais. C’est pourquoi j’ai préparé des éléments concrets. Depuis six mois, je télétravaille un jour par semaine, et mes délais de livraison ont plutôt diminué.', 'I know. That is why I have prepared concrete evidence. For six months I have worked from home one day a week, and my delivery times have actually gone down.'],
+      [1, 'Je ne le conteste pas. Ce qui m’inquiète, c’est la cohésion de l’équipe. Si chacun choisit ses jours, on ne se croisera plus.', 'I do not dispute that. What worries me is team cohesion. If everyone chooses their days, we will never see each other.'],
+      [0, 'Justement, je propose des jours fixes, le mardi et le jeudi, en dehors des réunions d’équipe du lundi. Et je reste joignable sur les horaires habituels.', 'Precisely, I suggest fixed days, Tuesday and Thursday, outside the Monday team meetings. And I remain reachable during the usual hours.'],
+      [1, 'Admettons. Mais si je vous l’accorde, tous les autres vont demander la même chose.', 'Let us say so. But if I grant it to you, everyone else will ask for the same thing.'],
+      [0, 'Ce n’est pas forcément un problème, à condition d’établir des règles communes. On pourrait faire un essai de trois mois, puis un bilan.', 'That is not necessarily a problem, provided we set common rules. We could run a three-month trial, then review it.'],
+      [1, 'Un essai de trois mois… Ça me paraît défendable devant la direction, à condition que l’équipe soit consultée.', 'A three-month trial… That seems defensible to management, provided the team is consulted.'],
+      [0, 'Bien entendu. Je peux préparer une proposition écrite d’ici la fin de la semaine.', 'Of course. I can prepare a written proposal by the end of the week.'],
+    ],
+    questions: [
+      ['Que demande la salariée ?', ['Deux jours de télétravail par semaine', 'Un temps partiel', 'Une augmentation'], 0, 0, ['« Passer à deux jours de télétravail par semaine. »', 'Two days of remote work.']],
+      ['Quel est son argument principal ?', ['Ses délais de livraison ont plutôt diminué.', 'Elle habite loin.', 'Ses collègues le font déjà.'], 0, 2, ['Des éléments concrets : ses délais ont diminué.', 'Concrete evidence: shorter delivery times.']],
+      ['Qu’est-ce qui inquiète le directeur ?', ['La cohésion de l’équipe', 'Le coût', 'La sécurité informatique'], 0, 3, ['« Ce qui m’inquiète, c’est la cohésion de l’équipe. »', 'Team cohesion.']],
+      ['Que propose-t-elle ?', ['Des jours fixes, le mardi et le jeudi', 'Des jours choisis chaque semaine', 'Le lundi et le vendredi'], 0, 4, ['Des jours fixes, en dehors des réunions du lundi.', 'Fixed days, outside Monday meetings.']],
+      ['Que veut dire « Admettons » ?', ['Il accepte l’argument sans être totalement convaincu.', 'Il refuse.', 'Il est enthousiaste.'], 0, 5, ['« Admettons » : je l’accepte pour l’instant, mais j’ai une objection.', 'He grants the point, with reservations.']],
+      ['À quelle condition le directeur accepte-t-il l’essai ?', ['Que l’équipe soit consultée', 'Qu’elle travaille plus', 'Qu’elle déménage'], 0, 7, ['« À condition que l’équipe soit consultée. »', 'If the team is consulted.']],
+    ],
+    phrases: [2, 4, 6],
+    tip: ['En France, le télétravail se met en place par accord collectif, par une charte ou par simple accord entre l’employeur et le salarié. Quand le poste le permet, un refus de l’employeur doit être motivé.', 'In France, remote work is set up by collective agreement, a charter or a simple agreement. When the job allows it, an employer’s refusal must be justified.'],
+  }),
+};

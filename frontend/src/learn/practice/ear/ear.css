@@ -1,0 +1,146 @@
+/* ── Ear training: the track on the listening library (EarSection) ── */
+.ear-track { padding-block: clamp(30px, 4.5vw, 56px) 8px; }
+.ear-track-k { color: var(--blue); font-size: 12.5px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+.ear-track h2 { margin-top: 8px; font-size: clamp(24px, 2.8vw, 32px); line-height: 1.15; letter-spacing: -.025em; }
+.ear-track h2 em { font-style: normal; color: var(--blue); }
+.ear-track-intro { max-width: 760px; margin-top: 10px; color: var(--text); line-height: 1.65; }
+.ear-track-method { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 20px 0 18px; padding: 0; list-style: none; }
+.ear-track-method li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; align-items: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.ear-track-method li > span { grid-row: span 2; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #e8eef7; color: var(--blue); font-size: 13px; font-weight: 750; }
+.ear-track-method b { color: var(--ink); font-size: 14.5px; }
+.ear-track-method small { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.ear-track-levels { margin-bottom: 14px; }
+.ear-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin: 0; padding: 0; list-style: none; }
+.ear-cards > li { min-width: 0; }
+@media (min-width: 640px) { .ear-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1000px) { .ear-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.ear-card { display: flex; flex-direction: column; height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: #fff; color: var(--ink); box-shadow: var(--shadow-sm); transition: border-color .2s, box-shadow .2s, transform .2s; }
+.ear-card:hover { border-color: var(--blue-line); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.ear-card:focus-visible { outline: 3px solid rgba(24, 57, 97, .35); outline-offset: 3px; }
+/* The phenomenon in large type, over a quiet sound-wave pattern. */
+.ear-card-visual { position: relative; display: grid; place-items: center; aspect-ratio: 2.4 / 1; padding: 18px; overflow: hidden;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 3px, transparent 3px 11px) bottom / 100% 38% no-repeat,
+    radial-gradient(420px 200px at 100% 0%, rgba(59, 111, 216, .45), transparent 60%),
+    var(--navy); }
+.ear-card-visual .lx-lvl { position: absolute; top: 10px; left: 10px; }
+.ear-card-sample { color: #fff; font-size: clamp(24px, 2.6vw, 31px); font-weight: 750; letter-spacing: -.02em; text-align: center; line-height: 1.15; text-shadow: 0 2px 14px rgba(0, 0, 0, .25); }
+.ear-card-body { display: flex; flex: 1; flex-direction: column; padding: 14px 16px 15px; }
+.ear-card-tag { color: var(--blue); font-size: 12px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+.ear-card h3 { margin-top: 5px; font-size: clamp(17px, 1.6vw, 19px); line-height: 1.25; letter-spacing: -.02em; }
+.ear-card-sum { margin-top: 6px; color: var(--muted); font-size: 14.5px; line-height: 1.5; }
+.ear-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; margin-top: auto; padding-top: 12px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.ear-card-go { display: inline-flex; align-items: center; gap: 6px; color: var(--blue); font-weight: 700; }
+.ear-card:hover .ear-card-go { text-decoration: underline; text-underline-offset: 3px; }
+.ear-card-best { display: inline-flex; align-items: center; gap: 6px; color: #23694a; font-weight: 700; }
+@media (max-width: 900px) { .ear-track-method { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .ear-track-method { grid-template-columns: minmax(0, 1fr); } }
+
+/* ── A course page (EarCoursePage) ── */
+.ear-page { padding: 22px 0 clamp(42px, 7vw, 90px); background: var(--paper); }
+.ear-shell { max-width: 870px; }
+.ear-back { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 18px; color: var(--blue); font-size: .9rem; font-weight: 700; }
+.ear-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 30%); gap: 18px; align-items: center; }
+.ear-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--muted); font-size: .86rem; font-weight: 650; }
+.ear-head h1 { margin: 8px 0 8px; font-size: clamp(1.9rem, 3.6vw, 2.75rem); line-height: 1.1; letter-spacing: -.035em; }
+.ear-head-copy > p:not(.ear-tags):not(.ear-best) { color: var(--text); line-height: 1.6; }
+.ear-best { display: inline-block; margin-top: 8px; padding: 2px 10px; border: 1px solid #cfe5d8; border-radius: 999px; background: #f5faf7; color: #23694a; font-size: .8rem; font-weight: 700; }
+.ear-head-sample { display: grid; place-items: center; aspect-ratio: 16 / 9; padding: 14px; border-radius: 16px;
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .07) 0 3px, transparent 3px 11px) bottom / 100% 38% no-repeat, var(--navy); }
+.ear-head-sample span { color: #fff; font-size: clamp(22px, 2.6vw, 30px); font-weight: 750; letter-spacing: -.02em; text-align: center; }
+.ear-method { display: flex; flex-wrap: wrap; gap: 7px; margin: 18px 0 16px; padding: 0; list-style: none; }
+.ear-method li { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 5px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); font-size: .85rem; }
+.ear-method li span { display: inline-grid; place-items: center; width: 23px; height: 23px; border-radius: 50%; background: var(--paper-2); color: var(--blue); font-weight: 750; font-size: .78rem; }
+.ear-method li.is-on { border-color: var(--blue); color: var(--ink); font-weight: 700; }
+.ear-method li.is-on span { background: var(--blue); color: #fff; }
+.ear-panel { padding: clamp(16px, 2.6vw, 26px); border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); }
+.ear-panel h2 { font-size: clamp(1.2rem, 2.2vw, 1.55rem); line-height: 1.25; letter-spacing: -.02em; }
+.ear-panel h2:focus { outline: none; }
+.ear-kicker { margin-bottom: 6px; color: var(--blue); font-size: .78rem; font-weight: 750; letter-spacing: .06em; text-transform: uppercase; }
+.ear-hint { margin-top: 5px; color: var(--muted); font-size: .9rem; }
+.ear-rule { margin-top: 10px; color: var(--text); line-height: 1.7; }
+.ear-rule p + p { margin-top: 10px; }
+.ear-goal { margin-top: 12px; padding: 10px 13px; border-radius: 10px; background: #f4f7fb; color: var(--text); font-size: .95rem; }
+.ear-ex-title { margin-top: 20px; font-size: 1rem; }
+.ear-examples { display: grid; gap: 10px; margin: 10px 0 0; padding: 0; list-style: none; }
+.ear-examples li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 13px; background: #fbfcfd; }
+.ear-ex-show { font-size: 1.12rem; font-weight: 650; color: var(--ink); }
+.ear-ex-note { grid-column: 1; color: var(--muted); font-size: .88rem; }
+.ear-ex-play { grid-column: 2; grid-row: 1 / span 2; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.ear-legend { margin: 12px 0 18px; color: var(--muted); font-size: .82rem; }
+/* The marks of a transcript. */
+.ear-key { padding: 0 2px; border-radius: 4px; background: #fff0c3; color: inherit; font-weight: 700; }
+.ear-drop { color: #a3acbd; text-decoration: line-through; text-decoration-color: #c5ccd8; }
+.ear-link { color: var(--red); font-weight: 800; }
+/* Play buttons. */
+.ear-play { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--blue); font: inherit; font-size: .84rem; font-weight: 700; cursor: pointer; transition: background .2s, border-color .2s; }
+.ear-play:hover { background: #eef3fa; }
+.ear-play.is-on { border-color: var(--blue); background: #eef3fa; }
+.ear-play.is-big { min-height: 52px; padding: 8px 22px 8px 8px; border: 0; background: var(--navy); color: #fff; font-size: .95rem; box-shadow: 0 6px 14px -8px rgba(14, 31, 77, .8); }
+.ear-play.is-big .anticon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: rgba(255, 255, 255, .14); font-size: 17px; }
+.ear-play.is-big:hover, .ear-play.is-big.is-on { background: var(--blue); }
+.ear-play:focus-visible { outline: 3px solid rgba(24, 57, 97, .35); outline-offset: 2px; }
+/* One exercise. */
+.ear-ex-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ear-count { color: var(--muted); font-size: .82rem; font-weight: 650; }
+.ear-bar { display: block; width: 100%; height: 6px; margin: 4px 0 14px; accent-color: var(--blue); }
+.ear-listen { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0 16px; }
+.ear-plays { color: var(--muted); font-size: .82rem; }
+.ear-options { display: grid; gap: 8px; }
+.ear-option { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 50px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; color: var(--ink); font: inherit; font-size: 1.02rem; text-align: start; cursor: pointer; transition: border-color .15s, background .15s; }
+.ear-option:hover:not(:disabled) { border-color: var(--blue); background: #f6f9fd; }
+.ear-option.is-on { border-color: var(--blue); background: #eef3fa; box-shadow: inset 0 0 0 1px var(--blue); }
+.ear-option:disabled { cursor: default; }
+.ear-option.is-right { border-color: #9fcfb3; background: #f3faf6; }
+.ear-option.is-wrong { border-color: #e7b9c0; background: #fdf6f7; }
+.ear-option.is-off { opacity: .6; }
+.ear-option-k { display: inline-grid; place-items: center; flex: 0 0 26px; height: 26px; border-radius: 50%; background: #e8eef7; color: var(--blue); font-size: .78rem; font-weight: 750; }
+.ear-option-mark { margin-inline-start: auto; font-size: .95rem; }
+.ear-option.is-right .ear-option-mark { color: #2f8a5e; }
+.ear-option.is-wrong .ear-option-mark { color: #b23a49; }
+.ear-gap label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfd; color: var(--ink); font-size: 1.1rem; line-height: 1.6; }
+.ear-gap input { min-width: 0; width: 11ch; padding: 4px 10px; border: 0; border-bottom: 2px solid var(--blue); border-radius: 6px 6px 0 0; background: #eef3fa; color: var(--ink); font: inherit; font-weight: 700; }
+.ear-gap input:focus { outline: 3px solid rgba(24, 57, 97, .25); outline-offset: 2px; }
+.ear-gap input.is-right { border-bottom-color: #2f8a5e; background: #f3faf6; }
+.ear-gap input.is-wrong { border-bottom-color: #b23a49; background: #fdf6f7; }
+.ear-check { margin-top: 16px; }
+.ear-check:disabled { opacity: .5; cursor: not-allowed; }
+.ear-feedback { display: grid; gap: 10px; margin-top: 16px; }
+.ear-verdict { display: inline-flex; align-items: center; justify-self: start; gap: 6px; padding: 3px 11px; border: 1px solid; border-radius: 999px; font-size: .84rem; font-weight: 700; }
+.ear-verdict.is-right { border-color: #cfe5d8; color: #23694a; background: #f5faf7; }
+.ear-verdict.is-wrong { border-color: #efd3d7; color: #a33241; background: #fdf7f8; }
+.ear-expected { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--text); font-size: .95rem; }
+.ear-expected s { color: #6e5559; }
+.ear-said { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #f7f9fc; }
+.ear-said-k { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.ear-said-t { margin-top: 4px; color: var(--ink); font-size: 1.08rem; line-height: 1.65; }
+.ear-why { color: var(--muted); line-height: 1.6; }
+.ear-why strong { margin-inline-end: 4px; color: var(--ink); }
+.ear-feedback .lp-btn { justify-self: start; }
+/* The end. */
+.ear-results h2:focus { outline: none; }
+.ear-steps-score { display: grid; gap: 8px; margin: 14px 0 16px; padding: 0; list-style: none; }
+.ear-steps-score li { display: grid; grid-template-columns: 110px minmax(0, 1fr) 44px; align-items: center; gap: 12px; color: var(--text); font-size: .92rem; }
+.ear-steps-bar { height: 8px; border-radius: 999px; background: var(--paper-2); overflow: hidden; }
+.ear-steps-bar i { display: block; height: 100%; border-radius: 999px; background: var(--blue); }
+.ear-steps-score b { text-align: end; }
+.ear-remember { padding: 13px 15px; border: 1px solid #d9e3f1; border-radius: 12px; background: #f4f7fb; }
+.ear-remember p + p { margin-top: 4px; color: var(--ink); line-height: 1.6; }
+.ear-review { margin-top: 14px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; }
+.ear-review summary { color: var(--blue); font-weight: 700; cursor: pointer; }
+.ear-review ol { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.ear-review li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line-soft, var(--line)); }
+.ear-review-k { font-size: .9rem; }
+.ear-review li.is-right .ear-review-k { color: #2f8a5e; }
+.ear-review li.is-wrong .ear-review-k { color: #b23a49; }
+.ear-after { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.ear-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 640px) {
+  .ear-head { grid-template-columns: minmax(0, 1fr); }
+  .ear-head-sample { order: -1; aspect-ratio: 3 / 1; max-height: 120px; }
+  .ear-examples li { grid-template-columns: minmax(0, 1fr); }
+  .ear-ex-play { grid-column: 1; grid-row: auto; justify-content: flex-start; }
+  .ear-steps-score li { grid-template-columns: 92px minmax(0, 1fr) 40px; }
+  .ear-feedback .lp-btn, .ear-check { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .ear-card, .ear-card:hover, .ear-option, .ear-play { transition: none; transform: none; } }

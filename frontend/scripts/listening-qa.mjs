@@ -65,7 +65,13 @@ function compare(script, heard) {
 }
 
 const vite = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false }, appType: 'custom' });
-const { LISTENING } = await vite.ssrLoadModule('/src/learn/practice/listening/catalog.ts');
+const { LISTENING: CATALOG } = await vite.ssrLoadModule('/src/learn/practice/listening/catalog.ts');
+// The advanced documents are only stubs in the catalogue: their content comes from c1.ts and c2.ts.
+const ADVANCED = [
+  ...(await vite.ssrLoadModule('/src/learn/practice/listening/c1.ts')).c1Listening,
+  ...(await vite.ssrLoadModule('/src/learn/practice/listening/c2.ts')).c2Listening,
+];
+const LISTENING = CATALOG.map(e => (e.lazy ? ADVANCED.find(x => x.id === e.id) : e)).filter(Boolean);
 const { LISTENING_VOICES, passageAudio, questionAudio } = await vite.ssrLoadModule('/src/learn/practice/listening/types.ts');
 const { audioKey, normalizeForAudio } = await vite.ssrLoadModule('/src/learn/audio.ts');
 await vite.close();

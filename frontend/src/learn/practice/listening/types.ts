@@ -5,7 +5,7 @@ export const LISTENING_VOICES: ListeningVoice[] = ['f2', 'm2'];
 
 export interface ListeningExercise {
   id: string;
-  level: Extract<Level, 'A1' | 'A2' | 'B1' | 'B2'>;
+  level: Extract<Level, 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2'>;
   title: string;
   format: T;
   summary: T;
@@ -20,6 +20,13 @@ export interface ListeningExercise {
     cue: number;
     explanation: T;
   }[];
+  /** Advanced documents (C1, C2): what each segment does in the argument, shown with the transcript. */
+  outline?: T[];
+  /** Advanced documents: expressions worth keeping, with their meaning. */
+  expressions?: { fr: string; meaning: T }[];
+  /** A library entry whose content is downloaded on demand (advanced.ts): its number of questions. */
+  count?: number;
+  lazy?: boolean;
 }
 
 export const passageAudio = (e: ListeningExercise) => e.segments.join(' ');

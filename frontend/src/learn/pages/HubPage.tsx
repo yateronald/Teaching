@@ -13,7 +13,7 @@ import { LEVEL_COPY, coursesAtLevel, levelPath } from '../levels';
 import { G } from '../games/copy';
 import { GAMES, gamesPath } from '../games/meta';
 import { GameCard } from './GamesHubPage';
-import { ReadingPromo } from '../practice/parts';
+import { PracticePromo } from '../practice/parts';
 import '../games/games.css';
 import { CourseCard, LearnShell, useDemo, useMounted } from '../shell';
 import { LEVELS, tx, type Lang, type Level } from '../types';
@@ -138,9 +138,9 @@ export default function HubPage({ lang }: { lang: Lang }) {
         </div>
       </section>
 
-      {/* ── Reading texts with audio ── */}
+      {/* ── The practice space: reading, listening, and the skills to come ── */}
       <section className="rx-promo-sec">
-        <div className="lp-wrap"><ReadingPromo lang={lang} /></div>
+        <div className="lp-wrap"><PracticePromo lang={lang} /></div>
       </section>
 
       {/* ── Games ── */}

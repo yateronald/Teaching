@@ -391,3 +391,59 @@
   .rx-card { transition: none; }
   .rx-card:hover { transform: none; }
 }
+
+/* ── The practice space: its block on the free-courses home (PracticePromo) ── */
+.px-promo-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.px-promo-list a, .px-promo-list .is-soon { display: flex; align-items: center; gap: 14px; padding: 11px 16px 11px 11px; border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 16px; background: rgba(255, 255, 255, 0.06); color: #fff; transition: background 0.2s, transform 0.2s; }
+.px-promo-list a:hover { background: rgba(255, 255, 255, 0.12); transform: translateX(4px); }
+.px-promo-list a:focus-visible { outline: 3px solid #a9c4ff; outline-offset: 2px; }
+.px-promo-list .is-soon { color: #c9d3ef; background: rgba(255, 255, 255, 0.03); border-style: dashed; cursor: default; }
+.px-promo-ico { display: grid; place-items: center; flex: 0 0 42px; height: 42px; border-radius: 12px; background: rgba(143, 178, 255, 0.16); color: #a9c4ff; font-size: 19px; }
+.px-promo-list .is-soon .px-promo-ico { background: rgba(255, 255, 255, 0.06); color: #8c9ac4; }
+.px-promo-txt { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
+.px-promo-txt b { font-size: 16px; letter-spacing: -0.01em; }
+.px-promo-txt small { font-size: 12.5px; color: #b9c6ea; }
+.px-promo-go { color: #8fb2ff; font-size: 16px; }
+.px-promo-soon { flex: 0 0 auto; padding: 2px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); color: #dbe3f7; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) { .px-promo-list a, .px-promo-list a:hover { transition: none; transform: none; } }
+
+/* ── The practice home (/learn/practice/, PracticeHubPage) ── */
+.px-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 0; padding: 0; list-style: none; color: var(--text); font-size: 14.5px; font-weight: 600; }
+.px-facts li { display: inline-flex; align-items: center; gap: 7px; }
+.px-facts .anticon { color: #2f8a5e; font-size: 13px; }
+.px-skills-head { max-width: 640px; margin-bottom: 22px; }
+.px-skills-head h2 { font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -0.02em; }
+.px-skills-head p { margin-top: 6px; color: var(--muted); line-height: 1.6; }
+.px-skills { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin: 0; padding: 0; list-style: none; }
+.px-skills > li { min-width: 0; }
+@media (min-width: 640px) { .px-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Wide screens: the open skills first, larger; the ones to come below. */
+@media (min-width: 1000px) {
+  .px-skills { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .px-skills > li { grid-column: span 2; }
+  .px-skills > li:has(.px-skill:not(.is-soon)) { grid-column: span 3; }
+}
+.px-skill { position: relative; display: flex; flex-direction: column; height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: #fff; box-shadow: var(--shadow-sm); transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s; }
+.px-skill:not(.is-soon):hover { border-color: var(--blue-line); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.px-skill-img { position: relative; aspect-ratio: 2.1 / 1; overflow: hidden; background: var(--paper-2); }
+.px-skill-img img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.px-skill.is-soon .px-skill-img img { filter: saturate(0.55); opacity: 0.8; }
+.px-skill-soon { position: absolute; top: 10px; left: 10px; padding: 3px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.94); color: var(--ink); font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; box-shadow: 0 1px 5px #14284d2c; }
+.px-skill-body { display: flex; flex: 1; flex-direction: column; padding: 15px 17px 16px; }
+.px-skill-k { display: flex; align-items: center; gap: 8px; color: var(--blue); font-size: 12.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.px-skill.is-soon .px-skill-k { color: var(--muted); }
+.px-skill-ico { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #e8eef7; font-size: 14px; }
+.px-skill.is-soon .px-skill-ico { background: var(--paper-2); }
+.px-skill h3 { margin-top: 9px; font-size: clamp(19px, 1.9vw, 22px); letter-spacing: -0.02em; }
+.px-skill h3 a { color: inherit; }
+.px-skill-desc { margin-top: 6px; color: var(--text); font-size: 15px; line-height: 1.6; }
+.px-skill-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: auto; padding-top: 14px; }
+.px-skill-meta { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13.5px; font-weight: 600; }
+.px-skill-go { display: inline-flex; align-items: center; gap: 7px; color: var(--blue); font-size: 14.5px; font-weight: 700; }
+.px-skill:hover .px-skill-go { text-decoration: underline; text-underline-offset: 3px; }
+.px-soon-note { display: flex; align-items: baseline; gap: 8px; margin-top: 16px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.px-start { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: clamp(20px, 4vw, 48px); align-items: center; }
+.px-start h2 { font-size: clamp(22px, 2.4vw, 28px); letter-spacing: -0.02em; }
+.px-start p { margin: 8px 0 18px; color: var(--text); line-height: 1.6; max-width: 560px; }
+@media (max-width: 800px) { .px-start { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .px-skill, .px-skill:hover { transition: none; transform: none; } }

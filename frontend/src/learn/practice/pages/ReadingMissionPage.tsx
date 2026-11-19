@@ -6,7 +6,7 @@ import { imageUrl } from '../../categories';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang, type Voice } from '../../types';
-import { readingPath } from '../meta';
+import { practicePath, readingPath } from '../meta';
 import { missionAudio, missionCoverKey, missionPath, missionVoice, type ReadingMission } from '../missions';
 import '../mission.css';
 
@@ -76,7 +76,7 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
     }}>
       <div className="rxm-page">
         <div className="lp-wrap">
-          <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [c.library, readingPath(lang)], [tx(mission.title, lang)]]} />
+          <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [lang === 'fr' ? 'Pratique' : 'Practice', practicePath(lang)], [c.library, readingPath(lang)], [tx(mission.title, lang)]]} />
           <header className="rxm-hero">
             <Link to={readingPath(lang)} className="rxm-back"><ArrowLeftOutlined aria-hidden /> {c.back}</Link>
             <div className="rxm-hero-grid">

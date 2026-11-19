@@ -1,0 +1,128 @@
+// Logement: viewing a flat (A1), calling the landlord (A2), the move-in inspection (B1),
+// the deposit dispute (B2), the owners' meeting (C1).
+import { dialogue } from '../authoring';
+
+export default {
+  'visiter-un-appartement': dialogue('visiter-un-appartement', {
+    setting: ['Un homme visite un appartement à louer avec une agente immobilière.', 'A man views a flat to rent with an estate agent.'],
+    speakers: [['L’agente', 'f'], ['Le visiteur', 'm']],
+    lines: [
+      [0, 'Bonjour, vous venez pour l’appartement ?', 'Hello, are you here for the flat?'],
+      [1, 'Oui, bonjour. Il est à quel étage ?', 'Yes, hello. Which floor is it on?'],
+      [0, 'Au troisième, avec un ascenseur. Entrez : voici le salon et la cuisine.', 'On the third, with a lift. Come in: here are the living room and the kitchen.'],
+      [1, 'C’est très clair ! Il y a combien de chambres ?', 'It is very bright! How many bedrooms are there?'],
+      [0, 'Deux chambres et une salle de bains.', 'Two bedrooms and a bathroom.'],
+      [1, 'Et le loyer, c’est combien ?', 'And how much is the rent?'],
+      [0, 'Huit cent cinquante euros par mois, charges comprises.', 'Eight hundred and fifty euros a month, charges included.'],
+      [1, 'D’accord. Je peux visiter les chambres ?', 'All right. Can I see the bedrooms?'],
+      [0, 'Bien sûr, suivez-moi.', 'Of course, follow me.'],
+    ],
+    questions: [
+      ['À quel étage est l’appartement ?', ['Au premier', 'Au troisième', 'Au cinquième'], 1, 2, ['« Au troisième, avec un ascenseur. »', 'On the third floor.']],
+      ['Y a-t-il un ascenseur ?', ['Oui', 'Non'], 0, 2, ['« Au troisième, avec un ascenseur. »', 'Yes, there is a lift.']],
+      ['Combien y a-t-il de chambres ?', ['Une', 'Deux', 'Trois'], 1, 4, ['« Deux chambres et une salle de bains. »', 'Two bedrooms.']],
+      ['Combien coûte le loyer ?', ['850 € charges comprises', '850 € sans les charges', '580 €'], 0, 6, ['« Huit cent cinquante euros par mois, charges comprises. »', '€850 a month, charges included.']],
+    ],
+    phrases: [1, 5, 6],
+    tip: ['« Charges comprises » (CC) : le loyer inclut les charges (entretien de l’immeuble, eau froide…). « Hors charges » (HC) : il faut les ajouter.', '« Charges comprises » (CC): the rent includes service charges. « Hors charges » (HC): they come on top.'],
+  }),
+
+  'appeler-le-proprietaire': dialogue('appeler-le-proprietaire', {
+    setting: ['Au téléphone : une locataire appelle son propriétaire parce que le chauffage est en panne.', 'On the phone: a tenant calls her landlord because the heating has broken down.'],
+    speakers: [['La locataire', 'f'], ['Le propriétaire', 'm']],
+    lines: [
+      [0, 'Allô, monsieur Moreau ? C’est Sophie Martin, votre locataire du deuxième.', 'Hello, Mr Moreau? It is Sophie Martin, your tenant on the second floor.'],
+      [1, 'Ah, bonjour madame Martin. Il y a un problème ?', 'Ah, hello Ms Martin. Is there a problem?'],
+      [0, 'Oui, le chauffage ne marche plus depuis hier soir, et il fait très froid dans l’appartement.', 'Yes, the heating has not worked since last night, and it is very cold in the flat.'],
+      [1, 'Ah, c’est embêtant. Vous avez vérifié la chaudière ?', 'Ah, that is annoying. Have you checked the boiler?'],
+      [0, 'Oui, elle affiche une erreur, et je n’arrive pas à la redémarrer.', 'Yes, it shows an error and I cannot restart it.'],
+      [1, 'D’accord, j’appelle le chauffagiste ce matin. Vous êtes chez vous demain ?', 'All right, I will call the heating engineer this morning. Are you at home tomorrow?'],
+      [0, 'Demain, je travaille jusqu’à seize heures. Après, je suis là.', 'Tomorrow I work until four. After that, I am in.'],
+      [1, 'Très bien, je lui demande de passer vers dix-sept heures. Je vous rappelle pour confirmer.', 'Very good, I will ask him to come around five. I will call you back to confirm.'],
+      [0, 'Merci beaucoup, c’est gentil.', 'Thank you very much, that is kind.'],
+    ],
+    questions: [
+      ['Quel est le problème ?', ['Le chauffage ne marche plus.', 'Il y a une fuite d’eau.', 'La porte est cassée.'], 0, 2, ['« Le chauffage ne marche plus depuis hier soir. »', 'The heating has stopped working.']],
+      ['Depuis quand ?', ['Depuis hier soir', 'Depuis une semaine', 'Depuis ce matin'], 0, 2, ['« Depuis hier soir. »', 'Since last night.']],
+      ['Qui va réparer ?', ['Un chauffagiste', 'Le propriétaire', 'La locataire'], 0, 5, ['« J’appelle le chauffagiste ce matin. »', 'A heating engineer.']],
+      ['À quelle heure passera-t-il ?', ['Vers 16 h', 'Vers 17 h', 'Le matin'], 1, 7, ['Elle travaille jusqu’à 16 h, donc le propriétaire propose « vers dix-sept heures ».', 'She works until 4, so around 5.']],
+    ],
+    phrases: [0, 2, 6],
+    tip: ['Le propriétaire paie les grosses réparations ; le locataire paie l’entretien courant, par exemple l’entretien annuel de la chaudière.', 'The landlord pays for major repairs; the tenant pays for routine upkeep, such as the boiler’s annual service.'],
+  }),
+
+  'l-etat-des-lieux': dialogue('l-etat-des-lieux', {
+    setting: ['Le jour de l’emménagement : un agent et la nouvelle locataire font l’état des lieux d’entrée.', 'Moving-in day: an agent and the new tenant carry out the check-in inspection.'],
+    speakers: [['L’agent', 'm'], ['La locataire', 'f']],
+    lines: [
+      [0, 'Bon, on commence l’état des lieux. Je note tout ce qu’on voit, pièce par pièce.', 'Right, let us start the inspection. I note everything we see, room by room.'],
+      [1, 'D’accord. Dans l’entrée, il y a une tache sur le mur, là, à côté de la porte.', 'All right. In the hall there is a stain on the wall, there, next to the door.'],
+      [0, 'Exact, je l’écris : « tache sur le mur de l’entrée ». Le parquet du salon est en bon état.', 'True, I write it down: « stain on the hall wall ». The living-room floor is in good condition.'],
+      [1, 'Oui, mais regardez la fenêtre de la chambre : elle ferme mal.', 'Yes, but look at the bedroom window: it does not close properly.'],
+      [0, 'Vous avez raison. Je le note, et le propriétaire la fera réparer dans le mois.', 'You are right. I note it, and the landlord will have it repaired within the month.'],
+      [1, 'Et dans la salle de bains, le robinet de la douche goutte.', 'And in the bathroom, the shower tap drips.'],
+      [0, 'C’est noté aussi. Si vous découvrez d’autres défauts, vous avez dix jours pour les signaler, par exemple une prise qui ne marche pas.', 'That is noted too. If you find other defects, you have ten days to report them, for example a socket that does not work.'],
+      [1, 'Très bien. Et le dépôt de garantie, c’est combien ?', 'Very good. And how much is the deposit?'],
+      [0, 'Un mois de loyer hors charges, soit sept cents euros. Il vous sera rendu à votre départ, si le logement est dans le même état.', 'One month’s rent without charges, that is seven hundred euros. It will be returned when you leave, if the flat is in the same condition.'],
+    ],
+    questions: [
+      ['À quoi sert l’état des lieux ?', ['À noter l’état du logement pièce par pièce', 'À signer le bail', 'À payer le loyer'], 0, 0, ['« Je note tout ce qu’on voit, pièce par pièce. »', 'To record the condition of each room.']],
+      ['Quel problème y a-t-il dans la chambre ?', ['La fenêtre ferme mal.', 'Il y a une tache sur le mur.', 'Le parquet est abîmé.'], 0, 3, ['« Regardez la fenêtre de la chambre : elle ferme mal. »', 'The window does not close properly.']],
+      ['Combien de temps a-t-elle pour signaler d’autres défauts ?', ['Dix jours', 'Un mois', 'Un an'], 0, 6, ['« Vous avez dix jours pour les signaler. »', 'Ten days.']],
+      ['Combien est le dépôt de garantie ?', ['700 €', 'Un mois charges comprises', 'Rien'], 0, 8, ['« Un mois de loyer hors charges, soit sept cents euros. »', '€700.']],
+      ['Quand sera-t-il rendu ?', ['Au départ, si le logement est dans le même état', 'Après un an', 'Jamais'], 0, 8, ['« Il vous sera rendu à votre départ, si le logement est dans le même état. »', 'When she leaves, if nothing is damaged.']],
+    ],
+    phrases: [1, 3, 7],
+    tip: ['L’état des lieux d’entrée protège le locataire : un défaut noté à l’arrivée ne pourra pas lui être reproché au départ. Vérifiez tout et prenez des photos.', 'The check-in report protects the tenant: a defect noted on arrival cannot be held against them on departure. Check everything and take photos.'],
+  }),
+
+  'le-depot-de-garantie': dialogue('le-depot-de-garantie', {
+    setting: ['Un ancien locataire appelle l’agence : il n’a pas récupéré son dépôt de garantie.', 'A former tenant calls the agency: he has not got his deposit back.'],
+    speakers: [['L’ancien locataire', 'm'], ['L’agente', 'f']],
+    lines: [
+      [0, 'Bonjour, j’ai quitté mon appartement il y a six semaines, et je n’ai toujours pas reçu mon dépôt de garantie.', 'Hello, I left my flat six weeks ago and I still have not received my deposit.'],
+      [1, 'Je regarde votre dossier… L’état des lieux de sortie mentionne des trous dans les murs du salon et une moquette très abîmée. Le propriétaire a retenu trois cent cinquante euros.', 'Let me look at your file… The check-out report mentions holes in the living-room walls and a badly damaged carpet. The landlord has kept three hundred and fifty euros.'],
+      [0, 'Les trous, ce sont des clous pour accrocher des tableaux, c’est un usage normal ! Et la moquette avait déjà quinze ans quand je suis arrivé.', 'The holes are nails for hanging pictures, that is normal use! And the carpet was already fifteen years old when I moved in.'],
+      [1, 'Je comprends, mais il faudrait des justificatifs pour contester.', 'I understand, but you would need evidence to dispute it.'],
+      [0, 'J’ai l’état des lieux d’entrée : la moquette y est déjà notée « usée ». On ne peut pas me facturer l’usure normale.', 'I have the check-in report: the carpet is already noted as « worn ». I cannot be charged for normal wear and tear.'],
+      [1, 'Effectivement, si c’est écrit à l’entrée, la retenue sur la moquette n’est pas justifiée. Je vais en parler au propriétaire.', 'Indeed, if it is written in the check-in report, the deduction for the carpet is not justified. I will talk to the landlord.'],
+      [0, 'Je vous rappelle aussi les délais : quand l’état des lieux de sortie présente des différences, le propriétaire a deux mois pour rendre le dépôt. Sinon, c’est un mois.', 'I would also remind you of the deadlines: when the check-out report shows differences, the landlord has two months to return the deposit. Otherwise, it is one month.'],
+      [1, 'C’est exact : il reste donc deux semaines. Je vous enverrai un nouveau décompte d’ici vendredi.', 'That is right: so there are two weeks left. I will send you a new statement by Friday.'],
+      [0, 'Très bien. Sans réponse d’ici là, je saisirai la commission de conciliation.', 'Very good. If I have no answer by then, I will refer it to the conciliation board.'],
+    ],
+    questions: [
+      ['Pourquoi appelle-t-il ?', ['Il n’a pas reçu son dépôt de garantie.', 'Il veut louer un appartement.', 'Il veut payer une réparation.'], 0, 0, ['« Je n’ai toujours pas reçu mon dépôt de garantie. »', 'He has not received his deposit.']],
+      ['Combien le propriétaire a-t-il retenu ?', ['350 €', '15 €', 'Tout le dépôt'], 0, 1, ['« Le propriétaire a retenu trois cent cinquante euros. »', '€350.']],
+      ['Quel est son argument pour la moquette ?', ['Elle était déjà notée « usée » à l’entrée.', 'Il l’a remplacée.', 'Elle n’existait pas.'], 0, 4, ['L’état des lieux d’entrée prouve l’usure : on ne peut pas facturer l’usure normale.', 'The check-in report proves it was already worn.']],
+      ['Quel délai a le propriétaire ici ?', ['Deux mois, car il y a des différences', 'Un mois dans tous les cas', 'Six semaines'], 0, 6, ['Avec des différences à la sortie : deux mois. Sans différence : un mois.', 'Two months when there are differences, one month otherwise.']],
+      ['Que fera-t-il sans réponse ?', ['Il saisira la commission de conciliation.', 'Il paiera la somme.', 'Il appellera la police.'], 0, 8, ['« Je saisirai la commission de conciliation. »', 'He will refer it to the conciliation board.']],
+    ],
+    phrases: [2, 4, 8],
+    tip: ['La commission départementale de conciliation aide gratuitement à régler les litiges entre locataires et propriétaires, avant d’aller devant le juge.', 'The departmental conciliation board helps settle tenant–landlord disputes for free, before going to court.'],
+  }),
+
+  'l-assemblee-de-copropriete': dialogue('l-assemblee-de-copropriete', {
+    setting: ['Deux copropriétaires discutent avant l’assemblée générale, qui doit voter de gros travaux.', 'Two co-owners talk before the general meeting, which must vote on major works.'],
+    speakers: [['Nathalie', 'f'], ['Marc', 'm']],
+    lines: [
+      [0, 'Tu as lu la convocation à l’assemblée générale ? On vote les travaux d’isolation de la façade.', 'Have you read the notice of the general meeting? We are voting on insulating the façade.'],
+      [1, 'Oui, et j’avoue que le montant m’a refroidi : près de dix-huit mille euros par appartement.', 'Yes, and I admit the amount put me off: almost eighteen thousand euros per flat.'],
+      [0, 'C’est beaucoup, certes, mais l’immeuble est classé F. À partir de 2028, on ne pourra plus louer les appartements, et leur valeur va baisser.', 'It is a lot, admittedly, but the building is rated F. From 2028 the flats can no longer be let, and their value will fall.'],
+      [1, 'Je ne le nie pas. Ce qui me gêne, c’est le calendrier : voter maintenant, sans avoir vraiment comparé les devis, ça me paraît précipité.', 'I do not deny it. What bothers me is the timing: voting now, without really comparing the quotes, seems rushed to me.'],
+      [0, 'Le syndic en a présenté trois, quand même. Et il existe des aides : MaPrimeRénov’ Copropriété peut couvrir une bonne partie de la facture.', 'The managing agent did present three, after all. And there is help: MaPrimeRénov’ Copropriété can cover a good part of the bill.'],
+      [1, 'À condition que le dossier soit accepté, ce qui n’a rien d’automatique. Je préférerais qu’on vote d’abord un audit énergétique complet.', 'Provided the application is accepted, which is far from automatic. I would rather we first vote for a full energy audit.'],
+      [0, 'Un audit, d’accord, mais ça repousse les travaux d’un an au moins. Et chaque hiver, on paie le chauffage au prix fort.', 'An audit, fine, but it pushes the works back by at least a year. And every winter we pay top price for heating.'],
+      [1, 'Bon, proposons un compromis : voter l’audit et le principe des travaux, avec un plafond de dépense. Comme ça, personne ne s’engage à l’aveugle.', 'Right, let us propose a compromise: vote for the audit and the principle of the works, with a spending cap. That way nobody commits blindly.'],
+      [0, 'Ça me va. Parlons-en aux autres copropriétaires avant l’assemblée.', 'That suits me. Let us talk to the other co-owners before the meeting.'],
+    ],
+    questions: [
+      ['Que va-t-on voter ?', ['Des travaux d’isolation de la façade', 'La vente de l’immeuble', 'Un nouveau syndic'], 0, 0, ['« On vote les travaux d’isolation de la façade. »', 'Insulation works on the façade.']],
+      ['Pourquoi Nathalie trouve-t-elle les travaux urgents ?', ['À partir de 2028, on ne pourra plus louer les appartements.', 'Les voisins se plaignent du bruit.', 'Le syndic l’exige.'], 0, 2, ['Classé F, l’immeuble ne pourra plus être loué à partir de 2028.', 'Rated F, the flats cannot be let from 2028.']],
+      ['Qu’est-ce qui gêne Marc ?', ['Voter trop vite, sans vraiment comparer', 'Le principe même de l’isolation', 'Le choix du syndic'], 0, 3, ['« Ce qui me gêne, c’est le calendrier. »', 'The timing.']],
+      ['Qu’est-ce que MaPrimeRénov’ Copropriété ?', ['Une aide qui peut couvrir une partie de la facture', 'Un crédit obligatoire', 'Une taxe'], 0, 4, ['« Peut couvrir une bonne partie de la facture. »', 'A grant covering part of the bill.']],
+      ['Quel compromis propose Marc ?', ['Voter l’audit et le principe des travaux, avec un plafond', 'Refuser les travaux', 'Voter tous les travaux sans condition'], 0, 7, ['Un audit, le principe des travaux et un plafond de dépense.', 'The audit, the principle of the works and a spending cap.']],
+    ],
+    phrases: [3, 5, 7],
+    tip: ['Le DPE (diagnostic de performance énergétique) classe les logements de A à G. La loi interdit progressivement de louer les plus énergivores : G depuis 2025, F à partir de 2028, E à partir de 2034.', 'The DPE energy rating classes homes from A to G. The law is gradually banning the rental of the least efficient: G since 2025, F from 2028, E from 2034.'],
+  }),
+};

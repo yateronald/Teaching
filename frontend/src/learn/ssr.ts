@@ -8,7 +8,7 @@ import { PLACEMENT } from './content/placement';
 import { CATEGORIES, categoryPath } from './categories';
 import { COURSES, coursePath } from './catalog';
 import { finalPath, hubPath, lessonPath, placementPath, progressPath } from './paths';
-import { LEVELS, type Lang, type Lesson } from './types';
+import { LEVELS, tx, type Lang, type Lesson } from './types';
 import { allLevelPages, categoryLevelPath, levelPath } from './levels';
 import { GAMES, gamePath, gamesPath } from './games/meta';
 import { TEXTS, practicePath, readingPath, textPath } from './practice/meta';
@@ -17,9 +17,22 @@ import { LISTENING, exercisePath, listeningPath } from './practice/listening/cat
 import { checkText } from './practice/model';
 import { registerText } from './practice/registry';
 import type { ReadingText } from './practice/types';
+import { EAR, earPath } from './practice/ear/meta';
+import { checkEar } from './practice/ear/check';
+import { registerEar } from './practice/ear/registry';
+import type { EarCourse } from './practice/ear/types';
+import { DIALOGUES, dialoguePath } from './practice/dialogues/meta';
+import { checkDialogue } from './practice/dialogues/check';
+import { registerDialogue } from './practice/dialogues/registry';
+import type { Dialogue } from './practice/dialogues/types';
+import { c1Listening } from './practice/listening/c1';
+import { c2Listening } from './practice/listening/c2';
+import { registerAdvanced } from './practice/listening/advanced';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
 const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
+const earModules = import.meta.glob<{ default: EarCourse }>('./practice/ear/courses/*.ts', { eager: true });
+const dialogueModules = import.meta.glob<{ default: Record<string, Dialogue> }>('./practice/dialogues/content/*.ts', { eager: true });
 
 export interface LearnPage { path: string; lang: Lang; alternates: Record<Lang, string>; priority: string; sitemap: boolean }
 
@@ -50,6 +63,40 @@ export function prepareLearn(): string[] {
     registerText(text);
     warnings.push(...checkText(t, text));
   }
+  // Ear-training courses: registered, and checked against their entry in practice/ear/meta.ts.
+  for (const e of EAR) {
+    const course = earModules[`./practice/ear/courses/${e.id}.ts`]?.default;
+    if (!course) { warnings.push(`ear course ${e.id} has no content file`); continue; }
+    registerEar(course);
+    warnings.push(...checkEar(e, course));
+  }
+  // Dialogues: registered, and checked against their entry in practice/dialogues/meta.ts.
+  const listed = new Set(DIALOGUES.map(d => d.id));
+  for (const [file, mod] of Object.entries(dialogueModules)) {
+    for (const [id, d] of Object.entries(mod.default)) {
+      if (d.id !== id) warnings.push(`dialogue ${id}: its content says id ${d.id}`);
+      if (!listed.has(id)) warnings.push(`dialogue ${id} (${file}) is not in practice/dialogues/meta.ts`);
+    }
+  }
+  for (const m of DIALOGUES) {
+    const d = dialogueModules[`./practice/dialogues/content/${m.theme}.ts`]?.default[m.id];
+    if (!d) { warnings.push(`dialogue ${m.id} has no content in content/${m.theme}.ts`); continue; }
+    registerDialogue(d);
+    warnings.push(...checkDialogue(m, d));
+  }
+  // Advanced listening documents: registered, and their library entries checked against the content.
+  const advanced = [...c1Listening, ...c2Listening];
+  registerAdvanced(advanced);
+  for (const s of LISTENING.filter(e => e.lazy)) {
+    const e = advanced.find(x => x.id === s.id);
+    if (!e) { warnings.push(`listening ${s.id}: no content in c1.ts / c2.ts`); continue; }
+    if (e.title !== s.title || e.level !== s.level || e.voice !== s.voice || e.questions.length !== s.count || tx(e.format, 'fr') !== tx(s.format, 'fr') || tx(e.summary, 'en') !== tx(s.summary, 'en')) {
+      warnings.push(`listening ${s.id}: advanced-meta.ts differs from its content (run node scripts/listening-stubs.mjs)`);
+    }
+    if (e.outline && e.outline.length !== e.segments.length) warnings.push(`listening ${s.id}: the plan has ${e.outline.length} parts for ${e.segments.length} segments`);
+    e.questions.forEach((q, i) => { if (!e.segments[q.cue]) warnings.push(`listening ${s.id}: question ${i + 1} points to a missing segment`); });
+  }
+  for (const e of advanced) if (!LISTENING.some(s => s.id === e.id)) warnings.push(`listening ${e.id} is missing from advanced-meta.ts`);
   return warnings;
 }
 
@@ -73,12 +120,14 @@ export function learnPages(): LearnPage[] {
     lessons.forEach(lesson => both(l => lessonPath(c, lesson, l), '0.6'));
     if (!c.ladder) both(l => finalPath(c, l), '0.4', false);
   });
-  // The practice space: /learn/practice/ shows the reading library (not indexed, canonical elsewhere).
-  both(practicePath, '0.1', false);
+  // The practice space: its home (the five skills), then each library.
+  both(practicePath, '0.8');
   both(readingPath, '0.8');
   TEXTS.forEach(t => both(l => textPath(t, l), '0.7'));
   MISSIONS.forEach(m => both(l => missionPath(m, l), '0.7', false));
   both(listeningPath, '0.8');
   LISTENING.forEach(e => both(l => exercisePath(e, l), '0.7'));
+  EAR.forEach(e => both(l => earPath(e, l), '0.7'));
+  DIALOGUES.forEach(d => both(l => dialoguePath(d, l), '0.7'));
   return pages;
 }

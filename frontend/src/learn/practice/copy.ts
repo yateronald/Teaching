@@ -11,6 +11,59 @@ const en = {
   promo: 'French texts from A1 to C1, with synchronized audio. Each sentence lights up as it is read, and every answer links back to the text.',
   promoCta: 'Open the reading library',
 
+  /** The practice space home (/learn/practice/) and its block on the free-courses home. */
+  practice: {
+    metaTitle: 'Free French Practice: Reading, Listening and More (A1 to C1) | Learn French with Natives',
+    metaDescription: 'Practise French for free on real documents: texts read aloud, listening exercises and reading missions from A1 to C1, with every answer corrected and explained.',
+    eyebrow: 'Practice space',
+    title: ['Practise your French,', 'skill by skill'] as [string, string],
+    intro: 'The courses teach you French; here you use it. Choose a skill and your level, work on real documents (messages, articles, announcements, interviews) and check your answers: each one is corrected and explained, with the passage that proves it.',
+    facts: ['Free, no account', 'Levels A1 to C1', 'Native voices', 'Progress kept in this browser'],
+    promoEyebrow: 'Practice space',
+    promoTitle: ['Now, put your French', 'into practice'] as [string, string],
+    promo: 'After the lessons, practise on real French: texts read aloud, recordings to understand, reading missions, and soon dictations, grammar and vocabulary. Pick a skill and a level, then see why each answer is right.',
+    promoCta: 'Open the practice space',
+    skillsTitle: 'Choose a skill',
+    skillsSub: 'Each skill has its own exercises, from A1 to C1. Start with the one you need most.',
+    open: 'Start practising',
+    soonCard: 'Coming soon',
+    soonNote: 'In preparation: built the same way, with native recordings and explained corrections.',
+    levels: (from: string, to: string) => (from === to ? `Level ${from}` : `Levels ${from} to ${to}`),
+    skill: {
+      reading: {
+        line: 'Texts with audio',
+        desc: 'Texts read aloud by native voices. Each sentence lights up as it is read; tap a word for its meaning, then answer questions linked to the text.',
+        count: (texts: number, missions: number) => `${texts} texts · ${missions} reading missions`,
+      },
+      listening: {
+        line: 'Real-life recordings',
+        desc: 'Voicemails, announcements, radio and podcasts to understand, everyday dialogues from A1 to C1, and ear-training courses to decode spoken French.',
+        count: (n: number, dialogues: number, ear: number) => `${n} listening exercises · ${dialogues} dialogues · ${ear} ear-training courses`,
+      },
+      dictation: {
+        line: 'Write what you hear',
+        desc: 'Listen and write, sentence by sentence, then compare word for word: spelling, agreements and accents.',
+      },
+      grammar: {
+        line: 'Rules in action',
+        desc: 'Short exercises on the points that trip learners up, with the rule explained after each answer.',
+      },
+      vocabulary: {
+        line: 'Words that stay',
+        desc: 'Words by theme, heard and used in context, with spaced review so that you remember them.',
+      },
+    },
+    howTitle: 'How practice works',
+    how: [
+      ['Choose a skill and a level', 'Reading, listening… from A1 to C1. Each exercise shows its level, its length and what it trains.'],
+      ['Work on a real document', 'A message, an article, an announcement, an interview: the French you will meet, read or spoken by native voices.'],
+      ['Understand every answer', 'Each answer is corrected and explained, and you can go back to the passage of the text or the recording that holds it.'],
+    ] as [string, string][],
+    startTitle: 'Not sure of your level?',
+    startText: 'Take the free placement test: in a few minutes it tells you your level, so you can pick the exercises that fit.',
+    startCta: 'Take the placement test',
+  },
+
   library: {
     metaTitle: 'French Reading Practice: Texts with Audio and Questions (A1 to C1) | Learn French with Natives',
     metaDescription: 'Free French reading practice from A1 to C1, with synchronized audio and comprehension questions that show the evidence for each answer.',
@@ -147,6 +200,58 @@ const fr: Copy = {
   isNew: 'Nouveau',
   promo: 'Des textes du A1 au C1 avec audio synchronisé. Chaque phrase s’illumine pendant la lecture, et les corrections renvoient aux passages qui justifient les réponses.',
   promoCta: 'Ouvrir la bibliothèque de lecture',
+
+  practice: {
+    metaTitle: 'Pratique du français gratuite : lecture, écoute et plus (A1 à C1) | Learn French with Natives',
+    metaDescription: 'Pratiquez le français gratuitement sur de vrais documents : textes lus à voix haute, exercices d’écoute et missions de lecture du A1 au C1, avec des corrections expliquées.',
+    eyebrow: 'Espace pratique',
+    title: ['Pratiquez votre français,', 'compétence par compétence'],
+    intro: 'Les cours vous apprennent le français ; ici, vous l’utilisez. Choisissez une compétence et votre niveau, travaillez sur de vrais documents (messages, articles, annonces, interviews) et vérifiez vos réponses : chacune est corrigée et expliquée, avec le passage qui la justifie.',
+    facts: ['Gratuit, sans compte', 'Niveaux A1 à C1', 'Voix natives', 'Progression gardée dans ce navigateur'],
+    promoEyebrow: 'Espace pratique',
+    promoTitle: ['Maintenant, mettez votre français', 'en pratique'],
+    promo: 'Après les leçons, pratiquez sur du vrai français : des textes lus à voix haute, des enregistrements à comprendre, des missions de lecture, et bientôt des dictées, de la grammaire et du vocabulaire. Choisissez une compétence et un niveau, puis découvrez pourquoi chaque réponse est la bonne.',
+    promoCta: 'Ouvrir l’espace pratique',
+    skillsTitle: 'Choisissez une compétence',
+    skillsSub: 'Chaque compétence a ses propres exercices, du A1 au C1. Commencez par celle dont vous avez le plus besoin.',
+    open: 'Commencer',
+    soonCard: 'Bientôt disponible',
+    soonNote: 'En préparation : construit de la même façon, avec des enregistrements natifs et des corrections expliquées.',
+    levels: (from: string, to: string) => (from === to ? `Niveau ${from}` : `Niveaux ${from} à ${to}`),
+    skill: {
+      reading: {
+        line: 'Textes avec audio',
+        desc: 'Des textes lus par des voix natives. Chaque phrase s’illumine pendant la lecture ; touchez un mot pour son sens, puis répondez aux questions liées au texte.',
+        count: (texts: number, missions: number) => `${texts} textes · ${missions} missions de lecture`,
+      },
+      listening: {
+        line: 'Enregistrements de la vie réelle',
+        desc: 'Messages vocaux, annonces, radio et podcasts à comprendre, des dialogues du quotidien de A1 à C1, et des cours pour entraîner l’oreille à décoder l’oral.',
+        count: (n: number, dialogues: number, ear: number) => `${n} exercices d’écoute · ${dialogues} dialogues · ${ear} cours pour entraîner l’oreille`,
+      },
+      dictation: {
+        line: 'Écrire ce que l’on entend',
+        desc: 'Écoutez et écrivez, phrase par phrase, puis comparez mot à mot : orthographe, accords et accents.',
+      },
+      grammar: {
+        line: 'Les règles en action',
+        desc: 'Des exercices courts sur les points qui posent problème, avec la règle expliquée après chaque réponse.',
+      },
+      vocabulary: {
+        line: 'Des mots qui restent',
+        desc: 'Des mots par thème, entendus et employés en contexte, avec des révisions espacées pour les retenir.',
+      },
+    },
+    howTitle: 'Comment fonctionne la pratique',
+    how: [
+      ['Choisissez une compétence et un niveau', 'Lecture, écoute… du A1 au C1. Chaque exercice indique son niveau, sa durée et ce qu’il entraîne.'],
+      ['Travaillez sur un vrai document', 'Un message, un article, une annonce, une interview : le français que vous rencontrerez, lu ou dit par des voix natives.'],
+      ['Comprenez chaque réponse', 'Chaque réponse est corrigée et expliquée, et vous pouvez revenir au passage du texte ou de l’enregistrement qui la contient.'],
+    ],
+    startTitle: 'Vous ne connaissez pas votre niveau ?',
+    startText: 'Faites le test de niveau gratuit : en quelques minutes, il vous indique votre niveau pour choisir les exercices adaptés.',
+    startCta: 'Faire le test de niveau',
+  },
 
   library: {
     metaTitle: 'Compréhension écrite : textes en français avec audio et questions (A1 à C1) | Learn French with Natives',

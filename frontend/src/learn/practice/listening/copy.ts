@@ -14,7 +14,11 @@ export const listeningCopy = {
     jump: (n: number, ok: boolean) => `Question ${n} : ${ok ? 'correcte' : 'incorrecte'}`,
     score: (n: number, all: number) => `${n} sur ${all} bonnes réponses`, transcript: 'Transcription', transcriptHint: 'Relisez le document et réécoutez les passages à votre rythme.',
     tip: 'Stratégie à retenir', retry: 'Recommencer', next: 'Exercice suivant',
+    docsK: 'Comprendre des documents', docsTitle: 'Écoutez des documents de la vie réelle', docsIntro: 'Messages vocaux, annonces, émissions de radio, podcasts : écoutez d’abord sans le texte, répondez aux questions, puis réécoutez le passage qui justifie chaque réponse.',
     pause: 'Pause', loading: 'Chargement de l’audio…', seek: 'Position dans l’enregistrement', back5: 'Reculer de 5 secondes',
+    notes: 'Prise de notes', notesHint: 'Comme au DALF : notez les idées, les chiffres et les mots de liaison pendant l’écoute. Vos notes restent ici pendant les questions (elles ne sont pas enregistrées).', notesPlaceholder: 'Thèse, arguments, exemples, chiffres, conclusion…',
+    outline: 'Le plan du document', outlineHint: 'Ce que fait chaque partie dans l’argumentation.', part: (n: number) => `Partie ${n}`,
+    expressions: 'Expressions à retenir', advanced: 'Document long · niveau avancé', loadingDoc: 'Chargement du document…',
   },
   en: {
     library: 'Listening studio', heading: 'Listen to French in context', intro: 'A voicemail, an announcement, a radio report… Listen once without reading, then train your ear to catch the key information.',
@@ -31,6 +35,10 @@ export const listeningCopy = {
     jump: (n: number, ok: boolean) => `Question ${n}: ${ok ? 'correct' : 'incorrect'}`,
     score: (n: number, all: number) => `${n} of ${all} correct`, transcript: 'Transcript', transcriptHint: 'Read the recording and replay the excerpts at your own pace.',
     tip: 'Listening strategy', retry: 'Start again', next: 'Next exercise',
+    docsK: 'Understand real documents', docsTitle: 'Listen to real-life recordings', docsIntro: 'Voicemails, announcements, radio, podcasts: listen first without the text, answer the questions, then replay the passage that proves each answer.',
     pause: 'Pause', loading: 'Loading the audio…', seek: 'Position in the recording', back5: 'Back 5 seconds',
+    notes: 'Note-taking', notesHint: 'As in the DALF: note the ideas, figures and linking words while you listen. Your notes stay here during the questions (they are not saved).', notesPlaceholder: 'Thesis, arguments, examples, figures, conclusion…',
+    outline: 'How the document is built', outlineHint: 'What each part does in the argument.', part: (n: number) => `Part ${n}`,
+    expressions: 'Expressions to keep', advanced: 'Long document · advanced level', loadingDoc: 'Loading the document…',
   },
 };

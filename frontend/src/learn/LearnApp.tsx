@@ -15,10 +15,16 @@ import ProgressPage from './pages/ProgressPage';
 import GamesHubPage from './pages/GamesHubPage';
 import GamePage from './pages/GamePage';
 import ReadingLibraryPage from './practice/pages/ReadingLibraryPage';
+import PracticeHubPage from './practice/pages/PracticeHubPage';
 import ReadingTextPage from './practice/pages/ReadingTextPage';
 import ReadingMissionPage from './practice/pages/ReadingMissionPage';
 import ListeningLibraryPage from './practice/listening/ListeningLibraryPage';
 import ListeningExercisePage from './practice/listening/ListeningExercisePage';
+import EarCoursePage from './practice/ear/EarCoursePage';
+import { loadEar } from './practice/ear/registry';
+import DialoguePage from './practice/dialogues/DialoguePage';
+import { loadDialogue } from './practice/dialogues/registry';
+import { loadAdvanced } from './practice/listening/advanced';
 import { loadText } from './practice/registry';
 
 export default function LearnApp({ lang: _lang }: { lang: Lang }) {
@@ -35,12 +41,14 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'course': return <CoursePage key={route.course.id} lang={route.lang} course={route.course} />;
     case 'lesson': return <LessonPage key={route.course.id} lang={route.lang} course={route.course} lessonSlug={route.lessonSlug} />;
     case 'final': return <FinalPage key={route.course.id} lang={route.lang} course={route.course} />;
-    case 'practice': return <ReadingLibraryPage lang={route.lang} canonical={false} />;
+    case 'practice': return <PracticeHubPage lang={route.lang} />;
     case 'reading': return <ReadingLibraryPage lang={route.lang} />;
     case 'text': return <ReadingTextPage key={route.text.id} lang={route.lang} meta={route.text} />;
     case 'reading-mission': return <ReadingMissionPage key={route.mission.id} lang={route.lang} mission={route.mission} />;
     case 'listening': return <ListeningLibraryPage lang={route.lang} />;
     case 'listening-exercise': return <ListeningExercisePage key={route.exercise.id} lang={route.lang} exercise={route.exercise} />;
+    case 'ear-course': return <EarCoursePage key={route.ear.id} lang={route.lang} meta={route.ear} />;
+    case 'dialogue': return <DialoguePage key={route.dialogue.id} lang={route.lang} meta={route.dialogue} />;
     default: return <NotFound lang={route.lang} />;
   }
 }
@@ -51,6 +59,9 @@ export async function prepareForPath(pathname: string) {
   if ((route.type === 'course' || route.type === 'lesson' || route.type === 'final') && hasCourseContent(route.course.id)) await loadLessons(route.course.id);
   if (route.type === 'placement') await loadPlacement();
   if (route.type === 'text') await loadText(route.text.id);
+  if (route.type === 'ear-course') await loadEar(route.ear.id);
+  if (route.type === 'dialogue') await loadDialogue(route.dialogue.id, route.dialogue.theme);
+  if (route.type === 'listening-exercise' && route.exercise.lazy) await loadAdvanced(route.exercise.level);
   // Level pages list the lesson of each levelled course at that level.
   if (route.type === 'level') await Promise.all(ladderCoursesFor(route.level, route.category).map(c => loadLessons(c.id)));
 }

@@ -9,12 +9,19 @@ import { DAILY_WORDS, GENDER_NOUNS, PAIR_DECKS, numberCall, withArticle } from '
 import { TEXTS } from './practice/meta';
 import { MISSIONS, missionAudio, missionCoverKey, missionVoice } from './practice/missions';
 import { LISTENING, listeningCoverKey } from './practice/listening/catalog';
+import { c1Listening } from './practice/listening/c1';
+import { c2Listening } from './practice/listening/c2';
 import { LISTENING_VOICES, passageAudio, questionAudio } from './practice/listening/types';
 import type { ReadingText } from './practice/types';
+import type { EarCourse } from './practice/ear/types';
+import type { Dialogue } from './practice/dialogues/types';
+import { DIALOGUES, dialogueCoverKey } from './practice/dialogues/meta';
 import type { Lesson, Step, Voice } from './types';
 
 const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
 const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
+const earModules = import.meta.glob<{ default: EarCourse }>('./practice/ear/courses/*.ts', { eager: true });
+const dialogueModules = import.meta.glob<{ default: Record<string, Dialogue> }>('./practice/dialogues/content/*.ts', { eager: true });
 
 /** `sealed`: a practice recording, stored scrambled (not offered for download, sealedAudio.ts). */
 export interface AudioItem { key: string; text: string; voice: Voice; sealed?: boolean }
@@ -94,12 +101,22 @@ export function collectMedia() {
     m.documents.forEach(d => seal(missionAudio(d), missionVoice(d)));
   });
   // Listening: the passage, its excerpts and the questions read aloud are all sealed.
-  LISTENING.forEach(e => {
+  [...LISTENING.filter(e => !e.lazy), ...c1Listening, ...c2Listening].forEach(e => {
     images.add(listeningCoverKey(e));
     LISTENING_VOICES.forEach(voice => seal(passageAudio(e), voice));
     e.segments.forEach(segment => seal(segment, e.voice));
     e.questions.forEach(question => seal(questionAudio(question), e.voice));
   });
+  // Ear training: the examples (careful and everyday forms) and every exercise.
+  for (const mod of Object.values(earModules)) {
+    mod.default.examples.forEach(e => { seal(e.say, e.voice); if (e.natural) seal(e.natural, e.voice); });
+    mod.default.items.forEach(it => seal(it.say, it.voice));
+  }
+  // Dialogues: a picture each, and every line in its speaker's voice.
+  DIALOGUES.forEach(d => images.add(dialogueCoverKey(d)));
+  for (const mod of Object.values(dialogueModules)) {
+    Object.values(mod.default).forEach(d => d.lines.forEach(l => seal(l.fr, d.speakers[l.who].voice)));
+  }
   for (const mod of Object.values(textModules)) {
     mod.default.glossary.forEach(g => add(g.fr));
     mod.default.focus.examples.forEach(e => add(e.fr));

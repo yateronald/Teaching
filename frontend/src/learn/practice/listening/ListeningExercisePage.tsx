@@ -1,58 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckCircleOutlined, CheckOutlined, CloseCircleFilled, CloseOutlined, CustomerServiceOutlined, SoundOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckCircleOutlined, CheckOutlined, CloseCircleFilled, CloseOutlined, CustomerServiceOutlined, EditOutlined, SoundOutlined } from '@ant-design/icons';
 import { beforeSpeak, hasRecording, prefetchRecording, speak, stop, usePlaying } from '../../audio';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang } from '../../types';
+import { practicePath } from '../meta';
 import { LISTENING, exercisePath, listeningPath } from './catalog';
 import { listeningCopy } from './copy';
 import { ListeningCover } from './ListeningCover';
 import { ListeningPlayer } from './ListeningPlayer';
 import { LISTENING_VOICES, passageAudio, questionAudio, type ListeningExercise, type ListeningVoice } from './types';
+import { usePinnedPlayer } from '../pinned';
+import { useFullExercise } from './advanced';
 import './listening.css';
-
-/**
- * Keeps the player in reach while the learner answers: once its card scrolls
- * under the site header, the card is pinned just below it, in a compact form,
- * at the same place in the column. The slot keeps the card's height, so the
- * questions do not jump.
- */
-function usePinnedPlayer() {
-  const slot = useRef<HTMLDivElement>(null);
-  const card = useRef<HTMLElement>(null);
-  const [pin, setPin] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
-  useEffect(() => {
-    let frame = 0, height = 0, rowEnd = 0;
-    const update = () => {
-      frame = 0;
-      const s = slot.current, c = card.current;
-      if (!s || !c) return;
-      // Where the site header ends (it is sticky at the top).
-      const header = Math.max(0, document.querySelector<HTMLElement>('.lp-header')?.getBoundingClientRect().bottom ?? 0);
-      const r = s.getBoundingClientRect();
-      // Measured in the card's normal form: its height, and where its player row ends.
-      if (!c.classList.contains('is-pinned')) {
-        height = c.offsetHeight;
-        const row = c.querySelector('.rxl-player');
-        rowEnd = row ? row.getBoundingClientRect().bottom - c.getBoundingClientRect().top : height;
-      }
-      // Pinned as soon as the player row slides under the header.
-      const pinned = height > 0 && r.top + rowEnd < header;
-      setPin(old => {
-        if (!pinned) return old ? null : old;
-        const next = { top: Math.round(header), left: Math.round(r.left), width: Math.round(r.width), height };
-        return old && old.top === next.top && old.left === next.left && old.width === next.width && old.height === next.height ? old : next;
-      });
-    };
-    const ask = () => { if (!frame) frame = requestAnimationFrame(update); };
-    update();
-    window.addEventListener('scroll', ask, { passive: true });
-    window.addEventListener('resize', ask);
-    return () => { window.removeEventListener('scroll', ask); window.removeEventListener('resize', ask); if (frame) cancelAnimationFrame(frame); };
-  }, []);
-  return { slot, card, pin };
-}
 
 function Clip({ text, voice, lang, label, rate, description }: { text: string; voice: ListeningVoice; lang: Lang; label: string; rate: number; description?: string }) {
   const playing = usePlaying(text, voice);
@@ -64,15 +25,17 @@ function Clip({ text, voice, lang, label, rate, description }: { text: string; v
   }}><SoundOutlined aria-hidden /> {playing ? listeningCopy[lang].stop : label}</button>;
 }
 
-export default function ListeningExercisePage({ exercise: e, lang }: { exercise: ListeningExercise; lang: Lang }) {
+function ExerciseBody({ exercise: e, lang }: { exercise: ListeningExercise; lang: Lang }) {
   const c = listeningCopy[lang];
   const [voice, setVoice] = useState<ListeningVoice>(e.voice);
   const [rate, setRate] = useState(e.level === 'A1' ? .85 : e.level === 'A2' ? .9 : 1);
   const [phase, setPhase] = useState<'listen' | 'quiz' | 'review'>('listen');
+  const [notes, setNotes] = useState('');
+  const advanced = e.level === 'C1' || e.level === 'C2';
   const [heard, setHeard] = useState(false);
   const [answers, setAnswers] = useState<(number | null)[]>(() => e.questions.map(() => null));
   const player = useRef<HTMLAudioElement>(null);
-  const { slot, card, pin } = usePinnedPlayer();
+  const { slot, card, pin } = usePinnedPlayer('.rxl-player');
   const section = useRef<HTMLHeadingElement>(null);
   const focus = useRef(false);
   const pause = useCallback(() => player.current?.pause(), []);
@@ -103,13 +66,13 @@ export default function ListeningExercisePage({ exercise: e, lang }: { exercise:
     seo={{ title: `${e.title} · ${c.lab} ${e.level}`, description: tx(e.summary, lang), path: exercisePath(e, lang) }}>
     <div className="rxl-workspace">
       <div className="lp-wrap">
-        <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [c.library, listeningPath(lang)], [e.title]]} />
+        <Crumbs lang={lang} items={[[lang === 'fr' ? 'Cours gratuits' : 'Free courses', hubPath(lang)], [lang === 'fr' ? 'Pratique' : 'Practice', practicePath(lang)], [c.library, listeningPath(lang)], [e.title]]} />
       </div>
       <div className="rxl-shell lp-wrap">
         <Link to={listeningPath(lang)} className="rxl-back"><ArrowLeftOutlined aria-hidden /> {c.back}</Link>
         <header className="rxl-header rxl-header-illustrated">
           <div className="rxl-header-copy">
-            <p><LevelChip level={e.level} size="sm" /> {tx(e.format, lang)} <span aria-hidden>·</span> {c.questions(e.questions.length)}</p>
+            <p><LevelChip level={e.level} size="sm" /> {tx(e.format, lang)} <span aria-hidden>·</span> {c.questions(e.questions.length)}{advanced && <> <span aria-hidden>·</span> {c.advanced}</>}</p>
             <h1 lang="fr">{e.title}</h1>
             <p>{tx(e.summary, lang)}</p>
           </div>
@@ -148,6 +111,12 @@ export default function ListeningExercisePage({ exercise: e, lang }: { exercise:
             </div>}
           </section>
         </div>
+
+        {advanced && phase !== 'review' && <section className="rxl-notes" aria-labelledby="rxl-notes-title">
+          <h2 id="rxl-notes-title"><EditOutlined aria-hidden /> {c.notes}</h2>
+          <p>{c.notesHint}</p>
+          <textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder={c.notesPlaceholder} aria-labelledby="rxl-notes-title" rows={phase === 'quiz' ? 4 : 6} spellCheck={false} />
+        </section>}
 
         {phase === 'quiz' && <form className="rxl-quiz" onSubmit={event => { event.preventDefault(); if (count === e.questions.length) advance('review'); }}>
           <div className="rxl-section-heading">
@@ -211,10 +180,24 @@ export default function ListeningExercisePage({ exercise: e, lang }: { exercise:
               </li>;
             })}
           </ol>
+          {e.outline && <section className="rxl-outline" aria-labelledby="rxl-outline-title">
+            <h3 id="rxl-outline-title">{c.outline}</h3>
+            <p>{c.outlineHint}</p>
+            <ol>{e.outline.map((part, i) => <li key={i}><span>{c.part(i + 1)}</span>{tx(part, lang)}</li>)}</ol>
+          </section>}
+          {e.expressions && <section className="rxl-expressions" aria-labelledby="rxl-expr-title">
+            <h3 id="rxl-expr-title">{c.expressions}</h3>
+            <dl>{e.expressions.map(x => <div key={x.fr}><dt lang="fr">{x.fr}</dt><dd>{tx(x.meaning, lang)}</dd></div>)}</dl>
+          </section>}
+          {advanced && notes.trim() && <details className="rxl-transcript rxl-my-notes">
+            <summary>{c.notes}</summary>
+            <p className="rxl-notes-text">{notes}</p>
+          </details>}
           <details className="rxl-transcript">
             <summary>{c.transcript}</summary>
             <p>{c.transcriptHint}</p>
-            <ol>{e.segments.map(segment => <li key={segment}>
+            <ol>{e.segments.map((segment, i) => <li key={segment}>
+              {e.outline?.[i] && <p className="rxl-part">{c.part(i + 1)} · {tx(e.outline[i], lang)}</p>}
               <p lang="fr">{segment}</p><Clip text={segment} voice={e.voice} lang={lang} label={c.excerpt} rate={rate} />
             </li>)}</ol>
           </details>
@@ -229,5 +212,16 @@ export default function ListeningExercisePage({ exercise: e, lang }: { exercise:
         </section>}
       </div>
     </div>
+  </LearnShell>;
+}
+
+/** The advanced documents arrive with their own download: until then, a short wait. */
+export default function ListeningExercisePage({ exercise, lang }: { exercise: ListeningExercise; lang: Lang }) {
+  const full = useFullExercise(exercise);
+  if (full) return <ExerciseBody key={full.id} exercise={full} lang={lang} />;
+  const c = listeningCopy[lang];
+  return <LearnShell lang={lang} alternates={{ en: exercisePath(exercise, 'en'), fr: exercisePath(exercise, 'fr') }}
+    seo={{ title: `${exercise.title} · ${c.lab} ${exercise.level}`, description: tx(exercise.summary, lang), path: exercisePath(exercise, lang) }}>
+    <div className="rxl-workspace"><div className="rxl-shell lp-wrap"><p className="rxl-notes" role="status">{c.loadingDoc}</p></div></div>
   </LearnShell>;
 }

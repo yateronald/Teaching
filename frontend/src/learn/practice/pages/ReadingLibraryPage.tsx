@@ -11,7 +11,7 @@ import { Crumbs, LearnShell, LevelChip, TeacherCta } from '../../shell';
 import { LEVELS, tx, type Lang, type Level } from '../../types';
 import { UI } from '../../ui';
 import { P } from '../copy';
-import { TEXTS, readingPath } from '../meta';
+import { TEXTS, practicePath, readingPath } from '../meta';
 import { SkillTabs, TextCard } from '../parts';
 import { libraryJsonLd } from '../schema';
 import { textStatus } from '../stats';
@@ -24,8 +24,7 @@ const FILTERS: Filter[] = ['all', 'starters', 'todo', 'review', 'done'];
 const HOW_ICONS = [<SoundOutlined />, <CheckOutlined />, <FileTextOutlined />];
 const searchable = (value: string) => value.toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/œ/g, 'oe').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 
-/** `canonical` is false on /learn/practice/, which shows the same library. */
-export default function ReadingLibraryPage({ lang, canonical = true }: { lang: Lang; canonical?: boolean }) {
+export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
   const c = P[lang];
   const l = c.library;
   const ui = UI[lang];
@@ -66,13 +65,12 @@ export default function ReadingLibraryPage({ lang, canonical = true }: { lang: L
         description: l.metaDescription,
         path: readingPath(lang),
         jsonLd: libraryJsonLd(lang),
-        noindex: !canonical,
         image: `https://www.learnfrenchwithnatives.com${imageUrl('cat-reading')}`,
       }}
     >
       <section className="rx-lib-hero" aria-labelledby="rx-lib-title">
         <div className="lp-wrap">
-          <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [c.crumb], [c.text.eyebrow]]} />
+          <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [c.crumb, practicePath(lang)], [c.text.eyebrow]]} />
           <SkillTabs lang={lang} active="reading" />
           <div className="rx-lib-copy">
             <p className="lp-eyebrow">{l.eyebrow}</p>

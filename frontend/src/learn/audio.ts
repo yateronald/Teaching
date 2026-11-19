@@ -40,6 +40,11 @@ const SAY_AS: Record<string, string> = {
   // Reading texts’ glossary: alone, « quai » was heard as « cas », « bruit » as a laugh,
   // and « limitent » as « limitant ».
   quai: 'Le quai.', bruit: 'Le bruit.', 'en limitent l’usage': 'Elles en limitent l’usage.',
+  // Practice glossary (checked 2026-11-18): alone, « un plus » was heard as « à plus », « Faute de »
+  // as « faute deux ? », « jugés » as « le juger », and « Le BAFA » rose like a question.
+  'un plus': 'C’est un plus.', 'Faute de': 'Faute de temps.', jugés: 'Jugés trop lents.', 'Le BAFA': 'Le BAFA.',
+  // and « il y a du vent » came out as « Ah, il y a du vent ! ».
+  'il y a du vent': 'Il y a du vent.',
 };
 
 /** Words the voice cannot say alone without a mistake: no recording (no speaker button). */
@@ -55,6 +60,8 @@ export const normalizeForAudio = (text: string) => {
     .replace(/\s+\/\s+/g, ', ')
     // Grammar notes in brackets are not read: « l’aube (f.) », « le soccer (Canada) ».
     .replace(/\s*\([^)]*\)\s*$/, '')
+    // The degree « BUT » is spelled out (bé-u-té), not read as the word « but ».
+    .replace(/(?<!\p{L})BUT(?!\p{L})/gu, 'B.U.T.')
     .replace(/\s+/g, ' ')
     .trim();
   return SAY_AS[t] ?? t;
