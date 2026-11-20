@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, LockOutlined, PlayCircleFilled, SoundOutlined, StarFilled, UnorderedListOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, LockOutlined, PlayCircleFilled, SoundOutlined, StarFilled, UnorderedListOutlined } from '@ant-design/icons';
 import { AUTOSTART } from '../paths';
 import { chime, hasRecording, setMuted, stop as stopAudio } from '../audio';
 import { isGraded, tx, type Lang, type Step } from '../types';
@@ -177,23 +177,33 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
 
   return (
     <div className="lx-player" role="dialog" aria-modal="true" aria-label={title}>
-      <header className="lx-ptop">
-        <button type="button" className="lx-icon-btn" onClick={exit} aria-label={ui.exit} title={ui.exit}><CloseOutlined /></button>
-        <div className="lx-pbar" role="progressbar" aria-label={ui.progress} aria-valuemin={0} aria-valuemax={total} aria-valuenow={pos}>
-          <motion.i animate={{ scaleX: (pos + (result ? 1 : 0)) / total }} transition={{ type: 'spring', stiffness: 160, damping: 26 }} />
+      <header className="lx-ptop-bar">
+        <div className="lx-ptop">
+          <button type="button" className="lx-icon-btn" onClick={exit} aria-label={ui.exit} title={ui.exit}><CloseOutlined /></button>
+          <div className="lx-ptop-track">
+            <div className="lx-ptop-meta">
+              <span className="lx-ptop-title">{title}</span>
+              <span className="lx-ptop-count">{pos + 1} / {total}</span>
+            </div>
+            <div className="lx-pbar" role="progressbar" aria-label={ui.progress} aria-valuemin={0} aria-valuemax={total} aria-valuenow={pos + (result ? 1 : 0)}>
+              <motion.i animate={{ scaleX: Math.max(0.03, (pos + (result ? 1 : 0)) / total) }} transition={{ type: 'spring', stiffness: 160, damping: 26 }} />
+            </div>
+          </div>
+          <div className="lx-ptop-end">
+            <AnimatePresence>
+              {combo >= 3 && (
+                <motion.span key="combo" className="lx-combo" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
+                  <FireFilled /> {combo}
+                </motion.span>
+              )}
+            </AnimatePresence>
+            <span className="lx-xp" aria-label={`${xp} ${ui.xp}`}><StarFilled /> <motion.b key={xp} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>{xp}</motion.b> <small>{ui.xp}</small></span>
+            {menu && (
+              <button type="button" className={`lx-icon-btn${menuOpen ? ' is-on' : ''}`} onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lx-pmenu" aria-label={ui.lessonsMenu} title={ui.lessonsMenu}><UnorderedListOutlined /></button>
+            )}
+            <button type="button" className={`lx-icon-btn${sound ? '' : ' is-off'}`} onClick={() => setSound(s => !s)} aria-pressed={sound} aria-label={sound ? ui.soundOn : ui.soundOff} title={sound ? ui.soundOn : ui.soundOff}><SoundOutlined /></button>
+          </div>
         </div>
-        <AnimatePresence>
-          {combo >= 3 && (
-            <motion.span key="combo" className="lx-combo" initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}>
-              <FireFilled /> {combo}
-            </motion.span>
-          )}
-        </AnimatePresence>
-        <span className="lx-xp" aria-label={`${xp} ${ui.xp}`}><StarFilled /> <motion.b key={xp} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>{xp}</motion.b></span>
-        {menu && (
-          <button type="button" className={`lx-icon-btn${menuOpen ? ' is-on' : ''}`} onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lx-pmenu" aria-label={ui.lessonsMenu} title={ui.lessonsMenu}><UnorderedListOutlined /></button>
-        )}
-        <button type="button" className={`lx-icon-btn${sound ? '' : ' is-off'}`} onClick={() => setSound(s => !s)} aria-pressed={sound} aria-label={sound ? ui.soundOn : ui.soundOff} title={sound ? ui.soundOn : ui.soundOff}><SoundOutlined /></button>
       </header>
 
       <AnimatePresence>
@@ -238,22 +248,25 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
           <motion.div
             key={`${pos}-${item.index}`}
             className={`lx-step is-${item.step.kind}`}
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -40 }}
-            transition={{ duration: 0.28, ease: [0.2, 0.7, 0.2, 1] }}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.24, ease: [0.2, 0.7, 0.2, 1] }}
           >
-            {item.retry && <p className="lx-retry-tag">↺ {lang === 'fr' ? 'Deuxième essai' : 'Second try'}</p>}
-            <StepView
-              ref={handle as never}
-              step={item.step}
-              lang={lang}
-              locked={locked}
-              seed={`${seed}-${item.index}`}
-              onReady={onReady}
-              onScore={onScore}
-              onDemo={onDemo}
-            />
+            <div className="lx-stage-card">
+              <div className="lx-stage-flag" aria-hidden><i /><i /><i /></div>
+              {item.retry && <p className="lx-retry-tag">↺ {lang === 'fr' ? 'Deuxième essai' : 'Second try'}</p>}
+              <StepView
+                ref={handle as never}
+                step={item.step}
+                lang={lang}
+                locked={locked}
+                seed={`${seed}-${item.index}`}
+                onReady={onReady}
+                onScore={onScore}
+                onDemo={onDemo}
+              />
+            </div>
           </motion.div>
         </AnimatePresence>
       </main>
@@ -261,7 +274,7 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
       <footer className={`lx-pfoot${result ? (result.correct ? ' is-right' : ' is-wrong') : ''}`}>
         <div className="lx-pfoot-in">
           {result ? (
-            <motion.div key={`fb-${pos}`} className="lx-feedback" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
+            <motion.div key={`fb-${pos}`} className="lx-feedback" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
               <span className="lx-fb-icon">{result.correct ? <CheckCircleFilled /> : <CloseCircleFilled />}</span>
               <div>
                 <strong>{result.correct ? praise : ui.wrong}</strong>
@@ -272,7 +285,14 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
               </div>
             </motion.div>
           ) : (
-            <p className="lx-pfoot-kind">{UI[lang].kinds[item.step.kind]}</p>
+            <div className="lx-pfoot-meta">
+              <span className="lx-pfoot-kind">{UI[lang].kinds[item.step.kind]}</span>
+              {ready && (
+                <span className="lx-pfoot-key" aria-hidden>
+                  {lang === 'fr' ? 'Appuyez sur' : 'Press'} <kbd>Enter ↵</kbd>
+                </span>
+              )}
+            </div>
           )}
           <motion.button
             ref={footRef}
@@ -282,7 +302,8 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
             onClick={() => (result ? advance() : check())}
             whileTap={{ scale: 0.97 }}
           >
-            {buttonLabel}
+            <span>{buttonLabel}</span>
+            {(result || mode !== 'check') && <ArrowRightOutlined aria-hidden />}
           </motion.button>
         </div>
       </footer>

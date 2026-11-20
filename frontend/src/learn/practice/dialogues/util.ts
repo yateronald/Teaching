@@ -27,5 +27,6 @@ export function saveBest(id: string, score: number, total: number) {
   try {
     const all = readBest();
     if (!(all[id]?.[0] >= score)) { all[id] = [score, total]; localStorage.setItem(KEY, JSON.stringify(all)); }
+    window.dispatchEvent(new Event('lfwn-activity-update'));
   } catch { /* private window: nothing kept */ }
 }

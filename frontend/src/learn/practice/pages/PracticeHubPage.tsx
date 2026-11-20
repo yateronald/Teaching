@@ -227,7 +227,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
                     <span className="px-hc-ico"><EditOutlined /></span>
                     <span>
                       <strong>{lang === 'fr' ? 'Atelier de dictée' : 'Dictation studio'}</strong>
-                      <small>{dictationTotal} {lang === 'fr' ? (dictationTotal > 1 ? 'dictées' : 'dictée') : (dictationTotal > 1 ? 'dictations' : 'dictation')} · {lang === 'fr' ? '2 voix natives' : '2 native voices'} · A1</small>
+                      <small>{dictationTotal} {lang === 'fr' ? (dictationTotal > 1 ? 'dictées' : 'dictée') : (dictationTotal > 1 ? 'dictations' : 'dictation')} · {lang === 'fr' ? '4 formats · A1–C2' : '4 methods · A1–C2'}</small>
                     </span>
                     <ArrowRightOutlined className="px-hc-go" aria-hidden />
                   </Link>
@@ -259,7 +259,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
               const isReading = s.id === 'reading';
               const isListening = s.id === 'listening';
               const total = isReading ? readingTotal : isListening ? listeningTotal : dictationTotal;
-              const levelSpan = isReading ? 'A1–C1' : isListening ? 'A1–C2' : 'A1';
+              const levelSpan = isReading ? 'A1–C1' : 'A1–C2';
               const subtracks = isReading
                 ? [
                     { label: lang === 'fr' ? 'Textes avec audio' : 'Texts with audio', count: TEXTS.length, to: `${readingPath(lang)}#texts`, icon: <ReadOutlined /> },

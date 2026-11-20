@@ -31,5 +31,6 @@ export function saveBest(id: string, score: number) {
   try {
     const all = readBest();
     if (!(all[id] >= score)) { all[id] = score; localStorage.setItem(KEY, JSON.stringify(all)); }
+    window.dispatchEvent(new Event('lfwn-activity-update'));
   } catch { /* private window: nothing kept */ }
 }

@@ -317,6 +317,9 @@ export function saveDictationBest(id: string, grade: number, pct: number, mode: 
     at: Date.now(),
   };
   all[id] = next;
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(all)); } catch { /* ignore private mode */ }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(all));
+    window.dispatchEvent(new Event('lfwn-activity-update'));
+  } catch { /* ignore private mode */ }
   return next;
 }

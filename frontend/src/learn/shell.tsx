@@ -18,6 +18,7 @@ import { UI } from './ui';
 import { PromoProvider } from '../promo/PromoProvider';
 import { PromoBar, PromoNudge } from '../promo/placements';
 import type { Audience } from '../promo/model';
+import { AcademyBar } from './components/AcademyBar';
 import '../components/Landing/LandingPage.css';
 import './learn.css';
 
@@ -64,6 +65,7 @@ function useLearnMeta(lang: Lang) {
 
 export function LearnShell({ lang, alternates, seo, children, bare = false }: ShellProps) {
   const { openDemo, openExamOffer, modal } = useDemoModal();
+  const mounted = useMounted();
   usePublicPage(lang, useLearnMeta(lang));
   return (
     <PromoProvider lang={lang} area="learn">
@@ -73,6 +75,7 @@ export function LearnShell({ lang, alternates, seo, children, bare = false }: Sh
         <a href="#main" className="lp-skip">{lang === 'fr' ? 'Aller au contenu' : 'Skip to content'}</a>
         {!bare && <PromoBar />}
         {!bare && <SiteHeader lang={lang} alternates={alternates} sectionBase={PATHS[lang]} onDemo={openDemo} />}
+        {!bare && <AcademyBar lang={lang} mounted={mounted} />}
         <main id="main">{children}</main>
         {!bare && <SiteFooter lang={lang} sectionBase={PATHS[lang]} onDemo={openDemo} />}
         {modal}

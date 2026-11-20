@@ -8,6 +8,7 @@ import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang, type Voice } from '../../types';
 import { practicePath, readingPath } from '../meta';
 import { missionAudio, missionCoverKey, missionPath, missionVoice, type ReadingMission } from '../missions';
+import { saveMissionDone } from '../../studyPath/activityStore';
 import '../mission.css';
 
 const labels = {
@@ -63,6 +64,7 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
 
   function goTo(next: number) {
     stop();
+    if (next >= total) saveMissionDone(mission.id);
     moveFocus.current = true;
     setPicked(null);
     setHint(false);

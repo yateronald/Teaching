@@ -13,6 +13,7 @@ import { ListeningPlayer } from './ListeningPlayer';
 import { LISTENING_VOICES, passageAudio, questionAudio, type ListeningExercise, type ListeningVoice } from './types';
 import { usePinnedPlayer } from '../pinned';
 import { useFullExercise } from './advanced';
+import { saveListeningDocBest } from '../../studyPath/activityStore';
 import './listening.css';
 
 function Clip({ text, voice, lang, label, rate, description }: { text: string; voice: ListeningVoice; lang: Lang; label: string; rate: number; description?: string }) {
@@ -58,6 +59,7 @@ function ExerciseBody({ exercise: e, lang }: { exercise: ListeningExercise; lang
 
   function advance(nextPhase: typeof phase) {
     pause(); stop();
+    if (nextPhase === 'review') saveListeningDocBest(e.id, correct, e.questions.length);
     focus.current = true;
     setPhase(nextPhase);
   }

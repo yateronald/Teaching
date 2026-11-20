@@ -1,9 +1,9 @@
 // Explanation cards and the classic exercises: multiple choice, gap fill,
 // dictation and conjugation tables.
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { BulbOutlined, CheckOutlined, ClockCircleOutlined, CloseOutlined, CompassOutlined, FileTextOutlined, PlayCircleFilled, TrophyOutlined, WarningOutlined } from '@ant-design/icons';
-import { speak } from '../audio';
+import { motion } from 'motion/react';
+import { BookOutlined, BulbOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CompassOutlined, FileTextOutlined, PauseCircleOutlined, PlayCircleFilled, SoundOutlined, TrophyOutlined, WarningOutlined } from '@ant-design/icons';
+import { hasRecording, speak, stop as stopAudio, usePlaying } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type Lang, type ConceptStep, type ConjugateStep, type DictationStep, type FillStep, type McqStep } from '../types';
 import { UI } from '../ui';
@@ -14,45 +14,142 @@ const rise = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 } };
 
 // ── Concept ────────────────────────────────────────────────────────────────
 
-const VARIANT_ICON = { tip: <BulbOutlined />, culture: <CompassOutlined />, exam: <TrophyOutlined />, trap: <WarningOutlined /> };
+const VARIANT_ICON = {
+  default: <BookOutlined />,
+  tip: <BulbOutlined />,
+  culture: <CompassOutlined />,
+  exam: <TrophyOutlined />,
+  trap: <WarningOutlined />,
+};
 const VARIANT_LABEL = {
-  en: { tip: 'Tip', culture: 'Culture', exam: 'Exam strategy', trap: 'Watch out' },
-  fr: { tip: 'Astuce', culture: 'Culture', exam: 'Stratégie d’examen', trap: 'Attention' },
+  en: { default: 'Key concept', tip: 'Tip', culture: 'Culture', exam: 'Exam strategy', trap: 'Watch out' },
+  fr: { default: 'Notion clé', tip: 'Astuce', culture: 'Culture', exam: 'Stratégie d’examen', trap: 'Attention' },
 };
 
+function ConceptExampleRow({
+  ex,
+  index,
+  lang,
+  heard,
+  onPlay,
+}: {
+  ex: NonNullable<ConceptStep['examples']>[number];
+  index: number;
+  lang: Lang;
+  heard: boolean;
+  onPlay: () => void;
+}) {
+  const playing = usePlaying(ex.fr);
+  const canPlay = hasRecording(ex.fr);
+  return (
+    <motion.li
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.05 + index * 0.04, duration: 0.25 }}
+      className={`lx-ex-card${playing ? ' is-playing' : ''}${heard ? ' is-heard' : ''}`}
+      onClick={() => { if (canPlay) onPlay(); }}
+    >
+      <span className="lx-ex-num" aria-hidden>{String(index + 1).padStart(2, '0')}</span>
+      {canPlay && (
+        <button
+          type="button"
+          className={`lx-ex-play${playing ? ' is-playing' : ''}`}
+          onClick={e => { e.stopPropagation(); onPlay(); }}
+          aria-label={UI[lang].player.listen}
+        >
+          <SoundOutlined aria-hidden />
+          {playing && <span className="lx-audio-wave" aria-hidden><i /><i /><i /></span>}
+        </button>
+      )}
+      <div className="lx-ex-copy">
+        <button
+          type="button"
+          className="lx-ex-fr"
+          lang="fr"
+          onClick={e => { e.stopPropagation(); if (canPlay) onPlay(); }}
+        >
+          <Rich text={ex.fr} />
+        </button>
+        {gloss(ex.tr, lang) && <p className="lx-ex-tr">{gloss(ex.tr, lang)}</p>}
+        {ex.note && <p className="lx-ex-note"><Rich text={tx(ex.note, lang)} /></p>}
+      </div>
+      {heard && <span className="lx-ex-done" aria-hidden><CheckCircleFilled /></span>}
+    </motion.li>
+  );
+}
+
 export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function Concept({ step, lang, onReady }, ref) {
-  const ui = UI[lang].player;
-  const examples = step.examples ?? [];
-  const [shown, setShown] = useState(examples.length ? 1 : 0);
+  const fr = lang === 'fr';
+  const examples = useMemo(() => step.examples ?? [], [step.examples]);
+  const [heardSet, setHeardSet] = useState<Set<number>>(() => new Set());
+  const [playingAll, setPlayingAll] = useState(false);
+  const playAllToken = useRef(0);
+
   useImperativeHandle(ref, () => ({ check: () => null }), []);
-  useEffect(() => { onReady(shown >= examples.length); }, [shown, examples.length, onReady]);
-  const reveal = () => {
-    const next = shown + 1;
-    setShown(next);
-    speak(examples[next - 1].fr);
+  useEffect(() => { onReady(true); }, [onReady]);
+  useEffect(() => () => { playAllToken.current++; }, []);
+
+  const markHeard = (idx: number) => {
+    setHeardSet(prev => {
+      if (prev.has(idx)) return prev;
+      const next = new Set(prev);
+      next.add(idx);
+      return next;
+    });
   };
-  const variant = step.variant && step.variant !== 'default' ? step.variant : null;
+
+  const playOne = (idx: number) => {
+    playAllToken.current++;
+    setPlayingAll(false);
+    markHeard(idx);
+    void speak(examples[idx].fr);
+  };
+
+  const togglePlayAll = async () => {
+    if (playingAll) {
+      playAllToken.current++;
+      setPlayingAll(false);
+      stopAudio();
+      return;
+    }
+    const token = ++playAllToken.current;
+    setPlayingAll(true);
+    for (let i = 0; i < examples.length; i++) {
+      if (playAllToken.current !== token) return;
+      if (!hasRecording(examples[i].fr)) continue;
+      markHeard(i);
+      await speak(examples[i].fr);
+      if (playAllToken.current !== token) return;
+      if (i + 1 < examples.length) {
+        await new Promise(r => window.setTimeout(r, 380));
+      }
+    }
+    if (playAllToken.current === token) setPlayingAll(false);
+  };
+
+  const variantKey = step.variant && step.variant !== 'default' ? step.variant : 'default';
   const hasTheory = !!(step.image || step.body || step.points || step.table);
   const splitWithExamples = hasTheory && examples.length > 0;
   const splitImageWithTheory = !splitWithExamples && !!step.image && !!(step.body || step.points || step.table);
   const isSplit = splitWithExamples || splitImageWithTheory;
+  const playableCount = examples.filter(e => hasRecording(e.fr)).length;
 
   const pointsNode = step.points && (
     <ul className="lx-points">
       {step.points.map((p, i) => (
-        <motion.li key={i} {...rise} transition={{ delay: 0.14 + i * 0.06, duration: 0.3 }}><CheckOutlined aria-hidden /><Rich text={tx(p, lang)} /></motion.li>
+        <motion.li key={i} {...rise} transition={{ delay: 0.12 + i * 0.05, duration: 0.28 }}><CheckOutlined aria-hidden /><Rich text={tx(p, lang)} /></motion.li>
       ))}
     </ul>
   );
 
   const tableNode = step.table && (
-    <motion.div className="lx-table-wrap" {...rise} transition={{ delay: 0.12, duration: 0.35 }}>
+    <motion.div className="lx-table-wrap" {...rise} transition={{ delay: 0.1, duration: 0.3 }}>
       <table className="lx-table">
         {step.table.caption && <caption>{tx(step.table.caption, lang)}</caption>}
         <thead><tr>{step.table.head.map((h, i) => <th key={i} scope="col">{tx(h, lang)}</th>)}</tr></thead>
         <tbody>
           {step.table.rows.map((row, r) => (
-            <motion.tr key={r} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.18 + r * 0.05 }}>
+            <motion.tr key={r} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.14 + r * 0.04 }}>
               {row.map((cell, k) => <td key={k}><Rich text={tx(cell, lang)} /></td>)}
             </motion.tr>
           ))}
@@ -64,56 +161,71 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
   const examplesNode = examples.length > 0 && (
     <div className="lx-examples">
       <div className="lx-examples-head">
-        <p className="lx-examples-hint">{ui.tapToHear}</p>
-        {shown < examples.length && (
-          <div className="lx-examples-more">
-            <button type="button" className="lx-btn-soft" onClick={reveal}>{ui.next} <span>{shown}/{examples.length}</span></button>
-            <button type="button" className="lx-link" onClick={() => setShown(examples.length)}>{ui.showAll}</button>
-          </div>
+        <div className="lx-examples-k">
+          <SoundOutlined aria-hidden />
+          <span>
+            {fr ? `Audio natif · ${examples.length} phrase${examples.length > 1 ? 's' : ''}` : `Native audio · ${examples.length} phrase${examples.length > 1 ? 's' : ''}`}
+          </span>
+          {heardSet.size > 0 && (
+            <em className="lx-examples-heard">{heardSet.size}/{examples.length} ✓</em>
+          )}
+        </div>
+        {playableCount > 1 && (
+          <button
+            type="button"
+            className={`lx-play-all${playingAll ? ' is-playing' : ''}`}
+            onClick={() => void togglePlayAll()}
+          >
+            {playingAll ? <PauseCircleOutlined /> : <PlayCircleFilled />}
+            <span>{playingAll ? (fr ? 'Arrêter' : 'Stop') : (fr ? 'Tout écouter' : 'Play all')}</span>
+          </button>
         )}
       </div>
       <ol className={examples.length >= 4 && !isSplit ? 'is-two-col' : undefined}>
-        <AnimatePresence initial={false}>
-          {examples.slice(0, shown).map((ex, i) => (
-            <motion.li key={i} initial={{ opacity: 0, y: 10, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: 0.3 }}>
-              <AudioButton text={ex.fr} lang={lang} size="sm" />
-              <div>
-                <button type="button" className="lx-ex-fr" onClick={() => speak(ex.fr)}><Rich text={ex.fr} /></button>
-                {gloss(ex.tr, lang) && <p className="lx-ex-tr">{gloss(ex.tr, lang)}</p>}
-                {ex.note && <p className="lx-ex-note"><Rich text={tx(ex.note, lang)} /></p>}
-              </div>
-            </motion.li>
-          ))}
-        </AnimatePresence>
+        {examples.map((ex, i) => (
+          <ConceptExampleRow
+            key={i}
+            ex={ex}
+            index={i}
+            lang={lang}
+            heard={heardSet.has(i)}
+            onPlay={() => playOne(i)}
+          />
+        ))}
       </ol>
     </div>
   );
 
+  const headerNode = (
+    <header className="lx-concept-head">
+      <p className="lx-concept-tag">{VARIANT_ICON[variantKey]}{VARIANT_LABEL[lang][variantKey]}</p>
+      <motion.h2 {...rise} transition={{ duration: 0.3 }}>{tx(step.title, lang)}</motion.h2>
+    </header>
+  );
+
   return (
-    <div className={`lx-concept${variant ? ` is-${variant}` : ''}${isSplit ? ' is-split' : ''}`}>
-      <header className="lx-concept-head">
-        {variant && <p className="lx-concept-tag">{VARIANT_ICON[variant]}{VARIANT_LABEL[lang][variant]}</p>}
-        <motion.h2 {...rise} transition={{ duration: 0.35 }}>{tx(step.title, lang)}</motion.h2>
-      </header>
+    <div className={`lx-concept is-${variantKey}${isSplit ? ' is-split' : ''}`}>
+      {!isSplit && headerNode}
       {isSplit ? (
         <div className="lx-concept-grid">
-          <div className="lx-concept-col">
+          <div className="lx-concept-col is-theory">
+            {headerNode}
             {step.image && (
-              <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.06, duration: 0.35 }}>
+              <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.05, duration: 0.3 }}>
                 <img src={imageUrl(step.image)} alt="" loading="lazy" />
               </motion.figure>
             )}
             {splitWithExamples && step.body && (
-              <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}>
+              <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
                 <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
               </motion.div>
             )}
             {splitWithExamples && pointsNode}
             {splitWithExamples && tableNode}
           </div>
-          <div className="lx-concept-col">
+          <div className="lx-concept-col is-practice">
             {splitImageWithTheory && step.body && (
-              <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}>
+              <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
                 <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
               </motion.div>
             )}
@@ -125,11 +237,15 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
       ) : (
         <>
           {step.image && (
-            <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.06, duration: 0.35 }}>
+            <motion.figure className="lx-concept-img" {...rise} transition={{ delay: 0.05, duration: 0.3 }}>
               <img src={imageUrl(step.image)} alt="" loading="lazy" />
             </motion.figure>
           )}
-          {step.body && <motion.div {...rise} transition={{ delay: 0.08, duration: 0.35 }}><RichBlock text={tx(step.body, lang)} className="lx-concept-body" /></motion.div>}
+          {step.body && (
+            <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
+              <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+            </motion.div>
+          )}
           {pointsNode}
           {tableNode}
           {examplesNode}

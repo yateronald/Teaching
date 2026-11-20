@@ -10,6 +10,8 @@ import { COURSES } from '../catalog';
 import { getPlacement, loadPlacement } from '../content/registry';
 import { PLACEMENT_LEVELS, type PlacementQuestion } from '../content/placement';
 import { hubPath, placementPath } from '../paths';
+import { levelPath } from '../levels';
+import { setStudyLevel } from '../studyPath/activityStore';
 import { recordPlacement, useProgress } from '../progress';
 import { placementJsonLd } from '../schema';
 import { CourseCard, Crumbs, LearnShell, useDemo, useMounted } from '../shell';
@@ -125,7 +127,10 @@ export default function PlacementPage({ lang }: { lang: Lang }) {
                 <p className="lx-place-clb"><strong>{pl.clb}</strong> {pl.clbText(level)}</p>
                 <p className="lx-note">{pl.resultNote}</p>
                 <div className="lp-hero-ctas">
-                  <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => openOffer(`${lang === 'fr' ? 'Évaluation de niveau' : 'Level assessment'} (${level})`)}>{pl.ctaTitle}<ArrowRightOutlined /></button>
+                  <Link to={levelPath(level, lang)} className="lp-btn lp-btn-primary lp-btn-lg">
+                    {lang === 'fr' ? `Ouvrir mon parcours ${level}` : `Start my ${level} Study Path`} <ArrowRightOutlined />
+                  </Link>
+                  <button type="button" className="lp-btn lp-btn-ghost lp-btn-lg" onClick={() => openOffer(`${lang === 'fr' ? 'Évaluation de niveau' : 'Level assessment'} (${level})`)}>{pl.ctaTitle}</button>
                   <button type="button" className="lp-btn lp-btn-ghost lp-btn-lg" onClick={() => { setFresh(null); setPhase('test'); }}><RedoOutlined />{pl.retake}</button>
                 </div>
               </div>
@@ -153,7 +158,7 @@ export default function PlacementPage({ lang }: { lang: Lang }) {
 
       {phase === 'test' && (
         <Overlay>
-          <Test lang={lang} onExit={() => setPhase('intro')} onDone={(lvl, score) => { recordPlacement(lvl, score); setFresh(lvl); setPhase('intro'); celebrate(); window.scrollTo({ top: 0 }); }} />
+          <Test lang={lang} onExit={() => setPhase('intro')} onDone={(lvl, score) => { recordPlacement(lvl, score); setStudyLevel(lvl, true); setFresh(lvl); setPhase('intro'); celebrate(); window.scrollTo({ top: 0 }); }} />
         </Overlay>
       )}
     </LearnShell>
