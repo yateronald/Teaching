@@ -42,37 +42,36 @@ function sitePages() {
 const modelLabel = (id) => String(id || '').split('-').map(w => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
 
 /** The writers offered on the active engine, with what each did lately ('ok', 'missing', 'busy', 'error' or null). */
-function writingChoices() {
-    const engine = ai.activeEngine();
-    return ai.modelsFor('choices', engine).map(id => ({ id, label: modelLabel(id), state: ai.modelState(engine, id) }));
+function writingChoices(engine = ai.activeEngine()) {
+    return ai.modelsFor('choices', engine).map(id => ({ id, label: modelLabel(id), state: ai.modelState(engine, id, { emailCampaign: true }) }));
 }
 
 /** The administrator's choice when it is one of the offered models, else none (the usual order). */
-const chosenModel = (model) => (ai.modelsFor('choices', ai.activeEngine()).includes(model) ? model : null);
+const chosenModel = (model, engine) => (ai.modelsFor('choices', engine).includes(model) ? model : null);
 
 /** Tries each offered writer once, one after the other (the « Check » next to the choice). */
 async function checkWritingModels() {
     const engine = ai.activeEngine();
     const results = [];
     for (const id of ai.modelsFor('choices', engine)) {
-        results.push(await ai.probeModel(engine, id));
+        results.push(await ai.probeModel(engine, id, { emailCampaign: true }));
         await new Promise(r => setTimeout(r, 700));
     }
-    return { engine, choices: writingChoices(), results: results.map(r => ({ model: r.model, state: r.state, ms: r.ms })) };
+    return { engine, choices: writingChoices(engine), results: results.map(r => ({ model: r.model, state: r.state, ms: r.ms })) };
 }
 
 /** Told when the chosen model could not answer and another one wrote instead. */
-function stoodIn(requested, used, lang) {
+function stoodIn(requested, used, lang, engine) {
     if (!requested || requested === used) return null;
-    const missing = ai.modelState(ai.activeEngine(), requested) === 'missing';
+    const missing = ai.modelState(engine, requested, { emailCampaign: true }) === 'missing';
     if (lang === 'fr') {
         return missing
             ? `${modelLabel(requested)} n’est pas disponible sur votre projet (modèle introuvable ou accès non accordé) : ${modelLabel(used)} l’a fait à sa place.`
-            : `${modelLabel(requested)} était occupé : ${modelLabel(used)} l’a fait à sa place.`;
+            : `${modelLabel(requested)} n’a pas pu traiter la demande. ${modelLabel(used)} l’a fait à sa place.`;
     }
     return missing
         ? `${modelLabel(requested)} is not available on your project (model not found, or no access yet): ${modelLabel(used)} did it instead.`
-        : `${modelLabel(requested)} was busy: ${modelLabel(used)} did it instead.`;
+        : `${modelLabel(requested)} could not complete the request. ${modelLabel(used)} did it instead.`;
 }
 
 const GOAL_WORDS = {
@@ -337,6 +336,7 @@ function pricesIn(text) {
 }
 
 async function draftEmail(db, { brief: rawBrief, goal, current, promotionId, primary, secondary, notesLang, timezone, userTimezone, model: requestedModel, pictureWanted, picturePrompt }) {
+    const engineId = ai.activeEngine();
     const brief = briefOf(rawBrief);
     if (brief.length < 8) throw new AiError('AI_BRIEF_SHORT', 'Describe the email in a sentence or two (what it is about, for whom, the action you want).');
     const tz = zoneOf(timezone) || zoneOf(userTimezone) || 'America/Toronto';
@@ -403,7 +403,7 @@ async function draftEmail(db, { brief: rawBrief, goal, current, promotionId, pri
         parts.push('', 'The administrator wants a picture in this email: write image_prompt for a photograph that illustrates it.');
     }
     const prompt = parts.join('\n');
-    const prefer = chosenModel(requestedModel);
+    const prefer = chosenModel(requestedModel, engineId);
 
     try {
         const { result, model, engine } = await ai.withFallback('writing', async (client, model) => {
@@ -436,9 +436,9 @@ async function draftEmail(db, { brief: rawBrief, goal, current, promotionId, pri
                 subject_ideas: { fr: ideas('subject_ideas_fr'), en: ideas('subject_ideas_en') },
                 image_prompt: cut(plain(raw.image_prompt), 900) || wish,
             };
-        }, { label: 'Email writer', prefer });
-        const instead = stoodIn(prefer, model, lang);
-        return { ...result, notes: instead ? [instead, ...result.notes] : result.notes, model, model_label: modelLabel(model), requested_model: prefer, choices: writingChoices(), engine };
+        }, { label: 'Email writer', prefer, engine: engineId, emailCampaign: true });
+        const instead = stoodIn(prefer, model, lang, engine);
+        return { ...result, notes: instead ? [instead, ...result.notes] : result.notes, model, model_label: modelLabel(model), requested_model: prefer, choices: writingChoices(engine), engine };
     } catch (err) {
         if (err instanceof AiError) throw err;
         throw promoAi.unavailable(err);
@@ -489,7 +489,8 @@ const STYLE_WORDS = {
 };
 
 async function proposeDesigns({ campaign, wishes = {}, model: requestedModel, lang = 'en' }) {
-    const prefer = chosenModel(requestedModel);
+    const engineId = ai.activeEngine();
+    const prefer = chosenModel(requestedModel, engineId);
     const c = svc.clean(campaign || {}).values;
     const w = c.content[c.default_lang] || c.content.fr;
     const summary = {
@@ -535,8 +536,8 @@ async function proposeDesigns({ campaign, wishes = {}, model: requestedModel, la
             });
             if (designs.length < 2) throw ai.badAnswer('Fewer than two designs');
             return designs;
-        }, { label: 'Email art director', prefer });
-        return { designs: result, model, model_label: modelLabel(model), requested_model: prefer, notice: stoodIn(prefer, model, lang === 'fr' ? 'fr' : 'en'), choices: writingChoices(), engine };
+        }, { label: 'Email art director', prefer, engine: engineId, emailCampaign: true });
+        return { designs: result, model, model_label: modelLabel(model), requested_model: prefer, notice: stoodIn(prefer, model, lang === 'fr' ? 'fr' : 'en', engine), choices: writingChoices(engine), engine };
     } catch (err) {
         if (err instanceof AiError) throw err;
         throw promoAi.unavailable(err);

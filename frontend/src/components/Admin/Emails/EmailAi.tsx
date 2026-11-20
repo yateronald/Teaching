@@ -59,6 +59,18 @@ function ModelPicker({ choices, model, onModel, onChoices, disabled, tr }: {
     } catch (e) { setErr(emailError(e, tr)); } finally { setChecking(false); }
   };
   const picked = choices.find(c => c.id === model);
+  const options = choices.map(c => ({
+    value: c.id,
+    label: <span className="em-model-option"><span>{c.label}</span>{c.state && <em className={`is-${c.state}`}>{modelStateLabel(c.state, tr)}</em>}</span>,
+    disabled: false,
+  }));
+  if (!choices.some(c => c.id === 'gemini-4-neon')) {
+    options.push({
+      value: 'gemini-4-neon',
+      label: <span className="em-model-option"><span>Gemini 4 Neon</span><em>{tr('Requires backend update', 'Mise à jour du serveur requise')}</em></span>,
+      disabled: true,
+    });
+  }
   return (
     <div className="em-model">
       <div className="em-model-row">
@@ -66,10 +78,7 @@ function ModelPicker({ choices, model, onModel, onChoices, disabled, tr }: {
         <Select size="small" variant="filled" value={model ?? undefined} onChange={v => onModel(v)} disabled={disabled} popupMatchSelectWidth={false}
           aria-label={tr('AI model (Vertex AI)', 'Modèle d’IA (Vertex AI)')} className="em-model-select"
           labelRender={() => <span className="em-model-option"><span>{picked?.label || model}</span>{picked?.state && <i className={`is-${picked.state}`} aria-hidden />}</span>}
-          options={choices.map(c => ({
-            value: c.id,
-            label: <span className="em-model-option"><span>{c.label}</span>{c.state && <em className={`is-${c.state}`}>{modelStateLabel(c.state, tr)}</em>}</span>,
-          }))} />
+          options={options} />
         <Tooltip title={tr('Check which models answer on your Vertex project (one short call each)', 'Vérifier quels modèles répondent sur votre projet Vertex (un court appel chacun)')}>
           <Button size="small" type="text" icon={<SyncOutlined spin={checking} />} onClick={check} disabled={disabled || checking} aria-label={tr('Check the models', 'Vérifier les modèles')} />
         </Tooltip>
@@ -311,7 +320,7 @@ const EmailAi: React.FC<Props> = ({ editing, fields, meta, tr, lang, choices, mo
 
           <div className="em-ai-foot">
             <div className="em-ai-settings">
-              {meta?.ai.engine === 'vertex' && choices.length > 0 && (
+              {meta?.ai.engine === 'vertex' && (
                 <ModelPicker choices={choices} model={model} onModel={onModel} onChoices={onChoices} disabled={busy} tr={tr} />
               )}
               <Tooltip title={tr('Use the layout the AI picks for this kind of email (you can change it in Design).', 'Utiliser la mise en page choisie par l’IA pour ce type d’email (modifiable dans Design).')}>

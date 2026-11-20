@@ -34,6 +34,8 @@
 // VERTEX_LIVE_MODELS, VERTEX_TTS_MODELS.
 // ============================================================
 const { GoogleGenAI, Modality } = require('@google/genai');
+const VERTEX_NEON_MODEL = 'gemini-4-neon';
+const VERTEX_EMAIL_MODELS = new Set([VERTEX_NEON_MODEL, 'gemini-4-hydrogen']);
 
 const listFrom = (value) => [...new Set(String(value || '').split(',').map(s => s.trim()).filter(Boolean))];
 const modelLists = (defaults, envNames) => Object.fromEntries(Object.keys(defaults).map(k => {
@@ -96,14 +98,15 @@ function vertexEngine() {
     // Pictures: Nano Banana 2 (checked 2026-11-15: no 3.8 Flash image model exists,
     // and the Pro image previews answer 404 here). The picture check runs on the text models.
     image: ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'],
-    // The writers the administrator may pick (email campaigns). The Gemini 4 models were asked
-    // for on 2026-11-15; that day this project answered 404 for all three (no access yet), so a
-    // request that picks one is written by the next model and the administrator is told.
     choices: ['gemini-3.8-flash', 'gemini-4-carbon', 'gemini-4-argon', 'gemini-4-hydrogen'],
   }, { text: 'VERTEX_TEXT_MODELS', live: 'VERTEX_LIVE_MODELS', tts: 'VERTEX_TTS_MODELS', writing: 'VERTEX_WRITING_MODELS', image: 'VERTEX_IMAGE_MODELS', choices: 'VERTEX_WRITING_CHOICES' });
+  // Offer Neon even with a model list saved before it was added.
+  if (!models.choices.includes(VERTEX_NEON_MODEL)) models.choices.push(VERTEX_NEON_MODEL);
 
   const apiKey = String(process.env.VERTEX_API_KEY || process.env.GOOGLE_CLOUD_API_KEY || process.env.Google_cloud_key || '').trim();
   const project = String(process.env.VERTEX_PROJECT || '').trim();
+  // Project_ID is the project verified with the EU endpoint. The Live examiner can use a different project.
+  const emailProject = process.env.Project_ID?.trim() || project;
   const rawLocation = String(process.env.VERTEX_LIVE_LOCATION || 'us-central1').trim();
   const location = /^[a-z0-9-]{2,40}$/.test(rawLocation) ? rawLocation : 'us-central1';
   const projectOk = /^[a-z0-9-]{4,40}$/i.test(project);
@@ -125,6 +128,10 @@ function vertexEngine() {
     models,
     keys: apiKey ? [apiKey] : [],
     clients,
+    emailWriter: {
+      id: 'vertex-email-eu',
+      clients: apiKey ? [{ models: { generateContent: (req) => generateVertexEmail(req, emailProject, apiKey) } }] : [],
+    },
     liveClients,
     liveModel,
     project: projectOk ? project : null,
@@ -154,6 +161,8 @@ function setActiveEngine(id) {
   return true;
 }
 const isConfigured = (id) => engine(id).configured;
+const modelEngine = (e, model, emailCampaign) =>
+  (emailCampaign && e.emailWriter && VERTEX_EMAIL_MODELS.has(model) ? e.emailWriter : e);
 
 const turns = new Map(); // engine → call counter
 /** Key indexes, starting with a different key on every call, so the load is spread over all projects. */
@@ -167,6 +176,7 @@ function keyOrder(id) {
 
 // ── Errors ────────────────────────────────────────────────────────────────
 function details(err) {
+  if (err?.apiError) return err.apiError;
   const msg = String(err?.message || '');
   try { return JSON.parse(msg.slice(msg.indexOf('{'))).error || null; } catch { return null; }
 }
@@ -214,24 +224,28 @@ const stateOf = (status) => (status === 404 ? 'missing' : status === 429 || stat
  * 'busy' (over quota or overloaded), 'error', or null (not tried lately).
  * A "missing" is remembered 6 hours (access can be granted meanwhile), the rest 30 minutes.
  */
-function modelState(engineId, model) {
-  const h = health.get(`${engine(engineId).id}|${model}`);
+function modelState(engineId, model, { emailCampaign = false } = {}) {
+  const e = modelEngine(engine(engineId), model, emailCampaign);
+  const h = health.get(`${e.id}|${model}`);
   if (!h) return null;
   const ttl = h.state === 'missing' ? 6 * 3600e3 : 30 * 60e3;
   return Date.now() - h.at < ttl ? h.state : null;
 }
 /** One short call to see whether a model answers on an engine (the administrator's « Check »). */
-async function probeModel(engineId, model) {
-  const e = engine(engineId);
+async function probeModel(engineId, model, { emailCampaign = false } = {}) {
+  const e = modelEngine(engine(engineId), model, emailCampaign);
   if (!e.clients.length) throw Object.assign(new Error(`The ${e.id} AI engine is not configured`), { status: 503 });
   const started = Date.now();
   try {
     await e.clients[0].models.generateContent({
       model,
       contents: [{ role: 'user', parts: [{ text: 'Reply with one word: ready.' }] }],
-      config: { maxOutputTokens: 1000, temperature: 0 },
+      config: e.id === 'vertex-email-eu'
+        ? { maxOutputTokens: 4096, abortSignal: AbortSignal.timeout(35_000) }
+        : { maxOutputTokens: 1000, temperature: 0 },
     });
     noteHealth(e, model, 'ok');
+    resting.delete(restKey(e, model, 0));
     return { model, state: 'ok', ms: Date.now() - started };
   } catch (err) {
     const status = statusOf(err);
@@ -257,6 +271,39 @@ const turnsOf = (contents) => {
   const list = Array.isArray(contents) ? contents : [contents];
   return list.some(c => c?.parts) ? list.map(c => ({ role: c.role || 'user', parts: c.parts })) : [{ role: 'user', parts: list }];
 };
+
+/** Campaign text on the project-scoped Vertex EU endpoint, using the existing API key. */
+async function generateVertexEmail({ model, contents, config }, project, apiKey) {
+  if (!/^[a-z0-9-]{4,40}$/i.test(project)) {
+    throw Object.assign(new Error('Set Project_ID or VERTEX_PROJECT to a valid Google Cloud project for the email writer.'), { status: 403 });
+  }
+  const { systemInstruction, responseMimeType, responseSchema, maxOutputTokens, abortSignal } = config;
+  const url = `https://aiplatform.eu.rep.googleapis.com/v1/projects/${project}/locations/eu/publishers/google/models/${model}:generateContent`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+    redirect: 'error',
+    signal: abortSignal || AbortSignal.timeout(90_000),
+    body: JSON.stringify({
+      contents: turnsOf(contents),
+      ...(systemInstruction ? { systemInstruction: { parts: [{ text: systemInstruction }] } } : {}),
+      generationConfig: { responseMimeType, responseSchema, maxOutputTokens, thinkingConfig: { thinkingLevel: 'LOW' } },
+    }),
+  });
+  const result = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = String(result?.error?.message || response.statusText).replaceAll(apiKey, '[redacted]');
+    throw Object.assign(new Error(message), { status: response.status, apiError: result?.error });
+  }
+
+  const candidate = result?.candidates?.[0];
+  const text = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text).join('').trim();
+  if (!text || candidate.finishReason !== 'STOP') {
+    throw badAnswer(`Vertex EU returned no complete answer (${candidate?.finishReason || result?.promptFeedback?.blockReason || 'empty response'})`);
+  }
+  return { text };
+}
+
 const textOf = (c) => (typeof c === 'string' ? c : (c?.parts || []).map(p => p.text || '').join('\n'));
 /** The JSON value in a transcription ("```json { … } ```", a leading word…). */
 function jsonIn(said) {
@@ -354,14 +401,14 @@ const SPEECH_ONLY = /native-audio/;
  * `prefer`: a model the administrator picked, tried first (skipped while it is
  * known to be missing on this engine); the use's own models follow it.
  */
-async function withFallback(kind, call, { label = kind, unlimited = kind !== 'live', engine: engineId, onFailure, prefer } = {}) {
+async function withFallback(kind, call, { label = kind, unlimited = kind !== 'live', engine: engineId, onFailure, prefer, emailCampaign = false } = {}) {
   const e = engine(engineId);
   if (!e.clients.length) throw Object.assign(new Error(`The ${e.id} AI engine is not configured`), { status: 503 });
   const liveClients = liveStandInsFor(e);
-  const picked = typeof prefer === 'string' && /^[a-z0-9][a-z0-9.-]{2,60}$/.test(prefer) && modelState(e.id, prefer) !== 'missing' ? [prefer] : [];
+  const picked = typeof prefer === 'string' && /^[a-z0-9][a-z0-9.-]{2,60}$/.test(prefer) && modelState(e.id, prefer, { emailCampaign }) !== 'missing' ? [prefer] : [];
   const steps = [
-    ...[...picked, ...e.models[kind].filter(m => !picked.includes(m))].map(model => ({ model, live: false })),
-    ...(unlimited && liveClients.length ? e.models.live.filter(m => kind === 'tts' || !SPEECH_ONLY.test(m)).map(model => ({ model, live: true })) : []),
+    ...[...picked, ...e.models[kind].filter(m => !picked.includes(m))].map(model => ({ model, live: false, target: modelEngine(e, model, emailCampaign) })),
+    ...(unlimited && liveClients.length ? e.models.live.filter(m => kind === 'tts' || !SPEECH_ONLY.test(m)).map(model => ({ model, live: true, target: e })) : []),
   ];
   const order = keyOrder(e.id);
   const badAnswers = new Map(); // model → unusable answers in this request
@@ -372,31 +419,31 @@ async function withFallback(kind, call, { label = kind, unlimited = kind !== 'li
   // it gives up at once.
   for (let rounds = 0, pass = 0; rounds < 2 && pass < 4; pass++) {
     let tried = 0;
-    for (const { model, live } of steps) {
+    for (const { model, live, target } of steps) {
       for (const k of order) {
         // Two unusable answers: this model cannot handle this request, whatever the key.
         if ((badAnswers.get(model) || 0) >= 2) break;
         if (live && !liveClients[k]) continue;
-        if (isResting(e, model, k)) continue;
+        if (isResting(target, model, k)) continue;
         tried++;
         try {
-          const result = await call(live ? liveClients[k] : e.clients[k], model);
+          const result = await call(live ? liveClients[k] : target.clients[k], model);
           if (live) console.log(`ℹ️  ${label}: answered by ${model} (Live, ${e.id} key ${k + 1}) — the regular models are full or busy`);
-          else noteHealth(e, model, 'ok');
+          else noteHealth(target, model, 'ok');
           return { result, model, engine: e.id };
         } catch (err) {
           lastErr = err;
           const status = statusOf(err);
-          if (!live && !err?.badAnswer) noteHealth(e, model, stateOf(status));
+          if (!live && !err?.badAnswer) noteHealth(target, model, stateOf(status));
           // A bad request is ours, not the model's: every other model would refuse it too.
           if (status === 400 && !/model|thinking|not supported|unsupported|modalit/i.test(safeMessage(err))) throw err;
           if (err?.badAnswer) badAnswers.set(model, (badAnswers.get(model) || 0) + 1);
-          rest(e, model, k, err);
+          rest(target, model, k, err);
           try { onFailure?.(model, status, err); } catch { /* diagnostics only */ }
           console.warn(`⚠️  ${label}: ${model} (${e.id} key ${k + 1}) unavailable — ${status || ''} ${safeMessage(err).slice(0, 120)}`);
           // « Not found »: the model itself is missing, other keys would only be refused too.
           if (status === 404 && !live) {
-            for (const other of order) rest(e, model, other, err);
+            for (const other of order) rest(target, model, other, err);
             break;
           }
         }
@@ -407,7 +454,7 @@ async function withFallback(kind, call, { label = kind, unlimited = kind !== 'li
     if (tried) {
       await sleep(1500);
     } else {
-      const free = Math.min(...steps.flatMap(({ model }) => order.map(k => resting.get(restKey(e, model, k)) || 0)));
+      const free = Math.min(...steps.flatMap(({ model, target }) => order.map(k => resting.get(restKey(target, model, k)) || 0)));
       if (free - Date.now() > 65_000) break;
       await sleep(Math.max(500, free - Date.now()));
     }
