@@ -453,24 +453,35 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
 
           {/* ── Horizontal Conversion Split Banner ── */}
           <div className="lx-cat-banner-grid">
-            <div className="lx-cat-banner-main">
+            <div className="lx-cat-banner-main" style={{ '--tcta-img': `url(${imageUrl('teacher', 640)})` } as React.CSSProperties}>
               <TeacherCta lang={lang} audience={audienceOfCategory(category.id)} />
               {category.topic && (
-                <p className="lx-cat-banner-topic">
-                  <span>{ui.category.related}</span>
-                  <Link to={TOPIC_PATHS[category.topic][lang]} className="lx-link">
-                    {ui.category.relatedLink} <ArrowRightOutlined />
-                  </Link>
-                </p>
+                <Link to={TOPIC_PATHS[category.topic][lang]} className="lx-cat-banner-topic">
+                  <span className="lx-cat-topic-img" aria-hidden><img src={imageUrl(category.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" /></span>
+                  <span className="lx-cat-topic-copy">
+                    <strong>{ui.category.related}</strong>
+                    <small>{lang === 'fr' ? 'Des cours en direct avec un professeur natif, en ligne ou en présentiel.' : 'Live classes with a native teacher, online or in person.'}</small>
+                  </span>
+                  <span className="lx-cat-topic-go">{ui.category.relatedLink} <ArrowRightOutlined aria-hidden /></span>
+                </Link>
               )}
             </div>
             <div className="lx-cat-banner-side">
               <Link to={placementPath(lang)} className="lx-cat-test-card">
-                <span className="lx-cat-test-eyebrow">{ui.placement.eyebrow}</span>
-                <h3>{ui.hub.ctaTest}</h3>
-                <p>{ui.levelPage.notSureText}</p>
-                <span className="lx-cat-test-cta">
-                  {ui.placement.start} <ArrowRightOutlined />
+                <span className="lx-cat-test-media" aria-hidden>
+                  <img src={imageUrl('placement', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+                  <span className="lx-cat-test-badge"><ClockCircleOutlined /> ≈ 10 min</span>
+                </span>
+                <span className="lx-cat-test-body">
+                  <span className="lx-cat-test-eyebrow">{ui.placement.eyebrow}</span>
+                  <h3>{ui.hub.ctaTest}</h3>
+                  <p>{ui.levelPage.notSureText}</p>
+                  <ul className="lx-cat-test-points">
+                    {ui.placement.points.map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}
+                  </ul>
+                  <span className="lx-cat-test-cta">
+                    {ui.placement.start} <ArrowRightOutlined />
+                  </span>
                 </span>
               </Link>
             </div>
