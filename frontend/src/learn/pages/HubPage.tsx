@@ -1,19 +1,18 @@
-// /learn/ and /fr/apprendre/: Guided Study-Path Platform (Architecture #2).
-// Step 1: 15-second Goal & Level Finder (collapses to 1-line switcher once chosen).
-// Step 2 & 3: Structured mixed-skill Study Roadmap (LEARN · LISTEN · READ · WRITE)
-// with live progress tracking, single "Continue Module X" CTA, Checkpoint & Next Level.
-// Below: Clean 4-Pillar Free Library Explorer (488 items), 30s Method Preview,
-// Native Teacher Showcase, and FAQ.
+// /learn/ and /fr/apprendre/: the home of the free French academy, built like
+// an online-course platform. A hero with search and a photo collage, the
+// learner's « continue » card, four learning paths (picture cards) and the
+// starting level, the guided study path itself, rows of courses by category,
+// categories and practice studios as picture tiles, levels and games, a
+// 30-second mini lesson, the native teachers and the FAQ.
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
-  AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
-  BookOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined,
-  CloseOutlined, CommentOutlined, CompassOutlined, CustomerServiceOutlined,
-  DownOutlined, DragOutlined, EditOutlined, PlayCircleFilled, ReadOutlined,
-  ReloadOutlined, RocketOutlined, SearchOutlined, SlidersOutlined,
-  SoundOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
+  AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined, BookOutlined,
+  CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined,
+  CompassOutlined, CustomerServiceOutlined, DownOutlined, DragOutlined, EditOutlined,
+  PlayCircleFilled, ReadOutlined, ReloadOutlined, RocketOutlined,
+  SafetyCertificateOutlined, SearchOutlined, SoundOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { chime, speak, usePlaying } from '../audio';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
@@ -32,13 +31,16 @@ import { LISTENING, listeningPath } from '../practice/listening/catalog';
 import { DICTATIONS, dictationPath } from '../practice/dictation/catalog';
 import { openAcademySearch } from '../studyPath/searchIndex';
 import { StudyRoadmap } from '../components/StudyRoadmap';
-import { setStudyGoal, setStudyLevel, setStudyPath, useStudyPath } from '../studyPath/activityStore';
+import { CountUp, Reveal } from '../components/Reveal';
+import { CourseRow } from '../components/CourseRow';
+import { countTotalCompleted, setStudyGoal, setStudyLevel, setStudyPath, useActivitySnapshot, useStudyPath } from '../studyPath/activityStore';
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
-import { COURSE_TRACKS, GOALS, STUDY_COPY, goalById } from '../studyPath/copy';
+import { GOALS, goalById } from '../studyPath/copy';
 import type { StudyGoalId } from '../studyPath/types';
 import '../games/games.css';
 import '../practice/practice.css';
 import './hub.css';
+import './home.css';
 import { CourseCard, LearnShell, LevelChip, useDemo, useMounted } from '../shell';
 import { LEVELS, tx, type Lang, type Level } from '../types';
 import { UI } from '../ui';
@@ -55,7 +57,6 @@ const GOAL_ICON: Record<StudyGoalId, ReactNode> = {
   fluency: <CustomerServiceOutlined />,
 };
 
-type LibraryTab = 'courses' | 'practice' | 'levels' | 'games';
 
 const levelBand = (lv: Level) => (lv === 'A1' || lv === 'A2' ? 'is-a' : lv === 'B1' || lv === 'B2' ? 'is-b' : 'is-c');
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -281,548 +282,446 @@ function TryItStudio({ lang }: { lang: Lang }) {
   );
 }
 
-export default function HubPage({ lang }: { lang: Lang }) {
+/** The full catalogue: level, category and text filters, grid or list. */
+function Catalogue({ lang }: { lang: Lang }) {
   const fr = lang === 'fr';
   const ui = UI[lang];
   const h = ui.hub;
-  const fc = STUDY_COPY[lang].finder;
-  const lc = STUDY_COPY[lang].library;
-  const { openDemo } = useDemo();
-  const mounted = useMounted();
-  const saved = useStudyPath();
-
-  // Finder collapses smoothly for returning learners who already picked a path (re-openable in 1 click).
-  const [editingFinder, setEditingFinder] = useState(false);
-  const showFullFinder = !mounted || !saved.picked || editingFinder;
-
-  // Library Explorer state
-  const [libTab, setLibTab] = useState<LibraryTab>('courses');
   const [level, setLevel] = useState<Level | 'all'>('all');
   const [cat, setCat] = useState<string>('all');
   const [q, setQ] = useState('');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const PAGE = 8;
   const [shown, setShown] = useState(PAGE);
+  const filtered = useMemo(() => {
+    const words = norm(q).split(/\s+/).filter(Boolean);
+    return COURSES.filter(c => (level === 'all' || c.levels.includes(level)) && (cat === 'all' || c.category === cat) && words.every(w => {
+      const catName = tx(CATEGORIES.find(x => x.id === c.category)!.name, lang);
+      return norm(`${tx(c.title, lang)} ${tx(c.subtitle, lang)} ${catName} ${c.level}`).includes(w);
+    }));
+  }, [level, q, lang, cat]);
+  useEffect(() => { setShown(PAGE); }, [level, q, cat]);
+  const visible = Math.min(filtered.length, shown);
+  const remaining = filtered.length - visible;
+  return (
+    <div className="ah-catalogue">
+      <div className="hx-cat-toolbar">
+        <div className="rxl-level-pills" role="group" aria-label={ui.level}>
+          <button type="button" className={level === 'all' ? 'is-on' : ''} onClick={() => setLevel('all')} aria-pressed={level === 'all'}>
+            {fr ? 'Tous' : 'All'}<span>{COURSES.length}</span>
+          </button>
+          {LEVELS.map(lv => (
+            <button key={lv} type="button" className={level === lv ? 'is-on' : ''} onClick={() => setLevel(lv)} aria-pressed={level === lv}>
+              <b>{lv}</b><span>{COURSES.filter(c => c.levels.includes(lv)).length}</span>
+            </button>
+          ))}
+        </div>
+        <div className="hx-cat-tools">
+          <label className="hx-cat-search">
+            <SearchOutlined aria-hidden />
+            <input type="search" value={q} onChange={e => setQ(e.target.value)} placeholder={h.search} aria-label={h.search} />
+            {q && <button type="button" onClick={() => setQ('')} aria-label={fr ? 'Effacer' : 'Clear'}><CloseOutlined /></button>}
+          </label>
+          <div className="rxl-view-toggle" role="group" aria-label={fr ? 'Mode d’affichage' : 'Display mode'}>
+            <button type="button" className={view === 'grid' ? 'is-on' : ''} aria-pressed={view === 'grid'} onClick={() => setView('grid')}><AppstoreOutlined /> {fr ? 'Grille' : 'Grid'}</button>
+            <button type="button" className={view === 'list' ? 'is-on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}><BarsOutlined /> {fr ? 'Liste' : 'List'}</button>
+          </div>
+        </div>
+      </div>
+      <div className="hx-cat-cats" role="group" aria-label={h.pathsEyebrow}>
+        <button type="button" className={cat === 'all' ? 'is-on' : ''} onClick={() => setCat('all')} aria-pressed={cat === 'all'}>{fr ? 'Tous les thèmes' : 'All topics'}</button>
+        {CATEGORIES.map(c => (
+          <button key={c.id} type="button" className={cat === c.id ? 'is-on' : ''} onClick={() => setCat(c.id)} aria-pressed={cat === c.id}>{tx(c.name, lang)}</button>
+        ))}
+      </div>
+      <p className="ah-catalogue-count" aria-live="polite">{h.results(filtered.length)}</p>
+      {filtered.length ? (
+        <>
+          {view === 'grid' ? (
+            <ul className="ah-grid">
+              {filtered.slice(0, shown).map(c => <li key={c.id}><CourseCard course={c} lang={lang} /></li>)}
+            </ul>
+          ) : (
+            <ul className="hx-cat-list">
+              {filtered.slice(0, shown).map(c => {
+                const catObj = CATEGORIES.find(x => x.id === c.category)!;
+                return (
+                  <li key={c.id}>
+                    <article className="hx-list-row">
+                      <img src={imageUrl(c.image, 640)} alt="" loading="lazy" decoding="async" width="224" height="140" />
+                      <div className="hx-list-body">
+                        <div className="hx-list-top"><LevelChip level={c.level} size="sm" /><span className="hx-list-cat">{tx(catObj.name, lang)}</span></div>
+                        <h3><Link to={coursePath(c, lang)} className="lx-stretch">{tx(c.title, lang)}</Link></h3>
+                        <div className="hx-list-meta">
+                          <span><ReadOutlined /> {ui.lessons(c.lessonCount)}</span>
+                          <span><ClockCircleOutlined /> {ui.minutes(c.minutes)}</span>
+                        </div>
+                      </div>
+                      <Link to={coursePath(c, lang)} state={AUTOSTART} className="lx-cc-start"><PlayCircleFilled /> {ui.start}</Link>
+                    </article>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {filtered.length > PAGE && (
+            <div className="rxl-pager">
+              <div className="rxl-pager-status">
+                <span>{fr ? `Affichage de ${visible} sur ${filtered.length} cours` : `Showing ${visible} of ${filtered.length} courses`}</span>
+                <i aria-hidden><b style={{ transform: `scaleX(${visible / filtered.length})` }} /></i>
+              </div>
+              <div className="rxl-pager-actions">
+                {remaining > 0 ? (
+                  <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setShown(n => n + PAGE)}>
+                    {fr ? `Afficher ${Math.min(PAGE, remaining)} de plus` : `Show ${Math.min(PAGE, remaining)} more`} <DownOutlined />
+                  </button>
+                ) : (
+                  <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setShown(PAGE)}>
+                    {fr ? 'Réduire' : 'Show fewer'} <UpOutlined />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rxl-empty">
+          <p>{h.noResult}</p>
+          <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => { setLevel('all'); setCat('all'); setQ(''); }}>
+            {fr ? 'Réinitialiser les filtres' : 'Reset filters'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STUDIOS = [
+  { id: 'reading', image: 'cat-reading', icon: <ReadOutlined /> },
+  { id: 'listening', image: 'cat-listening', icon: <CustomerServiceOutlined /> },
+  { id: 'dictation', image: 'cat-spelling', icon: <EditOutlined /> },
+] as const;
+
+export default function HubPage({ lang }: { lang: Lang }) {
+  const fr = lang === 'fr';
+  const ui = UI[lang];
+  const h = ui.hub;
+  const { openDemo } = useDemo();
+  const mounted = useMounted();
+  const saved = useStudyPath();
+  const snap = useActivitySnapshot();
 
   const activeGoal = mounted ? saved.goal : 'complete';
   const activeLevel = mounted ? saved.level : 'A1';
   const plan = useMemo(() => buildStudyPlan(activeGoal, activeLevel, lang), [activeGoal, activeLevel, lang]);
   const levelStats = useMemo(() => LEVELS.map(lv => levelActivityStats(lv)), []);
+  const [rowCat, setRowCat] = useState<string>('popular');
 
   const readingTotal = TEXTS.length + MISSIONS.length;
   const listeningTotal = DIALOGUES.length + EAR.length + LISTENING.length;
   const practiceTotal = readingTotal + listeningTotal + DICTATIONS.length;
+  const lessonsTotal = COURSES.reduce((n, c) => n + c.lessonCount, 0);
 
-  const filteredCourses = useMemo(() => {
-    const words = norm(q).split(/\s+/).filter(Boolean);
-    return COURSES.filter(c => (level === 'all' || c.levels.includes(level)) && (cat === 'all' || c.category === cat) && words.every(w => {
-      const catName = tx(CATEGORIES.find(x => x.id === c.category)!.name, lang);
-      const hay = norm(`${tx(c.title, lang)} ${tx(c.subtitle, lang)} ${catName} ${c.level}`);
-      return hay.includes(w);
-    }));
-  }, [level, q, lang, cat]);
+  const last = mounted ? snap.progress.last : undefined;
+  const lastCourse = last ? COURSES.find(c => tx(c.title, lang) === last.course) : undefined;
+  const doneCount = mounted ? countTotalCompleted(snap).total : 0;
 
-  useEffect(() => { setShown(PAGE); }, [level, q, cat]);
+  const rowCourses = useMemo(() => {
+    if (rowCat === 'popular') return [...COURSES].sort((a, b) => Number(!!b.popular) - Number(!!a.popular)).slice(0, 14);
+    return COURSES.filter(c => c.category === rowCat);
+  }, [rowCat]);
 
-  const visibleCount = Math.min(filteredCourses.length, shown);
-  const remaining = filteredCourses.length - visibleCount;
-
-  const handleConfirmPath = () => {
-    setStudyPath(activeGoal, activeLevel, true);
-    setEditingFinder(false);
-    const el = document.getElementById('roadmap');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
-  const handleAdvanceLevel = (next: Level) => {
-    setStudyPath(activeGoal, next, true);
-    setEditingFinder(false);
-    const el = document.getElementById('roadmap');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const showPath = () => { setStudyPath(activeGoal, activeLevel, true); scrollTo('roadmap'); };
+  const advance = (next: Level) => { setStudyPath(activeGoal, next, true); scrollTo('roadmap'); };
+  const studioCopy = {
+    reading: { name: fr ? 'Atelier de lecture' : 'Reading Studio', desc: fr ? 'Textes lus par des natifs, mots cliquables et missions de lecture.' : 'Native-read texts, tap-to-translate words and reading missions.', count: readingTotal, to: readingPath(lang) },
+    listening: { name: fr ? 'Atelier d’écoute' : 'Listening Studio', desc: fr ? 'Dialogues à deux voix, entraînement de l’oreille et documents authentiques.' : 'Two-voice dialogues, ear training and authentic documents.', count: listeningTotal, to: listeningPath(lang) },
+    dictation: { name: fr ? 'Atelier de dictée' : 'Dictation Studio', desc: fr ? 'Récits, homophones, verbes et défis d’examen, avec deux voix natives.' : 'Stories, homophones, verbs and exam challenges, with two native voices.', count: DICTATIONS.length, to: dictationPath(lang) },
   };
 
   return (
     <LearnShell
       lang={lang}
       alternates={{ en: hubPath('en'), fr: hubPath('fr') }}
-      seo={{
-        title: h.metaTitle,
-        description: h.metaDescription,
-        path: hubPath(lang),
-        jsonLd: hubJsonLd(lang),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl('hub-hero')}`,
-      }}
+      seo={{ title: h.metaTitle, description: h.metaDescription, path: hubPath(lang), jsonLd: hubJsonLd(lang), image: `https://www.learnfrenchwithnatives.com${imageUrl('hub-hero')}` }}
     >
-      {/* ── SECTION 1: Calm Editorial Hero + STEP 1 (15-Second Goal & Level Finder) ── */}
-      <section className="sp-hero" id="finder" aria-labelledby="lx-hub-title">
-        <div className="lp-wrap">
-          <div className="sp-hero-head">
-            <div className="sp-hero-copy">
-              <div className="hx-hero-kicker">
-                <p className="lp-eyebrow">{fc.eyebrow}</p>
-                <span className="hx-free-pill">
-                  <CheckCircleFilled aria-hidden /> {fc.freePill}
-                </span>
-              </div>
-              <h1 id="lx-hub-title">
-                {fc.title[0]} <em>{fc.title[1]}</em>
-              </h1>
-              <p className="sp-hero-sub">{fc.sub}</p>
+      {/* ── Hero: search, topics, photo collage ── */}
+      <section className="ah-hero" aria-labelledby="lx-hub-title">
+        <div className="ah-hero-glow" aria-hidden />
+        <div className="lp-wrap ah-hero-grid">
+          <div className="ah-hero-copy">
+            <p className="ah-eyebrow"><span className="ah-tricolor" aria-hidden><i /><i /><i /></span>{fr ? 'Académie gratuite · A1 → C2' : 'Free French academy · A1 → C2'}</p>
+            <h1 id="lx-hub-title">
+              {fr ? <>Apprenez le français <em>pas à pas</em>, avec des voix natives.</> : <>Learn French <em>step by step</em>, with native voices.</>}
+            </h1>
+            <p className="ah-lead">
+              {fr
+                ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance. Gratuit, sans compte.`
+                : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency. Free, no account needed.`}
+            </p>
+            <button type="button" className="ah-search" onClick={openAcademySearch}>
+              <SearchOutlined aria-hidden />
+              <span className="ah-search-text">{fr ? 'Que voulez-vous apprendre ? Passé composé, TCF, dictée…' : 'What do you want to learn? Passé composé, TCF, dictation…'}</span>
+              <kbd>Ctrl K</kbd>
+            </button>
+            <div className="ah-topics" aria-label={fr ? 'Sujets populaires' : 'Popular topics'}>
+              {CATEGORIES.slice(0, 7).map(c => <Link key={c.id} to={categoryPath(c, lang)}>{tx(c.name, lang)}</Link>)}
             </div>
-
-            <div className="sp-hero-aside">
-              <HeroAudioPill lang={lang} />
-              <dl className="sp-hero-counts">
-                <div>
-                  <dt>{COURSES.length}</dt>
-                  <dd>{fr ? 'cours guidés' : 'guided courses'}</dd>
-                </div>
-                <div>
-                  <dt>{practiceTotal}</dt>
-                  <dd>{fr ? 'ateliers pratiques' : 'practice labs'}</dd>
-                </div>
-                <div>
-                  <dt>{GAMES.length}</dt>
-                  <dd>{fr ? 'jeux · 3 min' : 'daily games'}</dd>
-                </div>
-              </dl>
+            <div className="ah-hero-ctas">
+              <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => scrollTo('paths')}>
+                {fr ? 'Commencer gratuitement' : 'Start learning free'} <ArrowRightOutlined />
+              </button>
+              <Link to={placementPath(lang)} className="lp-btn lp-btn-ghost lp-btn-lg"><ThunderboltOutlined /> {fr ? 'Trouver mon niveau' : 'Find my level'}</Link>
             </div>
           </div>
+          <div className="ah-hero-art">
+            <div className="ah-collage" aria-hidden>
+              <figure className="ah-photo is-main"><img src={imageUrl('hub-hero', 1200)} alt="" width="1200" height="675" fetchPriority="high" /></figure>
+              <figure className="ah-photo is-a"><img src={imageUrl('dialogue-a-la-boulangerie', 640)} alt="" width="640" height="360" /></figure>
+              <figure className="ah-photo is-b"><img src={imageUrl('scene-greetings', 640)} alt="" width="640" height="360" /></figure>
+              <div className="ah-float is-done"><CheckCircleFilled /><span><b>{fr ? 'Leçon terminée' : 'Lesson complete'}</b><small>{fr ? 'Score 92 %' : 'Score 92%'}</small></span></div>
+              <div className="ah-float is-cert"><SafetyCertificateOutlined /><span><b>{fr ? 'Certificat A1' : 'A1 certificate'}</b><small>{fr ? 'Débloqué' : 'Unlocked'}</small></span></div>
+            </div>
+            <HeroAudioPill lang={lang} />
+          </div>
+        </div>
+        <div className="lp-wrap">
+          <ul className="ah-stats">
+            <li><b><CountUp value={COURSES.length} /></b><span>{fr ? 'cours guidés' : 'guided courses'}</span></li>
+            <li><b><CountUp value={lessonsTotal} /></b><span>{fr ? 'leçons interactives' : 'interactive lessons'}</span></li>
+            <li><b><CountUp value={practiceTotal} /></b><span>{fr ? 'ateliers pratiques' : 'practice labs'}</span></li>
+            <li><b><CountUp value={TOTAL_ACADEMY_ITEMS} /></b><span>{fr ? 'activités en tout' : 'activities in all'}</span></li>
+            <li><b>100 %</b><span>{fr ? 'gratuit, sans compte' : 'free, no account'}</span></li>
+          </ul>
+        </div>
+      </section>
 
-          {/* Step 1 Interactive Finder OR Compact Active-Path Bar for returning learners */}
-          {showFullFinder ? (
-            <div className="sp-finder-card">
-              <div className="sp-finder-step">
-                <p className="sp-finder-k">{fc.step1}</p>
-                <div className="sp-goal-grid" role="radiogroup" aria-label={fc.step1}>
-                  {GOALS.map(g => {
-                    const selected = activeGoal === g.id;
-                    return (
-                      <button
-                        key={g.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        className={`sp-goal-btn${selected ? ' is-on' : ''}`}
-                        onClick={() => setStudyGoal(g.id, saved.picked)}
-                      >
-                        <div className="sp-goal-top">
-                          <span className="sp-goal-ico" aria-hidden>{GOAL_ICON[g.id]}</span>
-                          <span className="sp-goal-badge">{tx(g.badge, lang)}</span>
-                          {selected && <CheckCircleFilled className="sp-goal-check" aria-hidden />}
-                        </div>
-                        <strong>{tx(g.title, lang)}</strong>
-                        <small>{tx(g.subtitle, lang)}</small>
-                      </button>
-                    );
-                  })}
-                </div>
+      {/* ── Continue learning (returning learners) ── */}
+      {last && (
+        <section className="ah-continue" aria-label={fr ? 'Reprendre' : 'Continue learning'}>
+          <div className="lp-wrap">
+            <div className="ah-continue-card">
+              <img src={imageUrl(lastCourse?.image ?? 'hub-hero', 640)} alt="" width="640" height="360" />
+              <div className="ah-continue-copy">
+                <p>{fr ? 'Reprendre là où vous en étiez' : 'Pick up where you left off'}</p>
+                <h2>{last.title}</h2>
+                <span>{last.course}{doneCount > 0 && <> · {fr ? `${doneCount} activités terminées` : `${doneCount} activities completed`}</>}</span>
               </div>
+              <Link to={last.path} state={AUTOSTART} className="lp-btn lp-btn-primary"><PlayCircleFilled /> {fr ? 'Reprendre' : 'Resume'}</Link>
+            </div>
+          </div>
+        </section>
+      )}
 
-              <div className="sp-finder-step sp-finder-step-lvl">
-                <p className="sp-finder-k">{fc.step2}</p>
-
-                <div className="sp-lvl-picker" role="radiogroup" aria-label={fc.step2}>
-                  {levelStats.map(st => {
-                    const selected = activeLevel === st.level;
-                    return (
-                      <button
-                        key={st.level}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        className={`sp-lvl-opt ${levelBand(st.level)}${selected ? ' is-on' : ''}`}
-                        onClick={() => setStudyLevel(st.level, saved.picked)}
-                      >
-                        <b>{st.level}</b>
-                        <span>{tx(LEVEL_COPY[st.level].name, lang)}</span>
-                        <em>{fc.levelCount(st.total)}</em>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="sp-finder-foot">
-                  <Link to={placementPath(lang)} className="sp-test-link">
-                    <ThunderboltOutlined /> {fc.notSure} <ArrowRightOutlined />
-                  </Link>
-
-                  <button type="button" className="lp-btn lp-btn-primary sp-confirm-btn" onClick={handleConfirmPath}>
-                    {fc.startCta} <ArrowRightOutlined />
+      {/* ── Learning paths: four goals as picture cards, then the starting level ── */}
+      <section className="ah-sec" id="paths" aria-labelledby="ah-paths-title">
+        <div className="lp-wrap">
+          <Reveal className="ah-head">
+            <p className="lp-eyebrow">{fr ? 'Étape 1 · Votre objectif' : 'Step 1 · Your goal'}</p>
+            <h2 id="ah-paths-title">{fr ? 'Choisissez votre parcours' : 'Choose your learning path'}</h2>
+            <p>{fr ? 'Chaque parcours assemble cours, dialogues, lectures et dictées en modules, niveau par niveau.' : 'Each path brings courses, dialogues, reading and dictations together in modules, level by level.'}</p>
+          </Reveal>
+          <div className="ah-paths" role="radiogroup" aria-label={fr ? 'Votre objectif' : 'Your goal'}>
+            {GOALS.map((g, i) => {
+              const on = activeGoal === g.id;
+              return (
+                <Reveal key={g.id} delay={i * 80}>
+                  <button type="button" role="radio" aria-checked={on} className={`ah-path${on ? ' is-on' : ''}`} onClick={() => setStudyGoal(g.id, saved.picked)}>
+                    <span className="ah-path-img">
+                      <img src={imageUrl(g.image, 640)} alt="" loading="lazy" width="640" height="360" />
+                      <span className="ah-path-badge">{GOAL_ICON[g.id]} {fr ? 'Parcours' : 'Path'}</span>
+                      {on && <span className="ah-path-tick"><CheckCircleFilled /> {fr ? 'Votre parcours' : 'Your path'}</span>}
+                    </span>
+                    <span className="ah-path-body">
+                      <span className="ah-path-k">{tx(g.badge, lang)}</span>
+                      <strong>{tx(g.title, lang)}</strong>
+                      <span className="ah-path-sub">{tx(g.subtitle, lang)}</span>
+                      <span className="ah-path-meta">{fr ? '6 niveaux · À votre rythme · Gratuit' : '6 levels · Self-paced · Free'}</span>
+                    </span>
                   </button>
-                </div>
+                </Reveal>
+              );
+            })}
+          </div>
+
+          <Reveal className="ah-levels-card">
+            <div className="ah-levels-head">
+              <div>
+                <p className="lp-eyebrow">{fr ? 'Étape 2 · Votre niveau de départ' : 'Step 2 · Your starting level'}</p>
+                <h3>{fr ? 'Où commencez-vous ?' : 'Where do you start?'}</h3>
               </div>
+              <Link to={placementPath(lang)} className="ah-test-link"><ThunderboltOutlined /> {fr ? 'Pas sûr ? Test de niveau en 10 min' : 'Not sure? 10-minute level test'} <ArrowRightOutlined /></Link>
             </div>
-          ) : (
-            <div className="sp-active-bar">
-              <div className="sp-active-left">
-                <span className="sp-active-k"><CompassOutlined /> {fc.activeLabel}</span>
-                <LevelChip level={activeLevel} size="sm" />
-                <strong>{tx(goalById(activeGoal).title, lang)} · {tx(LEVEL_COPY[activeLevel].name, lang)}</strong>
-              </div>
-              <div className="sp-active-right">
-                <Link to={placementPath(lang)} className="sp-active-test">
-                  <ThunderboltOutlined /> {fr ? 'Test de niveau' : 'Level test'}
-                </Link>
-                <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setEditingFinder(true)}>
-                  <SlidersOutlined /> {fc.changePath}
-                </button>
-              </div>
+            <div className="ah-levels" role="radiogroup" aria-label={fr ? 'Niveau de départ' : 'Starting level'}>
+              {levelStats.map(st => {
+                const on = activeLevel === st.level;
+                return (
+                  <button key={st.level} type="button" role="radio" aria-checked={on} className={`ah-lv ${levelBand(st.level)}${on ? ' is-on' : ''}`} onClick={() => setStudyLevel(st.level, saved.picked)}>
+                    <span className="ah-lv-dot">{st.level}</span>
+                    <strong>{tx(LEVEL_COPY[st.level].name, lang)}</strong>
+                    <small>{fr ? `${st.total} activités` : `${st.total} activities`}</small>
+                  </button>
+                );
+              })}
             </div>
-          )}
+            <div className="ah-levels-foot">
+              <p><CompassOutlined /> {tx(goalById(activeGoal).title, lang)} · {activeLevel} · {tx(LEVEL_COPY[activeLevel].name, lang)}</p>
+              <button type="button" className="lp-btn lp-btn-primary" onClick={showPath}>{fr ? 'Voir mon parcours' : 'Show my path'} <ArrowRightOutlined /></button>
+            </div>
+          </Reveal>
         </div>
       </section>
 
-      {/* ── SECTION 2: STEP 2 & STEP 3 — Structured Study Path Roadmap ── */}
-      <section className="sp-roadmap-sec" id="roadmap" aria-label={STUDY_COPY[lang].roadmap.progressLabel(activeLevel)}>
+      {/* ── The guided study path ── */}
+      <section className="ah-sec ah-path-sec" id="roadmap" aria-labelledby="ah-roadmap-title">
         <div className="lp-wrap">
-          <StudyRoadmap
-            lang={lang}
-            plan={plan}
-            mounted={mounted}
-            onAdvanceLevel={handleAdvanceLevel}
-            showResumeLink
-            showClassroomLink
-          />
+          <Reveal className="ah-head">
+            <p className="lp-eyebrow">{fr ? 'Étape 3 · Votre programme' : 'Step 3 · Your programme'}</p>
+            <h2 id="ah-roadmap-title">{fr ? 'Votre parcours, module par module' : 'Your path, module by module'}</h2>
+            <p>{fr ? 'Suivez les modules dans l’ordre : chaque étape est cochée dès que vous la terminez.' : 'Follow the modules in order: each step is ticked as soon as you finish it.'}</p>
+          </Reveal>
+          <StudyRoadmap lang={lang} plan={plan} mounted={mounted} onAdvanceLevel={advance} showResumeLink={false} showClassroomLink />
         </div>
       </section>
 
-      {/* ── SECTION 3: Optional Free Library Explorer (4 Clean Pillars — 488 Items) ── */}
-      <section className="hx-sec lp-tint" id="library" aria-labelledby="sp-lib-title">
+      {/* ── Courses: rows by category, then the full catalogue ── */}
+      <section className="ah-sec ah-tint" id="library" aria-labelledby="ah-courses-title">
         <div className="lp-wrap">
-          <header className="hx-sec-head">
+          <Reveal className="ah-head is-row">
             <div>
-              <p className="lp-eyebrow">{lc.eyebrow}</p>
-              <h2 id="sp-lib-title">{lc.title}</h2>
+              <p className="lp-eyebrow">{fr ? 'Catalogue' : 'Catalogue'}</p>
+              <h2 id="ah-courses-title">{fr ? `Explorez ${COURSES.length} cours gratuits` : `Explore ${COURSES.length} free courses`}</h2>
             </div>
-            <div className="sp-lib-head-end">
-              <p className="hx-sec-head-sub">{lc.sub}</p>
-              <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={openAcademySearch}>
-                <SearchOutlined /> {lc.searchBtn}
-              </button>
-            </div>
-          </header>
-
-          {/* 4-Pillar Tab Switcher */}
-          <div className="sp-lib-tabs" role="tablist" aria-label={lc.eyebrow}>
-            {([
-              ['courses', lc.tabCourses, COURSES.length, <BookOutlined />],
-              ['practice', lc.tabPractice, practiceTotal, <CustomerServiceOutlined />],
-              ['levels', lc.tabLevels, LEVELS.length, <CompassOutlined />],
-              ['games', lc.tabGames, GAMES.length, <TrophyOutlined />],
-            ] as [LibraryTab, string, number, ReactNode][]).map(([id, label, count, icon]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={libTab === id}
-                className={libTab === id ? 'is-on' : ''}
-                onClick={() => setLibTab(id)}
-              >
-                {icon}
-                <span>{label}</span>
-                <b>{count}</b>
-              </button>
+            <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={openAcademySearch}><SearchOutlined /> {fr ? `Rechercher parmi ${TOTAL_ACADEMY_ITEMS} activités` : `Search ${TOTAL_ACADEMY_ITEMS} activities`}</button>
+          </Reveal>
+          <div className="ah-row-cats" role="group" aria-label={fr ? 'Catégorie' : 'Category'}>
+            <button type="button" className={rowCat === 'popular' ? 'is-on' : ''} aria-pressed={rowCat === 'popular'} onClick={() => setRowCat('popular')}><RocketOutlined /> {fr ? 'Les plus suivis' : 'Most popular'}</button>
+            {CATEGORIES.map(c => (
+              <button key={c.id} type="button" className={rowCat === c.id ? 'is-on' : ''} aria-pressed={rowCat === c.id} onClick={() => setRowCat(c.id)}>{tx(c.name, lang)}</button>
             ))}
           </div>
+          <CourseRow
+            lang={lang}
+            courses={rowCourses}
+            title={rowCat === 'popular' ? (fr ? 'Les cours les plus suivis' : 'Most popular courses') : tx(CATEGORIES.find(c => c.id === rowCat)!.name, lang)}
+            sub={rowCat === 'popular' ? (fr ? 'Le meilleur point de départ, quel que soit votre niveau.' : 'The best place to start, whatever your level.') : tx(CATEGORIES.find(c => c.id === rowCat)!.tagline, lang)}
+            action={rowCat !== 'popular' ? <Link to={categoryPath(CATEGORIES.find(c => c.id === rowCat)!, lang)} className="ah-row-all">{fr ? 'Tout voir' : 'View all'} <ArrowRightOutlined /></Link> : undefined}
+          />
 
-          {/* Pillar 1: 75 Structured Courses (4 Clean Tracks + Filterable Directory) */}
-          <div hidden={mounted && libTab !== 'courses'}>
-            <div className="sp-tracks-grid">
-              {COURSE_TRACKS.map(track => (
-                <article key={track.id} className="sp-track-card">
-                  <h3>{tx(track.title, lang)}</h3>
-                  <p>{tx(track.subtitle, lang)}</p>
-                  <ul className="sp-track-cats">
-                    {track.categories.map(catId => {
-                      const catObj = CATEGORIES.find(x => x.id === catId);
-                      if (!catObj) return null;
-                      const n = COURSES.filter(x => x.category === catObj.id).length;
-                      return (
-                        <li key={catObj.id}>
-                          <Link to={categoryPath(catObj, lang)}>
-                            <span>{tx(catObj.name, lang)}</span>
-                            <small>{n} <ArrowRightOutlined aria-hidden /></small>
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </article>
-              ))}
-            </div>
-
-            <div className="sp-catalog-wrap" id="courses">
-              <div className="sp-catalog-head">
-                <strong>{lc.allCoursesHint}</strong>
-                <span className="lx-cat-count-pill" aria-live="polite">{h.results(filteredCourses.length)}</span>
-              </div>
-
-              <div className="hx-cat-toolbar">
-                <div className="rxl-level-pills" role="group" aria-label={ui.level}>
-                  <button type="button" className={level === 'all' ? 'is-on' : ''} onClick={() => setLevel('all')} aria-pressed={level === 'all'}>
-                    {fr ? 'Tous' : 'All'}<span>{COURSES.length}</span>
-                  </button>
-                  {LEVELS.map(lv => (
-                    <button key={lv} type="button" className={level === lv ? 'is-on' : ''} onClick={() => setLevel(lv)} aria-pressed={level === lv}>
-                      <b>{lv}</b><span>{COURSES.filter(c => c.levels.includes(lv)).length}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="hx-cat-tools">
-                  <label className="hx-cat-search">
-                    <SearchOutlined aria-hidden />
-                    <input
-                      type="search"
-                      value={q}
-                      onChange={e => setQ(e.target.value)}
-                      placeholder={h.search}
-                      aria-label={h.search}
-                    />
-                    {q && (
-                      <button type="button" onClick={() => setQ('')} aria-label={fr ? 'Effacer' : 'Clear'}>
-                        <CloseOutlined />
-                      </button>
-                    )}
-                  </label>
-
-                  <div className="rxl-view-toggle" role="group" aria-label={fr ? 'Mode d’affichage' : 'Display mode'}>
-                    <button type="button" className={view === 'grid' ? 'is-on' : ''} aria-pressed={view === 'grid'} onClick={() => setView('grid')}>
-                      <AppstoreOutlined /> {fr ? 'Grille' : 'Grid'}
-                    </button>
-                    <button type="button" className={view === 'list' ? 'is-on' : ''} aria-pressed={view === 'list'} onClick={() => setView('list')}>
-                      <BarsOutlined /> {fr ? 'Liste' : 'List'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="hx-cat-cats" role="group" aria-label={h.pathsEyebrow}>
-                <button type="button" className={cat === 'all' ? 'is-on' : ''} onClick={() => setCat('all')} aria-pressed={cat === 'all'}>
-                  {h.allCats}
-                </button>
-                {CATEGORIES.map(c => (
-                  <button key={c.id} type="button" className={cat === c.id ? 'is-on' : ''} onClick={() => setCat(c.id)} aria-pressed={cat === c.id}>
-                    {tx(c.name, lang)}
-                  </button>
-                ))}
-              </div>
-
-              {filteredCourses.length ? (
-                <>
-                  {view === 'grid' ? (
-                    <ul className="hx-cat-grid">
-                      {filteredCourses.slice(0, shown).map(c => (
-                        <li key={c.id}><CourseCard course={c} lang={lang} /></li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <ul className="hx-cat-list">
-                      {filteredCourses.slice(0, shown).map(c => {
-                        const catObj = CATEGORIES.find(x => x.id === c.category)!;
-                        return (
-                          <li key={c.id}>
-                            <article className="hx-list-row">
-                              <img src={imageUrl(c.image, 640)} alt="" loading="lazy" decoding="async" width="224" height="140" />
-                              <div className="hx-list-body">
-                                <div className="hx-list-top">
-                                  <LevelChip level={c.level} size="sm" />
-                                  <span className="hx-list-cat">{tx(catObj.name, lang)}</span>
-                                </div>
-                                <h3><Link to={coursePath(c, lang)} className="lx-stretch">{tx(c.title, lang)}</Link></h3>
-                                <div className="hx-list-meta">
-                                  <span><ReadOutlined /> {ui.lessons(c.lessonCount)}</span>
-                                  <span><ClockCircleOutlined /> {ui.minutes(c.minutes)}</span>
-                                </div>
-                              </div>
-                              <Link to={coursePath(c, lang)} state={AUTOSTART} className="lx-cc-start">
-                                <PlayCircleFilled /> {ui.start}
-                              </Link>
-                            </article>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-
-                  {filteredCourses.length > PAGE && (
-                    <div className="rxl-pager">
-                      <div className="rxl-pager-status">
-                        <span>
-                          {fr
-                            ? `Affichage de ${visibleCount} sur ${filteredCourses.length} cours`
-                            : `Showing ${visibleCount} of ${filteredCourses.length} courses`}
-                        </span>
-                        <i aria-hidden><b style={{ transform: `scaleX(${visibleCount / filteredCourses.length})` }} /></i>
-                      </div>
-                      <div className="rxl-pager-actions">
-                        {remaining > 0 ? (
-                          <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setShown(n => n + PAGE)}>
-                            {fr ? `Afficher ${Math.min(PAGE, remaining)} de plus` : `Show ${Math.min(PAGE, remaining)} more`} <DownOutlined />
-                          </button>
-                        ) : (
-                          <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setShown(PAGE)}>
-                            {fr ? 'Réduire' : 'Show fewer'} <UpOutlined />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="rxl-empty">
-                  <p>{h.noResult}</p>
-                  <button
-                    type="button"
-                    className="lp-btn lp-btn-ghost lp-btn-sm"
-                    onClick={() => { setLevel('all'); setCat('all'); setQ(''); }}
-                  >
-                    {fr ? 'Réinitialiser les filtres' : 'Reset filters'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Pillar 2: 3 Flagship Practice Studios (407 Activities) */}
-          <div hidden={mounted && libTab !== 'practice'}>
-            <ul className="sp-studios-grid">
-              <li>
-                <article className="sp-studio-card">
-                  <Link to={readingPath(lang)} className="sp-studio-img" tabIndex={-1} aria-hidden="true">
-                    <img src={imageUrl('cat-reading', 640)} alt="" loading="lazy" width="640" height="360" />
-                    <span className="sp-studio-badge">{readingTotal} {fr ? 'activités · A1–C1' : 'activities · A1–C1'}</span>
-                  </Link>
-                  <div className="sp-studio-body">
-                    <h3><Link to={readingPath(lang)}><ReadOutlined /> {fr ? 'Atelier de lecture' : 'Reading Studio'}</Link></h3>
-                    <p>{fr ? 'Textes courts lus par des natifs, mots cliquables et missions de lecture concrètes.' : 'Short native-audio stories, tap-to-translate words and real-life reading missions.'}</p>
-                    <div className="sp-studio-tags">
-                      <Link to={`${readingPath(lang)}#texts`}>{fr ? 'Textes audio' : 'Audio texts'} <b>{TEXTS.length}</b></Link>
-                      <Link to={`${readingPath(lang)}#missions`}>{fr ? 'Missions' : 'Missions'} <b>{MISSIONS.length}</b></Link>
-                    </div>
-                    <Link to={readingPath(lang)} className="lp-btn lp-btn-primary lp-btn-sm sp-studio-cta">
-                      {lc.openStudio} <ArrowRightOutlined />
-                    </Link>
-                  </div>
-                </article>
-              </li>
-
-              <li>
-                <article className="sp-studio-card">
-                  <Link to={listeningPath(lang)} className="sp-studio-img" tabIndex={-1} aria-hidden="true">
-                    <img src={imageUrl('cat-listening', 640)} alt="" loading="lazy" width="640" height="360" />
-                    <span className="sp-studio-badge">{listeningTotal} {fr ? 'activités · A1–C2' : 'activities · A1–C2'}</span>
-                  </Link>
-                  <div className="sp-studio-body">
-                    <h3><Link to={listeningPath(lang)}><CustomerServiceOutlined /> {fr ? 'Atelier d’écoute' : 'Listening Studio'}</Link></h3>
-                    <p>{fr ? 'Dialogues à deux voix, exercices d’oreille ciblés et documents authentiques du A1 au C2.' : 'Two-voice everyday dialogues, targeted ear labs and real French audio documents.'}</p>
-                    <div className="sp-studio-tags">
-                      <Link to={`${listeningPath(lang)}#dialogues`}><CommentOutlined /> Dialogues <b>{DIALOGUES.length}</b></Link>
-                      <Link to={`${listeningPath(lang)}#ear`}><AudioOutlined /> {fr ? 'Oreille' : 'Ear'} <b>{EAR.length}</b></Link>
-                      <Link to={`${listeningPath(lang)}#documents`}><CompassOutlined /> Docs <b>{LISTENING.length}</b></Link>
-                    </div>
-                    <Link to={listeningPath(lang)} className="lp-btn lp-btn-primary lp-btn-sm sp-studio-cta">
-                      {lc.openStudio} <ArrowRightOutlined />
-                    </Link>
-                  </div>
-                </article>
-              </li>
-
-              <li>
-                <article className="sp-studio-card">
-                  <Link to={dictationPath(lang)} className="sp-studio-img" tabIndex={-1} aria-hidden="true">
-                    <img src={imageUrl('cat-spelling', 640)} alt="" loading="lazy" width="640" height="360" />
-                    <span className="sp-studio-badge">{DICTATIONS.length} {fr ? 'dictées · A1–C2' : 'dictations · A1–C2'}</span>
-                  </Link>
-                  <div className="sp-studio-body">
-                    <h3><Link to={dictationPath(lang)}><EditOutlined /> {fr ? 'Atelier de dictée' : 'Dictation Studio'}</Link></h3>
-                    <p>{fr ? '4 formats variés (récits, homophones, verbes & accords, défi examen) avec 2 voix natives.' : '4 varied methods (stories, homophones, verbs & agreement, timed exam) with 2 native voices.'}</p>
-                    <div className="sp-studio-tags">
-                      <Link to={dictationPath(lang)}>{fr ? 'Récits · Homophones · Verbes · Examen' : 'Stories · Homophones · Verbs · Exam'} <b>4</b></Link>
-                    </div>
-                    <Link to={dictationPath(lang)} className="lp-btn lp-btn-primary lp-btn-sm sp-studio-cta">
-                      {lc.openStudio} <ArrowRightOutlined />
-                    </Link>
-                  </div>
-                </article>
-              </li>
-            </ul>
-            <p className="sp-studio-all-row">
-              <Link to={practicePath(lang)} className="lx-link">
-                {fr ? 'Voir la page d’accueil complète des ateliers pratiques' : 'Open the full Practice Studio hub'} →
-              </Link>
-            </p>
-          </div>
-
-          {/* Pillar 3: By CEFR Level (Unified A1–C2 Classrooms) */}
-          <div hidden={mounted && libTab !== 'levels'}>
-            <ul className="hx-cefr">
-              {levelStats.map(st => (
-                <li key={st.level}>
-                  <Link to={levelPath(st.level, lang)} className={`hx-cefr-card ${levelBand(st.level)}`}>
-                    <div className="hx-cefr-top">
-                      <LevelChip level={st.level} size="sm" />
-                      <strong>{tx(LEVEL_COPY[st.level].name, lang)}</strong>
-                    </div>
-                    <p>{tx(LEVEL_COPY[st.level].canDo, lang)}</p>
-                    <div className="sp-cefr-breakdown">
-                      <span>{st.courses + st.ladder} {fr ? 'cours' : 'courses'}</span>
-                      <span>{st.listening} {fr ? 'écoutes' : 'listening'}</span>
-                      <span>{st.dictations} {fr ? 'dictées' : 'dictations'}</span>
-                    </div>
-                    <span className="hx-cefr-go">
-                      {st.total} {fr ? 'activités' : 'activities'} <ArrowRightOutlined aria-hidden />
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Pillar 4: 5 Daily Games */}
-          <div hidden={mounted && libTab !== 'games'}>
-            <div className="sp-games-head">
-              <p>{G[lang].hubSub}</p>
-              <Link to={gamesPath(lang)} className="lp-btn lp-btn-ghost lp-btn-sm">
-                {G[lang].backToGames} <ArrowRightOutlined />
-              </Link>
-            </div>
-            <ul className="gx-gcards">
-              {GAMES.map((x, i) => (
-                <li key={x.id} className={i === 0 ? 'is-wide' : ''}>
-                  <GameCard game={x} lang={lang} wide={i === 0} />
-                </li>
-              ))}
-            </ul>
-          </div>
+          <Reveal className="ah-subhead" id="courses">
+            <h3>{fr ? 'Tous les cours' : 'All courses'}</h3>
+            <p>{fr ? 'Filtrez par niveau, par catégorie ou par mot-clé.' : 'Filter by level, category or keyword.'}</p>
+          </Reveal>
+          <Catalogue lang={lang} />
         </div>
       </section>
 
-      {/* ── SECTION 4: 30-Second Interactive Method Preview ── */}
-      <section className="hx-sec" aria-labelledby="lx-try-title">
+      {/* ── Categories as picture tiles ── */}
+      <section className="ah-sec" aria-labelledby="ah-cats-title">
+        <div className="lp-wrap">
+          <Reveal className="ah-head">
+            <p className="lp-eyebrow">{fr ? 'Thèmes' : 'Topics'}</p>
+            <h2 id="ah-cats-title">{fr ? 'Explorez par thème' : 'Explore by topic'}</h2>
+          </Reveal>
+          <ul className="ah-cats">
+            {CATEGORIES.map((c, i) => {
+              const n = COURSES.filter(x => x.category === c.id).length;
+              return (
+                <Reveal as="li" key={c.id} delay={(i % 4) * 70}>
+                  <Link to={categoryPath(c, lang)} className="ah-cat">
+                    <img src={imageUrl(c.image, 640)} alt="" loading="lazy" width="640" height="360" />
+                    <span className="ah-cat-copy"><strong>{tx(c.name, lang)}</strong><small>{fr ? `${n} cours` : `${n} courses`}</small></span>
+                    <span className="ah-cat-go" aria-hidden><ArrowRightOutlined /></span>
+                  </Link>
+                </Reveal>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+
+      {/* ── Practice studios ── */}
+      <section className="ah-sec ah-tint" aria-labelledby="ah-studios-title">
+        <div className="lp-wrap">
+          <Reveal className="ah-head is-row">
+            <div>
+              <p className="lp-eyebrow">{fr ? 'Pratique libre' : 'Free practice'}</p>
+              <h2 id="ah-studios-title">{fr ? `${practiceTotal} ateliers pour pratiquer` : `${practiceTotal} labs to practise`}</h2>
+            </div>
+            <Link to={practicePath(lang)} className="lp-btn lp-btn-ghost lp-btn-sm">{fr ? 'Tous les ateliers' : 'All practice labs'} <ArrowRightOutlined /></Link>
+          </Reveal>
+          <ul className="ah-studios">
+            {STUDIOS.map((s, i) => {
+              const c = studioCopy[s.id];
+              return (
+                <Reveal as="li" key={s.id} delay={i * 90}>
+                  <Link to={c.to} className="ah-studio">
+                    <span className="ah-studio-img"><img src={imageUrl(s.image, 640)} alt="" loading="lazy" width="640" height="360" /></span>
+                    <span className="ah-studio-body">
+                      <span className="ah-studio-ico" aria-hidden>{s.icon}</span>
+                      <strong>{c.name}</strong>
+                      <span>{c.desc}</span>
+                      <em>{fr ? `${c.count} activités` : `${c.count} activities`} <ArrowRightOutlined aria-hidden /></em>
+                    </span>
+                  </Link>
+                </Reveal>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+
+      {/* ── Levels and games ── */}
+      <section className="ah-sec" aria-labelledby="ah-levels-title">
+        <div className="lp-wrap">
+          <Reveal className="ah-head">
+            <p className="lp-eyebrow">{fr ? 'Par niveau' : 'By level'}</p>
+            <h2 id="ah-levels-title">{fr ? 'Un espace pour chaque niveau' : 'A classroom for every level'}</h2>
+          </Reveal>
+          <ul className="ah-lvcards">
+            {levelStats.map((st, i) => (
+              <Reveal as="li" key={st.level} delay={i * 60}>
+                <Link to={levelPath(st.level, lang)} className={`ah-lvcard ${levelBand(st.level)}`}>
+                  <span className="ah-lvcard-big" aria-hidden>{st.level}</span>
+                  <strong>{tx(LEVEL_COPY[st.level].name, lang)}</strong>
+                  <span>{tx(LEVEL_COPY[st.level].canDo, lang)}</span>
+                  <em>{fr ? `${st.total} activités` : `${st.total} activities`} <ArrowRightOutlined aria-hidden /></em>
+                </Link>
+              </Reveal>
+            ))}
+          </ul>
+          <Reveal className="ah-subhead is-row">
+            <div>
+              <h3>{fr ? 'Jeux · 3 minutes par jour' : 'Games · 3 minutes a day'}</h3>
+              <p>{G[lang].hubSub}</p>
+            </div>
+            <Link to={gamesPath(lang)} className="lp-btn lp-btn-ghost lp-btn-sm">{G[lang].backToGames} <ArrowRightOutlined /></Link>
+          </Reveal>
+          <ul className="gx-gcards">
+            {GAMES.map((x, i) => <li key={x.id} className={i === 0 ? 'is-wide' : ''}><GameCard game={x} lang={lang} wide={i === 0} /></li>)}
+          </ul>
+        </div>
+      </section>
+
+      {/* ── 30-second mini lesson ── */}
+      <section className="hx-sec ah-tint" aria-labelledby="lx-try-title">
         <div className="lp-wrap hx-try-grid">
-          <div className="hx-try-copy">
+          <Reveal className="hx-try-copy">
             <p className="lp-eyebrow">{h.tryEyebrow}</p>
             <h2 id="lx-try-title">{h.tryTitle}</h2>
             <p>{h.trySub}</p>
             <ul className="hx-pillars">
               {h.activities.map(([t, d], i) => (
-                <li key={t}>
-                  <span aria-hidden>{ACTIVITY_ICONS[i]}</span>
-                  <div>
-                    <strong>{t}</strong>
-                    <p>{d}</p>
-                  </div>
-                </li>
+                <li key={t}><span aria-hidden>{ACTIVITY_ICONS[i]}</span><div><strong>{t}</strong><p>{d}</p></div></li>
               ))}
             </ul>
-          </div>
+          </Reveal>
           <TryItStudio lang={lang} />
         </div>
       </section>
 
-      {/* ── SECTION 5: Native Teacher Showcase + Clean FAQ ── */}
+      {/* ── Native teachers ── */}
       <section className="hx-teacher lx-teacher" aria-labelledby="lx-teacher-title">
         <div className="lp-wrap lx-teacher-grid">
           <div>
@@ -830,33 +729,22 @@ export default function HubPage({ lang }: { lang: Lang }) {
             <h2 id="lx-teacher-title">{h.teacherTitle}</h2>
             <p>{h.teacherSub}</p>
             <ul>{h.teacherPoints.map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
-            <button type="button" className="lp-btn lp-btn-light lp-btn-lg" onClick={openDemo}>
-              {ui.demo} <ArrowRightOutlined />
-            </button>
+            <button type="button" className="lp-btn lp-btn-light lp-btn-lg" onClick={openDemo}>{ui.demo} <ArrowRightOutlined /></button>
           </div>
           <div className="hx-teacher-img-wrap">
-            <figure className="lx-teacher-img">
-              <img src={imageUrl('teacher', 1200)} alt="" loading="lazy" decoding="async" width="1200" height="675" />
-            </figure>
-            <span className="hx-teacher-badge">
-              <CheckCircleFilled aria-hidden />
-              {fr ? 'Professeurs natifs certifiés · En ligne ou en présentiel' : 'Certified native teachers · Online or in person'}
-            </span>
+            <figure className="lx-teacher-img"><img src={imageUrl('teacher', 1200)} alt="" loading="lazy" decoding="async" width="1200" height="675" /></figure>
+            <span className="hx-teacher-badge"><CheckCircleFilled aria-hidden />{fr ? 'Professeurs natifs certifiés · En ligne ou en présentiel' : 'Certified native teachers · Online or in person'}</span>
           </div>
         </div>
       </section>
 
+      {/* ── FAQ ── */}
       <section className="hx-sec" aria-labelledby="lx-faq-title">
         <div className="lp-wrap lp-faq-grid">
           <header className="lp-head is-left">
             <p className="lp-eyebrow">{h.faqEyebrow}</p>
             <h2 id="lx-faq-title">{h.faqTitle}</h2>
-            <p className="lx-faq-time">
-              <ClockCircleOutlined />{' '}
-              {fr
-                ? `${COURSES.length} cours · 255 leçons · ${practiceTotal} ateliers · ${GAMES.length} jeux`
-                : `${COURSES.length} courses · 255 lessons · ${practiceTotal} practice labs · ${GAMES.length} games`}
-            </p>
+            <p className="lx-faq-time"><ClockCircleOutlined /> {fr ? `${COURSES.length} cours · ${lessonsTotal} leçons · ${practiceTotal} ateliers · ${GAMES.length} jeux` : `${COURSES.length} courses · ${lessonsTotal} lessons · ${practiceTotal} practice labs · ${GAMES.length} games`}</p>
           </header>
           <div className="lp-faq-list">
             {h.faq.map(([qq, a], i) => (

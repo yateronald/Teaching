@@ -252,10 +252,10 @@ export const actionLabel = (a: SecondaryAction, tr: Tr) => ({
 }[a]);
 
 export const sourceLabel = (s: PersonSource, tr: Tr) => ({
-  student: tr('Student', 'Élève'), candidate: tr('Exam candidate', 'Candidat'), registration: tr('Campaign registration', 'Inscrit à une offre'), demo: tr('Trial request', 'Demande d’essai'),
+  student: tr('Student', 'Élève'), candidate: tr('Exam candidate', 'Candidat'), registration: tr('Campaign registration', 'Inscrit à une offre'), demo: tr('Demo request', 'Demande de démo'),
 }[s]);
 export const sourcesLabel = (s: PersonSource, tr: Tr) => ({
-  student: tr('students', 'élèves'), candidate: tr('candidates', 'candidats'), registration: tr('registrations', 'inscrits'), demo: tr('trial requests', 'demandes d’essai'),
+  student: tr('students', 'élèves'), candidate: tr('candidates', 'candidats'), registration: tr('registrations', 'inscrits'), demo: tr('demo recipients', 'destinataires des demandes de démo'),
 }[s]);
 
 export const demoStatusLabel = (s: string, tr: Tr) => ({

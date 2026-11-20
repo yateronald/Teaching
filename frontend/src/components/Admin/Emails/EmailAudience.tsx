@@ -14,7 +14,7 @@ import {
 const SOURCES = (tr: Tr): { key: Source; name: string; icon: React.ReactNode; hint: string }[] => [
   { key: 'students', name: tr('Students', 'Élèves'), icon: <TeamOutlined />, hint: tr('People with a student account', 'Les comptes élèves') },
   { key: 'candidates', name: tr('Exam candidates', 'Candidats aux examens'), icon: <IdcardOutlined />, hint: tr('TCF preparation accounts', 'Les comptes de préparation TCF') },
-  { key: 'demos', name: tr('Trial class requests', 'Demandes de cours d’essai'), icon: <SolutionOutlined />, hint: tr('People who asked for a demo', 'Les personnes qui ont demandé une démo') },
+  { key: 'demos', name: tr('Demo requests', 'Demandes de démo'), icon: <SolutionOutlined />, hint: tr('Classes and exam preparation', 'Cours et préparation aux examens') },
   { key: 'registrations', name: tr('Campaign registrations', 'Inscrits aux campagnes'), icon: <ReadOutlined />, hint: tr('People who registered on the site', 'Les inscrits du site') },
 ];
 
@@ -23,7 +23,7 @@ function sourceCount(meta: EmailMeta | null, key: Source, tr: Tr): string {
   const s = meta.sources;
   if (key === 'students') return tr(`${s.students.active} active${s.students.inactive ? ` · ${s.students.inactive} former` : ''}`, `${s.students.active} actifs${s.students.inactive ? ` · ${s.students.inactive} anciens` : ''}`);
   if (key === 'candidates') return `${s.candidates.active}`;
-  if (key === 'demos') return `${s.demos.total}`;
+  if (key === 'demos') return s.demos.total === 1 ? tr('1 request', '1 demande') : tr(`${s.demos.total} requests`, `${s.demos.total} demandes`);
   return `${s.registrations.total}`;
 }
 
@@ -115,14 +115,14 @@ const EmailAudience: React.FC<{
       )}
       {a.sources.includes('demos') && (
         <div className="em-filter">
-          <span className="em-filter-name"><SolutionOutlined /> {tr('Trial requests', 'Demandes d’essai')}</span>
+          <span className="em-filter-name"><SolutionOutlined /> {tr('Demo requests', 'Demandes de démo')}</span>
           <Select size="small" value={a.demos.since_days ?? 0} style={{ width: 170 }} onChange={v => set({ demos: { ...a.demos, since_days: v || null } })}
             options={[{ value: 30, label: tr('Last 30 days', '30 derniers jours') }, { value: 90, label: tr('Last 3 months', '3 derniers mois') }, { value: 180, label: tr('Last 6 months', '6 derniers mois') }, { value: 365, label: tr('Last 12 months', '12 derniers mois') }, { value: 0, label: tr('Any time', 'Toutes') }]} />
           <Select mode="multiple" allowClear size="small" placeholder={tr('Any status', 'Tous les statuts')} value={a.demos.statuses} style={{ minWidth: 200, flex: 1 }}
             onChange={v => set({ demos: { ...a.demos, statuses: v } })} maxTagCount="responsive"
             options={['new', 'contacted', 'demo_scheduled', 'completed', 'cancelled'].map(value => ({ value, label: `${demoStatusLabel(value, tr)}${meta?.sources.demos.by_status[value] ? ` (${meta.sources.demos.by_status[value]})` : ''}` }))} />
           <Segmented size="small" value={a.demos.interest || 'any'} onChange={v => set({ demos: { ...a.demos, interest: v === 'any' ? null : v as 'exam' | 'general' } })}
-            options={[{ value: 'any', label: tr('Any interest', 'Tout intérêt') }, { value: 'exam', label: tr('Exam', 'Examen') }, { value: 'general', label: tr('General French', 'Français général') }]} />
+            options={[{ value: 'any', label: tr('All requests', 'Toutes les demandes') }, { value: 'general', label: tr('Classes', 'Cours') }, { value: 'exam', label: tr('Exam only', 'Examen uniquement') }]} />
           <label className="mk-switch"><Switch size="small" checked={a.demos.exclude_students} onChange={v => set({ demos: { ...a.demos, exclude_students: v } })} />
             <span>{tr('Leave out those who became students', 'Sans ceux devenus élèves')}</span></label>
           {(a.demos.since_days === null || a.demos.since_days > 180) && (
@@ -148,7 +148,7 @@ const EmailAudience: React.FC<{
             <span className="em-count-main">{busy ? <LoadingOutlined /> : null}<strong>{kept.length}</strong> {tr(kept.length === 1 ? 'person will receive it' : 'people will receive it', kept.length === 1 ? 'personne le recevra' : 'personnes le recevront')}</span>
             <span className="em-count-notes">
               {(Object.entries(result.counts.by_source) as [PersonSource, number][]).filter(([, n]) => n).map(([k, n]) => `${n} ${sourcesLabel(k, tr)}`).join(' · ')}
-              {result.counts.duplicates > 0 && tr(` · ${result.counts.duplicates} in two lists, counted once`, ` · ${result.counts.duplicates} dans deux listes, comptés une fois`)}
+              {result.counts.duplicates > 0 && tr(` · ${result.counts.duplicates} duplicate ${result.counts.duplicates === 1 ? 'entry' : 'entries'} merged by email`, ` · ${result.counts.duplicates} ${result.counts.duplicates === 1 ? 'doublon fusionné' : 'doublons fusionnés'} par adresse email`)}
               {result.counts.suppressed > 0 && tr(` · ${result.counts.suppressed} unsubscribed, left out`, ` · ${result.counts.suppressed} désinscrits, écartés`)}
               {removed.size > 0 && tr(` · ${people.length - kept.length} removed by you`, ` · ${people.length - kept.length} retirés par vous`)}
               {result.counts.invalid > 0 && tr(` · ${result.counts.invalid} invalid addresses`, ` · ${result.counts.invalid} adresses invalides`)}

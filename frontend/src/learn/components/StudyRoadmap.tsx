@@ -8,6 +8,7 @@ import {
   PlayCircleFilled, ReadOutlined, RocketOutlined, ThunderboltOutlined,
   TrophyOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { imageUrl } from '../categories';
 import { LEVEL_COPY, levelPath } from '../levels';
 import { AUTOSTART } from '../paths';
 import { readingPath } from '../practice/meta';
@@ -24,6 +25,8 @@ import { tx, type Lang, type Level } from '../types';
 import { getStepCompletion, useActivitySnapshot } from '../studyPath/activityStore';
 import { STEP_KIND_LABEL, STUDY_COPY, goalById } from '../studyPath/copy';
 import type { StudyPlan, StudyStep, StudyStepKind } from '../studyPath/types';
+import { stepImage } from '../studyPath/stepImage';
+import './roadmap.css';
 
 const KIND_ICON: Record<StudyStepKind, ReactNode> = {
   course: <BookOutlined />,
@@ -129,7 +132,8 @@ export function StudyRoadmap({
       {/* ── Left / Main Column: Progress Header + Numbered Modules ── */}
       <div className="sp-main">
         {/* Executive Roadmap Progress & Single Primary CTA Card */}
-        <header className="sp-plan-head">
+        <header className="sp-plan-head has-photo">
+          <img className="sp-plan-photo" src={imageUrl(goal.image, 1200)} alt="" loading="lazy" decoding="async" width="1200" height="675" />
           <div className="sp-plan-flag" aria-hidden><i /><i /><i /></div>
 
           <div className="sp-plan-top">
@@ -184,14 +188,23 @@ export function StudyRoadmap({
           </div>
 
           <div className="sp-progress-row">
-            <div className="sp-progress-meta">
-              <strong>{c.stepsDone(evaluated.completedSteps, plan.totalSteps)}</strong>
-              <span>
-                {c.modulesCount(plan.modules.length)} · ~{totalHours} h · <b>{evaluated.pct}%</b>
-              </span>
-            </div>
-            <div className="sp-progress-bar" role="progressbar" aria-valuenow={evaluated.pct} aria-valuemin={0} aria-valuemax={100}>
-              <i style={{ transform: `scaleX(${Math.max(0.02, evaluated.pct / 100)})` }} />
+            <span className="sp-ring" aria-hidden>
+              <svg viewBox="0 0 48 48">
+                <circle className="sp-ring-bg" cx="24" cy="24" r="20" />
+                <circle className="sp-ring-fg" cx="24" cy="24" r="20" pathLength={100} strokeDasharray="100" strokeDashoffset={100 - evaluated.pct} />
+              </svg>
+              <b>{evaluated.pct}%</b>
+            </span>
+            <div className="sp-progress-main">
+              <div className="sp-progress-meta">
+                <strong>{c.stepsDone(evaluated.completedSteps, plan.totalSteps)}</strong>
+                <span>
+                  {c.modulesCount(plan.modules.length)} · ~{totalHours} h
+                </span>
+              </div>
+              <div className="sp-progress-bar" role="progressbar" aria-valuenow={evaluated.pct} aria-valuemin={0} aria-valuemax={100}>
+                <i style={{ transform: `scaleX(${Math.max(0.02, evaluated.pct / 100)})` }} />
+              </div>
             </div>
           </div>
 
@@ -238,6 +251,16 @@ export function StudyRoadmap({
                     </span>
                     <strong>{mod.title}</strong>
                     <small>{mod.theme}</small>
+                    <span className="sp-mod-bar" aria-hidden><i style={{ transform: `scaleX(${steps.length ? doneInMod / steps.length : 0})` }} /></span>
+                  </span>
+
+                  <span className="sp-mod-thumbs" aria-hidden>
+                    {steps.slice(0, 4).map(({ step }) => {
+                      const img = stepImage(step);
+                      return img
+                        ? <img key={step.id} src={imageUrl(img, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+                        : <span key={step.id} className={`is-${step.kind}`}>{KIND_ICON[step.kind]}</span>;
+                    })}
                   </span>
 
                   <span className="sp-mod-chevron" aria-hidden>
@@ -249,6 +272,7 @@ export function StudyRoadmap({
                   <ul className="sp-steps">
                     {steps.map(({ step, comp }) => {
                       const isNextStep = evaluated.nextStep?.id === step.id && !evaluated.allComplete;
+                      const img = stepImage(step);
                       return (
                         <li key={step.id} className={`sp-step${comp.done ? ' is-done' : ''}${isNextStep ? ' is-next' : ''}`}>
                           <Link to={step.to} state={step.autostart ? AUTOSTART : undefined} className="sp-step-link">
@@ -256,12 +280,17 @@ export function StudyRoadmap({
                               {comp.done ? <CheckOutlined /> : null}
                             </span>
 
-                            <span className={`sp-skill-tag is-${step.kind}`}>
-                              {KIND_ICON[step.kind]}
-                              <span>{tx(STEP_KIND_LABEL[step.kind], lang)}</span>
+                            <span className={`sp-step-thumb is-${step.kind}`} aria-hidden>
+                              {img
+                                ? <img src={imageUrl(img, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+                                : <span className="sp-step-thumb-ico">{KIND_ICON[step.kind]}</span>}
                             </span>
 
                             <span className="sp-step-copy">
+                              <span className={`sp-skill-tag is-${step.kind}`}>
+                                {KIND_ICON[step.kind]}
+                                <span>{tx(STEP_KIND_LABEL[step.kind], lang)}</span>
+                              </span>
                               <strong>{step.title}</strong>
                               <small>{step.badge} · ~{step.minutes} min</small>
                             </span>
@@ -289,6 +318,7 @@ export function StudyRoadmap({
       <aside className="sp-side">
         {/* Step 3: Level Checkpoint */}
         <section className="sp-side-card is-checkpoint">
+          <img className="sp-side-photo" src={imageUrl('placement', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
           <p className="sp-side-eyebrow"><ThunderboltOutlined aria-hidden /> {c.checkpointEyebrow}</p>
           <h3>{c.checkpointTitle(plan.level)}</h3>
           <p>{c.checkpointDesc}</p>
@@ -341,6 +371,7 @@ export function StudyRoadmap({
 
         {/* 3-Minute Daily Game Boost */}
         <section className="sp-side-card is-game">
+          <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
           <p className="sp-side-eyebrow"><PlayCircleFilled aria-hidden /> {c.dailyBoostEyebrow}</p>
           <h3>{plan.dailyGame.title}</h3>
           <p>{plan.dailyGame.subtitle}</p>

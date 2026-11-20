@@ -3,7 +3,7 @@
 // cards, breadcrumbs, the teacher call to action).
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, PlayCircleFilled, ReadOutlined, RightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, PlayCircleFilled, RightOutlined } from '@ant-design/icons';
 import SEO from '../components/SEO/SEO';
 import SiteHeader from '../components/Landing/SiteHeader';
 import SiteFooter from '../components/Landing/SiteFooter';
@@ -112,28 +112,37 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
   const done = mounted ? courseDone(p, course.id, course.lessonCount) : 0;
   const passed = mounted && p.finals[course.id]?.passed;
   const cat = CATEGORIES.find(c => c.id === course.category)!;
+  const title = tx(course.title, lang);
   return (
-    <article className={`lx-course-card${compact ? ' is-compact' : ''}`}>
-      <div className="lx-cc-img">
-        <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="640" height="360" />
+    <article className={`crs-card${compact ? ' is-compact' : ''}${done ? ' is-started' : ''}`}>
+      <div className="crs-img">
+        <img src={imageUrl(course.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
         <LevelChip level={course.level} size="sm" />
-        {course.popular && !done && <span className="lx-cc-flag">{ui.popular}</span>}
-        {passed && <span className="lx-cc-flag is-done"><CheckCircleFilled /> {ui.completed}</span>}
+        {course.popular && !done && <span className="crs-flag">{ui.popular}</span>}
+        {passed && <span className="crs-flag is-done"><CheckCircleFilled /> {ui.completed}</span>}
       </div>
-      <div className="lx-cc-body">
-        <p className="lx-cc-cat">{tx(cat.name, lang)}</p>
-        <h3><Link to={coursePath(course, lang)} className="lx-stretch">{tx(course.title, lang)}</Link></h3>
-        {!compact && <p className="lx-cc-sub">{tx(course.subtitle, lang)}</p>}
-        <div className="lx-cc-meta">
-          <span><ReadOutlined /> {ui.lessons(course.lessonCount)}</span>
-          <span><ClockCircleOutlined /> {ui.minutes(course.minutes)}</span>
-          <Link to={coursePath(course, lang)} state={AUTOSTART} className="lx-cc-start" aria-label={`${done ? ui.continue : ui.start} : ${tx(course.title, lang)}`}><PlayCircleFilled />{done ? ui.continue : ui.start}</Link>
+      <div className="crs-body">
+        <p className="crs-provider"><span className="crs-logo" aria-hidden>LF</span>{tx(cat.name, lang)}</p>
+        <h3><Link to={coursePath(course, lang)} className="lx-stretch">{title}</Link></h3>
+        {!compact && <p className="crs-sub">{tx(course.subtitle, lang)}</p>}
+        <p className="crs-meta">
+          <span>{ui.hub.levelNames[course.levels[0]]}</span>
+          <span>{ui.lessons(course.lessonCount)}</span>
+          <span><ClockCircleOutlined aria-hidden /> {ui.minutes(course.minutes)}</span>
+        </p>
+        <div className="crs-foot">
+          {done > 0 ? (
+            <span className="crs-progress" aria-label={`${done}/${course.lessonCount}`}>
+              <i><b style={{ transform: `scaleX(${done / course.lessonCount})` }} /></i>
+              <small>{done}/{course.lessonCount}</small>
+            </span>
+          ) : (
+            <span className="crs-free">{ui.free}</span>
+          )}
+          <Link to={coursePath(course, lang)} state={AUTOSTART} className="crs-start" aria-label={`${done ? ui.continue : ui.start} : ${title}`}>
+            <PlayCircleFilled />{done ? ui.continue : ui.start}
+          </Link>
         </div>
-        {done > 0 && (
-          <div className="lx-cc-progress" aria-label={`${done}/${course.lessonCount}`}>
-            <i style={{ transform: `scaleX(${done / course.lessonCount})` }} />
-          </div>
-        )}
       </div>
     </article>
   );

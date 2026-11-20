@@ -1,17 +1,20 @@
-// A course (/learn/<path>/<course>/): what you will learn, its lessons, the
-// final assessment and the certificate.
+// A course (/learn/<path>/<course>/), laid out like an online-course platform:
+// a banner with the call to action, key facts, in-page tabs, what you will
+// learn, the syllabus, the certificate and related courses.
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRightOutlined, AudioOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CommentOutlined, CustomerServiceOutlined,
-  DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, TrophyOutlined,
+  DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, ThunderboltOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath, coursesOf } from '../catalog';
 import { AUTOSTART, finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, useProgress } from '../progress';
 import { courseJsonLd } from '../schema';
-import { CourseCard, Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell';
+import { Crumbs, LearnShell, TeacherCta, useMounted } from '../shell';
+import { CourseRow } from '../components/CourseRow';
+import './course.css';
 import { LEVELS, tx, type CourseMeta, type Lang, type Lesson, type StepKind } from '../types';
 import { audienceOfCategory } from '../../promo/model';
 import { UI } from '../ui';
@@ -107,139 +110,245 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   const st = course.ladder && mounted ? ladderState(p, course.id) : null;
   const ladderNext = course.ladder ? lessons.find(l => l.level === LEVELS[st?.current ?? 0]) : undefined;
 
+  const fr = lang === 'fr';
+  const levelLabel = course.levels.length > 2
+    ? `${ui.hub.levelNames[course.levels[0]]} → ${ui.hub.levelNames[course.levels[course.levels.length - 1]]}`
+    : course.levels.map(l => ui.hub.levelNames[l]).join(' / ');
+  const kindsAll = [...new Set(lessons.flatMap(l => l.steps.map(s => s.kind)))].filter(k => k !== 'concept');
+  const started = course.ladder ? !!(st?.tested || st?.passed.size) : doneIds.length > 0;
+  const startLesson = course.ladder ? ladderNext : next;
+
+  // In-page tabs: the section under the tabs is highlighted as you scroll.
+  const tabs: [string, string][] = [
+    ['about', fr ? 'À propos' : 'About'],
+    ['outcomes', fr ? 'Objectifs' : 'Outcomes'],
+    ['syllabus', course.ladder ? (fr ? 'Niveaux' : 'Levels') : (fr ? 'Programme' : 'Syllabus')],
+    ...(course.ladder ? [] : [['certificate', fr ? 'Certificat' : 'Certificate'] as [string, string]]),
+    ...(others.length ? [['related', fr ? 'Cours similaires' : 'Related courses'] as [string, string]] : []),
+  ];
+  const [tab, setTab] = useState('about');
+  const tabIds = tabs.map(t => t[0]).join(',');
+  useEffect(() => {
+    const ids = tabIds.split(',');
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        let cur = ids[0];
+        for (const id of ids) {
+          const el = document.getElementById(id);
+          if (el && el.getBoundingClientRect().top < 190) cur = id;
+        }
+        setTab(cur);
+      });
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, [tabIds]);
+  const goTo = (e: React.MouseEvent, id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    e.preventDefault();
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  /** The main call to action, the same in the banner and the side card. */
+  const cta = (variant: 'light' | 'primary', size = ' lp-btn-lg') => course.ladder ? (
+    <>
+      {!st?.tested && !st?.passed.size && <button type="button" className={`lp-btn lp-btn-${variant}${size}`} onClick={() => setTesting(true)}>{ui.ladder.testStart}<ArrowRightOutlined /></button>}
+      {ladderNext && (
+        <Link to={lessonPath(course, ladderNext, lang)} state={AUTOSTART} className={`lp-btn${size} ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost cp-btn-ghost' : `lp-btn-${variant}`}`}>
+          {st?.tested || st?.passed.size ? ui.ladder.continueAt(ladderNext.level!) : ui.ladder.startAt('A1')}<ArrowRightOutlined />
+        </Link>
+      )}
+    </>
+  ) : next ? (
+    <Link to={lessonPath(course, next, lang)} state={AUTOSTART} className={`lp-btn lp-btn-${variant}${size}`}>
+      <PlayCircleFilled /> {doneIds.length === 0 ? c.startCourse : doneIds.length === lessons.length ? c.restart : c.continueCourse}
+    </Link>
+  ) : null;
+
   return (
     <LearnShell
       lang={lang}
       alternates={{ en: coursePath(course, 'en'), fr: coursePath(course, 'fr') }}
       seo={{ title: c.metaTitle(title, course.level), description: `${tx(course.subtitle, lang)} ${tx(course.description, lang)}`.slice(0, 290), path: coursePath(course, lang), jsonLd: courseJsonLd(course, lessons, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }}
     >
-      <section className="lx-course-hero" aria-labelledby="lx-course-title">
-        <div className="lp-wrap lx-course-grid">
-          <div>
+      {/* ── Banner ── */}
+      <section className="cp-hero" aria-labelledby="lx-course-title">
+        <div className="cp-hero-bg" aria-hidden><img src={imageUrl(course.image, 640)} alt="" width="640" height="360" /></div>
+        <div className="lp-wrap cp-hero-grid">
+          <div className="cp-hero-copy">
             <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [tx(cat.name, lang), categoryPath(cat, lang)], [title]]} />
-            <div className="lx-course-chips"><LevelChip level={course.level} /><span className="lx-tag is-free">{ui.free}</span></div>
+            <p className="cp-provider"><span className="crs-logo" aria-hidden>LF</span>Learn French with Natives<span aria-hidden>·</span><Link to={categoryPath(cat, lang)}>{tx(cat.name, lang)}</Link></p>
             <h1 id="lx-course-title">{title}</h1>
-            <p className="lx-hero-sub">{tx(course.subtitle, lang)}</p>
-            <p className="lx-course-desc">{tx(course.description, lang)}</p>
-            <div className="lp-hero-ctas">
-              {course.ladder ? (
-                <>
-                  {!st?.tested && !st?.passed.size && <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => setTesting(true)}>{ui.ladder.testStart}<ArrowRightOutlined /></button>}
-                  {ladderNext && (
-                    <Link to={lessonPath(course, ladderNext, lang)} state={AUTOSTART} className={`lp-btn lp-btn-lg ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost' : 'lp-btn-primary'}`}>
-                      {st?.tested || st?.passed.size ? ui.ladder.continueAt(ladderNext.level!) : ui.ladder.startAt('A1')}<ArrowRightOutlined />
-                    </Link>
-                  )}
-                </>
-              ) : next && (
-                <Link to={lessonPath(course, next, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary lp-btn-lg">
-                  {doneIds.length === 0 ? c.startCourse : doneIds.length === lessons.length ? c.restart : c.continueCourse}<ArrowRightOutlined />
-                </Link>
-              )}
+            <p className="cp-sub">{tx(course.subtitle, lang)}</p>
+            <p className="cp-teacher">
+              <img src={imageUrl('teacher', 640)} alt="" width="640" height="360" loading="lazy" decoding="async" />
+              <span>{fr ? 'Créé par l’équipe pédagogique de Learn French with Natives' : 'Created by the Learn French with Natives teaching team'}</span>
+            </p>
+            <div className="cp-ctas">
+              {cta('light')}
+              <span className="cp-cta-note"><CheckCircleFilled aria-hidden /> {fr ? 'Gratuit · Sans inscription' : 'Free · No sign-up'}</span>
             </div>
-            {!course.ladder && lessons.length > 0 && (
-              <ol className="lx-hero-lessons" aria-label={c.syllabus}>
-                {lessons.map((l, i) => {
-                  const done = doneIds.includes(l.id);
-                  return (
-                    <li key={l.id} className={done ? 'is-done' : ''}>
-                      <Link to={lessonPath(course, l, lang)} state={AUTOSTART}>
-                        <span className="lx-hero-lesson-n" aria-hidden>{done ? <CheckCircleFilled /> : i + 1}</span>
-                        <span className="lx-hero-lesson-t">{tx(l.title, lang)}</span>
-                        <span className="lx-hero-lesson-m">{ui.minutes(l.minutes)}</span>
-                        <PlayCircleFilled className="lx-hero-lesson-p" aria-hidden />
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-            {mounted && doneIds.length > 0 && (
-              <div className="lx-course-progress">
+            {mounted && !course.ladder && doneIds.length > 0 && (
+              <div className="cp-progress">
                 <span>{c.yourProgress}</span>
                 <i><b style={{ transform: `scaleX(${doneIds.length / lessons.length})` }} /></i>
                 <strong>{doneIds.length}/{lessons.length}</strong>
               </div>
             )}
           </div>
-          <aside className="lx-course-card">
-            <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" />
-            <dl>
-              <div><dt>{c.level}</dt><dd>{course.level} · {course.levels.map(l => ui.hub.levelNames[l]).join(' / ')}</dd></div>
-              <div><dt>{c.duration}</dt><dd>{ui.lessons(course.lessonCount)} · {ui.minutes(course.minutes)}</dd></div>
-              <div><dt>{c.format}</dt><dd>{c.formatValue}</dd></div>
-              <div><dt>{c.price}</dt><dd>{c.priceValue}</dd></div>
-            </dl>
-            <p className="lx-course-card-k">{c.includes}</p>
-            <ul>{(course.ladder ? c.includeItemsLadder : c.includeItems).map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
-          </aside>
+          <div className="cp-hero-media">
+            {startLesson ? (
+              <Link to={lessonPath(course, startLesson, lang)} state={AUTOSTART} className="cp-preview" aria-label={fr ? `Commencer : ${title}` : `Start: ${title}`}>
+                <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" />
+                <span className="cp-play" aria-hidden><PlayCircleFilled /></span>
+                <span className="cp-preview-label">{started ? (fr ? 'Reprendre où vous en étiez' : 'Resume where you left off') : (fr ? 'Commencer la première leçon' : 'Start the first lesson')}</span>
+              </Link>
+            ) : (
+              <span className="cp-preview"><img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" /></span>
+            )}
+          </div>
         </div>
       </section>
 
-      <section className="lp-section" id="syllabus" aria-labelledby="lx-syllabus">
-        <div className="lp-wrap lx-cat-layout">
-          {course.ladder ? <Ladder lang={lang} course={course} lessons={lessons} onTest={() => setTesting(true)} /> : (
-          <div>
-            <h2 id="lx-syllabus" className="lx-h2">{c.syllabus}</h2>
-            <ol className="lx-syllabus">
-              {lessons.map((l, i) => {
-                const rec = mounted ? p.lessons[l.id] : undefined;
-                const kinds = [...new Set(l.steps.map(s => s.kind))].filter(k => k !== 'concept');
-                return (
-                  <li key={l.id} className={rec ? 'is-done' : ''}>
-                    <Link to={lessonPath(course, l, lang)} state={AUTOSTART} className="lx-lesson-row">
-                      <span className="lx-lesson-n">{rec ? <CheckCircleFilled /> : i + 1}</span>
-                      <div>
-                        <h3>{tx(l.title, lang)}</h3>
-                        <p>{tx(l.summary, lang)}</p>
-                        <div className="lx-lesson-meta">
-                          <span><ClockCircleOutlined /> {ui.minutes(l.minutes)}</span>
-                          <span>{ui.steps(l.steps.length)}</span>
-                          <span className="lx-kinds">{kinds.slice(0, 6).map(k => <i key={k} title={ui.kinds[k]}>{KIND_ICON[k]}</i>)}</span>
-                          {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
+      {/* ── Key facts ── */}
+      <div className="lp-wrap">
+        <ul className="cp-strip">
+          <li><span className="cp-strip-ico" aria-hidden><ReadOutlined /></span><div><strong>{course.ladder ? (fr ? '6 niveaux, A1 → C2' : '6 levels, A1 → C2') : ui.lessons(course.lessonCount)}</strong><small>{ui.minutes(course.minutes)} {fr ? 'au total' : 'in total'}</small></div></li>
+          <li><span className="cp-strip-ico" aria-hidden><RiseOutlined /></span><div><strong>{course.level} · {levelLabel}</strong><small>{fr ? 'Niveau du CECRL' : 'CEFR level'}</small></div></li>
+          <li><span className="cp-strip-ico" aria-hidden><ClockCircleOutlined /></span><div><strong>{fr ? 'À votre rythme' : 'Flexible schedule'}</strong><small>{fr ? 'Pause et reprise à tout moment' : 'Pause and resume at any time'}</small></div></li>
+          <li><span className="cp-strip-ico" aria-hidden>{course.ladder ? <ThunderboltOutlined /> : <SafetyCertificateOutlined />}</span><div><strong>{course.ladder ? (fr ? 'Test adaptatif' : 'Adaptive test') : c.certificate}</strong><small>{course.ladder ? (fr ? 'Commencez à votre vrai niveau' : 'Start at your real level') : (fr ? 'Après l’évaluation finale' : 'After the final assessment')}</small></div></li>
+        </ul>
+      </div>
+
+      {/* ── In-page tabs ── */}
+      <nav className="cp-tabs" aria-label={fr ? 'Sections du cours' : 'Course sections'}>
+        <div className="lp-wrap">
+          {tabs.map(([id, label]) => (
+            <a key={id} href={`#${id}`} className={tab === id ? 'is-on' : undefined} aria-current={tab === id ? 'true' : undefined} onClick={e => goTo(e, id)}>{label}</a>
+          ))}
+        </div>
+      </nav>
+
+      <section className="cp-body">
+        <div className="lp-wrap cp-layout">
+          <div className="cp-main">
+            <section id="about" className="cp-block" aria-labelledby="cp-about-title">
+              <h2 id="cp-about-title">{fr ? 'À propos de ce cours' : 'About this course'}</h2>
+              <p className="cp-desc">{tx(course.description, lang)}</p>
+              <div className="cp-learn" id="outcomes">
+                <h3>{c.outcomes}</h3>
+                <ul>{course.outcomes.map((o, i) => <li key={i}><CheckOutlined aria-hidden />{tx(o, lang)}</li>)}</ul>
+              </div>
+              {kindsAll.length > 0 && (
+                <div className="cp-skills">
+                  <h3>{fr ? 'Activités au programme' : 'What you will practise'}</h3>
+                  <ul>{kindsAll.map(k => <li key={k}>{KIND_ICON[k]}{ui.kinds[k]}</li>)}</ul>
+                </div>
+              )}
+            </section>
+
+            <section id="syllabus" className="cp-block" aria-labelledby="lx-syllabus">
+              {course.ladder ? <Ladder lang={lang} course={course} lessons={lessons} onTest={() => setTesting(true)} /> : (
+                <>
+                  <h2 id="lx-syllabus">{fr ? `Programme · ${lessons.length} leçons` : `Syllabus · ${lessons.length} lessons`}</h2>
+                  <p className="cp-block-sub">{fr ? 'Chaque leçon alterne explications, audio natif et exercices corrigés. Suivez-les dans l’ordre ou choisissez librement.' : 'Each lesson mixes explanations, native audio and corrected exercises. Take them in order or pick freely.'}</p>
+                  <ol className="cp-syllabus">
+                    {lessons.map((l, i) => {
+                      const rec = mounted ? p.lessons[l.id] : undefined;
+                      const kinds = [...new Set(l.steps.map(s => s.kind))].filter(k => k !== 'concept');
+                      const isNext = mounted && !rec && next?.id === l.id && doneIds.length > 0;
+                      return (
+                        <li key={l.id} className={`${rec ? 'is-done' : ''}${isNext ? ' is-next' : ''}`}>
+                          <Link to={lessonPath(course, l, lang)} state={AUTOSTART} className="cp-lesson">
+                            <span className="cp-lesson-n" aria-hidden>{rec ? <CheckCircleFilled /> : i + 1}</span>
+                            <div className="cp-lesson-body">
+                              <p className="cp-lesson-k">
+                                <b>{fr ? `Leçon ${i + 1}` : `Lesson ${i + 1}`}</b>
+                                <span><ClockCircleOutlined aria-hidden /> {ui.minutes(l.minutes)}</span>
+                                <span>{ui.steps(l.steps.length)}</span>
+                                {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
+                              </p>
+                              <h3>{tx(l.title, lang)}</h3>
+                              <p className="cp-lesson-sum">{tx(l.summary, lang)}</p>
+                              <ul className="cp-lesson-kinds" aria-label={c.activityTypes}>
+                                {kinds.slice(0, 6).map(k => <li key={k}>{KIND_ICON[k]}{ui.kinds[k]}</li>)}
+                              </ul>
+                            </div>
+                            <span className="cp-lesson-go">{rec ? (fr ? 'Revoir' : 'Review') : (fr ? 'Commencer' : 'Start')}<PlayCircleFilled aria-hidden /></span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                    <li className={`is-final${final?.passed ? ' is-done' : ''}`}>
+                      <Link to={finalPath(course, lang)} className="cp-lesson">
+                        <span className="cp-lesson-n" aria-hidden><TrophyOutlined /></span>
+                        <div className="cp-lesson-body">
+                          <p className="cp-lesson-k"><b>{fr ? 'Évaluation' : 'Assessment'}</b><span>10 questions</span></p>
+                          <h3>{c.final}</h3>
+                          <p className="cp-lesson-sum">{c.finalDesc}</p>
                         </div>
-                      </div>
-                      <span className="lx-round-arrow is-play" aria-hidden><PlayCircleFilled /></span>
-                    </Link>
-                  </li>
-                );
-              })}
-              <li className={`is-final${final?.passed ? ' is-done' : ''}`}>
-                <Link to={finalPath(course, lang)} className="lx-lesson-row">
-                  <span className="lx-lesson-n"><TrophyOutlined /></span>
-                  <div>
-                    <h3>{c.final}</h3>
-                    <p>{c.finalDesc}</p>
-                    <div className="lx-lesson-meta">
-                      {final?.passed ? <span className="lx-best"><SafetyCertificateOutlined /> {c.certificateEarned} · {Math.round(final.best * 100)}%</span> : <span>{c.finalStart}</span>}
-                    </div>
-                  </div>
-                  <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>
-                </Link>
-              </li>
-            </ol>
+                        <span className="cp-lesson-go">{final?.passed ? `${Math.round(final.best * 100)}%` : c.finalStart}<ArrowRightOutlined aria-hidden /></span>
+                      </Link>
+                    </li>
+                  </ol>
+                </>
+              )}
+            </section>
+
+            {!course.ladder && (
+              <section id="certificate" className="cp-block cp-cert" aria-labelledby="cp-cert-title">
+                <div className="cp-cert-copy">
+                  <p className="lp-eyebrow">{c.certificate}</p>
+                  <h2 id="cp-cert-title">{final?.passed ? c.certificateEarned : (fr ? 'Obtenez votre certificat' : 'Earn your certificate')}</h2>
+                  <p>{c.finalDesc}</p>
+                  <Link to={finalPath(course, lang)} className="lp-btn lp-btn-primary">
+                    {final?.passed ? <><SafetyCertificateOutlined /> {c.certificateEarned}</> : <>{c.finalStart} <ArrowRightOutlined /></>}
+                  </Link>
+                </div>
+                <div className="cp-cert-card" aria-hidden>
+                  <span className="cp-cert-flag"><i /><i /><i /></span>
+                  <span className="cp-cert-seal"><SafetyCertificateOutlined /></span>
+                  <small>{c.certificate}</small>
+                  <strong>{title}</strong>
+                  <span className="cp-cert-meta">{course.level} · Learn French with Natives</span>
+                  <span className="cp-cert-lines"><i /><i /></span>
+                </div>
+              </section>
+            )}
           </div>
-          )}
-          <aside className="lx-side">
+
+          <aside className="cp-aside">
+            <div className="cp-aside-card">
+              <p className="cp-aside-price"><b>{ui.free}</b><span>{c.priceValue}</span></p>
+              <div className="cp-aside-cta">{cta('primary', '')}</div>
+              <dl>
+                <div><dt>{c.level}</dt><dd>{course.level} · {levelLabel}</dd></div>
+                <div><dt>{c.duration}</dt><dd>{ui.lessons(course.lessonCount)} · {ui.minutes(course.minutes)}</dd></div>
+                <div><dt>{c.format}</dt><dd>{c.formatValue}</dd></div>
+              </dl>
+              <p className="cp-aside-k">{c.includes}</p>
+              <ul>{(course.ladder ? c.includeItemsLadder : c.includeItems).map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
+            </div>
             <TeacherCta lang={lang} offer={course.offer} audience={audienceOfCategory(course.category, course.id)} compact />
           </aside>
         </div>
       </section>
 
-      <section className="lp-section lp-tint" aria-labelledby="lx-outcomes">
-        <div className="lp-wrap">
-          <h2 id="lx-outcomes" className="lx-h2">{c.outcomes}</h2>
-          <ul className="lx-outcomes">
-            {course.outcomes.map((o, i) => <li key={i}><span>{String(i + 1).padStart(2, '0')}</span>{tx(o, lang)}</li>)}
-          </ul>
-        </div>
-      </section>
-
       {others.length > 0 && (
-        <section className="lp-section" aria-labelledby="lx-others">
+        <section id="related" className="cp-related" aria-label={c.otherCourses}>
           <div className="lp-wrap">
-            <h2 id="lx-others" className="lx-h2">{c.otherCourses}</h2>
-            <ul className="lx-grid">{others.map(o => <li key={o.id}><CourseCard course={o} lang={lang} /></li>)}</ul>
+            <CourseRow
+              lang={lang}
+              headingLevel={2}
+              title={c.otherCourses}
+              sub={tx(cat.tagline, lang)}
+              courses={others}
+              action={<Link to={categoryPath(cat, lang)} className="ah-row-all">{fr ? 'Tout voir' : 'View all'} <ArrowRightOutlined /></Link>}
+            />
           </div>
         </section>
       )}

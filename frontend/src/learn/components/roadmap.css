@@ -1,0 +1,79 @@
+/* The guided study path, course-platform look: a photo in the header, a
+   progress ring, modules joined by a timeline, a picture for every step.
+   Layered over academy.css (scoped with .sp-workspace so it wins). */
+
+/* Header: goal photo fading into the navy card, progress ring */
+.sp-workspace .sp-plan-head.has-photo { isolation: isolate; }
+.sp-plan-photo { position: absolute; z-index: -1; top: 0; right: 0; width: 60%; height: 100%; object-fit: cover; opacity: 0.34; -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 75%); mask-image: linear-gradient(90deg, transparent 0%, #000 75%); }
+.sp-workspace .sp-progress-row { display: flex; align-items: center; gap: 16px; }
+.sp-progress-main { flex: 1; min-width: 0; }
+.sp-ring { position: relative; display: grid; place-items: center; flex: none; width: 58px; height: 58px; }
+.sp-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.sp-ring-bg { fill: none; stroke: rgba(255, 255, 255, 0.14); stroke-width: 5; }
+.sp-ring-fg { fill: none; stroke: #7ce2b1; stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1); }
+.sp-ring b { color: #fff; font-family: var(--display); font-size: 13.5px; font-weight: 800; }
+
+/* Modules joined by a dotted timeline */
+.sp-workspace .sp-modules { position: relative; gap: 14px; }
+.sp-workspace .sp-modules::before { content: ''; position: absolute; top: 34px; bottom: 34px; left: 40px; width: 2px; background: repeating-linear-gradient(180deg, var(--blue-line) 0 6px, transparent 6px 12px); }
+.sp-workspace .sp-module { position: relative; z-index: 1; transition: border-color 0.2s, box-shadow 0.25s, transform 0.25s; }
+.sp-workspace .sp-module:not(.is-open):hover { transform: translateY(-2px); box-shadow: 0 16px 32px -22px rgba(11, 23, 51, 0.4); }
+.sp-workspace .sp-module.is-active::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: linear-gradient(180deg, var(--blue), #3d6ee3); }
+.sp-workspace .sp-module.is-done::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 4px; background: var(--ok); }
+.sp-workspace .sp-mod-head { grid-template-columns: 44px minmax(0, 1fr) auto 28px; }
+.sp-workspace .sp-module.is-active .sp-mod-node { box-shadow: 0 0 0 5px rgba(24, 57, 97, 0.12); }
+.sp-mod-bar { display: block; width: min(280px, 100%); height: 4px; margin-top: 6px; overflow: hidden; border-radius: 4px; background: var(--line-soft); }
+.sp-mod-bar i { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #2fa572, #7ce2b1); transform-origin: left; transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+.sp-mod-thumbs { display: flex; align-items: center; padding-left: 10px; }
+.sp-mod-thumbs > * { display: grid; place-items: center; width: 42px; height: 42px; margin-left: -10px; overflow: hidden; border: 2px solid #fff; border-radius: 12px; object-fit: cover; font-size: 16px; box-shadow: 0 4px 10px -4px rgba(11, 23, 51, 0.35); transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1); }
+.sp-mod-head:hover .sp-mod-thumbs > :nth-child(1) { transform: translateX(-6px) rotate(-4deg); }
+.sp-mod-head:hover .sp-mod-thumbs > :nth-child(2) { transform: translateX(-3px); }
+.sp-mod-head:hover .sp-mod-thumbs > :nth-child(4) { transform: translateX(3px) rotate(4deg); }
+.sp-module.is-open .sp-mod-thumbs { opacity: 0.55; }
+
+/* Kind colours (thumbnail fallbacks) */
+.sp-mod-thumbs .is-course, .sp-step-thumb.is-course .sp-step-thumb-ico { background: linear-gradient(135deg, #e8eef7, #cfdcef); color: #183961; }
+.sp-mod-thumbs .is-listen, .sp-step-thumb.is-listen .sp-step-thumb-ico { background: linear-gradient(135deg, #e5f5ee, #c8ead9); color: #0f7a52; }
+.sp-mod-thumbs .is-read, .sp-step-thumb.is-read .sp-step-thumb-ico { background: linear-gradient(135deg, #f2ecfa, #e0d3f3); color: #5b3391; }
+.sp-mod-thumbs .is-write, .sp-step-thumb.is-write .sp-step-thumb-ico { background: linear-gradient(135deg, #fdf1e6, #f7dcc0); color: #b2560c; }
+.sp-mod-thumbs .is-game, .sp-step-thumb.is-game .sp-step-thumb-ico { background: linear-gradient(135deg, #fbecee, #f3cfd5); color: #9c2437; }
+.sp-mod-thumbs .is-checkpoint, .sp-step-thumb.is-checkpoint .sp-step-thumb-ico { background: linear-gradient(135deg, #fef4d9, #f8e2a6); color: #8a5a00; }
+
+/* Steps: picture, kind tag above the title */
+.sp-workspace .sp-steps > li { animation: sp-step-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.sp-workspace .sp-steps > li:nth-child(2) { animation-delay: 0.05s; }
+.sp-workspace .sp-steps > li:nth-child(3) { animation-delay: 0.1s; }
+.sp-workspace .sp-steps > li:nth-child(4) { animation-delay: 0.15s; }
+.sp-workspace .sp-steps > li:nth-child(n + 5) { animation-delay: 0.2s; }
+@keyframes sp-step-in { from { opacity: 0; transform: translateY(8px); } }
+.sp-workspace .sp-step-link { grid-template-columns: 24px 96px minmax(0, 1fr) auto; gap: 14px; padding: 10px 14px 10px 12px; }
+.sp-step-thumb { position: relative; display: block; width: 96px; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 10px; background: var(--paper-2); box-shadow: 0 1px 2px rgba(11, 23, 51, 0.08); }
+.sp-step-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+.sp-step-link:hover .sp-step-thumb img { transform: scale(1.08); }
+.sp-step-thumb-ico { display: grid; place-items: center; width: 100%; height: 100%; font-size: 22px; }
+.sp-step.is-next .sp-step-thumb { box-shadow: 0 0 0 2px var(--blue); }
+.sp-step.is-done .sp-step-thumb::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(15, 138, 95, 0.45), rgba(15, 138, 95, 0.1)); }
+.sp-workspace .sp-step-copy .sp-skill-tag { align-self: flex-start; height: 20px; margin-bottom: 4px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; }
+.sp-workspace .sp-step-copy strong { font-size: 15px; }
+
+/* Side cards with a picture */
+.sp-workspace .sp-side-card { overflow: hidden; transition: transform 0.25s, box-shadow 0.25s; }
+.sp-workspace .sp-side-card:hover { transform: translateY(-2px); box-shadow: 0 16px 32px -22px rgba(11, 23, 51, 0.4); }
+.sp-side-photo { display: block; width: calc(100% + 40px); max-width: none; margin: -18px -20px 14px; aspect-ratio: 16 / 7; object-fit: cover; }
+
+@media (max-width: 760px) {
+  .sp-mod-thumbs { display: none; }
+  .sp-workspace .sp-mod-head { grid-template-columns: 44px minmax(0, 1fr) 28px; }
+}
+@media (max-width: 640px) {
+  .sp-workspace .sp-step-link { grid-template-columns: 22px 72px minmax(0, 1fr); gap: 10px; }
+  .sp-step-thumb { width: 72px; }
+  .sp-workspace .sp-step-copy { grid-column: auto; }
+  .sp-workspace .sp-step-copy .sp-skill-tag { grid-column: auto; }
+  .sp-workspace .sp-step-end { grid-column: 1 / -1; }
+  .sp-ring { width: 50px; height: 50px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sp-workspace .sp-steps > li { animation: none; }
+  .sp-ring-fg, .sp-mod-bar i, .sp-mod-thumbs > *, .sp-step-thumb img, .sp-workspace .sp-module { transition: none; }
+}
