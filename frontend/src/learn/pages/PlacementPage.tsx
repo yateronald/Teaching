@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowRightOutlined, CheckOutlined, CustomerServiceOutlined, FileTextOutlined, RedoOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckOutlined, CloseOutlined, CustomerServiceOutlined, EditOutlined, FileTextOutlined, InfoCircleOutlined, ReadOutlined, RedoOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
 import { COURSES } from '../catalog';
 import { getPlacement, loadPlacement } from '../content/registry';
@@ -13,6 +13,7 @@ import { hubPath, placementPath } from '../paths';
 import { levelPath } from '../levels';
 import { setStudyLevel } from '../studyPath/activityStore';
 import { recordPlacement, useProgress } from '../progress';
+import './placement.css';
 import { placementJsonLd } from '../schema';
 import { CourseCard, Crumbs, LearnShell, useDemo, useMounted } from '../shell';
 import type { Lang, Level } from '../types';
@@ -47,19 +48,33 @@ function recommend(level: Level) {
   return [...exact.slice(0, 4), ...exams].slice(0, 6);
 }
 
+const SKILL_ICON: Record<PlacementQuestion['skill'], React.ReactNode> = {
+  listening: <CustomerServiceOutlined />,
+  reading: <FileTextOutlined />,
+  grammar: <EditOutlined />,
+  vocabulary: <ReadOutlined />,
+};
+const SKILL_LABEL: Record<PlacementQuestion['skill'], [string, string]> = {
+  listening: ['Listening', 'Compréhension orale'],
+  reading: ['Reading', 'Compréhension écrite'],
+  grammar: ['Grammar', 'Grammaire'],
+  vocabulary: ['Vocabulary', 'Vocabulaire'],
+};
+
 function Test({ lang, onDone, onExit }: { lang: Lang; onDone: (lvl: Level, score: number) => void; onExit: () => void }) {
   const ui = UI[lang];
+  const fr = lang === 'fr';
   const [questions, setQuestions] = useState<PlacementQuestion[] | null>(() => getPlacement() ?? null);
   const [answers, setAnswers] = useState<{ level: Level; ok: boolean }[]>([]);
   const [ready, setReady] = useState(false);
   const handle = useRef<StepHandle | null>(null);
+  const nextBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => { if (!questions) loadPlacement().then(setQuestions); }, [questions]);
   useEffect(() => () => stopAudio(), []);
-  if (!questions) return <div className="lx-loading" role="status" />;
 
-  const q = questions[answers.length];
-  const estimate = Math.min(questions.length, Math.max(answers.length + 1, 8));
+  const q = questions?.[answers.length];
   const next = () => {
+    if (!questions || !q) return;
     const r = handle.current?.check();
     if (!r) return;
     chime('right');
@@ -69,29 +84,89 @@ function Test({ lang, onDone, onExit }: { lang: Lang; onDone: (lvl: Level, score
     if (v || all.length >= questions.length) onDone(v ?? 'C1', all.filter(a => a.ok).length / all.length);
     else setAnswers(all);
   };
+  const nextRef = useRef(next);
+  nextRef.current = next;
+
+  // Enter: next question (1 to 4 choose an answer, in Mcq).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.shiftKey) return;
+      if (e.target instanceof HTMLButtonElement && e.target !== nextBtn.current) return;
+      e.preventDefault();
+      if (ready) nextRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ready]);
+
+  if (!questions || !q) return <div className="lx-loading" role="status" />;
+
+  const exit = () => { if (answers.length === 0 || window.confirm(fr ? 'Quitter le test ? Vos réponses seront perdues.' : 'Leave the test? Your answers will be lost.')) onExit(); };
+  const n = answers.length + 1;
+  const levelIdx = PLACEMENT_LEVELS.indexOf(q.level);
 
   return (
-    <div className="lx-player">
-      <header className="lx-ptop">
-        <button type="button" className="lx-icon-btn" onClick={onExit} aria-label={ui.player.exit}>×</button>
-        <div className="lx-pbar"><motion.i animate={{ scaleX: answers.length / estimate }} /></div>
-        <span className="lx-xp">{ui.placement.question(answers.length + 1, questions.length)}</span>
+    <div className="lx-player is-placement">
+      <header className="lx-ptop-bar">
+        <div className="lx-ptop">
+          <button type="button" className="lx-icon-btn" onClick={exit} aria-label={ui.player.exit} title={ui.player.exit}><CloseOutlined /></button>
+          <div className="lx-ptop-track">
+            <div className="lx-ptop-meta">
+              <span className="lx-ptop-title">{ui.placement.eyebrow}</span>
+              <span className="lx-ptop-count">{fr ? `Question ${n} · ${questions.length} max` : `Question ${n} · up to ${questions.length}`}</span>
+            </div>
+            <ol className="pt-ladder" aria-label={fr ? 'Niveaux testés' : 'Levels tested'}>
+              {PLACEMENT_LEVELS.map((lvl, i) => {
+                const at = answers.filter(a => a.level === lvl);
+                const state = i < levelIdx ? 'is-done' : i === levelIdx ? 'is-now' : '';
+                const fill = i < levelIdx ? 1 : i === levelIdx ? at.length / PER_LEVEL : 0;
+                return (
+                  <li key={lvl} className={state} aria-current={i === levelIdx ? 'step' : undefined}>
+                    <span className="pt-ladder-bar"><motion.i initial={false} animate={{ scaleX: Math.max(fill, i === levelIdx ? 0.06 : 0) }} transition={{ type: 'spring', stiffness: 160, damping: 26 }} /></span>
+                    <b>{i < levelIdx ? <CheckOutlined /> : null}{lvl}</b>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </div>
       </header>
       <main className="lx-pstage">
         <AnimatePresence mode="wait">
-          <motion.div key={answers.length} className="lx-step" initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -40 }} transition={{ duration: 0.25 }}>
-            <p className="lx-place-skill">
-              {q.skill === 'listening' ? <CustomerServiceOutlined /> : q.skill === 'reading' ? <FileTextOutlined /> : <ThunderboltOutlined />}
-              {ui.placement.question(answers.length + 1, questions.length)}
+          <motion.div
+            key={answers.length}
+            className="lx-step is-mcq pt-step"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.24, ease: [0.2, 0.7, 0.2, 1] }}
+          >
+            <div className="lx-stage-card pt-card">
+              <div className="lx-stage-flag" aria-hidden><i /><i /><i /></div>
+              <div className="pt-card-head">
+                <span className={`pt-skill is-${q.skill}`}>{SKILL_ICON[q.skill]}{SKILL_LABEL[q.skill][fr ? 1 : 0]}</span>
+                <span className="pt-level">{fr ? 'Niveau' : 'Level'} <b>{q.level}</b></span>
+              </div>
+              <Mcq ref={handle} step={{ ...q, level: undefined }} lang={lang} locked={false} seed={`place-${answers.length}`} onReady={setReady} />
+            </div>
+            <p className="pt-hint">
+              <InfoCircleOutlined aria-hidden />
+              {fr ? 'Répondez seul, sans dictionnaire : le test s’adapte à vos réponses et s’arrête dès qu’il a trouvé votre niveau.' : 'Answer on your own, without a dictionary: the test adapts to your answers and stops as soon as it has found your level.'}
             </p>
-            <Mcq ref={handle} step={{ ...q, level: undefined }} lang={lang} locked={false} seed={`place-${answers.length}`} onReady={setReady} />
           </motion.div>
         </AnimatePresence>
       </main>
       <footer className="lx-pfoot">
         <div className="lx-pfoot-in">
-          <p className="lx-pfoot-kind">{ui.placement.eyebrow}</p>
-          <button type="button" className="lx-pbtn" disabled={!ready} onClick={next}>{ui.player.next}</button>
+          <div className="lx-pfoot-meta">
+            <span className="lx-pfoot-kind">{ui.placement.eyebrow}</span>
+            <span className="lx-pfoot-key" aria-hidden>
+              <kbd>1</kbd>–<kbd>4</kbd> {fr ? 'pour choisir' : 'to choose'} · <kbd>Enter ↵</kbd> {fr ? 'pour continuer' : 'to continue'}
+            </span>
+          </div>
+          <motion.button ref={nextBtn} type="button" className="lx-pbtn" disabled={!ready} onClick={next} whileTap={{ scale: 0.97 }}>
+            {ui.player.next} <ArrowRightOutlined />
+          </motion.button>
         </div>
       </footer>
     </div>
