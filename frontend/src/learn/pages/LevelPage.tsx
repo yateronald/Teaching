@@ -2,7 +2,7 @@
 // Global level pages offer a Dual-Mode Workspace:
 //   1) Guided Study Path (6 mixed-skill modules for this CEFR level across 4 goals)
 //   2) All Level Resources (Courses, Dictations, Listening & Dialogues, Reading, TCF/TEF Ladder)
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined,
@@ -57,6 +57,40 @@ interface FlatResource {
   summary: string;
   meta: string;
   to: string;
+}
+
+const COURSE_PAGE = 12;
+
+/**
+ * A course grid that shows the first dozen cards and a "show more" button.
+ * Every card stays in the pre-rendered page (links for search engines);
+ * the extra ones are hidden once the page is live.
+ */
+function PagedCourses({ courses, lang, mounted }: { courses: CourseMeta[]; lang: Lang; mounted: boolean }) {
+  const lc = STUDY_COPY[lang].levelPage;
+  const [all, setAll] = useState(false);
+  const top = useRef<HTMLUListElement>(null);
+  const extra = courses.length - COURSE_PAGE;
+  const toggle = () => {
+    if (all) top.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    setAll(v => !v);
+  };
+  return (
+    <>
+      <ul className="lx-grid" ref={top}>
+        {courses.map((c, i) => (
+          <li key={c.id} hidden={(mounted && !all && i >= COURSE_PAGE) || undefined}><CourseCard course={c} lang={lang} /></li>
+        ))}
+      </ul>
+      {extra > 0 && (
+        <div className="lv-more-row">
+          <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" aria-expanded={all} onClick={toggle}>
+            {all ? <>{lc.showFewer} <UpOutlined /></> : <>{lc.showMore(extra)} <DownOutlined /></>}
+          </button>
+        </div>
+      )}
+    </>
+  );
 }
 
 export default function LevelPage({ lang, level, category }: { lang: Lang; level: Level; category?: CategoryMeta }) {
@@ -340,9 +374,9 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
               {(browseFilter === 'all' || browseFilter === 'courses') && courses.length > 0 && (
                 <div className="lv-block">
                   <div className="lv-block-head">
-                    <h3>{t.coursesTitle(level)}</h3>
+                    <h3>{t.coursesTitle(level)} ({courses.length})</h3>
                   </div>
-                  <ul className="lx-grid">{courses.map(c => <li key={c.id}><CourseCard course={c} lang={lang} /></li>)}</ul>
+                  <PagedCourses key={level} courses={courses} lang={lang} mounted={mounted} />
                 </div>
               )}
 
@@ -502,7 +536,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
               {courses.length > 0 && (
                 <>
                   <h2 className="lx-h2 lx-level-courses">{t.coursesTitle(level)}</h2>
-                  <ul className="lx-grid">{courses.map(c => <li key={c.id}><CourseCard course={c} lang={lang} /></li>)}</ul>
+                  <PagedCourses key={`${category?.id}-${level}`} courses={courses} lang={lang} mounted={mounted} />
                 </>
               )}
             </div>

@@ -12,7 +12,7 @@ import {
   CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined,
   CompassOutlined, CustomerServiceOutlined, DownOutlined, DragOutlined, EditOutlined,
   PlayCircleFilled, ReadOutlined, ReloadOutlined, RocketOutlined,
-  SafetyCertificateOutlined, SearchOutlined, SoundOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
+  SafetyCertificateOutlined, SearchOutlined, SoundOutlined, SwapOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { chime, speak, usePlaying } from '../audio';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
@@ -415,7 +415,9 @@ export default function HubPage({ lang }: { lang: Lang }) {
   const activeLevel = mounted ? saved.level : 'A1';
   const plan = useMemo(() => buildStudyPlan(activeGoal, activeLevel, lang), [activeGoal, activeLevel, lang]);
   const levelStats = useMemo(() => LEVELS.map(lv => levelActivityStats(lv)), []);
-  const [rowCat, setRowCat] = useState<string>('popular');
+  // Returning learners who already chose a path see it summed up; they can reopen the picker.
+  const [editPath, setEditPath] = useState(false);
+  const pathFolded = mounted && saved.picked && !editPath;
 
   const readingTotal = TEXTS.length + MISSIONS.length;
   const listeningTotal = DIALOGUES.length + EAR.length + LISTENING.length;
@@ -426,13 +428,10 @@ export default function HubPage({ lang }: { lang: Lang }) {
   const lastCourse = last ? COURSES.find(c => tx(c.title, lang) === last.course) : undefined;
   const doneCount = mounted ? countTotalCompleted(snap).total : 0;
 
-  const rowCourses = useMemo(() => {
-    if (rowCat === 'popular') return [...COURSES].sort((a, b) => Number(!!b.popular) - Number(!!a.popular)).slice(0, 14);
-    return COURSES.filter(c => c.category === rowCat);
-  }, [rowCat]);
+  const popularCourses = useMemo(() => [...COURSES].sort((a, b) => Number(!!b.popular) - Number(!!a.popular)).slice(0, 14), []);
 
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  const showPath = () => { setStudyPath(activeGoal, activeLevel, true); scrollTo('roadmap'); };
+  const showPath = () => { setStudyPath(activeGoal, activeLevel, true); setEditPath(false); scrollTo('roadmap'); };
   const advance = (next: Level) => { setStudyPath(activeGoal, next, true); scrollTo('roadmap'); };
   const studioCopy = {
     reading: { name: fr ? 'Atelier de lecture' : 'Reading Studio', desc: fr ? 'Textes lus par des natifs, mots cliquables et missions de lecture.' : 'Native-read texts, tap-to-translate words and reading missions.', count: readingTotal, to: readingPath(lang) },
@@ -515,61 +514,85 @@ export default function HubPage({ lang }: { lang: Lang }) {
       )}
 
       {/* ── Learning paths: four goals as picture cards, then the starting level ── */}
-      <section className="ah-sec" id="paths" aria-labelledby="ah-paths-title">
+      {/* Learners who already chose a path see a one-line summary instead (pathFolded). */}
+      <section className={`ah-sec${pathFolded ? ' is-folded' : ''}`} id="paths" aria-labelledby="ah-paths-title">
         <div className="lp-wrap">
-          <Reveal className="ah-head">
-            <p className="lp-eyebrow">{fr ? 'Étape 1 · Votre objectif' : 'Step 1 · Your goal'}</p>
-            <h2 id="ah-paths-title">{fr ? 'Choisissez votre parcours' : 'Choose your learning path'}</h2>
-            <p>{fr ? 'Chaque parcours assemble cours, dialogues, lectures et dictées en modules, niveau par niveau.' : 'Each path brings courses, dialogues, reading and dictations together in modules, level by level.'}</p>
-          </Reveal>
-          <div className="ah-paths" role="radiogroup" aria-label={fr ? 'Votre objectif' : 'Your goal'}>
-            {GOALS.map((g, i) => {
-              const on = activeGoal === g.id;
-              return (
-                <Reveal key={g.id} delay={i * 80}>
-                  <button type="button" role="radio" aria-checked={on} className={`ah-path${on ? ' is-on' : ''}`} onClick={() => setStudyGoal(g.id, saved.picked)}>
-                    <span className="ah-path-img">
-                      <img src={imageUrl(g.image, 640)} alt="" loading="lazy" width="640" height="360" />
-                      <span className="ah-path-badge">{GOAL_ICON[g.id]} {fr ? 'Parcours' : 'Path'}</span>
-                      {on && <span className="ah-path-tick"><CheckCircleFilled /> {fr ? 'Votre parcours' : 'Your path'}</span>}
-                    </span>
-                    <span className="ah-path-body">
-                      <span className="ah-path-k">{tx(g.badge, lang)}</span>
-                      <strong>{tx(g.title, lang)}</strong>
-                      <span className="ah-path-sub">{tx(g.subtitle, lang)}</span>
-                      <span className="ah-path-meta">{fr ? '6 niveaux · À votre rythme · Gratuit' : '6 levels · Self-paced · Free'}</span>
-                    </span>
-                  </button>
-                </Reveal>
-              );
-            })}
-          </div>
-
-          <Reveal className="ah-levels-card">
-            <div className="ah-levels-head">
-              <div>
-                <p className="lp-eyebrow">{fr ? 'Étape 2 · Votre niveau de départ' : 'Step 2 · Your starting level'}</p>
-                <h3>{fr ? 'Où commencez-vous ?' : 'Where do you start?'}</h3>
+          {pathFolded ? (
+            <div className="ah-mypath">
+              <img src={imageUrl(goalById(activeGoal).image, 640)} alt="" width="640" height="360" loading="lazy" />
+              <div className="ah-mypath-copy">
+                <p>{fr ? 'Votre parcours' : 'Your learning path'}</p>
+                <h2 id="ah-paths-title">{tx(goalById(activeGoal).title, lang)}</h2>
+                <span className={`ah-mypath-lv ${levelBand(activeLevel)}`}>
+                  <b>{activeLevel}</b> {tx(LEVEL_COPY[activeLevel].name, lang)} · {plan.modules.length} modules
+                </span>
               </div>
-              <Link to={placementPath(lang)} className="ah-test-link"><ThunderboltOutlined /> {fr ? 'Pas sûr ? Test de niveau en 10 min' : 'Not sure? 10-minute level test'} <ArrowRightOutlined /></Link>
+              <div className="ah-mypath-actions">
+                <button type="button" className="lp-btn lp-btn-primary" onClick={() => scrollTo('roadmap')}>
+                  {fr ? 'Voir mes modules' : 'See my modules'} <ArrowRightOutlined />
+                </button>
+                <button type="button" className="lp-btn lp-btn-ghost" onClick={() => setEditPath(true)}>
+                  <SwapOutlined /> {fr ? 'Changer d’objectif ou de niveau' : 'Change goal or level'}
+                </button>
+              </div>
             </div>
-            <div className="ah-levels" role="radiogroup" aria-label={fr ? 'Niveau de départ' : 'Starting level'}>
-              {levelStats.map(st => {
-                const on = activeLevel === st.level;
-                return (
-                  <button key={st.level} type="button" role="radio" aria-checked={on} className={`ah-lv ${levelBand(st.level)}${on ? ' is-on' : ''}`} onClick={() => setStudyLevel(st.level, saved.picked)}>
-                    <span className="ah-lv-dot">{st.level}</span>
-                    <strong>{tx(LEVEL_COPY[st.level].name, lang)}</strong>
-                    <small>{fr ? `${st.total} activités` : `${st.total} activities`}</small>
-                  </button>
-                );
-              })}
-            </div>
-            <div className="ah-levels-foot">
-              <p><CompassOutlined /> {tx(goalById(activeGoal).title, lang)} · {activeLevel} · {tx(LEVEL_COPY[activeLevel].name, lang)}</p>
-              <button type="button" className="lp-btn lp-btn-primary" onClick={showPath}>{fr ? 'Voir mon parcours' : 'Show my path'} <ArrowRightOutlined /></button>
-            </div>
-          </Reveal>
+          ) : (
+            <>
+              <Reveal className="ah-head">
+                <p className="lp-eyebrow">{fr ? 'Étape 1 · Votre objectif' : 'Step 1 · Your goal'}</p>
+                <h2 id="ah-paths-title">{fr ? 'Choisissez votre parcours' : 'Choose your learning path'}</h2>
+                <p>{fr ? 'Chaque parcours assemble cours, dialogues, lectures et dictées en modules, niveau par niveau.' : 'Each path brings courses, dialogues, reading and dictations together in modules, level by level.'}</p>
+              </Reveal>
+              <div className="ah-paths" role="radiogroup" aria-label={fr ? 'Votre objectif' : 'Your goal'}>
+                {GOALS.map((g, i) => {
+                  const on = activeGoal === g.id;
+                  return (
+                    <Reveal key={g.id} delay={i * 80}>
+                      <button type="button" role="radio" aria-checked={on} className={`ah-path${on ? ' is-on' : ''}`} onClick={() => setStudyGoal(g.id, saved.picked)}>
+                        <span className="ah-path-img">
+                          <img src={imageUrl(g.image, 640)} alt="" loading="lazy" width="640" height="360" />
+                          <span className="ah-path-badge">{GOAL_ICON[g.id]} {fr ? 'Parcours' : 'Path'}</span>
+                          {on && <span className="ah-path-tick"><CheckCircleFilled /> {fr ? 'Votre parcours' : 'Your path'}</span>}
+                        </span>
+                        <span className="ah-path-body">
+                          <span className="ah-path-k">{tx(g.badge, lang)}</span>
+                          <strong>{tx(g.title, lang)}</strong>
+                          <span className="ah-path-sub">{tx(g.subtitle, lang)}</span>
+                          <span className="ah-path-meta">{fr ? '6 niveaux · À votre rythme · Gratuit' : '6 levels · Self-paced · Free'}</span>
+                        </span>
+                      </button>
+                    </Reveal>
+                  );
+                })}
+              </div>
+
+              <Reveal className="ah-levels-card">
+                <div className="ah-levels-head">
+                  <div>
+                    <p className="lp-eyebrow">{fr ? 'Étape 2 · Votre niveau de départ' : 'Step 2 · Your starting level'}</p>
+                    <h3>{fr ? 'Où commencez-vous ?' : 'Where do you start?'}</h3>
+                  </div>
+                  <Link to={placementPath(lang)} className="ah-test-link"><ThunderboltOutlined /> {fr ? 'Pas sûr ? Test de niveau en 10 min' : 'Not sure? 10-minute level test'} <ArrowRightOutlined /></Link>
+                </div>
+                <div className="ah-levels" role="radiogroup" aria-label={fr ? 'Niveau de départ' : 'Starting level'}>
+                  {levelStats.map(st => {
+                    const on = activeLevel === st.level;
+                    return (
+                      <button key={st.level} type="button" role="radio" aria-checked={on} className={`ah-lv ${levelBand(st.level)}${on ? ' is-on' : ''}`} onClick={() => setStudyLevel(st.level, saved.picked)}>
+                        <span className="ah-lv-dot">{st.level}</span>
+                        <strong>{tx(LEVEL_COPY[st.level].name, lang)}</strong>
+                        <small>{fr ? `${st.total} activités` : `${st.total} activities`}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="ah-levels-foot">
+                  <p><CompassOutlined /> {tx(goalById(activeGoal).title, lang)} · {activeLevel} · {tx(LEVEL_COPY[activeLevel].name, lang)}</p>
+                  <button type="button" className="lp-btn lp-btn-primary" onClick={showPath}>{fr ? 'Voir mon parcours' : 'Show my path'} <ArrowRightOutlined /></button>
+                </div>
+              </Reveal>
+            </>
+          )}
         </div>
       </section>
 
@@ -595,18 +618,11 @@ export default function HubPage({ lang }: { lang: Lang }) {
             </div>
             <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={openAcademySearch}><SearchOutlined /> {fr ? `Rechercher parmi ${TOTAL_ACADEMY_ITEMS} activités` : `Search ${TOTAL_ACADEMY_ITEMS} activities`}</button>
           </Reveal>
-          <div className="ah-row-cats" role="group" aria-label={fr ? 'Catégorie' : 'Category'}>
-            <button type="button" className={rowCat === 'popular' ? 'is-on' : ''} aria-pressed={rowCat === 'popular'} onClick={() => setRowCat('popular')}><RocketOutlined /> {fr ? 'Les plus suivis' : 'Most popular'}</button>
-            {CATEGORIES.map(c => (
-              <button key={c.id} type="button" className={rowCat === c.id ? 'is-on' : ''} aria-pressed={rowCat === c.id} onClick={() => setRowCat(c.id)}>{tx(c.name, lang)}</button>
-            ))}
-          </div>
           <CourseRow
             lang={lang}
-            courses={rowCourses}
-            title={rowCat === 'popular' ? (fr ? 'Les cours les plus suivis' : 'Most popular courses') : tx(CATEGORIES.find(c => c.id === rowCat)!.name, lang)}
-            sub={rowCat === 'popular' ? (fr ? 'Le meilleur point de départ, quel que soit votre niveau.' : 'The best place to start, whatever your level.') : tx(CATEGORIES.find(c => c.id === rowCat)!.tagline, lang)}
-            action={rowCat !== 'popular' ? <Link to={categoryPath(CATEGORIES.find(c => c.id === rowCat)!, lang)} className="ah-row-all">{fr ? 'Tout voir' : 'View all'} <ArrowRightOutlined /></Link> : undefined}
+            courses={popularCourses}
+            title={fr ? 'Les cours les plus suivis' : 'Most popular courses'}
+            sub={fr ? 'Le meilleur point de départ, quel que soit votre niveau.' : 'The best place to start, whatever your level.'}
           />
 
           <Reveal className="ah-subhead" id="courses">

@@ -1021,6 +1021,8 @@ export const courseAbout = (c: CourseMeta): CourseAbout => ({
 
 export const courseById = (id: string) => COURSES.find(x => x.id === id);
 export const coursesOf = (cat: CategoryId) => COURSES.filter(x => x.category === cat);
+/** A path's courses in curriculum order (by starting level), as its page lists them. */
+export const pathCourses = (cat: CategoryId) => coursesOf(cat).sort((a, b) => a.level.localeCompare(b.level));
 export const coursePath = (course: CourseMeta, lang: Lang) => {
   const cat = CATEGORIES.find(x => x.id === course.category)!;
   return `${categoryPath(cat, lang)}${course.slug[lang]}/`;

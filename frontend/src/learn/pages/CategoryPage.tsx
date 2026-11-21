@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { TOPIC_PATHS } from '../../components/Landing/sitePages';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
-import { COURSES, courseAbout, coursePath, coursesOf } from '../catalog';
+import { COURSES, coursePath, pathCourses } from '../catalog';
 import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { courseDone, useProgress } from '../progress';
 import { categoryJsonLd } from '../schema';
@@ -21,6 +21,7 @@ import { audienceOfCategory } from '../../promo/model';
 import { ReadingPromo } from '../practice/parts';
 import { Reveal } from '../components/Reveal';
 import { UI } from '../ui';
+import { useCourseAbout } from '../useLessons';
 
 const STAGE_COLLAPSE_LIMIT = 6;
 
@@ -109,10 +110,7 @@ function PathCourseCard({
 
 export default function CategoryPage({ lang, category }: { lang: Lang; category: CategoryMeta }) {
   const ui = UI[lang];
-  const courses = useMemo(
-    () => coursesOf(category.id).sort((a, b) => a.level.localeCompare(b.level)),
-    [category.id],
-  );
+  const courses = useMemo(() => pathCourses(category.id), [category.id]);
   const p = useProgress();
   const mounted = useMounted();
   const name = tx(category.name, lang);
@@ -158,6 +156,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
     return nextUnfinished ?? courses[0];
   }, [courses, mounted, p]);
   const spotlightIdx = spotlightCourse ? (indexById[spotlightCourse.id] ?? 0) : 0;
+  const spotlightOutcomes = useCourseAbout(spotlightCourse)?.outcomes ?? [];
   const spotlightDone = mounted && spotlightCourse ? courseDone(p, spotlightCourse.id, spotlightCourse.lessonCount) : 0;
 
   // Filtered courses
@@ -270,11 +269,13 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                   <Link to={coursePath(spotlightCourse, lang)}>{tx(spotlightCourse.title, lang)}</Link>
                 </h2>
                 <p className="lx-cat-spot-sub">{tx(spotlightCourse.subtitle, lang)}</p>
-                <ul className="lx-cat-spot-outcomes">
-                  {courseAbout(spotlightCourse).outcomes.slice(0, 3).map((o, i) => (
-                    <li key={i}><CheckOutlined aria-hidden /> {tx(o, lang)}</li>
-                  ))}
-                </ul>
+                {spotlightOutcomes.length > 0 && (
+                  <ul className="lx-cat-spot-outcomes">
+                    {spotlightOutcomes.slice(0, 3).map((o, i) => (
+                      <li key={i}><CheckOutlined aria-hidden /> {tx(o, lang)}</li>
+                    ))}
+                  </ul>
+                )}
                 <div className="lx-cat-spot-foot">
                   <Link to={coursePath(spotlightCourse, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary">
                     <PlayCircleFilled /> {spotlightDone > 0 ? ui.continue : ui.start}

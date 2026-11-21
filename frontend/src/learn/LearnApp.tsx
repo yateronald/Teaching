@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import NotFound from '../components/Landing/NotFound';
 import { hasCourseContent, loadLessons, loadPlacement } from './content/registry';
 import { resolveLearnPath } from './paths';
+import { pathCourses } from './catalog';
 import type { Lang } from './types';
 import HubPage from './pages/HubPage';
 import CategoryPage from './pages/CategoryPage';
@@ -62,6 +63,11 @@ export async function prepareForPath(pathname: string) {
   const route = resolveLearnPath(pathname);
   if ((route.type === 'course' || route.type === 'lesson' || route.type === 'final') && hasCourseContent(route.course.id)) await loadLessons(route.course.id);
   if (route.type === 'placement') await loadPlacement();
+  // A path page features its first course, whose outcomes may live in that course's module.
+  if (route.type === 'category') {
+    const first = pathCourses(route.category.id)[0];
+    if (first && !first.outcomes && hasCourseContent(first.id)) await loadLessons(first.id);
+  }
   if (route.type === 'text') await loadText(route.text.id);
   if (route.type === 'ear-course') await loadEar(route.ear.id);
   if (route.type === 'dialogue') await loadDialogue(route.dialogue.id, route.dialogue.theme);

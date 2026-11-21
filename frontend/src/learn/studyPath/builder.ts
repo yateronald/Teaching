@@ -69,6 +69,8 @@ interface ModuleBlueprints {
   title: T;
   theme: T;
   courseId?: string;
+  /** A second course that practises the module's theme (from the wider catalogue). */
+  practiceId?: string;
   ladderId?: string;
   dialogueId?: string;
   earId?: string;
@@ -83,182 +85,182 @@ const COMPLETE_MODULES: Record<Level, ModuleBlueprints[]> = {
     {
       title: b('First Greetings & Core Sounds', 'Premiers échanges & sons clés'),
       theme: b('Introduce yourself politely, hear French sounds and write your first short story.', 'Se présenter avec aisance, apprivoiser les sons et réussir sa première dictée.'),
-      courseId: 'first-steps', dialogueId: 'a-la-boulangerie', dictMethod: 'story',
+      courseId: 'first-steps', dialogueId: 'a-la-boulangerie', practiceId: 'etre-avoir', dictMethod: 'story',
     },
     {
       title: b('Numbers, Time & Spoken Rhythm', 'Nombres, heure & rythme oral'),
       theme: b('Catch numbers and times at native speed, read simple notices and practice accents.', 'Comprendre prix et horaires à vitesse réelle, lire un texte court et maîtriser les accents.'),
-      courseId: 'numbers-time', earId: 'les-nombres-qui-piegent', dictMethod: 'story',
+      courseId: 'numbers-time', earId: 'les-nombres-qui-piegent', practiceId: 'l-numbers-prices', dictMethod: 'story',
     },
     {
       title: b('Everyday Life, Family & Routine', 'Vie quotidienne, famille & routine'),
       theme: b('Describe your day, follow a workplace dialogue and complete your first reading mission.', 'Raconter sa journée, suivre un dialogue au travail et réussir une mission de lecture.'),
-      courseId: 'everyday-life', dialogueId: 'le-premier-jour', preferMission: true, dictMethod: 'homophones',
+      courseId: 'everyday-life', dialogueId: 'le-premier-jour', preferMission: true, practiceId: 'possessives', dictMethod: 'homophones',
     },
     {
       title: b('Food, Shopping & Articles', 'Courses, repas & articles'),
       theme: b('Master un/une/du/de la, listen to real announcements and drill common homophones.', 'Maîtriser les articles, écouter un document réel et éviter les pièges d’homophones.'),
-      courseId: 'food-shopping', preferDoc: true, dictMethod: 'conjugation',
+      courseId: 'food-shopping', preferDoc: true, practiceId: 'partitive-articles', dictMethod: 'conjugation',
     },
     {
       title: b('Health, City & Silent Letters', 'Santé, ville & lettres muettes'),
       theme: b('Handle pharmacy & transit situations and link spoken words to correct spelling.', 'Gérer pharmacie et transports tout en reliant prononciation et orthographe.'),
-      courseId: 'body-health', dialogueId: 'a-la-pharmacie', preferMission: true, dictMethod: 'story',
+      courseId: 'body-health', dialogueId: 'a-la-pharmacie', preferMission: true, practiceId: 'prepositions-place', dictMethod: 'story',
     },
     {
       title: b('Survival Conversations & A1 Wrap-Up', 'Conversations clés & bilan A1'),
       theme: b('Combine real-world dialogues, short reading and an authentic timed A1 dictation.', 'Consolider tout votre niveau A1 avec dialogue, lecture et dictée défi.'),
-      courseId: 'survival-dialogues', dialogueId: 'un-ticket-de-bus', dictMethod: 'exam',
+      courseId: 'survival-dialogues', dialogueId: 'un-ticket-de-bus', practiceId: 'c-first-conversations', dictMethod: 'exam',
     },
   ],
   A2: [
     {
       title: b('Travel French & Getting Around', 'Voyager & se repérer'),
       theme: b('Ask directions, check in smoothly and write fluent everyday narratives.', 'Demander son chemin, réserver et écrire un récit fluide du quotidien.'),
-      courseId: 'travel-french', dialogueId: 'demander-son-chemin', dictMethod: 'story',
+      courseId: 'travel-french', dialogueId: 'demander-son-chemin', practiceId: 'countries-cities', dictMethod: 'story',
     },
     {
       title: b('Past Tenses & Stories', 'Temps du passé & récits'),
       theme: b('Tell what happened with passé composé & imparfait and hear spoken intonation clearly.', 'Raconter au passé composé et à l’imparfait tout en affinant son oreille.'),
-      courseId: 'past-tenses', earId: 'question-ou-affirmation', dictMethod: 'conjugation',
+      courseId: 'past-tenses', earId: 'question-ou-affirmation', practiceId: 'b-yesterday', dictMethod: 'conjugation',
     },
     {
       title: b('Appointments, Health & Services', 'Rendez-vous, santé & services'),
       theme: b('Book appointments by phone, solve a guided reading mission and avoid homophone traps.', 'Prendre rendez-vous par téléphone, résoudre une mission et déjouer les homophones.'),
-      courseId: 'appointments-services', dialogueId: 'prendre-rendez-vous-chez-le-medecin', preferMission: true, dictMethod: 'homophones',
+      courseId: 'appointments-services', dialogueId: 'prendre-rendez-vous-chez-le-medecin', preferMission: true, practiceId: 'time-expressions', dictMethod: 'homophones',
     },
     {
       title: b('Housing, Papers & Daily Life', 'Logement, démarches & vie pratique'),
       theme: b('Navigate landlords and practical French documents with real native audio.', 'Échanger avec un propriétaire et décoder des documents authentiques.'),
-      courseId: 'settling-in-canada', dialogueId: 'appeler-le-proprietaire', preferDoc: true, dictMethod: 'story',
+      courseId: 'settling-in-canada', dialogueId: 'appeler-le-proprietaire', preferDoc: true, practiceId: 'r-forms-notices', dictMethod: 'story',
     },
     {
       title: b('Natural Small Talk & Nasal Sounds', 'Conversations naturelles & voyelles'),
       theme: b('Keep everyday exchanges flowing and distinguish subtle French sounds with ease.', 'Maintenir une conversation naturelle et distinguer les sons proches.'),
-      courseId: 'small-talk', earId: 'vent-vont-vin', preferMission: true, dictMethod: 'conjugation',
+      courseId: 'small-talk', earId: 'vent-vont-vin', preferMission: true, practiceId: 'c-weekend-talk', dictMethod: 'conjugation',
     },
     {
       title: b('Spelling Precision & A2 Milestone', 'Orthographe juste & cap A2'),
       theme: b('Lock in A2 spelling, restaurant conversations and a timed exam-style dictation.', 'Sécuriser l’orthographe A2 avant de franchir le cap vers le niveau B1.'),
-      courseId: 'spelling-homophones', dialogueId: 'reserver-au-restaurant', dictMethod: 'exam',
+      courseId: 'spelling-homophones', dialogueId: 'reserver-au-restaurant', practiceId: 'sp-common-words', dictMethod: 'exam',
     },
   ],
   B1: [
     {
       title: b('Future, Conditional & Spoken Tenses', 'Futur, conditionnel & temps à l’oral'),
       theme: b('Express hypotheses and plans clearly, recognize tenses by ear and write cleanly.', 'Exprimer projets et hypothèses, reconnaître les temps à l’oral et écrire juste.'),
-      courseId: 'future-conditional', earId: 'passe-present-ou-futur', dictMethod: 'story',
+      courseId: 'future-conditional', earId: 'passe-present-ou-futur', practiceId: 'plus-que-parfait', dictMethod: 'story',
     },
     {
       title: b('Real Spoken French & Work Interviews', 'Vrai français parlé & entretien'),
       theme: b('Decode everyday native contractions, follow a job interview and tackle a B1 mission.', 'Comprendre le français parlé réel, réussir un entretien et une mission guidée.'),
-      courseId: 'spoken-french', dialogueId: 'l-entretien-d-embauche', preferMission: true, dictMethod: 'conjugation',
+      courseId: 'spoken-french', dialogueId: 'l-entretien-d-embauche', preferMission: true, practiceId: 'l-overheard', dictMethod: 'conjugation',
     },
     {
       title: b('Relative Clauses & News Reading', 'Pronoms relatifs & actualité'),
       theme: b('Build fluid connected sentences, follow authentic radio clips and master homophones.', 'Structurer des phrases riches, écouter un document réel et maîtriser les homophones.'),
-      courseId: 'relative-pronouns', preferDoc: true, dictMethod: 'homophones',
+      courseId: 'relative-pronouns', preferDoc: true, practiceId: 'r-news-articles', dictMethod: 'homophones',
     },
     {
       title: b('Workplace Emails & Administration', 'Courriels pro & démarches'),
       theme: b('Write clear professional messages, understand official calls and practice agreement.', 'Rédiger des courriels pro, gérer la CAF et affiner les accords grammaticaux.'),
-      courseId: 'pro-emails', dialogueId: 'un-dossier-a-la-caf', preferMission: true, dictMethod: 'story',
+      courseId: 'pro-emails', dialogueId: 'un-dossier-a-la-caf', preferMission: true, practiceId: 'r-workplace-docs', dictMethod: 'story',
     },
     {
       title: b('Agreements, Fast Speech & Nuance', 'Accords, oral rapide & nuances'),
       theme: b('Tackle past participle agreements and fast everyday speech without hesitation.', 'Maîtriser les accords clés et suivre le débit rapide des locuteurs natifs.'),
-      courseId: 'spelling-agreement', earId: 'le-francais-qui-se-raccourcit', dictMethod: 'conjugation',
+      courseId: 'spelling-agreement', earId: 'le-francais-qui-se-raccourcit', practiceId: 'sp-pp-avoir', dictMethod: 'conjugation',
     },
     {
       title: b('Québec French, Travel & B1 Milestone', 'Français québécois & cap B1'),
       theme: b('Adapt to real Francophone accents and finish B1 with a full exam-mode dictation.', 'S’adapter aux accents francophones et valider le B1 par une dictée chronométrée.'),
-      courseId: 'quebec-french', dialogueId: 'un-train-en-retard', preferMission: true, dictMethod: 'exam',
+      courseId: 'quebec-french', dialogueId: 'un-train-en-retard', preferMission: true, practiceId: 'c-travel-problems', dictMethod: 'exam',
     },
   ],
   B2: [
     {
       title: b('The Subjunctive & Discourse Markers', 'Subjonctif & marqueurs de l’oral'),
       theme: b('Use the subjunctive naturally, follow native connectors and elevate written accuracy.', 'Maîtriser le subjonctif, suivre la logique orale native et affiner sa plume.'),
-      courseId: 'subjunctive', earId: 'les-petits-mots-de-l-oral', dictMethod: 'story',
+      courseId: 'subjunctive', earId: 'les-petits-mots-de-l-oral', practiceId: 'subjunctive-or-indicative', dictMethod: 'story',
     },
     {
       title: b('Opinions, Debate & Career Reviews', 'Opinion, débat & bilan annuel'),
       theme: b('Defend nuanced viewpoints, handle an annual review and resolve complex homophones.', 'Défendre un point de vue nuancé, négocier au travail et éviter les homophones pièges.'),
-      courseId: 'opinions-debate', dialogueId: 'l-entretien-annuel', preferMission: true, dictMethod: 'homophones',
+      courseId: 'opinions-debate', dialogueId: 'l-entretien-annuel', preferMission: true, practiceId: 'c-persuade', dictMethod: 'homophones',
     },
     {
       title: b('Job Interviews & Complex Audio', 'Entretiens pro & documents longs'),
       theme: b('Present achievements persuasively, analyze authentic audio reports and drill verbs.', 'Valoriser son parcours, analyser un reportage audio et perfectionner les conjugaisons.'),
-      courseId: 'job-interview', preferDoc: true, dictMethod: 'conjugation',
+      courseId: 'job-interview', preferDoc: true, practiceId: 'l-long-interviews', dictMethod: 'conjugation',
     },
     {
       title: b('French Idioms & Everyday Negotiation', 'Expressions imagées & négociation'),
       theme: b('Use idiomatic expressions naturally, resolve tenant disputes and read with nuance.', 'Employer les expressions courantes, argumenter un litige et lire entre les lignes.'),
-      courseId: 'french-idioms', dialogueId: 'le-depot-de-garantie', preferMission: true, dictMethod: 'story',
+      courseId: 'french-idioms', dialogueId: 'le-depot-de-garantie', preferMission: true, practiceId: 'r-contracts-leases', dictMethod: 'story',
     },
     {
       title: b('Classic Stories & Written Precision', 'Récits classiques & précision écrite'),
       theme: b('Read rich French literature, follow complex audio and sharpen advanced orthography.', 'Lire la littérature française, décoder l’audio soutenu et soigner les accords rares.'),
-      courseId: 'classic-stories', preferDoc: true, dictMethod: 'homophones',
+      courseId: 'classic-stories', preferDoc: true, practiceId: 'r-modern-literature', dictMethod: 'homophones',
     },
     {
       title: b('Upper-Intermediate Milestone (B2 / NCLC 7)', 'Cap B2 / NCLC 7 & synthèse'),
       theme: b('Consolidate argumentation, administrative precision and a timed B2 exam dictation.', 'Consolider le niveau B2 (NCLC 7) avec une préparation complète et dictée examen.'),
-      courseId: 'delf-b2', dialogueId: 'une-erreur-sur-les-impots', dictMethod: 'exam',
+      courseId: 'delf-b2', dialogueId: 'une-erreur-sur-les-impots', practiceId: 'cause-consequence', dictMethod: 'exam',
     },
   ],
   C1: [
     {
       title: b('Advanced Structures & Listening Nuance', 'Structures avancées & finesse orale'),
-      theme: b('Master formal grammar, passive & nominalisation alongside advanced native ear labs.', 'Maîtriser la syntaxe soutenue, la nominalisation et les subtilités de l’écoute native.'),
-      ladderId: 'tcf-grammar', dictMethod: 'story',
+      theme: b('Master complex relative clauses and emphatic structures alongside advanced native ear labs.', 'Maîtriser les relatives complexes et la mise en relief, avec des exercices d’écoute native avancés.'),
+      courseId: 'complex-relatives', practiceId: 'emphasis', dictMethod: 'story',
     },
     {
       title: b('Autonomous Fluency & Negotiation', 'Autonomie, nuance & négociation'),
       theme: b('Prepare DALF-grade argumentation, negotiate remote work and sharpen homophones.', 'Construire une argumentation niveau DALF, négocier et verrouiller les homophones rares.'),
-      courseId: 'dalf-c1', dialogueId: 'negocier-le-teletravail', dictMethod: 'homophones',
+      courseId: 'dalf-c1', practiceId: 'c-nuance-hedging', dialogueId: 'negocier-le-teletravail', dictMethod: 'homophones',
     },
     {
       title: b('Literary Analysis & Implicit Meaning', 'Lecture littéraire & implicite'),
-      theme: b('Read demanding French prose, catch ironic tone by ear and refine verb agreements.', 'Lire des textes exigeants, percevoir l’implicite et maîtriser les accords complexes.'),
-      courseId: 'classic-stories', preferDoc: true, dictMethod: 'conjugation',
+      theme: b('Read demanding French prose and the passé simple, catch implicit meaning and refine verb agreements.', 'Lire des textes exigeants et le passé simple, percevoir l’implicite et maîtriser les accords complexes.'),
+      courseId: 'passe-simple', practiceId: 'r-classic-authors', preferDoc: true, dictMethod: 'conjugation',
     },
     {
       title: b('Public Debate & Structured Writing', 'Débat public & rédaction structurée'),
       theme: b('Weigh competing viewpoints in debates and write cohesive, persuasive C1 French.', 'Peser le pour et le contre à l’oral comme à l’écrit avec rigueur et élégance.'),
-      ladderId: 'tcf-writing', dialogueId: 'les-transports-de-demain', dictMethod: 'story',
+      courseId: 'c-formal-debate', practiceId: 'r-essays', dialogueId: 'les-transports-de-demain', dictMethod: 'story',
     },
     {
       title: b('Spontaneous Expression & C1 Synthesis', 'Expression spontanée & synthèse C1'),
       theme: b('Combine high-level speaking, complex audio analysis and a timed C1 exam dictation.', 'Allier aisance orale soutenue, écoute complexe et dictée chronométrée C1.'),
-      ladderId: 'tcf-speaking', preferDoc: true, dictMethod: 'exam',
+      courseId: 'c-media-speaking', practiceId: 'l-press-review', preferDoc: true, dictMethod: 'exam',
     },
   ],
   C2: [
     {
       title: b('Fast Idiomatic Listening & Subtlety', 'Écoute experte & oral idiomatique'),
       theme: b('Decode rapid native speech, subtle irony and nuanced cultural references effortlessly.', 'Décoder le débit natif rapide, l’ironie fine et les références implicites sans effort.'),
-      ladderId: 'tcf-listening', dictMethod: 'story',
+      courseId: 'l-film-dialogue', practiceId: 'l-expert-debates', dictMethod: 'story',
     },
     {
       title: b('Critical Reading & Register Mastery', 'Lecture critique & registres de langue'),
-      theme: b('Analyze press essays, rhetorical framing and rare orthographic distinctions.', 'Analyser essais et tribunes, maîtriser les registres et les subtilités orthographiques.'),
-      ladderId: 'tcf-reading', dictMethod: 'homophones',
+      theme: b('Analyze philosophical prose and poetry, rhetorical framing and rare orthographic distinctions.', 'Analyser prose d’idées et poésie, effets rhétoriques et subtilités orthographiques.'),
+      courseId: 'r-philosophical-prose', practiceId: 'r-poetry', dictMethod: 'homophones',
     },
     {
       title: b('High-Style Writing & Complex Verbs', 'Style soutenu & conjugaisons rares'),
       theme: b('Write with editorial precision, subtle syntax and flawless literary agreements.', 'Écrire avec précision éditoriale, maîtrise syntaxique et accords irréprochables.'),
-      ladderId: 'tcf-writing', dictMethod: 'conjugation',
+      courseId: 'fine-points-style', practiceId: 'dalf-c2-writing', dictMethod: 'conjugation',
     },
     {
-      title: b('Persuasive Rhetoric & Francophone Fluency', 'Rhétorique & maîtrise francophone'),
-      theme: b('Argue spontaneously across registers, including fast Québec & international French.', 'Argumenter spontanément dans tous les registres, y compris en français québécois.'),
-      ladderId: 'tef-speaking', dictMethod: 'story',
+      title: b('Persuasive Rhetoric & Expressive Delivery', 'Rhétorique & expression orale'),
+      theme: b('Argue with eloquence across registers and read aloud with expressive control.', 'Argumenter avec éloquence dans tous les registres et lire à voix haute avec expressivité.'),
+      courseId: 'c-eloquence', practiceId: 'p-reading-aloud', dictMethod: 'story',
     },
     {
       title: b('Expert Grammar & C2 Orthography', 'Grammaire experte & synthèse C2'),
-      theme: b('Complete your C2 mastery with expert grammar, demanding audio and a timed dictation.', 'Parachever votre maîtrise C2 avec grammaire experte, audio avancé et dictée défi.'),
-      ladderId: 'tcf-grammar', dictMethod: 'exam',
+      theme: b('Complete your C2 mastery with expert spelling, the DALF C2 format and a timed dictation.', 'Parachever votre maîtrise C2 avec l’orthographe experte, le format du DALF C2 et une dictée défi.'),
+      courseId: 'sp-dictation-c2', practiceId: 'dalf-c2', dictMethod: 'exam',
     },
   ],
 };
@@ -529,6 +531,7 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
       : spec.ladderId
         ? pool.courseStep(spec.ladderId) ?? pool.nextCourse()
         : pool.nextCourse();
+    const practice = spec.practiceId ? pool.courseStep(spec.practiceId) : null;
     const listen = pool.nextListen({
       dialogueId: spec.dialogueId,
       earId: spec.earId,
@@ -537,51 +540,92 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
     });
     const read = pool.nextRead(Boolean(spec.preferMission));
     const write = pool.dictationStep(spec.dictMethod);
-    return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, listen, read, write], lang);
+    return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, practice, listen, read, write], lang);
   });
 }
 
+/**
+ * TCF / TEF courses added to each exam module, per level: task, strategy and
+ * vocabulary courses in modules 1–5, practice tests and score targets in a
+ * sixth module (only where such courses exist).
+ */
+const EXAM_EXTRAS: Partial<Record<Level, string[][]>> = {
+  A2: [[], [], ['tcf-ee-task1'], ['tcf-eo-task1'], ['tef-citizenship'], []],
+  B1: [['tcf-exam-day'], ['tcf-canada-vocab', 'tef-vocab'], ['tcf-ee-task2'], ['tcf-eo-task2', 'tefaq-quebec'], ['tef-ee-a', 'tef-eo-a'], ['tcf-clb7', 'tef-nclc7', 'tcf-mock-b1', 'tef-mock-b1']],
+  B2: [['tcf-co-strategies', 'tef-co-strategies'], ['tcf-ce-strategies', 'tef-ce-strategies'], ['tcf-ee-task3', 'tef-connectors'], ['tcf-eo-task3', 'tef-eo-b'], ['tef-ee-b'], ['tcf-mock-b2', 'tef-mock-b2']],
+  C1: [[], [], [], [], [], ['tcf-mock-c1', 'tef-mock-c1']],
+};
+
 function buildExamModules(level: Level, lang: Lang, pool: LevelPool): StudyModule[] {
+  const extras = EXAM_EXTRAS[level] ?? [];
+  /** The module's steps with its extra exam courses placed after the first `at` steps. */
+  const withExtras = (i: number, at: number, steps: (StudyStep | null)[]) => {
+    const add = (extras[i] ?? []).map(id => pool.courseStep(id));
+    return [...steps.slice(0, at), ...add, ...steps.slice(at)];
+  };
   const specs: { title: T; theme: T; steps: () => (StudyStep | null)[] }[] = [
     {
       title: b('TCF Listening & Native Ear', 'TCF Compréhension orale & oreille'),
       theme: b('Train exam listening at your level with native ear drills and real audio documents.', 'Entraînez votre écoute type TCF avec exercices d’oreille et documents réels.'),
-      steps: () => [pool.courseStep('tcf-listening'), pool.nextListen({ preferEar: true }), pool.docStep() ?? pool.dialogueStep(), pool.dictationStep('story')],
+      steps: () => withExtras(0, 1, [pool.courseStep('tcf-listening'), pool.nextListen({ preferEar: true }), pool.docStep() ?? pool.dialogueStep(), pool.dictationStep('story')]),
     },
     {
       title: b('TCF Reading & Reformulation', 'TCF Compréhension écrite & repérage'),
       theme: b('Speed up scanning, spot paraphrases and reinforce everyday comprehension.', 'Accélérez le repérage, déjouez les reformulations et consolidez vos réflexes.'),
-      steps: () => [pool.courseStep('tcf-reading'), pool.nextRead(false), pool.dialogueStep() ?? pool.earStep(), pool.dictationStep('homophones')],
+      steps: () => withExtras(1, 1, [pool.courseStep('tcf-reading'), pool.nextRead(false), pool.dialogueStep() ?? pool.earStep(), pool.dictationStep('homophones')]),
     },
     {
       title: b('TCF Writing & Grammar Precision', 'TCF Expression écrite & grammaire'),
       theme: b('Structure clear exam texts while eliminating tense, accent and agreement mistakes.', 'Structurez vos écrits d’examen tout en supprimant les fautes d’accord et de temps.'),
-      steps: () => [pool.courseStep('tcf-writing'), pool.courseStep('tcf-grammar'), pool.dictationStep('conjugation'), pool.dictationStep('exam')],
+      steps: () => withExtras(2, 1, [pool.courseStep('tcf-writing'), pool.courseStep('tcf-grammar'), pool.dictationStep('conjugation'), pool.dictationStep('exam')]),
     },
     {
       title: b('TCF Speaking & TEF Canada Listening', 'TCF Oral & TEF Canada Écoute'),
       theme: b('Build natural oral fluency and adapt to Canadian & Québec audio formats.', 'Gagnez en aisance orale et habituez-vous aux formats audio du TEF Canada / Québec.'),
-      steps: () => [pool.courseStep('tcf-speaking'), pool.courseStep('tef-listening'), pool.dialogueStep() ?? pool.docStep(), pool.nextRead(true)],
+      steps: () => withExtras(3, 1, [pool.courseStep('tcf-speaking'), pool.courseStep('tef-listening'), pool.dialogueStep() ?? pool.docStep(), pool.nextRead(true)]),
     },
     {
       title: b('TEF Full Sprint & Timed Exam Drill', 'Sprint complet TEF & défi chronométré'),
       theme: b('Cover TEF reading, writing and speaking side by side with a timed dictation check.', 'Couvrez lecture, écriture et oral du TEF avec une dictée en conditions d’examen.'),
-      steps: () => [pool.courseStep('tef-reading'), pool.courseStep('tef-writing'), pool.courseStep('tef-speaking'), pool.dictationStep('exam')],
+      steps: () => withExtras(4, 3, [pool.courseStep('tef-reading'), pool.courseStep('tef-writing'), pool.courseStep('tef-speaking'), pool.dictationStep('exam')]),
     },
   ];
+  const mocks = extras[5] ?? [];
+  if (mocks.length) {
+    specs.push({
+      title: b('Practice Tests & Score Targets', 'Tests blancs & objectifs de score'),
+      theme: b('Sit complete timed practice tests, then check what your target score requires.', 'Passez des tests blancs chronométrés, puis vérifiez ce qu’exige votre score cible.'),
+      steps: () => [...mocks.map(id => pool.courseStep(id)), pool.dictationStep('exam')],
+    });
+  }
   return specs.map((s, i) => makeModule(i + 1, `exams-${level}-${i + 1}`, s.title, s.theme, s.steps(), lang));
 }
 
+/** DELF/DALF skill courses per level: [listening, reading, writing, speaking]. */
+const DIPLOMA_SKILLS: Partial<Record<Level, (string | undefined)[]>> = {
+  A2: [undefined, undefined, undefined, 'delf-a2-oral'],
+  B1: [undefined, undefined, 'delf-b1-writing', 'delf-b1-oral'],
+  B2: ['delf-b2-listening', 'delf-b2-reading', 'delf-b2-writing', 'delf-b2-oral'],
+  C1: [undefined, 'dalf-c1-synthesis', 'dalf-c1-essay', 'dalf-c1-oral'],
+  C2: [undefined, undefined, 'dalf-c2-writing'],
+};
+
 function buildDiplomaModules(level: Level, lang: Lang, pool: LevelPool): StudyModule[] {
-  const delfMap: Partial<Record<Level, string>> = { A2: 'delf-a2', B1: 'delf-b1', B2: 'delf-b2', C1: 'dalf-c1' };
+  const delfMap: Record<Level, string> = { A1: 'delf-a1', A2: 'delf-a2', B1: 'delf-b1', B2: 'delf-b2', C1: 'dalf-c1', C2: 'dalf-c2' };
   const mainDiplomaCourse = delfMap[level];
+  /** The skill course of module i (listening, reading, writing, speaking), when this level has one. */
+  const skill = (i: number) => {
+    const id = DIPLOMA_SKILLS[level]?.[i];
+    return id ? pool.courseStep(id) : null;
+  };
 
   const specs: { title: T; theme: T; steps: () => (StudyStep | null)[] }[] = [
     {
       title: b(`Official ${level} Foundations & Listening`, `Bases diplôme ${level} & compréhension orale`),
       theme: b('Master the expectations of the diploma and sharpen single-pass listening.', 'Maîtrisez les attendus du diplôme et affûtez votre compréhension orale.'),
       steps: () => [
-        mainDiplomaCourse ? pool.courseStep(mainDiplomaCourse) : pool.nextCourse(['beginner', 'grammar']),
+        pool.courseStep(mainDiplomaCourse) ?? pool.nextCourse(['beginner', 'grammar']),
+        skill(0),
         pool.docStep() ?? pool.earStep(),
         pool.dialogueStep() ?? pool.earStep(),
         pool.dictationStep('story'),
@@ -591,7 +635,7 @@ function buildDiplomaModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
       title: b('Written Comprehension & Analysis', 'Compréhension des écrits & analyse'),
       theme: b('Read authentic texts, identify key arguments and spot homophone nuances.', 'Lisez des documents authentiques, repérez l’essentiel et évitez les homophones.'),
       steps: () => [
-        pool.nextCourse(['reading', 'tcf', 'tef-quebec']),
+        skill(1) ?? pool.nextCourse(['reading', 'tcf', 'tef-quebec']),
         pool.nextRead(false),
         pool.nextRead(true),
         pool.dictationStep('homophones'),
@@ -600,18 +644,22 @@ function buildDiplomaModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
     {
       title: b('Grammar Mastery & Written Production', 'Grammaire clé & production écrite'),
       theme: b('Strengthen level-defining grammar rules, spelling agreements and structured writing.', 'Verrouillez la grammaire exigée au diplôme, les accords et la rédaction structurée.'),
-      steps: () => [
-        pool.nextCourse(['grammar', 'tcf']),
-        pool.nextCourse(['spelling', 'tef-quebec']),
-        pool.dictationStep('conjugation'),
-        pool.dictationStep('story'),
-      ],
+      steps: () => {
+        const writing = skill(2);
+        return [
+          writing,
+          pool.nextCourse(['grammar', 'tcf']),
+          writing ? null : pool.nextCourse(['spelling', 'tef-quebec']),
+          pool.dictationStep('conjugation'),
+          pool.dictationStep('story'),
+        ];
+      },
     },
     {
       title: b('Oral Interaction & Spoken Fluency', 'Interaction orale & aisance'),
       theme: b('Practice realistic dialogues, polite questioning, debating and native rhythm.', 'Pratiquez dialogues réalistes, questions nuancées et rythme naturel.'),
       steps: () => [
-        pool.nextCourse(['conversation', 'pronunciation', 'tcf']),
+        skill(3) ?? pool.nextCourse(['conversation', 'pronunciation', 'tcf']),
         pool.dialogueStep() ?? pool.docStep(),
         pool.earStep() ?? pool.docStep(),
         pool.nextRead(false),
@@ -632,33 +680,38 @@ function buildDiplomaModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
 }
 
 function buildFluencyModules(level: Level, lang: Lang, pool: LevelPool): StudyModule[] {
-  const specs: { title: T; theme: T; preferMission?: boolean; dictMethod: DictationMethod }[] = [
+  const specs: { title: T; theme: T; preferMission?: boolean; dictMethod: DictationMethod; cats: string[] }[] = [
     {
       title: b('Everyday Voices & Natural Speed', 'Voix natives & débit naturel'),
       theme: b('Start listening to real French immediately, read along and write cleanly.', 'Plongez dans le vrai français oral, lisez avec audio et écrivez sans hésiter.'),
       dictMethod: 'story',
+      cats: ['listening', 'conversation'],
     },
     {
       title: b('Real-World Missions & Homophones', 'Missions réelles & homophones'),
       theme: b('Decode real French conversations, complete a practical mission and master tricky sounds.', 'Décodez des échanges concrets, réussissez une mission et déjouez les homophones.'),
       preferMission: true,
       dictMethod: 'homophones',
+      cats: ['conversation', 'beginner', 'reading'],
     },
     {
       title: b('Sharpen Your Ear & Verbs in Action', 'Affûter son oreille & verbes en action'),
       theme: b('Catch silent endings, fast speech and verb agreements in real contexts.', 'Repérez liaisons, oral rapide et accords verbaux en contexte authentique.'),
       dictMethod: 'conjugation',
+      cats: ['pronunciation', 'listening'],
     },
     {
       title: b('Stories, Culture & Practical French', 'Récits, culture & français pratique'),
       theme: b('Immerse yourself in longer audio passages, rich texts and authentic storytelling.', 'Immergez-vous dans des audios plus riches, des textes vivants et la dictée récit.'),
       preferMission: true,
       dictMethod: 'story',
+      cats: ['reading', 'beginner', 'conversation'],
     },
     {
       title: b('Full 4-Skill Fluency Sprint', 'Sprint aisance 4 compétences'),
       theme: b('Blend real conversation, ear training, reading and a timed exam-style dictation.', 'Enchaînez conversation, oreille, lecture et dictée défi chronométrée.'),
       dictMethod: 'exam',
+      cats: ['conversation', 'listening', 'reading', 'pronunciation'],
     },
   ];
   return specs.map((s, i) => {
@@ -666,7 +719,7 @@ function buildFluencyModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
     const listen2 = pool.docStep() ?? pool.earStep() ?? pool.dialogueStep();
     const read = pool.nextRead(Boolean(s.preferMission));
     const write = pool.dictationStep(s.dictMethod);
-    const course = pool.nextCourse(['conversation', 'listening', 'reading', 'pronunciation', 'beginner']);
+    const course = pool.nextCourse([...s.cats, 'conversation', 'listening', 'reading', 'pronunciation', 'beginner']);
     // Prioritize active fluency steps (Listen, Read, Write + 1 practical course)
     return makeModule(i + 1, `fluency-${level}-${i + 1}`, s.title, s.theme, [listen1, read, write, course ?? listen2], lang);
   });

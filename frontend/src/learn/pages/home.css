@@ -79,6 +79,19 @@
 .ah-sec { padding: clamp(56px, 8vw, 96px) 0; background: #fff; }
 .ah-tint { background: linear-gradient(180deg, var(--paper) 0%, #f6f2ea 100%); border-block: 1px solid var(--line-soft); }
 .ah-hero + .ah-sec, .ah-continue + .ah-sec { padding-top: clamp(44px, 6vw, 72px); }
+
+/* Returning learners: the chosen path in one card (the picker reopens on demand) */
+.ah-sec.is-folded { padding-bottom: 8px; }
+.ah-mypath { display: flex; align-items: center; gap: 20px; padding: 14px 18px 14px 14px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(90deg, #fbfaf7, #fff 55%); box-shadow: var(--shadow-sm); animation: ah-up 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.ah-mypath img { flex: none; width: 150px; height: 92px; border-radius: 14px; object-fit: cover; }
+.ah-mypath-copy { flex: 1; min-width: 0; }
+.ah-mypath-copy p { margin: 0; color: var(--blue); font-size: 12px; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
+.ah-mypath-copy h2 { margin: 3px 0 6px; color: var(--ink); font-family: var(--display); font-size: clamp(19px, 2.2vw, 23px); font-weight: 800; letter-spacing: -0.02em; }
+.ah-mypath-lv { --band: var(--b); display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13.5px; font-weight: 600; }
+.ah-mypath-lv.is-a { --band: var(--a); }
+.ah-mypath-lv.is-c { --band: var(--c); }
+.ah-mypath-lv b { display: grid; place-items: center; width: 30px; height: 30px; border: 2px solid var(--band); border-radius: 50%; color: var(--band); font-family: var(--display); font-size: 12px; font-weight: 800; }
+.ah-mypath-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .ah-head { max-width: 720px; margin: 0 auto clamp(28px, 4vw, 44px); text-align: center; }
 .ah-head h2 { margin: 10px 0 0; font-family: var(--display); font-size: clamp(28px, 3.4vw, 40px); font-weight: 800; line-height: 1.12; letter-spacing: -0.03em; color: var(--ink); }
 .ah-head > p:last-child:not(.lp-eyebrow) { margin: 12px auto 0; max-width: 60ch; color: var(--muted); font-size: 16.5px; line-height: 1.6; }
@@ -135,12 +148,6 @@
 .ah-path-sec { background: radial-gradient(900px 420px at 50% 0, #eef3fb, #fff 70%); }
 
 /* ── Course rows ───────────────────────────────────────────────────── */
-.ah-row-cats { display: flex; gap: 8px; margin: 0 0 20px; padding-bottom: 4px; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(90deg, #000 90%, transparent); mask-image: linear-gradient(90deg, #000 90%, transparent); }
-.ah-row-cats button:last-child { margin-right: 48px; }
-.ah-row-cats::-webkit-scrollbar { display: none; }
-.ah-row-cats button { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 15px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--text); font-size: 13.5px; font-weight: 650; white-space: nowrap; transition: background 0.2s, border-color 0.2s, color 0.2s; }
-.ah-row-cats button:hover { border-color: var(--blue-line); color: var(--blue); }
-.ah-row-cats button.is-on { border-color: var(--ink); background: var(--ink); color: #fff; }
 /* ── Catalogue ─────────────────────────────────────────────────────── */
 .ah-catalogue-count { margin: 14px 0 16px; color: var(--muted); font-size: 14px; font-weight: 600; }
 .ah-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }
@@ -214,6 +221,10 @@
   .ah-continue-card { flex-wrap: wrap; }
   .ah-continue-card img { width: 96px; height: 64px; }
   .ah-continue-card .lp-btn { width: 100%; justify-content: center; }
+  .ah-mypath { flex-wrap: wrap; }
+  .ah-mypath img { width: 104px; height: 68px; }
+  .ah-mypath-actions { width: 100%; }
+  .ah-mypath-actions .lp-btn { flex: 1 1 100%; justify-content: center; }
 }
 @media (max-width: 560px) {
   .ah-studios { grid-template-columns: minmax(0, 1fr); }
@@ -237,7 +248,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ah-hero-copy > *, .ah-hero-art, .ah-photo, .ah-float, .ah-hero h1 em, .ah-continue-card,
+  .ah-hero-copy > *, .ah-hero-art, .ah-photo, .ah-float, .ah-hero h1 em, .ah-continue-card, .ah-mypath,
   .ah-grid > li, .ah-path-tick, .ah-lv.is-on .ah-lv-dot { animation: none !important; }
   .ah-path, .ah-cat, .ah-studio, .ah-lvcard, .ah-path img, .ah-cat img, .ah-studio img { transition: none !important; }
 }
