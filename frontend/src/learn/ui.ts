@@ -1,5 +1,10 @@
 // Every word of the learning space interface, in English and French.
 import type { Lang, Level } from './types';
+import { COURSES } from './catalog';
+
+// Live totals, so the marketing copy follows the catalogue as courses are added.
+const N_COURSES = COURSES.length;
+const N_LESSONS = COURSES.reduce((n, c) => n + c.lessonCount, 0);
 
 type Cta = [title: string, text: string, button: string];
 
@@ -28,14 +33,14 @@ const en = {
   popular: 'Popular',
 
   hub: {
-    metaTitle: 'Free French Courses Online: 75 Interactive Courses from A1 to C2 | Learn French with Natives',
-    metaDescription: 'Learn French for free with 75 interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. No sign-up.',
+    metaTitle: `Free French Courses Online: ${N_COURSES} Interactive Courses from A1 to C2 | Learn French with Natives`,
+    metaDescription: `Learn French for free with ${N_COURSES} interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. No sign-up.`,
     eyebrow: 'Free French courses',
     title: ['Learn French by doing,', 'one lesson at a time.'],
-    sub: 'Seventy-five interactive courses written by our teachers, from your very first words to C2 level in TCF and TEF Canada. You listen to native voices, speak, build sentences and get instant feedback. Free, with no account.',
+    sub: `${N_COURSES} interactive courses designed by our teaching team, from your very first words to C2 level in TCF and TEF Canada. You listen to French voices, speak, build sentences and get instant feedback. Free, with no account.`,
     ctaTest: 'Find my level: free test',
     ctaBrowse: 'Browse the courses',
-    stats: [['75', 'courses'], ['255', 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'no sign-up']] as [string, string][],
+    stats: [[String(N_COURSES), 'courses'], [String(N_LESSONS), 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'no sign-up']] as [string, string][],
     continueTitle: 'Pick up where you left off',
     continueCta: 'Resume',
     pathsEyebrow: 'Learning paths',
@@ -76,7 +81,7 @@ const en = {
     faqEyebrow: 'Questions',
     faqTitle: 'About the free courses',
     faq: [
-      ['Are the courses really free?', 'Yes. All 75 courses, the level test and the certificates are free, with no account and no card. We offer them so you can discover our teaching method; if you want to go faster, our teachers offer paid live classes and exam preparation.'],
+      ['Are the courses really free?', `Yes. All ${N_COURSES} courses, the level test and the certificates are free, with no account and no card. We offer them so you can discover our teaching method; if you want to go faster, our teachers offer paid live classes and exam preparation.`],
       ['Do I need to create an account?', 'No. Your progress, scores and certificates are saved in this browser. If you change device or clear your browser data, your progress starts again.'],
       ['Which level should I start with?', 'Take the free level test (about 10 minutes): it estimates your CEFR level and recommends the courses that fit you. Complete beginners can start directly with “First Steps in French”.'],
       ['Do these courses prepare for the TCF Canada and the TEF Canada?', 'Yes: five levelled courses for each exam (listening, reading, writing, speaking, grammar and vocabulary), each from A1 to C2, with exam-style questions and tasks. To reach a precise CLB target, our teachers add full timed simulations and personal correction.'],
@@ -108,6 +113,8 @@ const en = {
     showLess: 'Show fewer',
     otherPathsTitle: 'Explore other learning paths',
     completedCount: (done: number, total: number) => `${done}/${total} completed`,
+    journeyTitle: 'Your path, level by level',
+    journeyHint: 'Jump to a stage',
   },
 
   levelPage: {
@@ -416,14 +423,14 @@ const fr: UiCopy = {
   popular: 'Populaire',
 
   hub: {
-    metaTitle: 'Cours de français gratuits en ligne : 75 cours interactifs du A1 au C2 | Learn French with Natives',
-    metaDescription: 'Apprenez le français gratuitement avec 75 cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Sans inscription.',
+    metaTitle: `Cours de français gratuits en ligne : ${N_COURSES} cours interactifs du A1 au C2 | Learn French with Natives`,
+    metaDescription: `Apprenez le français gratuitement avec ${N_COURSES} cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Sans inscription.`,
     eyebrow: 'Cours de français gratuits',
     title: ['Apprenez le français en pratiquant,', 'une leçon à la fois.'],
-    sub: 'Soixante-quinze cours interactifs écrits par nos professeurs, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix natives, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.',
+    sub: `${N_COURSES} cours interactifs conçus par notre équipe pédagogique, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix françaises, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.`,
     ctaTest: 'Connaître mon niveau : test gratuit',
     ctaBrowse: 'Voir les cours',
-    stats: [['75', 'cours'], ['255', 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'sans inscription']],
+    stats: [[String(N_COURSES), 'cours'], [String(N_LESSONS), 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'sans inscription']],
     continueTitle: 'Reprenez là où vous en étiez',
     continueCta: 'Reprendre',
     pathsEyebrow: 'Parcours',
@@ -464,7 +471,7 @@ const fr: UiCopy = {
     faqEyebrow: 'Questions',
     faqTitle: 'À propos des cours gratuits',
     faq: [
-      ['Les cours sont-ils vraiment gratuits ?', 'Oui. Les 75 cours, le test de niveau et les certificats sont gratuits, sans compte ni carte bancaire. Nous les proposons pour vous faire découvrir notre méthode ; pour aller plus vite, nos professeurs proposent des cours en direct et des préparations aux examens payants.'],
+      ['Les cours sont-ils vraiment gratuits ?', `Oui. Les ${N_COURSES} cours, le test de niveau et les certificats sont gratuits, sans compte ni carte bancaire. Nous les proposons pour vous faire découvrir notre méthode ; pour aller plus vite, nos professeurs proposent des cours en direct et des préparations aux examens payants.`],
       ['Faut-il créer un compte ?', 'Non. Votre progression, vos scores et vos certificats sont enregistrés dans ce navigateur. Si vous changez d’appareil ou effacez les données du navigateur, votre progression repart de zéro.'],
       ['Par quel niveau commencer ?', 'Passez le test de niveau gratuit (environ 10 minutes) : il estime votre niveau du CECR et vous recommande les cours adaptés. Les grands débutants peuvent commencer directement par « Premiers pas en français ».'],
       ['Ces cours préparent-ils au TCF Canada et au TEF Canada ?', 'Oui : cinq cours par niveaux pour chaque examen (compréhension orale, compréhension écrite, expression écrite, expression orale, grammaire et vocabulaire), chacun du A1 au C2, avec des questions et des tâches type examen. Pour atteindre un NCLC précis, nos professeurs ajoutent des simulations complètes chronométrées et une correction personnalisée.'],
@@ -496,6 +503,8 @@ const fr: UiCopy = {
     showLess: 'Réduire',
     otherPathsTitle: 'Explorer les autres parcours',
     completedCount: (done: number, total: number) => `${done}/${total} terminés`,
+    journeyTitle: 'Votre parcours, niveau par niveau',
+    journeyHint: 'Aller à une étape',
   },
 
   levelPage: {

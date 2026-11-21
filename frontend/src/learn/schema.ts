@@ -2,7 +2,7 @@
 // pages display: courses as free Course items, lessons as LearningResource,
 // the hub as a list of courses with its FAQ, breadcrumbs everywhere.
 import { CATEGORIES, categoryPath, imageUrl } from './categories';
-import { COURSES, coursePath } from './catalog';
+import { COURSES, courseAbout, coursePath } from './catalog';
 import { hubPath, lessonPath, placementPath } from './paths';
 import { tx, type CategoryMeta, type CourseMeta, type Lang, type Lesson } from './types';
 import { UI } from './ui';
@@ -25,14 +25,14 @@ function courseNode(c: CourseMeta, lang: Lang) {
     '@type': 'Course',
     '@id': `${abs(coursePath(c, lang))}#course`,
     name: tx(c.title, lang),
-    description: tx(c.description, lang),
+    description: tx(courseAbout(c).description, lang),
     url: abs(coursePath(c, lang)),
     image: abs(imageUrl(c.image)),
     provider: { '@id': ORG['@id'] },
     inLanguage: 'fr',
     availableLanguage: [lang === 'fr' ? 'French' : 'English'],
     educationalLevel: c.levels.map(l => ISO[l]).join(', '),
-    teaches: c.outcomes.map(o => tx(o, lang)),
+    teaches: courseAbout(c).outcomes.map(o => tx(o, lang)),
     isAccessibleForFree: true,
     offers: [{ '@type': 'Offer', category: 'Free', price: 0, priceCurrency: 'CAD' }],
     hasCourseInstance: [{ '@type': 'CourseInstance', courseMode: 'Online', courseWorkload: `PT${c.minutes}M` }],

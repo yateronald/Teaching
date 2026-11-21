@@ -231,9 +231,14 @@ export interface CourseMeta {
   level: string;
   levels: Level[];
   image: string;
-  /** A paragraph for the course page and search engines. */
-  description: T;
-  outcomes: T[];
+  /**
+   * A paragraph for the course page and search engines, and what the learner
+   * will be able to do. Newer courses keep both in their content module
+   * (`export const about`), loaded with the lessons: read them through
+   * courseAbout() (catalog.ts).
+   */
+  description?: T;
+  outcomes?: T[];
   /** How the demo request is labelled when it comes from this course. */
   offer?: string;
   popular?: boolean;
@@ -246,6 +251,9 @@ export interface CourseMeta {
   lessonCount: number;
   minutes: number;
 }
+
+/** The long description of a course, kept with its lessons (content/courses/<id>.ts). */
+export interface CourseAbout { description: T; outcomes: T[] }
 
 export interface CategoryMeta {
   id: CategoryId;

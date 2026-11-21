@@ -1,4 +1,4 @@
-// Persistent Free Academy Navigation Strip + Global 488-Item Instant Search Modal.
+// Persistent Free Academy Navigation Strip + Global Instant Search Modal (every free item).
 // Mounted in LearnShell directly beneath SiteHeader (in document flow so it never
 // fights sticky studio bars) across every /learn/ and /fr/apprendre/ page.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';

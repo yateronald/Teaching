@@ -8,7 +8,7 @@ import { PLACEMENT } from './content/placement';
 import { CATEGORIES, categoryPath } from './categories';
 import { COURSES, coursePath } from './catalog';
 import { finalPath, hubPath, lessonPath, placementPath, progressPath } from './paths';
-import { LEVELS, tx, type Lang, type Lesson } from './types';
+import { LEVELS, tx, type CourseAbout, type Lang, type Lesson } from './types';
 import { allLevelPages, categoryLevelPath, levelPath } from './levels';
 import { GAMES, gamePath, gamesPath } from './games/meta';
 import { TEXTS, practicePath, readingPath, textPath } from './practice/meta';
@@ -30,7 +30,7 @@ import { c1Listening } from './practice/listening/c1';
 import { c2Listening } from './practice/listening/c2';
 import { registerAdvanced } from './practice/listening/advanced';
 
-const modules = import.meta.glob<{ default: Lesson[] }>('./content/courses/*.ts', { eager: true });
+const modules = import.meta.glob<{ default: Lesson[]; about?: CourseAbout }>('./content/courses/*.ts', { eager: true });
 const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
 const earModules = import.meta.glob<{ default: EarCourse }>('./practice/ear/courses/*.ts', { eager: true });
 const dialogueModules = import.meta.glob<{ default: Record<string, Dialogue> }>('./practice/dialogues/content/*.ts', { eager: true });
@@ -43,11 +43,12 @@ export function prepareLearn(): string[] {
   const warnings: string[] = [];
   for (const [file, mod] of Object.entries(modules)) {
     const id = file.replace(/^.*\/(.+)\.ts$/, '$1');
-    registerLessons(id, mod.default);
+    registerLessons(id, mod.default, mod.about);
   }
   for (const c of COURSES) {
     const lessons = modules[`./content/courses/${c.id}.ts`]?.default;
     if (!lessons) { warnings.push(`course ${c.id} has no content file`); continue; }
+    if (!c.description && !modules[`./content/courses/${c.id}.ts`]?.about) warnings.push(`course ${c.id} has no description (catalog or export const about)`);
     if (lessons.length !== c.lessonCount) warnings.push(`course ${c.id}: ${lessons.length} lessons, catalog says ${c.lessonCount}`);
     lessons.forEach((l, i) => { if (l.id !== `${c.id}-${i + 1}`) warnings.push(`lesson id ${l.id} should be ${c.id}-${i + 1}`); });
     if (c.ladder) lessons.forEach((l, i) => {

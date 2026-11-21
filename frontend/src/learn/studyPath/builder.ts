@@ -46,7 +46,7 @@ export function levelActivityStats(level: Level): LevelActivityStats {
   };
 }
 
-/** Total free learning resources across the entire academy (488). */
+/** Total free learning resources across the entire academy (computed). */
 export const TOTAL_ACADEMY_ITEMS =
   COURSES.length +
   TEXTS.length +

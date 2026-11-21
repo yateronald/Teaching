@@ -8,7 +8,7 @@ import {
   DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, ThunderboltOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
-import { coursePath, coursesOf } from '../catalog';
+import { courseAbout, coursePath, coursesOf } from '../catalog';
 import { AUTOSTART, finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, useProgress } from '../progress';
 import { courseJsonLd } from '../schema';
@@ -111,6 +111,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   const ladderNext = course.ladder ? lessons.find(l => l.level === LEVELS[st?.current ?? 0]) : undefined;
 
   const fr = lang === 'fr';
+  const about = courseAbout(course);
   const levelLabel = course.levels.length > 2
     ? `${ui.hub.levelNames[course.levels[0]]} → ${ui.hub.levelNames[course.levels[course.levels.length - 1]]}`
     : course.levels.map(l => ui.hub.levelNames[l]).join(' / ');
@@ -173,7 +174,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
     <LearnShell
       lang={lang}
       alternates={{ en: coursePath(course, 'en'), fr: coursePath(course, 'fr') }}
-      seo={{ title: c.metaTitle(title, course.level), description: `${tx(course.subtitle, lang)} ${tx(course.description, lang)}`.slice(0, 290), path: coursePath(course, lang), jsonLd: courseJsonLd(course, lessons, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }}
+      seo={{ title: c.metaTitle(title, course.level), description: `${tx(course.subtitle, lang)} ${tx(about.description, lang)}`.slice(0, 290), path: coursePath(course, lang), jsonLd: courseJsonLd(course, lessons, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }}
     >
       {/* ── Banner ── */}
       <section className="cp-hero" aria-labelledby="lx-course-title">
@@ -238,10 +239,10 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
           <div className="cp-main">
             <section id="about" className="cp-block" aria-labelledby="cp-about-title">
               <h2 id="cp-about-title">{fr ? 'À propos de ce cours' : 'About this course'}</h2>
-              <p className="cp-desc">{tx(course.description, lang)}</p>
+              <p className="cp-desc">{tx(about.description, lang)}</p>
               <div className="cp-learn" id="outcomes">
                 <h3>{c.outcomes}</h3>
-                <ul>{course.outcomes.map((o, i) => <li key={i}><CheckOutlined aria-hidden />{tx(o, lang)}</li>)}</ul>
+                <ul>{about.outcomes.map((o, i) => <li key={i}><CheckOutlined aria-hidden />{tx(o, lang)}</li>)}</ul>
               </div>
               {kindsAll.length > 0 && (
                 <div className="cp-skills">

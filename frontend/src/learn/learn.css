@@ -976,6 +976,42 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
 .lx-cat-stage-desc { grid-column: 1; margin: 2px 0 0 !important; font-size: 14.5px; color: var(--muted); max-width: 720px; }
 .lx-cat-stage-meta { grid-column: 2; grid-row: 1 / span 2; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: #fff; border: 1px solid var(--line); font-size: 13px; font-weight: 650; color: var(--muted); white-space: nowrap; }
 .lx-cat-stage-more { margin-top: 20px; text-align: center; }
+.lx-cat-stage { scroll-margin-top: 96px; }
+.lx-cat-stage-progress { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.lx-cat-stage-progress small { font-size: 12.5px; font-weight: 700; color: var(--ok); }
+.lx-cat-stage-bar { flex: 1; max-width: 320px; height: 6px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+.lx-cat-stage-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--ok)); animation: lx-jr-fill 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Journey map: the path's stages as connected milestones (jump links). */
+.lx-cat-journey { margin: 4px 0 30px; }
+.lx-cat-journey-title { margin: 0 0 12px !important; font-family: var(--display); font-size: 13px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--navy, #14213d); }
+.lx-cat-journey-title span { font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.lx-cat-journey ol { position: relative; display: grid; grid-template-columns: repeat(var(--n, 6), minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.lx-cat-journey ol::before { content: ''; position: absolute; left: 34px; right: 34px; top: 32px; height: 3px; border-radius: 3px; background: repeating-linear-gradient(90deg, var(--line) 0 8px, transparent 8px 14px); transform-origin: left center; animation: lx-jr-draw 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lx-cat-journey li { position: relative; animation: lx-jr-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 90ms + 150ms); }
+.lx-cat-journey a { position: relative; z-index: 1; display: grid; grid-template-columns: 44px 1fr; gap: 8px 10px; align-items: center; height: 100%; padding: 10px 12px 12px; border: 1px solid var(--line-soft); border-radius: 16px; background: #fff; color: inherit; text-decoration: none; transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease; }
+.lx-cat-journey a:hover, .lx-cat-journey a:focus-visible { transform: translateY(-3px); border-color: var(--blue); box-shadow: 0 14px 28px rgba(20, 33, 61, 0.09); }
+.lx-jr-dot { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--blue-soft); font-family: var(--display); font-size: 13.5px; font-weight: 800; transition: background 0.2s ease, color 0.2s ease; }
+.lx-cat-journey a:hover .lx-jr-dot { background: var(--blue); color: #fff; }
+.lx-cat-journey li.is-current .lx-jr-dot { background: var(--blue); color: #fff; animation: lx-jr-pulse 2.4s ease-out infinite; }
+.lx-cat-journey li.is-done .lx-jr-dot { background: var(--ok); color: #fff; box-shadow: 0 0 0 2px var(--ok-soft); }
+.lx-jr-text { min-width: 0; }
+.lx-jr-text b { display: block; font-size: 14.5px; line-height: 1.2; }
+.lx-jr-text small { display: block; margin-top: 2px; font-size: 12.5px; color: var(--muted); }
+.lx-jr-bar { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+.lx-jr-bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--ok)); animation: lx-jr-fill 1.1s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 0.5s; }
+@keyframes lx-jr-draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes lx-jr-pop { from { opacity: 0; transform: translateY(12px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes lx-jr-fill { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes lx-jr-pulse { 0% { box-shadow: 0 0 0 2px var(--blue-soft), 0 0 0 0 rgba(37, 99, 235, 0.35); } 70% { box-shadow: 0 0 0 2px var(--blue-soft), 0 0 0 12px rgba(37, 99, 235, 0); } 100% { box-shadow: 0 0 0 2px var(--blue-soft), 0 0 0 0 rgba(37, 99, 235, 0); } }
+@media (max-width: 860px) {
+  .lx-cat-journey ol { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; -webkit-overflow-scrolling: touch; }
+  .lx-cat-journey li { flex: 0 0 168px; scroll-snap-align: start; }
+  .lx-cat-journey ol::before { right: auto; width: calc(var(--n, 6) * 180px - 60px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lx-cat-journey ol::before, .lx-cat-journey li, .lx-jr-bar i, .lx-cat-stage-bar i, .lx-cat-journey li.is-current .lx-jr-dot { animation: none; }
+}
 
 /* 3-column course grid & step badge */
 .lx-cat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 0; padding: 0; list-style: none; }

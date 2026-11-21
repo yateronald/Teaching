@@ -2,11 +2,13 @@
 // need to know about each one. The lessons themselves live in content/courses/
 // and are downloaded only when a course is opened.
 import { CATEGORIES, categoryPath } from './categories';
-import { b, type CategoryId, type CourseMeta, type Lang } from './types';
+import { getAbout } from './content/registry';
+import { EXTRA_COURSES } from './catalogExtra';
+import { b, type CategoryId, type CourseAbout, type CourseMeta, type Lang } from './types';
 
 const c = (m: Omit<CourseMeta, 'image' | 'lessonCount'> & { lessonCount?: number }): CourseMeta => ({ lessonCount: 3, image: `course-${m.id}`, ...m });
 
-export const COURSES: CourseMeta[] = [
+const FIRST_COURSES: CourseMeta[] = [
   // ── Beginner ──────────────────────────────────────────────────────────────
   c({
     id: 'first-steps', category: 'beginner', level: 'A1', levels: ['A1'], minutes: 39, popular: true,
@@ -1007,6 +1009,15 @@ export const COURSES: CourseMeta[] = [
     outcomes: [b('Question a patient about pain', 'Questionner un patient sur sa douleur'), b('Explain a procedure and give instructions', 'Expliquer un soin et donner des consignes'), b('Reassure with the right words', 'Rassurer avec les bons mots'), b('Give and understand a handover report', 'Faire et comprendre un rapport de relève')],
   }),
 ];
+
+/** Every course: the first 75, then the courses added by path (catalogExtra.ts). */
+export const COURSES: CourseMeta[] = [...FIRST_COURSES, ...EXTRA_COURSES];
+
+/** A course's description and outcomes, from the catalog or, for newer courses, from its loaded content. */
+export const courseAbout = (c: CourseMeta): CourseAbout => ({
+  description: c.description ?? getAbout(c.id)?.description ?? c.subtitle,
+  outcomes: c.outcomes ?? getAbout(c.id)?.outcomes ?? [],
+});
 
 export const courseById = (id: string) => COURSES.find(x => x.id === id);
 export const coursesOf = (cat: CategoryId) => COURSES.filter(x => x.category === cat);

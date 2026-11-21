@@ -1,5 +1,10 @@
 // Bilingual copy & Goal definitions for the Guided Study-Path Platform.
 import { b, type CategoryId, type Level, type T } from '../types';
+import { COURSES } from '../catalog';
+import { TOTAL_ACADEMY_ITEMS } from './builder';
+
+const N_COURSES = COURSES.length;
+const N_ITEMS = TOTAL_ACADEMY_ITEMS;
 import type { GoalMeta, StudyGoalId, StudyStepKind } from './types';
 
 export const GOALS: GoalMeta[] = [
@@ -104,12 +109,12 @@ export const STUDY_COPY = {
       library: 'Library',
       levelTest: 'Level Test',
       progress: 'Progress',
-      searchPlaceholder: 'Search 488 items…',
+      searchPlaceholder: `Search ${N_ITEMS} items…`,
       searchShort: 'Search',
       levelMenuTitle: 'Choose a CEFR Classroom (A1–C2)',
       levelMenuSub: 'Every level combines its guided study path, courses, listening, reading & dictations.',
       libraryMenuTitle: 'Explore the Free Library',
-      libraryCourses: '75 Structured Courses (4 tracks)',
+      libraryCourses: `${N_COURSES} structured courses (11 paths)`,
       libraryPractice: '407 Practice Labs',
       libraryGames: '5 Daily 3-Min Games',
       openAllLibrary: 'Open full library explorer',
@@ -138,7 +143,7 @@ export const STUDY_COPY = {
       eyebrow: 'Free French Study Academy · A1 to C2',
       freePill: '100% free · No account required',
       title: ['Follow one clear French path,', 'not a maze of links.'],
-      sub: 'Pick your goal and level in 15 seconds. We organize our 488 free courses, native dialogues, audio texts and dictations into a structured module-by-module roadmap.',
+      sub: `Pick your goal and level in 15 seconds. We organize our ${N_ITEMS} free courses, dialogues, audio texts and dictations into a structured module-by-module roadmap.`,
       step1: 'Step 1 · Choose your goal',
       step2: 'Step 2 · Pick your starting level',
       notSure: 'Not sure? Take the 10-min Level Test',
@@ -181,16 +186,16 @@ export const STUDY_COPY = {
     },
     library: {
       eyebrow: 'Optional Free Library',
-      title: 'Browse all 488 free activities anytime',
+      title: `Browse all ${N_ITEMS} free activities anytime`,
       sub: 'Everything in our academy is organized into four clean pillars—open any resource directly whenever you want extra practice.',
-      searchBtn: 'Instant search (488)',
+      searchBtn: 'Instant search',
       tabCourses: 'Courses',
       tabPractice: 'Practice Studios',
       tabLevels: 'By CEFR Level',
       tabGames: 'Daily Games',
       openTrack: 'Open track',
       openStudio: 'Open studio',
-      allCoursesHint: 'Filter all 75 courses by level or keyword:',
+      allCoursesHint: `Filter all ${N_COURSES} courses by level or keyword:`,
       openLevel: (lv: Level) => `Open ${lv} path & resources`,
     },
     levelPage: {
@@ -218,12 +223,12 @@ export const STUDY_COPY = {
       library: 'Bibliothèque',
       levelTest: 'Test',
       progress: 'Progrès',
-      searchPlaceholder: 'Rechercher (488)…',
+      searchPlaceholder: 'Rechercher…',
       searchShort: 'Chercher',
       levelMenuTitle: 'Choisir une salle par niveau CECR (A1–C2)',
       levelMenuSub: 'Chaque niveau réunit son parcours guidé, ses cours, écoutes, lectures et dictées.',
       libraryMenuTitle: 'Explorer la bibliothèque libre',
-      libraryCourses: '75 cours structurés (4 pôles)',
+      libraryCourses: `${N_COURSES} cours structurés (11 parcours)`,
       libraryPractice: '407 ateliers pratiques',
       libraryGames: '5 jeux quotidiens (3 min)',
       openAllLibrary: 'Ouvrir toute la bibliothèque',
@@ -252,7 +257,7 @@ export const STUDY_COPY = {
       eyebrow: 'Académie gratuite de français · A1 à C2',
       freePill: '100 % gratuit · Sans inscription',
       title: ['Suivez un vrai parcours guidé,', 'sans jamais vous perdre.'],
-      sub: 'Choisissez votre objectif et votre niveau en 15 secondes. Nous organisons nos 488 cours, dialogues natifs, textes audio et dictées en modules progressifs prêts à suivre.',
+      sub: `Choisissez votre objectif et votre niveau en 15 secondes. Nous organisons nos ${N_ITEMS} cours, dialogues, textes audio et dictées en modules progressifs prêts à suivre.`,
       step1: 'Étape 1 · Choisissez votre objectif',
       step2: 'Étape 2 · Choisissez votre niveau de départ',
       notSure: 'Pas sûr ? Faire le test de niveau (10 min)',
@@ -295,16 +300,16 @@ export const STUDY_COPY = {
     },
     library: {
       eyebrow: 'Bibliothèque libre',
-      title: 'Explorez nos 488 activités gratuites à tout moment',
+      title: `Explorez nos ${N_ITEMS} activités gratuites à tout moment`,
       sub: 'Toute l’académie est rangée en quatre pôles limpides : ouvrez directement n’importe quelle ressource pour vous entraîner librement.',
-      searchBtn: 'Recherche instantanée (488)',
+      searchBtn: 'Recherche instantanée',
       tabCourses: 'Cours',
       tabPractice: 'Ateliers pratiques',
       tabLevels: 'Par niveau CECR',
       tabGames: 'Jeux quotidiens',
       openTrack: 'Ouvrir le parcours',
       openStudio: 'Ouvrir l’atelier',
-      allCoursesHint: 'Filtrer les 75 cours par niveau ou mot-clé :',
+      allCoursesHint: `Filtrer les ${N_COURSES} cours par niveau ou mot-clé :`,
       openLevel: (lv: Level) => `Ouvrir le parcours & contenus ${lv}`,
     },
     levelPage: {

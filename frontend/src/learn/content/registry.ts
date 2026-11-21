@@ -1,16 +1,19 @@
 // The lessons of each course, one module per course (courses/<course-id>.ts,
 // default export: Lesson[]). In the browser a course is downloaded when it is
 // opened; the build-time pre-render registers them all up front (ssr.ts).
-import type { Lesson } from '../types';
+import type { CourseAbout, Lesson } from '../types';
 import type { PlacementQuestion } from './placement';
 
-type CourseModule = { default: Lesson[] };
+type CourseModule = { default: Lesson[]; about?: CourseAbout };
 const loaders = import.meta.glob<CourseModule>('./courses/*.ts');
 const cache = new Map<string, Lesson[]>();
+const abouts = new Map<string, CourseAbout>();
 const pending = new Map<string, Promise<Lesson[]>>();
 
 export const getLessons = (courseId: string): Lesson[] | undefined => cache.get(courseId);
-export const registerLessons = (courseId: string, lessons: Lesson[]) => { cache.set(courseId, lessons); };
+export const registerLessons = (courseId: string, lessons: Lesson[], about?: CourseAbout) => { cache.set(courseId, lessons); if (about) abouts.set(courseId, about); };
+/** The description and outcomes a course keeps with its lessons (once loaded). */
+export const getAbout = (courseId: string): CourseAbout | undefined => abouts.get(courseId);
 export const hasCourseContent = (courseId: string) => cache.has(courseId) || `./courses/${courseId}.ts` in loaders;
 
 export function loadLessons(courseId: string): Promise<Lesson[]> {
@@ -20,7 +23,7 @@ export function loadLessons(courseId: string): Promise<Lesson[]> {
   if (!p) {
     const loader = loaders[`./courses/${courseId}.ts`];
     p = loader
-      ? loader().then(m => { cache.set(courseId, m.default); return m.default; })
+      ? loader().then(m => { registerLessons(courseId, m.default, m.about); return m.default; })
       : Promise.resolve([]);
     pending.set(courseId, p);
   }

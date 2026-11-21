@@ -1,4 +1,4 @@
-// Lightweight unified search index across ALL 488 free learning items:
+// Lightweight unified search index across ALL free learning items:
 // 75 Courses, 186 Dictations, 50 Dialogues, 70 Ear Labs, 50 Audio Docs,
 // 41 Audio Texts, 10 Reading Missions, 5 Daily Games, and 1 Placement Test.
 import { CATEGORIES } from '../categories';

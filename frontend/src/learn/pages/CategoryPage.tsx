@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { TOPIC_PATHS } from '../../components/Landing/sitePages';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
-import { COURSES, coursePath, coursesOf } from '../catalog';
+import { COURSES, courseAbout, coursePath, coursesOf } from '../catalog';
 import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { courseDone, useProgress } from '../progress';
 import { categoryJsonLd } from '../schema';
@@ -19,6 +19,7 @@ import { Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../shell'
 import { LEVELS, tx, type CategoryMeta, type CourseMeta, type Lang, type Level } from '../types';
 import { audienceOfCategory } from '../../promo/model';
 import { ReadingPromo } from '../practice/parts';
+import { Reveal } from '../components/Reveal';
 import { UI } from '../ui';
 
 const STAGE_COLLAPSE_LIMIT = 6;
@@ -270,7 +271,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                 </h2>
                 <p className="lx-cat-spot-sub">{tx(spotlightCourse.subtitle, lang)}</p>
                 <ul className="lx-cat-spot-outcomes">
-                  {spotlightCourse.outcomes.slice(0, 3).map((o, i) => (
+                  {courseAbout(spotlightCourse).outcomes.slice(0, 3).map((o, i) => (
                     <li key={i}><CheckOutlined aria-hidden /> {tx(o, lang)}</li>
                   ))}
                 </ul>
@@ -374,13 +375,37 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
           {filtered.length === 0 ? (
             <p className="lx-empty">{ui.hub.noResult}</p>
           ) : useStages ? (
+            <>
+            <nav className="lx-cat-journey" aria-label={ui.category.journeyTitle}>
+              <p className="lx-cat-journey-title">{ui.category.journeyTitle} <span>· {ui.category.journeyHint}</span></p>
+              <ol style={{ '--n': stages.length } as React.CSSProperties}>
+                {stages.map(({ lvl, items }, i) => {
+                  const doneN = mounted ? items.filter(c => courseDone(p, c.id, c.lessonCount) >= c.lessonCount || p.finals[c.id]?.passed).length : 0;
+                  const pct = items.length ? Math.round((doneN * 100) / items.length) : 0;
+                  const isCurrent = mounted && spotlightCourse?.levels[0] === lvl;
+                  return (
+                    <li key={lvl} style={{ '--i': i } as React.CSSProperties} className={`${pct === 100 ? 'is-done' : ''}${isCurrent ? ' is-current' : ''}`}>
+                      <a href={`#stage-${lvl}`}>
+                        <span className="lx-jr-dot" aria-hidden>{pct === 100 ? <CheckOutlined /> : lvl}</span>
+                        <span className="lx-jr-text">
+                          <b>{ui.hub.levelNames[lvl]}</b>
+                          <small>{ui.courses(items.length)}{doneN > 0 ? ` · ${ui.category.completedCount(doneN, items.length)}` : ''}</small>
+                        </span>
+                        <span className="lx-jr-bar" aria-hidden><i style={{ width: `${pct}%` }} /></span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ol>
+            </nav>
             <div className="lx-cat-stages">
               {stages.map(({ lvl, stageNum, items, mins }) => {
                 const isExpanded = !!expandedStages[lvl];
+                const stageDone = mounted ? items.filter(c => courseDone(p, c.id, c.lessonCount) >= c.lessonCount || p.finals[c.id]?.passed).length : 0;
                 const canCollapse = view === 'grid' && items.length > STAGE_COLLAPSE_LIMIT;
                 const hiddenCount = items.length - STAGE_COLLAPSE_LIMIT;
                 return (
-                  <div key={lvl} className="lx-cat-stage">
+                  <div key={lvl} id={`stage-${lvl}`} className="lx-cat-stage">
                     <header className="lx-cat-stage-head">
                       <div className="lx-cat-stage-title">
                         <span className="lx-cat-stage-num">{ui.category.stageLabel(stageNum)}</span>
@@ -391,6 +416,12 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                       <span className="lx-cat-stage-meta">
                         <ReadOutlined /> {ui.courses(items.length)} · <ClockCircleOutlined /> {ui.minutes(mins)}
                       </span>
+                      {stageDone > 0 && (
+                        <div className="lx-cat-stage-progress">
+                          <span className="lx-cat-stage-bar" aria-hidden><i style={{ width: `${Math.round((stageDone * 100) / items.length)}%` }} /></span>
+                          <small>{ui.category.completedCount(stageDone, items.length)}</small>
+                        </div>
+                      )}
                     </header>
                     <ol className={view === 'grid' ? 'lx-cat-grid' : 'lx-cat-compact-grid'}>
                       {items.map((c, idx) => {
@@ -398,7 +429,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                         const passed = mounted && !!p.finals[c.id]?.passed;
                         const hideOnClient = mounted && canCollapse && !isExpanded && idx >= STAGE_COLLAPSE_LIMIT;
                         return (
-                          <li key={c.id} hidden={hideOnClient || undefined}>
+                          <Reveal as="li" key={c.id} hidden={hideOnClient || undefined} delay={(idx % 3) * 80}>
                             <PathCourseCard
                               course={c}
                               index={indexById[c.id] ?? idx}
@@ -407,7 +438,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                               done={done}
                               passed={passed}
                             />
-                          </li>
+                          </Reveal>
                         );
                       })}
                     </ol>
@@ -430,6 +461,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                 );
               })}
             </div>
+            </>
           ) : (
             <ol className={view === 'grid' ? 'lx-cat-grid' : 'lx-cat-compact-grid'}>
               {filtered.map((c, i) => {
