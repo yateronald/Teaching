@@ -329,6 +329,111 @@ const CONJUGATION_MODULES: Record<Level, ModuleBlueprints[]> = {
   ],
 };
 
+/** Grammar Studio modules woven into Complete French by CEFR complexity, right after Verbs. */
+const GRAMMAR_MODULES: Record<Level, ModuleBlueprints[]> = {
+  A1: [
+    {
+      title: b('Grammar Lab · Sentence Core & Pronouns', 'Atelier grammaire · Phrase et pronoms'),
+      theme: b('Build clean A1 sentences with subject pronouns, word order, plurals and contracted articles.', 'Construire des phrases A1 nettes : pronoms sujets, ordre des mots, pluriels et articles contractés.'),
+      courseId: 'gr-sentence-order', practiceId: 'gr-subject-pronouns',
+      moreIds: ['gr-plural-nouns-adjectives', 'gr-contracted-articles'],
+    },
+    {
+      title: b('Grammar Lab · Questions, Time & Connections', 'Atelier grammaire · Questions, temps et liens'),
+      theme: b('Ask open questions, link A1 clauses, place events in time and chain two verbs cleanly.', 'Poser des questions ouvertes, relier vos idées, situer un moment et enchaîner deux verbes.'),
+      courseId: 'gr-question-words', practiceId: 'gr-basic-connectors',
+      moreIds: ['gr-prepositions-time-a1', 'gr-infinitive-constructions'],
+    },
+  ],
+  A2: [
+    {
+      title: b('Grammar Lab · Precision, Negation & Adjectives', 'Atelier grammaire · Nuances, négation et adjectifs'),
+      theme: b('Separate savoir/connaître and c’est/il est, place adjectives accurately and go beyond ne… pas.', 'Distinguer savoir/connaître et c’est/il est, placer l’adjectif et élargir la négation.'),
+      courseId: 'gr-savoir-connaitre', practiceId: 'gr-cest-il-est-nuances',
+      moreIds: ['gr-adjective-position', 'gr-negation-advanced-a2'],
+    },
+    {
+      title: b('Grammar Lab · Verb Prepositions & Pronouns', 'Atelier grammaire · Régimes verbaux et pronoms'),
+      theme: b('Pair verbs with à or de, use en and y naturally and sequence two object pronouns without hesitation.', 'Associer verbes à à ou de, employer en/y en contexte et ordonner les doubles pronoms.'),
+      courseId: 'gr-prepositions-de-a', practiceId: 'gr-pronom-en-y-depth',
+      moreIds: ['gr-direct-indirect-verbs'],
+    },
+    {
+      title: b('Grammar Lab · Time Frames, Impersonals & Causatives', 'Atelier grammaire · Temps, tournures et causatif'),
+      theme: b('Contrast quand, pendant que and depuis que, use il faut/il reste and master faire + infinitive.', 'Opposer quand, pendant que et depuis que, manier il faut/il reste et faire + infinitif.'),
+      courseId: 'gr-quand-pendant-que', practiceId: 'gr-impersonal-verbs',
+      moreIds: ['gr-faire-laisser-causative'],
+    },
+  ],
+  B1: [
+    {
+      title: b('Grammar Lab · Modals, Comparisons & Passive Alternatives', 'Atelier grammaire · Modaux, comparaisons et voix'),
+      theme: b('Distinguish modal meanings, verbs shifting with prepositions, nuanced comparisons and alternatives to passive voice.', 'Maîtriser les nuances des modaux, verbes à régime variable, comparaisons et tournures actives.'),
+      courseId: 'gr-devoir-pouvoir-nuances', practiceId: 'gr-verb-meaning-shifts',
+      moreIds: ['gr-passive-alternatives', 'gr-comparisons-advanced'],
+    },
+    {
+      title: b('Grammar Lab · Past Infinitive, Adjectives & Zero Articles', 'Atelier grammaire · Infinitif passé et articles'),
+      theme: b('Chain actions with après avoir, fix adjective prepositions and drop articles accurately.', 'Exprimer l’antériorité avec après avoir, accorder les prépositions d’adjectifs et omettre l’article.'),
+      courseId: 'gr-past-infinitive-apres', practiceId: 'gr-adjectives-prepositions',
+      moreIds: ['gr-articles-zero-omission'],
+    },
+    {
+      title: b('Grammar Lab · Hypotheses, Neutral Relatives & Reported Speech', 'Atelier grammaire · Hypothèses, relatifs et discours'),
+      theme: b('Control all three si-clause patterns, ce qui/ce que/ce dont and past tense backshifting.', 'Maîtriser les trois systèmes avec si, ce qui/ce que/ce dont et le discours rapporté au passé.'),
+      courseId: 'gr-si-clauses-complete', practiceId: 'gr-ce-qui-ce-que-ce-dont',
+      moreIds: ['gr-reported-speech-past'],
+    },
+  ],
+  B2: [
+    {
+      title: b('Grammar Lab · Mood Selection in Relatives & Concession', 'Atelier grammaire · Subjonctif, concession et hypothèse'),
+      theme: b('Navigate indicative vs. subjunctive across relatives, superlatives, concession and hypotheses without si.', 'Arbitrer indicatif et subjonctif dans relatives, concession (bien que/malgré) et hypothèses sans si.'),
+      courseId: 'gr-subjunctive-relatives-superlatives', practiceId: 'gr-concessive-structures-b2',
+      moreIds: ['gr-hypotheses-without-si'],
+    },
+    {
+      title: b('Grammar Lab · Temporal Clauses, Participles & Formal Negation', 'Atelier grammaire · Temporelles, participes et négation'),
+      theme: b('Coordinate time clauses, gérondif vs. verbal adjectives and formal B2 negative structures.', 'Maîtriser avant que/après que, participes vs. adjectifs verbaux et négation soutenue.'),
+      courseId: 'gr-temporal-clauses-b2', practiceId: 'gr-participle-clauses',
+      moreIds: ['gr-negation-formal-b2'],
+    },
+    {
+      title: b('Grammar Lab · Complex Relatives, Essay Links & Hedging', 'Atelier grammaire · Relatifs, connecteurs et nuance'),
+      theme: b('Contrast dont vs. duquel, structure B2 essays, hedge claims and refine perception infinitives.', 'Distinguer dont et duquel, articuler une dissertation, nuancer au conditionnel et voir venir.'),
+      courseId: 'gr-pronouns-dont-vs-duquel', practiceId: 'gr-discourse-connectors-b2',
+      moreIds: ['gr-conditional-journalistic', 'gr-infinitive-clauses-perception'],
+    },
+  ],
+  C1: [
+    {
+      title: b('Grammar Lab · Inversion, Impersonal Syntax & Agreements', 'Atelier grammaire · Inversion, impersonnel et accords'),
+      theme: b('Refine C1 prose with adverbial inversion, formal impersonal clauses and tricky collective agreements.', 'Affiner le style C1 avec l’inversion après adverbes, les tournures impersonnelles et accords délicats.'),
+      courseId: 'gr-inversion-after-adverbs', practiceId: 'gr-impersonal-formal-c1',
+      moreIds: ['gr-double-agreement-traps'],
+    },
+    {
+      title: b('Grammar Lab · Cohesion, Stance & Compact Syntax', 'Atelier grammaire · Cohésion, modalisation et concision'),
+      theme: b('Weave seamless paragraphs with anaphora, abstract prepositions, modalisation and ellipsis.', 'Fluidifier l’essai C1 grâce aux anaphores, locutions prépositives, modalisation et ellipses.'),
+      courseId: 'gr-anaphora-cohesion', practiceId: 'gr-prepositional-locutions-c1',
+      moreIds: ['gr-modalisation-epistemic', 'gr-ellipsis-apposition'],
+    },
+  ],
+  C2: [
+    {
+      title: b('Grammar Lab · Literary Negation & Second-Form Conditionals', 'Atelier grammaire · Négation littéraire et 2e forme'),
+      theme: b('Distinguish expletive ne, single-word negation and pluperfect subjunctive conditionals.', 'Maîtriser le ne explétif, le ne seul littéraire et le conditionnel passé 2e forme.'),
+      courseId: 'gr-ne-expletif-and-lit-negation', practiceId: 'gr-conditional-second-form',
+    },
+    {
+      title: b('Grammar Lab · Cadence, Registers & Verbal Aspect', 'Atelier grammaire · Cadence, registres et aspect'),
+      theme: b('Master periodic sentence balance, register transposition and nuanced aspect and voice.', 'Orchestrer phrase périodique, variations de registre et finesses aspectuelles et de diathèse.'),
+      courseId: 'gr-syntax-period-rhythm', practiceId: 'gr-register-syntax-shifts',
+      moreIds: ['gr-aspect-and-voice-c2'],
+    },
+  ],
+};
+
 /** The conjugation course of the Diploma goal's grammar module, per level. */
 const DIPLOMA_CONJUGATION: Record<Level, string> = {
   A1: 'cj-present', A2: 'cj-passe-compose', B1: 'cj-conditionnel', B2: 'cj-subjonctif', C1: 'cj-bilan', C2: 'cj-subjonctif-imparfait',
@@ -633,7 +738,19 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
     return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, practice, ...more, listen, read, write], lang);
   });
   const afterConjugation = 1 + CONJUGATION_MODULES[level].length;
-  modules.splice(afterConjugation, 0, ...verbModules);
+  const grammarModules = GRAMMAR_MODULES[level].map((spec, idx) => makeModule(
+    0,
+    `grammar-${level}-${idx + 1}`,
+    spec.title,
+    spec.theme,
+    [
+      spec.courseId ? pool.courseStep(spec.courseId) : null,
+      spec.practiceId ? pool.courseStep(spec.practiceId) : null,
+      ...(spec.moreIds ?? []).map(id => pool.courseStep(id)),
+    ],
+    lang,
+  ));
+  modules.splice(afterConjugation, 0, ...verbModules, ...grammarModules);
   return modules.map((module, index) => ({ ...module, index: index + 1 }));
 }
 
