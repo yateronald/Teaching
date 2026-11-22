@@ -46,6 +46,19 @@ export const CATEGORIES: CategoryMeta[] = [
     topic: 'online',
   },
   {
+    id: 'verbs',
+    slug: { en: 'french-verbs', fr: 'verbes' },
+    name: b('French Verbs', 'Verbes'),
+    tag: b('20 essential verbs', '20 verbes essentiels'),
+    tagline: b('Learn the three groups, then work through one verb at a time.', 'Découvrez les trois groupes, puis travaillez un verbe à la fois.'),
+    description: b(
+      'Start with the three groups, then practise 20 essential verbs in everyday sentences. Work through the main tenses, complete conjugation tables and recognise the literary forms when you read.',
+      'Commencez par les trois groupes, puis entraînez-vous à employer 20 verbes essentiels dans des phrases du quotidien. Parcourez les temps courants, complétez des tableaux et apprenez à reconnaître les formes littéraires à la lecture.',
+    ),
+    image: 'course-cj-bilan',
+    topic: 'online',
+  },
+  {
     id: 'spelling',
     slug: { en: 'french-spelling', fr: 'orthographe' },
     name: b('Spelling', 'Orthographe'),

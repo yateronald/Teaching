@@ -1,0 +1,373 @@
+import { b } from '../../types';
+import type { VerbId } from '../../verbCatalog';
+
+// The blank replaces the verb phrase only. Indices follow je, tu, il/elle, nous, vous, ils/elles.
+export type Scene = [sentence: string, person: number, translation: string];
+type Scenes = [Scene, Scene, Scene, Scene, Scene, Scene];
+
+export const examples = {
+  etre: {
+    use: b('Use être to say who someone is, where they are or how they feel.', 'Employez être pour dire qui est une personne, où elle se trouve ou comment elle se sent.'),
+    tip: b('Say « j’ai 24 ans » for age. For weather, say « il fait froid ».', 'Pour l’âge, dites « j’ai 24 ans ». Pour la météo, dites « il fait froid ».'),
+    scenes: [
+      ['Je ___ devant la gare.', 0, 'I’m in front of the station.'],
+      ['Nous ___ prêtes à commencer.', 3, 'We are ready to start.'],
+      ['Le magasin ___ fermé toute la matinée.', 2, 'The shop was closed all morning.'],
+      ['Demain, nous ___ sur place à neuf heures.', 3, 'Tomorrow we’ll be there at nine.'],
+      ['Il faut que tu ___ à l’heure.', 1, 'You need to be on time.'],
+      ['Ce départ ___ le début d’une longue aventure.', 2, 'That departure was the beginning of a long adventure.'],
+    ],
+  },
+  avoir: {
+    use: b('Use avoir for possession, age and sensations such as faim, soif and froid.', 'Employez avoir pour la possession, l’âge et des sensations comme la faim, la soif ou le froid.'),
+    tip: b('In « j’ai eu faim », ai is the auxiliary and eu is the participle of avoir.', 'Dans « j’ai eu faim », ai est l’auxiliaire et eu est le participe passé d’avoir.'),
+    scenes: [
+      ['Tu ___ une minute ?', 1, 'Do you have a minute?'],
+      ['Mina et Paul ___ froid sur le quai.', 5, 'Mina and Paul are cold on the platform.'],
+      ['J’___ de la chance avec le dernier train.', 0, 'I got lucky with the last train.'],
+      ['Vous ___ une réponse lundi.', 4, 'You’ll have an answer on Monday.'],
+      ['Il est possible qu’elle ___ encore la clé.', 2, 'She may still have the key.'],
+      ['À cette nouvelle, ils ___ un moment d’hésitation.', 5, 'At this news, they hesitated for a moment.'],
+    ],
+  },
+  aller: {
+    use: b('Use aller with a place to talk about movement and with an infinitive to announce a plan.', 'Employez aller avec un lieu pour un déplacement et avec un infinitif pour annoncer un projet.'),
+    tip: b('Aller has three stems: vais / va / vont, allons / allez, and ir- in the future and conditional.', 'Retenez les radicaux de aller : vais, va, vont ; allons, allez ; ir- au futur et au conditionnel.'),
+    scenes: [
+      ['Je ___ à la bibliothèque après le travail.', 0, 'I’m going to the library after work.'],
+      ['Vous ___ bien aujourd’hui ?', 4, 'Are you doing well today?'],
+      ['Paul ___ au marché de bonne heure.', 2, 'Paul went to the market early.'],
+      ['Samedi, nous ___ chez ma sœur.', 3, 'On Saturday, we’ll go to my sister’s.'],
+      ['Il vaut mieux qu’ils ___ à pied.', 5, 'It would be better if they went on foot.'],
+      ['Le voyageur ___ jusqu’au village avant la nuit.', 2, 'The traveller went as far as the village before nightfall.'],
+    ],
+  },
+  faire: {
+    use: b('Use faire for making something, doing an activity and talking about the weather.', 'Employez faire pour fabriquer quelque chose, pratiquer une activité et parler de la météo.'),
+    tip: b('Remember « vous faites », « ils font » and « nous ferons ».', 'Retenez « vous faites », « ils font » et « nous ferons ».'),
+    scenes: [
+      ['Nous ___ les courses le samedi.', 3, 'We do the shopping on Saturdays.'],
+      ['Il ___ beau ce matin.', 2, 'The weather is nice this morning.'],
+      ['Vous ___ le bon choix.', 4, 'You made the right choice.'],
+      ['Je ___ du vélo quand la pluie s’arrêtera.', 0, 'I’ll cycle when the rain stops.'],
+      ['Il faut que tu ___ une pause.', 1, 'You need to take a break.'],
+      ['Avant de répondre, elle ___ signe à son frère.', 2, 'Before answering, she gestured to her brother.'],
+    ],
+  },
+  parler: {
+    use: b('Use parler à for the person you speak to and parler de for the topic.', 'Employez parler à devant l’interlocuteur et parler de devant le sujet.'),
+    tip: b('Say « je parle français », « je parle à Lina » and « je parle du film ».', 'Dites « je parle français », « je parle à Lina » et « je parle du film ».'),
+    scenes: [
+      ['Tu ___ français à la maison ?', 1, 'Do you speak French at home?'],
+      ['Elles ___ de leur prochain voyage.', 5, 'They’re talking about their next trip.'],
+      ['On ___ de ton idée à la réunion.', 2, 'We talked about your idea at the meeting.'],
+      ['Je ___ au responsable demain.', 0, 'I’ll speak to the manager tomorrow.'],
+      ['Je préfère que vous ___ à Lina directement.', 4, 'I’d rather you spoke directly to Lina.'],
+      ['Le témoin ___ d’une voix calme.', 2, 'The witness spoke in a calm voice.'],
+    ],
+  },
+  aimer: {
+    use: b('Use aimer with a person, a thing or an activity. Before an activity, use the infinitive directly.', 'Employez aimer avec une personne, une chose ou une activité. Devant une activité, utilisez directement l’infinitif.'),
+    tip: b('« J’aime lire » expresses a taste. « J’aimerais lire » expresses a wish.', '« J’aime lire » exprime un goût. « J’aimerais lire » exprime un souhait.'),
+    scenes: [
+      ['J’___ lire dans le train.', 0, 'I like reading on the train.'],
+      ['Nous ___ les marchés de quartier.', 3, 'We like neighbourhood markets.'],
+      ['Tu ___ le film d’hier ?', 1, 'Did you like yesterday’s film?'],
+      ['Ils ___ sûrement ce petit restaurant.', 5, 'They’ll probably like this little restaurant.'],
+      ['Je doute qu’elle ___ les surprises.', 2, 'I doubt she likes surprises.'],
+      ['Ils ___ la ville dès leur arrivée.', 5, 'They loved the city as soon as they arrived.'],
+    ],
+  },
+  finir: {
+    use: b('Use finir for completing a task, finir de before an action and finir par for an eventual outcome.', 'Employez finir pour terminer une tâche, finir de devant une action et finir par pour indiquer l’issue d’une situation.'),
+    tip: b('Finir belongs to group 2: nous finissons, ils finissent, en finissant.', 'Finir est du deuxième groupe : nous finissons, ils finissent, en finissant.'),
+    scenes: [
+      ['Je ___ à six heures aujourd’hui.', 0, 'I finish at six today.'],
+      ['Nous ___ de ranger la salle.', 3, 'We’re finishing tidying the room.'],
+      ['Elle ___ son rapport avant midi.', 2, 'She finished her report before noon.'],
+      ['Vous ___ à temps si vous commencez maintenant.', 4, 'You’ll finish on time if you start now.'],
+      ['Attends que je ___ de lire ton message.', 0, 'Wait until I finish reading your message.'],
+      ['Il ___ par retrouver son chemin.', 2, 'He eventually found his way again.'],
+    ],
+  },
+  prendre: {
+    use: b('Use prendre for transport, food, appointments and decisions.', 'Employez prendre avec les transports, les repas, les rendez-vous et les décisions.'),
+    tip: b('Watch the change from « nous prenons » to « ils prennent ». The participle is pris.', 'Attention au passage de « nous prenons » à « ils prennent ». Le participe passé est pris.'),
+    scenes: [
+      ['Je ___ le métro pour aller au travail.', 0, 'I take the metro to work.'],
+      ['Ils ___ un café en terrasse.', 5, 'They’re having coffee outside.'],
+      ['Nous ___ rendez-vous chez le dentiste.', 3, 'We made a dentist’s appointment.'],
+      ['Elle ___ une décision après la réunion.', 2, 'She’ll make a decision after the meeting.'],
+      ['Je propose que tu ___ le premier train.', 1, 'I suggest you take the first train.'],
+      ['À l’aube, les deux amis ___ la route.', 5, 'At dawn, the two friends set out.'],
+    ],
+  },
+  venir: {
+    use: b('Use venir for arrival or origin. Venir de + infinitive means something has just happened.', 'Employez venir pour parler d’une arrivée ou d’une origine. Venir de suivi d’un infinitif exprime le passé récent.'),
+    tip: b('« Je viens de Montréal » gives an origin. « Je viens de rentrer » says you just got back.', '« Je viens de Montréal » donne une origine. « Je viens de rentrer » annonce un retour tout récent.'),
+    scenes: [
+      ['Tu ___ dîner chez nous ce soir ?', 1, 'Are you coming over for dinner tonight?'],
+      ['Nous ___ de recevoir ton courrier.', 3, 'We’ve just received your letter.'],
+      ['Paul ___ seul à la réunion.', 2, 'Paul came to the meeting alone.'],
+      ['Ils ___ dès qu’ils auront terminé.', 5, 'They’ll come as soon as they’re finished.'],
+      ['Il faut que vous ___ avant la fermeture.', 4, 'You need to come before closing time.'],
+      ['Un voisin ___ frapper à la porte.', 2, 'A neighbour came and knocked on the door.'],
+    ],
+  },
+  partir: {
+    use: b('Use partir for a departure. Follow it with de for the starting point or pour for the destination.', 'Employez partir pour un départ. Ajoutez de pour le point de départ ou pour pour la destination.'),
+    tip: b('Partir has « nous partons » and « en partant ». It follows group 3.', 'On dit « nous partons » et « en partant ». Partir est du troisième groupe.'),
+    scenes: [
+      ['Vous ___ à quelle heure demain ?', 4, 'What time are you leaving tomorrow?'],
+      ['Le train ___ de la voie trois.', 2, 'The train leaves from platform three.'],
+      ['Paul et Malik ___ avant nous.', 5, 'Paul and Malik left before us.'],
+      ['Nous ___ pour Québec lundi matin.', 3, 'We’ll leave for Québec City on Monday morning.'],
+      ['J’aimerais que tu ___ avant la nuit.', 1, 'I’d like you to leave before dark.'],
+      ['Le messager ___ sans se retourner.', 2, 'The messenger left without looking back.'],
+    ],
+  },
+  pouvoir: {
+    use: b('Use pouvoir followed by an infinitive to express ability, permission or possibility.', 'Faites suivre pouvoir d’un infinitif pour exprimer une capacité, une permission ou une possibilité.'),
+    tip: b('« Puis-je ? » is a formal way to ask for permission. For everyday requests, try « Je peux ? » or « Pourriez-vous… ? ».', '« Puis-je ? » est une demande soutenue. Au quotidien, dites « Je peux ? » ou « Pourriez-vous… ? ».'),
+    scenes: [
+      ['Je ___ vous aider ?', 0, 'Can I help you?'],
+      ['Nous ___ entrer par la porte latérale.', 3, 'We can enter through the side door.'],
+      ['Elle ___ changer son billet au dernier moment.', 2, 'She was able to change her ticket at the last minute.'],
+      ['Vous ___ consulter les résultats demain.', 4, 'You’ll be able to check the results tomorrow.'],
+      ['Je cherche quelqu’un qui ___ m’expliquer ce formulaire.', 2, 'I’m looking for someone who can explain this form to me.'],
+      ['Après trois essais, ils ___ enfin ouvrir la grille.', 5, 'After three attempts, they were finally able to open the gate.'],
+    ],
+  },
+  vouloir: {
+    use: b('Use vouloir + infinitive for your own intention and vouloir que + subjunctive for what you want someone else to do.', 'Employez vouloir suivi d’un infinitif pour votre intention, et vouloir que suivi du subjonctif pour l’action souhaitée d’une autre personne.'),
+    tip: b('« Je voudrais » softens a request. « Veuillez » is common in formal instructions.', '« Je voudrais » adoucit une demande. « Veuillez » est fréquent dans les consignes formelles.'),
+    scenes: [
+      ['Tu ___ venir avec nous ?', 1, 'Do you want to come with us?'],
+      ['Nous ___ changer la date du rendez-vous.', 3, 'We want to change the appointment date.'],
+      ['J’___ te prévenir, mais mon téléphone était déchargé.', 0, 'I wanted to let you know, but my phone was dead.'],
+      ['Elle ___ sûrement voir les photos.', 2, 'She’ll probably want to see the photos.'],
+      ['Je doute qu’ils ___ attendre encore une heure.', 5, 'I doubt they want to wait another hour.'],
+      ['Il ___ dire un mot, puis se ravisa.', 2, 'He wanted to say something, then thought better of it.'],
+    ],
+  },
+  devoir: {
+    use: b('Devoir + infinitive can express an obligation or a deduction. With a sum, devoir means to owe.', 'Devoir suivi d’un infinitif exprime une obligation ou une déduction. Avec une somme, il indique une dette.'),
+    tip: b('The participle is « dû » in the masculine singular, then « due », « dus » and « dues ».', 'Le participe s’écrit « dû » au masculin singulier, puis « due », « dus » et « dues ».'),
+    scenes: [
+      ['Tu me ___ encore dix euros.', 1, 'You still owe me ten euros.'],
+      ['Elle ne répond pas. Elle ___ être en réunion.', 2, 'She’s not answering. She must be in a meeting.'],
+      ['Nous ___ annuler le pique-nique à cause de la pluie.', 3, 'We had to cancel the picnic because of the rain.'],
+      ['Vous ___ présenter une pièce d’identité.', 4, 'You’ll have to show ID.'],
+      ['Je crains qu’ils ___ recommencer.', 5, 'I’m afraid they’ll have to start again.'],
+      ['Faute de vivres, l’équipage ___ rebrousser chemin.', 2, 'Short of supplies, the crew had to turn back.'],
+    ],
+  },
+  savoir: {
+    use: b('Use savoir for a fact, an answer or a learned skill. Use connaître for a person or place you’re familiar with.', 'Employez savoir pour un fait, une réponse ou un savoir-faire. Employez connaître pour une personne ou un lieu qui vous est familier.'),
+    tip: b('Say « je sais où elle habite » and « je connais son quartier ».', 'Dites « je sais où elle habite » et « je connais son quartier ».'),
+    scenes: [
+      ['Vous ___ où se trouve la salle ?', 4, 'Do you know where the room is?'],
+      ['Il ___ réparer les vélos.', 2, 'He knows how to fix bicycles.'],
+      ['J’___ tout de suite que le message était important.', 0, 'I knew at once the message was important.'],
+      ['Demain, nous ___ si le projet est retenu.', 3, 'Tomorrow we’ll know whether the project was selected.'],
+      ['Je ne pense pas qu’elle ___ nager.', 2, 'I don’t think she knows how to swim.'],
+      ['À ce regard, elle ___ qu’il avait compris.', 2, 'From that look, she knew he had understood.'],
+    ],
+  },
+  dire: {
+    use: b('Use dire que to report what someone said and dire à quelqu’un de to relay an instruction.', 'Employez dire que pour rapporter une parole et dire à quelqu’un de pour transmettre une consigne.'),
+    tip: b('The standard form is « vous dites ». For the future, use « vous direz ».', 'La forme standard est « vous dites ». Au futur, employez « vous direz ».'),
+    scenes: [
+      ['Que ___-vous de cette idée ?', 4, 'What do you think of this idea?'],
+      ['Ils ___ que le train est en retard.', 5, 'They say the train is late.'],
+      ['Elle m’___ de fermer la fenêtre.', 2, 'She told me to close the window.'],
+      ['Je te ___ ce qu’on a décidé.', 0, 'I’ll tell you what we decided.'],
+      ['Il faut que nous leur ___ la vérité.', 3, 'We need to tell them the truth.'],
+      ['Elle ___ quelques mots, puis quitta la salle.', 2, 'She said a few words, then left the room.'],
+    ],
+  },
+  voir: {
+    use: b('Voir can mean seeing something, meeting someone or understanding a point.', 'Voir peut désigner une perception, une rencontre ou la compréhension d’un point.'),
+    tip: b('Compare « nous voyons », « je verrai » and « que je voie ».', 'Comparez « nous voyons », « je verrai » et « que je voie ».'),
+    scenes: [
+      ['Je ___ le pont depuis ma fenêtre.', 0, 'I can see the bridge from my window.'],
+      ['Vous ___ ce que je veux dire ?', 4, 'Do you see what I mean?'],
+      ['Nous ___ le médecin cet après-midi.', 3, 'We saw the doctor this afternoon.'],
+      ['Tu ___ la différence dès le premier essai.', 1, 'You’ll see the difference on the first try.'],
+      ['Approche-toi pour que je ___ ton dessin.', 0, 'Come closer so I can see your drawing.'],
+      ['En levant les yeux, il ___ une lumière au loin.', 2, 'Looking up, he saw a light in the distance.'],
+    ],
+  },
+  lire: {
+    use: b('Use lire for reading a text aloud or silently, and for decoding a sign or chart.', 'Employez lire pour parcourir un texte à voix haute ou en silence, ou pour déchiffrer un panneau ou un graphique.'),
+    tip: b('Compare « je lis », « nous lisons » and the past participle « lu ».', 'Comparez « je lis », « nous lisons » et le participe passé « lu ».'),
+    scenes: [
+      ['Je ___ le journal dans le bus.', 0, 'I read the newspaper on the bus.'],
+      ['Nous ___ les consignes avant de commencer.', 3, 'We’re reading the instructions before we start.'],
+      ['Elles ___ le contrat jusqu’à la dernière ligne.', 5, 'They read the contract down to the last line.'],
+      ['Il ___ ton courriel dès son retour.', 2, 'He’ll read your email as soon as he gets back.'],
+      ['Il est important que tu ___ le document en entier.', 1, 'It’s important that you read the whole document.'],
+      ['La gardienne ___ le billet et le glissa dans sa poche.', 2, 'The caretaker read the note and slipped it into her pocket.'],
+    ],
+  },
+  ecrire: {
+    use: b('Écrire à introduces the recipient. Écrire quelque chose introduces the message or text.', 'Écrire à introduit le destinataire. Écrire quelque chose introduit le message ou le texte.'),
+    tip: b('The participle is écrit. In « les lettres qu’elle a écrites », the object comes before avoir.', 'Le participe passé est écrit. Dans « les lettres qu’elle a écrites », le complément direct précède avoir.'),
+    scenes: [
+      ['J’___ à mon propriétaire au sujet de la fuite.', 0, 'I’m writing to my landlord about the leak.'],
+      ['Vous ___ souvent à la main ?', 4, 'Do you often write by hand?'],
+      ['Nous ___ au service clientèle hier.', 3, 'We wrote to customer service yesterday.'],
+      ['Ils vous ___ dès qu’ils auront une réponse.', 5, 'They’ll write to you as soon as they have an answer.'],
+      ['Je préfère que tu ___ une réponse plus précise.', 1, 'I’d rather you wrote a more precise reply.'],
+      ['Avant de partir, elle ___ quelques lignes à son frère.', 2, 'Before leaving, she wrote a few lines to her brother.'],
+    ],
+  },
+  mettre: {
+    use: b('Use mettre for placing or putting on something, and « mettre du temps à » for duration.', 'Employez mettre pour poser ou enfiler quelque chose, et « mettre du temps à » pour exprimer une durée.'),
+    tip: b('Compare « il met », « ils mettent » and the past participle « mis ».', 'Comparez « il met », « ils mettent » et le participe passé « mis ».'),
+    scenes: [
+      ['Tu ___ les clés sur la table ?', 1, 'Are you putting the keys on the table?'],
+      ['Cette pâte ___ longtemps à lever.', 2, 'This dough takes a long time to rise.'],
+      ['J’___ dix minutes à trouver le bon quai.', 0, 'It took me ten minutes to find the right platform.'],
+      ['Nous ___ le document à jour demain.', 3, 'We’ll update the document tomorrow.'],
+      ['Il faut que vous ___ votre nom en haut de la page.', 4, 'You need to put your name at the top of the page.'],
+      ['Ils ___ le coffre à l’abri avant l’orage.', 5, 'They put the chest under shelter before the storm.'],
+    ],
+  },
+  tenir: {
+    use: b('Tenir can mean hold, keep a promise or last. Tenir à can express attachment or insistence.', 'Tenir peut signifier garder en main, respecter un engagement ou résister. Tenir à exprime notamment l’attachement ou l’insistance.'),
+    tip: b('Use « tenir à + infinitive » for something you care about doing, and « tenir à ce que + subjunctive » for a desired result.', 'Employez « tenir à » suivi de l’infinitif pour une action à laquelle vous accordez de l’importance, et « tenir à ce que » suivi du subjonctif pour un résultat souhaité.'),
+    scenes: [
+      ['Je ___ à te remercier en personne.', 0, 'I really want to thank you in person.'],
+      ['Vous ___ le dossier à l’envers.', 4, 'You’re holding the file upside down.'],
+      ['Elles ___ parole malgré les difficultés.', 5, 'They kept their word despite the difficulties.'],
+      ['Nous vous ___ au courant de la suite.', 3, 'We’ll keep you informed about what happens next.'],
+      ['Il importe que cette étagère ___ sans appui.', 2, 'It matters that this shelf stays up without support.'],
+      ['La digue ___ bon jusqu’à la fin de la tempête.', 2, 'The dike held firm until the storm was over.'],
+    ],
+  },
+} satisfies Record<VerbId, { use: ReturnType<typeof b>; tip: ReturnType<typeof b>; scenes: Scenes }>;
+
+// Imparfait, plus-que-parfait, futur antérieur, conditionnel présent.
+export const moreScenes = {
+  etre: [
+    ['À cette époque, nous ___ voisins.', 3, 'Back then, we were neighbours.'],
+    ['Avant son départ, il ___ longtemps directeur de l’école.', 2, 'Before he left, he had been the head of the school for a long time.'],
+    ['En juin, elle ___ présidente du club pendant deux ans.', 2, 'By June, she’ll have been president of the club for two years.'],
+    ['Avec une fenêtre, la pièce ___ plus lumineuse.', 2, 'With a window, the room would be brighter.'],
+  ],
+  avoir: [
+    ['Avant, j’___ toujours peur en avion.', 0, 'I used to be afraid of flying.'],
+    ['Nous ___ le même problème la veille.', 3, 'We had had the same problem the day before.'],
+    ['D’ici demain, vous ___ le temps de relire le dossier.', 4, 'By tomorrow, you’ll have had time to reread the file.'],
+    ['___-vous un stylo à me prêter ?', 4, 'Would you have a pen I could borrow?'],
+  ],
+  aller: [
+    ['Chaque dimanche, vous ___ au marché ?', 4, 'Did you go to the market every Sunday?'],
+    ['Paul connaissait le trajet : il ___ au musée la veille.', 2, 'Paul knew the way. He had been to the museum the day before.'],
+    ['À la fin du mois, Paul ___ trois fois à la piscine.', 2, 'By the end of the month, Paul will have gone to the pool three times.'],
+    ['Sans la pluie, nous ___ au parc.', 3, 'If it weren’t raining, we’d go to the park.'],
+  ],
+  faire: [
+    ['Petite, elle ___ du piano tous les soirs.', 2, 'As a child, she played the piano every evening.'],
+    ['Le magasin était fermé, mais nous ___ les courses la veille.', 3, 'The shop was closed, but we had done the shopping the day before.'],
+    ['Avant midi, vous ___ le tour du quartier.', 4, 'By noon, you’ll have toured the neighbourhood.'],
+    ['À ta place, je ___ une copie du document.', 0, 'In your place, I’d make a copy of the document.'],
+  ],
+  parler: [
+    ['Chez mes grands-parents, on ___ surtout français.', 2, 'At my grandparents’ house, we mostly spoke French.'],
+    ['Il ___ au gardien avant de venir nous voir.', 2, 'He had spoken to the caretaker before coming to see us.'],
+    ['D’ici vendredi, nous ___ à toutes les familles.', 3, 'By Friday, we’ll have spoken to all the families.'],
+    ['Si j’avais son numéro, je lui ___ ce soir.', 0, 'If I had her number, I’d speak to her tonight.'],
+  ],
+  aimer: [
+    ['Enfant, j’___ les histoires qui faisaient peur.', 0, 'As a child, I liked scary stories.'],
+    ['Elle ___ le premier livre et attendait la suite.', 2, 'She had liked the first book and was waiting for the sequel.'],
+      ['Au moins, vous ___ un des plats de ce menu.', 4, 'At least you will have enjoyed one of the dishes on the menu.'],
+    ['J’___ essayer ce café un de ces jours.', 0, 'I’d like to try that café one of these days.'],
+  ],
+  finir: [
+    ['L’an dernier, nous ___ toujours à dix-sept heures.', 3, 'Last year, we always finished at five.'],
+    ['Vous ___ le montage avant l’arrivée des invités.', 4, 'You had finished setting up before the guests arrived.'],
+    ['Elle ___ son rapport quand tu arriveras.', 2, 'She’ll have finished her report by the time you arrive.'],
+    ['Avec un peu d’aide, je ___ avant midi.', 0, 'With a little help, I’d finish before noon.'],
+  ],
+  prendre: [
+    ['Au lycée, ils ___ le même bus chaque matin.', 5, 'In high school, they took the same bus every morning.'],
+    ['J’___ un parapluie avant de sortir.', 0, 'I had taken an umbrella before going out.'],
+    ['À ton retour, nous ___ une décision.', 3, 'By the time you return, we’ll have made a decision.'],
+    ['Je ___ bien un thé, s’il vous plaît.', 0, 'I’d love a tea, please.'],
+  ],
+  venir: [
+    ['Tu ___ souvent ici quand tu étais enfant ?', 1, 'Did you often come here as a child?'],
+    ['Ce jour-là, Malik était déjà au bureau. Il ___ plus tôt que d’habitude.', 2, 'Malik was already at the office that day. He had come earlier than usual.'],
+    ['À dix heures, Paul ___ chercher les clés.', 2, 'By ten, Paul will have come to pick up the keys.'],
+    ['Si le train était moins cher, nous ___ plus souvent.', 3, 'If the train were cheaper, we’d come more often.'],
+  ],
+  partir: [
+    ['Autrefois, je ___ à l’aube pour éviter les embouteillages.', 0, 'I used to leave at dawn to avoid traffic.'],
+    ['Quand le cours a commencé, Paul et Malik ___ depuis dix minutes.', 5, 'When class started, Paul and Malik had already been gone for ten minutes.'],
+    ['À midi, mes frères ___ depuis deux heures.', 5, 'At noon, my brothers will have been gone for two hours.'],
+    ['Avec un billet moins cher, elle ___ demain.', 2, 'With a cheaper ticket, she’d leave tomorrow.'],
+  ],
+  pouvoir: [
+    ['Sans mes lunettes, je ne ___ rien lire au tableau.', 0, 'Without my glasses, I couldn’t read anything on the board.'],
+    ['Elles avaient un endroit où dormir : elles ___ réserver une chambre.', 5, 'They had somewhere to sleep because they had managed to book a room.'],
+    ['À la fin de l’atelier, chacun ___ poser sa question.', 2, 'By the end of the workshop, everyone will have been able to ask their question.'],
+    ['___-vous parler un peu moins vite ?', 4, 'Could you speak a little more slowly?'],
+  ],
+  vouloir: [
+    ['À huit ans, je ___ devenir vétérinaire.', 0, 'When I was eight, I wanted to become a vet.'],
+    ['Nous sommes partis à pied. Personne n’___ attendre le bus.', 2, 'We left on foot. Nobody had wanted to wait for the bus.'],
+    ['Quoi qu’il arrive, elle ___ aller jusqu’au bout.', 2, 'Whatever happens, she will have wanted to see it through.'],
+    ['Je ___ changer l’heure de mon rendez-vous.', 0, 'I’d like to change the time of my appointment.'],
+  ],
+  devoir: [
+    ['Chaque lundi, nous ___ ouvrir le magasin avant huit heures.', 3, 'Every Monday, we had to open the shop before eight.'],
+    ['Elle ___ reporter la réunion à cause d’une grève.', 2, 'She had had to postpone the meeting because of a strike.'],
+    ['À la fin du chantier, ils ___ remplacer deux fenêtres.', 5, 'By the end of the work, they’ll have had to replace two windows.'],
+    ['Tu ___ relire ce courriel avant de l’envoyer.', 1, 'You should reread this email before sending it.'],
+  ],
+  savoir: [
+    ['À cinq ans, tu ___ déjà lire ?', 1, 'Could you already read at five?'],
+    ['Nous ___ dès le début que la décision serait difficile.', 3, 'We had known from the start that the decision would be difficult.'],
+    ['En répondant ainsi, elle ___ garder son calme jusqu’au bout.', 2, 'In replying that way, she’ll have managed to stay calm until the end.'],
+    ['___-tu résoudre ce problème sans calculatrice ?', 1, 'Would you know how to solve this problem without a calculator?'],
+  ],
+  dire: [
+    ['Mon père ___ toujours bonjour aux voisins.', 2, 'My father always said hello to the neighbours.'],
+    ['Vous m’___ que la salle serait ouverte.', 4, 'You had told me the room would be open.'],
+    ['Avant la fin de la réunion, nous ___ ce qui s’est passé.', 3, 'Before the meeting ends, we’ll have said what happened.'],
+    ['À ta place, je lui ___ simplement la vérité.', 0, 'In your place, I’d simply tell her the truth.'],
+  ],
+  voir: [
+    ['De ma chambre, je ___ la mer.', 0, 'From my room, I could see the sea.'],
+    ['Elle connaissait déjà la fin. Elle ___ le film plus tôt.', 2, 'She already knew the ending. She had seen the film earlier.'],
+    ['Quand tu rentreras, nous ___ tous les épisodes.', 3, 'By the time you get back, we’ll have seen all the episodes.'],
+    ['Avec un meilleur éclairage, vous ___ la différence.', 4, 'With better lighting, you’d see the difference.'],
+  ],
+  lire: [
+    ['Le soir, nous ___ chacun une page à voix haute.', 3, 'In the evenings, we each read one page aloud.'],
+    ['Tu ___ l’article avant la discussion ?', 1, 'Had you read the article before the discussion?'],
+    ['D’ici lundi, je ___ les trois premiers chapitres.', 0, 'By Monday, I’ll have read the first three chapters.'],
+    ['Avec plus de temps, elles ___ le texte en entier.', 5, 'With more time, they’d read the whole text.'],
+  ],
+  ecrire: [
+    ['Chaque été, elle nous ___ depuis la Bretagne.', 2, 'Every summer, she wrote to us from Brittany.'],
+    ['Ils ___ au propriétaire avant de faire les travaux.', 5, 'They had written to the landlord before doing the work.'],
+    ['D’ici demain soir, vous ___ le premier paragraphe.', 4, 'By tomorrow evening, you’ll have written the first paragraph.'],
+    ['Sans adresse postale, je lui ___ par courriel.', 0, 'Without a postal address, I’d email her.'],
+  ],
+  mettre: [
+    ['Tu ___ toujours tes clés dans la poche droite.', 1, 'You always used to put your keys in your right pocket.'],
+    ['J’___ la soupe au réfrigérateur avant de sortir.', 0, 'I had put the soup in the fridge before going out.'],
+    ['À midi, ils ___ toutes les chaises en place.', 5, 'By noon, they’ll have put all the chairs in place.'],
+    ['Avec un vélo, je ___ moins de temps à rentrer.', 0, 'With a bike, I’d take less time getting home.'],
+  ],
+  tenir: [
+    ['Elles ___ à poursuivre la discussion malgré l’heure tardive.', 5, 'They wanted to keep talking even though it was late.'],
+    ['Elle ___ parole avant même qu’on le lui rappelle.', 2, 'She had kept her word before anyone even reminded her.'],
+    ['En décembre, nous ___ quatre réunions publiques.', 3, 'By December, we’ll have held four public meetings.'],
+    ['Si vous deviez partir demain, je ___ à vous dire au revoir.', 0, 'If you had to leave tomorrow, I’d want to say goodbye.'],
+  ],
+} satisfies Record<VerbId, [Scene, Scene, Scene, Scene]>;

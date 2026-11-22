@@ -256,7 +256,13 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
               {course.ladder ? <Ladder lang={lang} course={course} lessons={lessons} onTest={() => setTesting(true)} /> : (
                 <>
                   <h2 id="lx-syllabus">{fr ? `Programme · ${lessons.length} leçons` : `Syllabus · ${lessons.length} lessons`}</h2>
-                  <p className="cp-block-sub">{fr ? 'Chaque leçon alterne explications, audio natif et exercices corrigés. Suivez-les dans l’ordre ou choisissez librement.' : 'Each lesson mixes explanations, native audio and corrected exercises. Take them in order or pick freely.'}</p>
+                  <p className="cp-block-sub">{course.guidedLessons
+                    ? fr
+                      ? `Pour le parcours ${course.level}, commencez par ${course.guidedLessons.count === 1 ? 'la leçon 1' : `les leçons 1 à ${course.guidedLessons.count}`}. Les leçons suivantes restent accessibles pour approfondir.`
+                      : `For the ${course.level} path, start with ${course.guidedLessons.count === 1 ? 'lesson 1' : `lessons 1–${course.guidedLessons.count}`}. Open the later lessons whenever you’re ready to go further.`
+                    : course.category === 'verbs'
+                      ? fr ? 'Repérez les groupes dans des phrases, puis vérifiez vos réponses dans les exercices.' : 'Spot verb groups in sentences, then check your understanding with exercises.'
+                      : fr ? 'Chaque leçon alterne explications, audio natif et exercices corrigés. Suivez-les dans l’ordre ou choisissez librement.' : 'Each lesson mixes explanations, native audio and corrected exercises. Take them in order or pick freely.'}</p>
                   <ol className="cp-syllabus">
                     {lessons.map((l, i) => {
                       const rec = mounted ? p.lessons[l.id] : undefined;

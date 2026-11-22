@@ -526,7 +526,7 @@ export const Conjugate = forwardRef<StepHandle, StepProps<ConjugateStep>>(functi
       setStates(st);
       return {
         correct: st.every(Boolean),
-        answer: step.forms.map(([p, a]) => `${p} ${a}`).join(' · '),
+        answer: step.forms.map(([p, a]) => `${p}${p.endsWith('’') || p.endsWith("'") ? '' : ' '}${a}`).join(' · '),
         explain: tx(step.explain, lang) || undefined,
       };
     },

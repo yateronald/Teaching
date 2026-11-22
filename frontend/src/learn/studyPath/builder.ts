@@ -13,6 +13,7 @@ import { LISTENING, exercisePath } from '../practice/listening/catalog';
 import { DICTATIONS, dictationCoursePath } from '../practice/dictation/catalog';
 import type { DictationCourse, DictationMethod } from '../practice/dictation/types';
 import { LEVELS, b, tx, type CourseMeta, type Lang, type Level, type T } from '../types';
+import { VERB_COURSES, VERB_ROWS } from '../verbCatalog';
 import type { StudyGoalId, StudyModule, StudyPlan, StudyStep } from './types';
 
 export interface LevelActivityStats {
@@ -403,15 +404,20 @@ class LevelPool {
         autostart: false,
       };
     }
+    const guided = c.guidedLessons;
+    const lessonCount = guided?.count ?? c.lessonCount;
     return {
       id: `course-${c.id}`,
       kind: 'course',
-      source: { type: 'course', id: c.id, lessonCount: c.lessonCount },
+      source: { type: 'course', id: c.id, lessonCount },
       title: tx(c.title, this.lang),
       subtitle: tx(c.subtitle, this.lang),
-      badge: this.fr ? `Cours · ${c.lessonCount} leçons` : `Course · ${c.lessonCount} lessons`,
+      badge: guided
+        ? this.fr ? (lessonCount === 1 ? 'Parcours · Leçon 1' : `Parcours · Leçons 1 à ${lessonCount}`)
+          : (lessonCount === 1 ? 'Path · Lesson 1' : `Path · Lessons 1–${lessonCount}`)
+        : this.fr ? `Cours · ${lessonCount} leçons` : `Course · ${lessonCount} lessons`,
       level: this.level,
-      minutes: c.minutes,
+      minutes: guided?.minutes ?? c.minutes,
       to: coursePath(c, this.lang),
       autostart: true,
     };
@@ -592,9 +598,22 @@ function makeModule(index: number, id: string, title: T, theme: T, steps: (Study
 }
 
 function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyModule[] {
+  const verbs = VERB_COURSES.filter(course => course.levels.includes(level));
+  const verbModules: StudyModule[] = [];
+  for (let offset = 0; offset < verbs.length; offset += 4) {
+    const group = verbs.slice(offset, offset + 4);
+    const intro = group[0].id === 'verb-groups';
+    const names = VERB_ROWS.filter(([id]) => group.some(course => course.id === `verb-${id}`)).map(([, infinitive]) => infinitive).join(', ');
+    const title = intro ? b('Verb Groups & First Verbs', 'Groupes et premiers verbes')
+      : b(`Essential Verbs · ${names}`, `Verbes essentiels · ${names}`);
+    const theme = intro
+      ? b('Identify the group, then practise the verbs you need for your first conversations.', 'Reconnaissez le groupe, puis entraînez-vous avec les verbes de vos premières conversations.')
+      : b('Practise common constructions, then compare the tenses of each verb.', 'Travaillez les constructions courantes, puis comparez les temps de chaque verbe.');
+    verbModules.push(makeModule(0, `verbs-${level}-${offset / 4 + 1}`, title, theme, group.map(course => pool.courseStep(course.id)), lang));
+  }
   const [first, ...rest] = COMPLETE_MODULES[level];
   const specs = [first, ...CONJUGATION_MODULES[level], ...rest];
-  return specs.map((spec, idx) => {
+  const modules = specs.map((spec, idx) => {
     const learn = spec.courseId
       ? pool.courseStep(spec.courseId) ?? pool.nextCourse()
       : spec.ladderId
@@ -613,6 +632,9 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
     const write = pool.dictationStep(spec.dictMethod);
     return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, practice, ...more, listen, read, write], lang);
   });
+  const afterConjugation = 1 + CONJUGATION_MODULES[level].length;
+  modules.splice(afterConjugation, 0, ...verbModules);
+  return modules.map((module, index) => ({ ...module, index: index + 1 }));
 }
 
 /**

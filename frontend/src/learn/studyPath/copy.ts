@@ -64,7 +64,7 @@ export interface CourseTrackGroup {
   categories: CategoryId[];
 }
 
-/** Clean 4-track grouping of the 11 course categories (zero visual overload). */
+/** Group related categories in the academy menu. */
 export const COURSE_TRACKS: CourseTrackGroup[] = [
   {
     id: 'foundations',
@@ -76,7 +76,7 @@ export const COURSE_TRACKS: CourseTrackGroup[] = [
     id: 'grammar',
     title: b('Grammar & Spelling', 'Grammaire & Orthographe'),
     subtitle: b('Master tenses, agreements, accents and tricky homophones.', 'Maîtriser temps, accords, accents et homophones.'),
-    categories: ['grammar', 'spelling'],
+    categories: ['grammar', 'conjugation', 'verbs', 'spelling'],
   },
   {
     id: 'skills',

@@ -4,6 +4,7 @@
 import { CATEGORIES, categoryPath } from './categories';
 import { getAbout } from './content/registry';
 import { EXTRA_COURSES } from './catalogExtra';
+import { VERB_COURSES } from './verbCatalog';
 import { b, type CategoryId, type CourseAbout, type CourseMeta, type Lang } from './types';
 
 const c = (m: Omit<CourseMeta, 'image' | 'lessonCount'> & { lessonCount?: number }): CourseMeta => ({ lessonCount: 3, image: `course-${m.id}`, ...m });
@@ -1011,7 +1012,7 @@ const FIRST_COURSES: CourseMeta[] = [
 ];
 
 /** Every course: the first 75, then the courses added by path (catalogExtra.ts). */
-export const COURSES: CourseMeta[] = [...FIRST_COURSES, ...EXTRA_COURSES];
+export const COURSES: CourseMeta[] = [...FIRST_COURSES, ...EXTRA_COURSES, ...VERB_COURSES];
 
 /** A course's description and outcomes, from the catalog or, for newer courses, from its loaded content. */
 export const courseAbout = (c: CourseMeta): CourseAbout => ({
