@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const vite = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false }, appType: 'custom' });
+const vite = await createServer({ root, configFile: false, optimizeDeps: { noDiscovery: true }, logLevel: 'error', server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 const ssr = await vite.ssrLoadModule('/src/learn/ssr.ts');
 const { COURSES } = await vite.ssrLoadModule('/src/learn/catalog.ts');
 const { getLessons } = await vite.ssrLoadModule('/src/learn/content/registry.ts');

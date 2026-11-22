@@ -94,7 +94,7 @@ async function retry(fn, tries = 4) {
 }
 
 // ── Load the content through Vite (TypeScript, import.meta.glob) ──
-const vite = await createServer({ root, logLevel: 'error', server: { middlewareMode: true, hmr: false }, appType: 'custom' });
+const vite = await createServer({ root, configFile: false, optimizeDeps: { noDiscovery: true }, logLevel: 'error', server: { middlewareMode: true, hmr: false }, appType: 'custom' });
 const { collectMedia } = await vite.ssrLoadModule('/src/learn/mediaSources.ts');
 const media = collectMedia();
 await vite.close();
