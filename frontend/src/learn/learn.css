@@ -1346,16 +1346,29 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
   flex-direction: column;
   gap: var(--p-gap);
 }
+/* Explanation box: white card, rounded accent bar set inside the left edge */
 .lx-concept-callout {
-  padding: clamp(14px, 2vw, 20px);
+  --bar: linear-gradient(180deg, var(--blue) 0%, #6f9bf5 100%);
+  position: relative;
+  padding: clamp(16px, 2.2vw, 22px) clamp(16px, 2.2vw, 24px) clamp(16px, 2.2vw, 22px) clamp(22px, 2.8vw, 30px);
   border: 1px solid var(--line-soft);
-  border-left: 3.5px solid var(--blue);
-  border-radius: 14px;
-  background: linear-gradient(180deg, var(--paper) 0%, #faf7f0 100%);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 26px -20px rgba(16, 43, 74, 0.35);
 }
-.lx-concept.is-tip .lx-concept-callout { border-left-color: #d99b0e; background: #fffdf7; }
-.lx-concept.is-trap .lx-concept-callout { border-left-color: var(--no); background: #fff9fa; }
-.lx-concept.is-exam .lx-concept-callout { border-left-color: #6b389d; background: #fcfaff; }
+.lx-concept-callout::before {
+  content: '';
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 0;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--bar);
+}
+.lx-concept.is-tip .lx-concept-callout { --bar: linear-gradient(180deg, #d99b0e, #f2c45a); background: #fffdf8; }
+.lx-concept.is-trap .lx-concept-callout { --bar: linear-gradient(180deg, var(--no), #f08a98); background: #fffafb; }
+.lx-concept.is-exam .lx-concept-callout { --bar: linear-gradient(180deg, #6b389d, #a77ad6); background: #fdfbff; }
 
 .lx-concept-img {
   margin: 0;
@@ -1369,21 +1382,83 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
 }
 .lx-concept-body { margin-top: 0; }
 .lx-concept-body p {
-  margin-top: 8px !important;
+  margin-top: 10px !important;
   font-size: var(--p-body);
-  line-height: 1.65;
+  line-height: 1.7;
   color: var(--text);
 }
-.lx-concept-body p:first-child { margin-top: 0 !important; }
+.lx-concept-body > :first-child { margin-top: 0 !important; }
 .lx-concept-body strong {
   display: inline;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: 6px;
-  background: #eaf0f8;
+  background: #eef3fa;
   color: #102b4a;
-  font-weight: 750;
+  font-weight: 700;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
+}
+.lx-concept-body strong.is-short { white-space: nowrap; }
+
+/* "Label: phrase, phrase, phrase" sentences, shown as rows of chips */
+.lx-cb-rows { display: grid; margin: 14px 0 0; padding: 0; }
+.lx-cb-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 28%) minmax(0, 1fr);
+  gap: 6px 16px;
+  align-items: start;
+  padding: 12px 0;
+  border-top: 1px solid var(--line-soft);
+  animation: lx-cb-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(0.12s + var(--i, 0) * 0.07s);
+}
+.lx-concept-body > .lx-cb-rows:first-child .lx-cb-row:first-child { padding-top: 0; border-top: 0; }
+.lx-cb-row:last-child { padding-bottom: 0; }
+.lx-cb-row dt {
+  margin: 0;
+  padding-top: 7px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.lx-cb-row dd { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 0; }
+.lx-cb-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 11px;
+  border: 1px solid #dbe5f3;
+  border-radius: 10px;
+  background: #f4f7fc;
+  color: #102b4a;
+  font-size: clamp(14.5px, min(1.1vw, 2dvh), 16px);
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: nowrap;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+.lx-cb-chip.is-long { white-space: normal; }
+.lx-cb-chip:hover { transform: translateY(-1px); border-color: #b9cbe6; background: #ebf1fb; }
+.lx-cb-word { color: var(--muted); font-size: 14px; font-style: italic; }
+@keyframes lx-cb-in { from { opacity: 0; transform: translateY(6px); } }
+/* The rows follow the box's own width (it is a narrow column beside the audio
+   on wide screens): label above its phrases when there is no room beside. */
+.lx-concept-callout { container-type: inline-size; }
+@container (max-width: 560px) {
+  .lx-cb-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .lx-cb-row dt { padding-top: 0; }
+}
+@supports not (container-type: inline-size) {
+  @media (max-width: 560px) {
+    .lx-cb-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+    .lx-cb-row dt { padding-top: 0; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lx-cb-row { animation: none; }
+  .lx-cb-chip { transition: none; }
 }
 .lx-points { margin: 2px 0 0; }
 .lx-points li {

@@ -7,7 +7,8 @@ import { hasRecording, speak, stop as stopAudio, usePlaying } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type Lang, type ConceptStep, type ConjugateStep, type DictationStep, type FillStep, type McqStep } from '../types';
 import { UI } from '../ui';
-import { AccentKeys, AudioButton, DocBody, Rich, RichBlock, compare, normalize, seededShuffle, wordDiff } from './common';
+import { AccentKeys, AudioButton, DocBody, Rich, compare, normalize, seededShuffle, wordDiff } from './common';
+import { ConceptBody } from './conceptBody';
 import type { StepHandle, StepProps } from './stepTypes';
 
 const rise = { initial: { opacity: 0, y: 14 }, animate: { opacity: 1, y: 0 } };
@@ -217,7 +218,7 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
             )}
             {splitWithExamples && step.body && (
               <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
-                <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+                <ConceptBody text={tx(step.body, lang)} />
               </motion.div>
             )}
             {splitWithExamples && pointsNode}
@@ -226,7 +227,7 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
           <div className="lx-concept-col is-practice">
             {splitImageWithTheory && step.body && (
               <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
-                <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+                <ConceptBody text={tx(step.body, lang)} />
               </motion.div>
             )}
             {splitImageWithTheory && pointsNode}
@@ -243,7 +244,7 @@ export const Concept = forwardRef<StepHandle, StepProps<ConceptStep>>(function C
           )}
           {step.body && (
             <motion.div className="lx-concept-callout" {...rise} transition={{ delay: 0.07, duration: 0.3 }}>
-              <RichBlock text={tx(step.body, lang)} className="lx-concept-body" />
+              <ConceptBody text={tx(step.body, lang)} />
             </motion.div>
           )}
           {pointsNode}
