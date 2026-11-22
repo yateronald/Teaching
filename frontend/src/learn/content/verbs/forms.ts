@@ -44,7 +44,8 @@ const SUBJUNCTIVE_ACCENT: Record<SimplePast, string> = { a: 'â', i: 'î', u: '�
 
 function simpleForms(id: VerbId) {
   const raw: Raw = FORMS[id];
-  const [group, written, futureStem, participle, pastStem, pastPattern, subjunctive, imperative, presentParticiple, auxiliary = 'avoir'] = raw;
+  const [group, written, futureStem, participle, pastStem, pastPattern, subjunctive, imperative, presentParticiple, auxiliaryOverride] = raw;
+  const auxiliary: 'etre' | 'avoir' = auxiliaryOverride ?? 'avoir';
   const present = written.split(' ');
   const stem = id === 'etre' ? 'ét' : present[3].slice(0, -3);
   const past = SIMPLE_PAST[pastPattern];
