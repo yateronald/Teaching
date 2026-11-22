@@ -3,8 +3,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { SoundOutlined } from '@ant-design/icons';
 import { hasRecording, speak, usePlaying } from '../audio';
-import type { Lang, Voice } from '../types';
+import type { Lang, T, Voice } from '../types';
 import { UI } from '../ui';
+import { useShowTranslations } from './translations';
 
 /** **bold** and __highlight__ inside interface or lesson text. */
 export function Rich({ text, className }: { text: string; className?: string }) {
@@ -19,6 +20,31 @@ export function Rich({ text, className }: { text: string; className?: string }) 
     </span>
   );
 }
+
+/**
+ * The content of an exercise (answers, categories, meanings) in French, in
+ * every interface language: the exercise itself stays in French. In the
+ * English interface, the English appears on hover, or under the French when
+ * the learner turns translations on (header button of the lesson).
+ */
+export function FrT({ t, lang }: { t: T; lang: Lang }) {
+  const show = useShowTranslations();
+  const fr = typeof t === 'string' ? t : t.fr;
+  const en = typeof t === 'string' ? '' : t.en;
+  if (lang !== 'en' || !en || en.trim() === fr.trim()) return <span lang="fr"><Rich text={fr} /></span>;
+  return (
+    <span className={`lx-trw${show ? ' is-shown' : ''}`} data-tr={en.replace(/\*\*|__/g, '')}>
+      <span lang="fr"><Rich text={fr} /></span>
+      {show && <small className="lx-tr" lang="en"><Rich text={en} /></small>}
+    </span>
+  );
+}
+
+/** The plain French of a bilingual text, with the English after it in the English interface. */
+export const frWithEn = (t: T, lang: Lang): string => {
+  if (typeof t === 'string') return t;
+  return lang === 'en' && t.en.trim() !== t.fr.trim() ? `${t.fr} (${t.en})` : t.fr;
+};
 
 /** Paragraphs separated by blank lines, each with rich text. */
 export function RichBlock({ text, className }: { text: string; className?: string }) {

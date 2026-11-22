@@ -7,7 +7,7 @@ import { speak } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type CategorizeStep, type HotspotStep, type MatchStep, type OrderStep } from '../types';
 import { UI } from '../ui';
-import { AudioButton, Rich, normalize, seededShuffle } from './common';
+import { AudioButton, FrT, frWithEn, normalize, Rich, seededShuffle } from './common';
 import type { StepHandle, StepProps } from './stepTypes';
 
 const spring = { type: 'spring' as const, stiffness: 520, damping: 38, mass: 0.7 };
@@ -79,7 +79,8 @@ export const Order = forwardRef<StepHandle, StepProps<OrderStep>>(function Order
 export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match({ step, lang, seed, onReady, onScore }, ref) {
   const ui = UI[lang].player;
   const left = useMemo(() => seededShuffle(step.pairs.map((p, i) => ({ i, text: p[0] })), `${seed}-l`), [step.pairs, seed]);
-  const right = useMemo(() => seededShuffle(step.pairs.map((p, i) => ({ i, text: tx(p[1], lang) })), `${seed}-r`), [step.pairs, seed, lang]);
+  // The meaning side shows its French (a definition), the English on hover: see FrT.
+  const right = useMemo(() => seededShuffle(step.pairs.map((p, i) => ({ i, t: p[1], text: tx(p[1], 'fr') })), `${seed}-r`), [step.pairs, seed]);
   const [selL, setSelL] = useState<number | null>(null);
   const [selR, setSelR] = useState<number | null>(null);
   const [matched, setMatched] = useState<number[]>([]);
@@ -132,10 +133,10 @@ export const Match = forwardRef<StepHandle, StepProps<MatchStep>>(function Match
           ))}
         </div>
         <div>
-          {right.map(({ i, text }) => (
+          {right.map(({ i, t, text }) => (
             <motion.button key={i} type="button" className={`lx-tile${step.frBoth ? ' is-fr' : ''} ${cls('r', i)}`} disabled={matched.includes(i)} onClick={() => { lastSide.current = 'r'; setSelR(i); if (step.frBoth) speak(text); }}
               animate={cls('r', i) === 'is-wrong' ? { x: [0, -6, 6, -4, 4, 0] } : cls('r', i) === 'is-matched' ? { scale: [1, 1.05, 1] } : {}} transition={{ duration: 0.4 }}>
-              {text}
+              <FrT t={t} lang={lang} />
             </motion.button>
           ))}
         </div>
@@ -158,7 +159,7 @@ export const Categorize = forwardRef<StepHandle, StepProps<CategorizeStep>>(func
       const ok = items.every(it => where[it.id] === it.bucket);
       return {
         correct: ok,
-        answer: step.buckets.map((bk, b) => `${tx(bk, lang)}: ${items.filter(it => it.bucket === b).map(it => it.text).join(', ')}`).join(' · '),
+        answer: step.buckets.map((bk, b) => `${frWithEn(bk, lang)}: ${items.filter(it => it.bucket === b).map(it => it.text).join(', ')}`).join(' · '),
         explain: tx(step.explain, lang) || undefined,
       };
     },
@@ -213,7 +214,7 @@ export const Categorize = forwardRef<StepHandle, StepProps<CategorizeStep>>(func
           {step.buckets.map((bk, b) => (
             <div key={b} data-bucket={b} className={`lx-bucket${sel ? ' is-target' : ''}`} onClick={() => sel && place(sel, b)} role="button" tabIndex={0}
               onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && sel) place(sel, b); }}>
-              <p data-bucket={b}>{tx(bk, lang)}</p>
+              <p data-bucket={b}><FrT t={bk} lang={lang} /></p>
               <div data-bucket={b} className="lx-bucket-items">{items.filter(it => where[it.id] === b).map(it => chip(it, true))}</div>
             </div>
           ))}

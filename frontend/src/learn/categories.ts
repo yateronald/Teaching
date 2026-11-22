@@ -33,6 +33,19 @@ export const CATEGORIES: CategoryMeta[] = [
     topic: 'online',
   },
   {
+    id: 'conjugation',
+    slug: { en: 'french-conjugation', fr: 'conjugaison-francaise' },
+    name: b('Conjugation', 'Conjugaison'),
+    tag: b('Master every tense', 'Maîtrisez tous les temps'),
+    tagline: b('One course per tense: endings, irregular verbs and when to use them.', 'Un cours par temps : terminaisons, verbes irréguliers et emplois.'),
+    description: b(
+      'One course per tense, from the présent at A1 to the literary tenses at C2. Each course goes step by step: the regular endings, the irregular verbs and spelling traps, the auxiliary and agreement rules, then the tense in real sentences. You conjugate in tables, recognise tenses by ear, write from dictation and say the forms aloud until they come naturally.',
+      'Un cours par temps, du présent au A1 jusqu’aux temps littéraires au C2. Chaque cours avance pas à pas : les terminaisons régulières, les verbes irréguliers et les pièges d’orthographe, les règles d’auxiliaire et d’accord, puis le temps dans de vraies phrases. Vous conjuguez dans des tableaux, reconnaissez les temps à l’oreille, écrivez sous la dictée et prononcez les formes jusqu’à ce qu’elles deviennent naturelles.',
+    ),
+    image: 'cat-conjugation',
+    topic: 'online',
+  },
+  {
     id: 'spelling',
     slug: { en: 'french-spelling', fr: 'orthographe' },
     name: b('Spelling', 'Orthographe'),

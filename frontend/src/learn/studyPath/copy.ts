@@ -1,6 +1,7 @@
 // Bilingual copy & Goal definitions for the Guided Study-Path Platform.
 import { b, type CategoryId, type Level, type T } from '../types';
 import { COURSES } from '../catalog';
+import { CATEGORIES } from '../categories';
 import { TOTAL_ACADEMY_ITEMS } from './builder';
 
 const N_COURSES = COURSES.length;
@@ -114,7 +115,7 @@ export const STUDY_COPY = {
       levelMenuTitle: 'Choose a CEFR Classroom (A1–C2)',
       levelMenuSub: 'Every level combines its guided study path, courses, listening, reading & dictations.',
       libraryMenuTitle: 'Explore the Free Library',
-      libraryCourses: `${N_COURSES} structured courses (11 paths)`,
+      libraryCourses: `${N_COURSES} structured courses (${CATEGORIES.length} paths)`,
       libraryPractice: '407 Practice Labs',
       libraryGames: '5 Daily 3-Min Games',
       openAllLibrary: 'Open full library explorer',
@@ -228,7 +229,7 @@ export const STUDY_COPY = {
       levelMenuTitle: 'Choisir une salle par niveau CECR (A1–C2)',
       levelMenuSub: 'Chaque niveau réunit son parcours guidé, ses cours, écoutes, lectures et dictées.',
       libraryMenuTitle: 'Explorer la bibliothèque libre',
-      libraryCourses: `${N_COURSES} cours structurés (11 parcours)`,
+      libraryCourses: `${N_COURSES} cours structurés (${CATEGORIES.length} parcours)`,
       libraryPractice: '407 ateliers pratiques',
       libraryGames: '5 jeux quotidiens (3 min)',
       openAllLibrary: 'Ouvrir toute la bibliothèque',

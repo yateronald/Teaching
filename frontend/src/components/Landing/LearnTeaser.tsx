@@ -15,10 +15,10 @@ const COPY = {
     all: 'Explore free courses',
     test: 'Free 10-min level test',
     practiceLabel: 'Reading & Listening Studio',
-    studioCardKicker: 'All 11 paths · A1–C2',
+    studioCardKicker: `All ${CATEGORIES.length} paths · A1–C2`,
     studioCardTitle: 'Explore 370+ free courses & 221 practice drills',
     studioCardCta: 'Open free academy',
-    allPathsLabel: 'All 11 learning paths:',
+    allPathsLabel: `All ${CATEGORIES.length} learning paths:`,
   },
   fr: {
     eyebrow: 'Espace gratuit',
@@ -28,10 +28,10 @@ const COPY = {
     all: 'Explorer les cours gratuits',
     test: 'Test de niveau gratuit (10 min)',
     practiceLabel: 'Atelier d’écoute & lecture',
-    studioCardKicker: '11 parcours · A1–C2',
+    studioCardKicker: `${CATEGORIES.length} parcours · A1–C2`,
     studioCardTitle: 'Explorer plus de 370 cours gratuits et 221 exercices',
     studioCardCta: 'Ouvrir l’espace gratuit',
-    allPathsLabel: 'Les 11 parcours gratuits :',
+    allPathsLabel: `Les ${CATEGORIES.length} parcours gratuits :`,
   },
 };
 const POINT_ICONS = [<AudioOutlined />, <CustomerServiceOutlined />, <SafetyCertificateOutlined />];
@@ -84,7 +84,7 @@ const LearnTeaser: React.FC<{ lang: Lang }> = ({ lang }) => {
           </li>
         </ul>
 
-        {/* Complete SEO & quick-jump strip covering all 11 paths */}
+        {/* Complete SEO & quick-jump strip covering every path */}
         <nav className="lp-learn-pills" aria-label={c.allPathsLabel} data-reveal>
           <span><CheckOutlined aria-hidden /> {c.allPathsLabel}</span>
           {CATEGORIES.map(cat => (

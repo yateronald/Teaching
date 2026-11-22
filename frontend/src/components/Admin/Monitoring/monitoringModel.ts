@@ -110,7 +110,7 @@ export const PAGE_KIND_LABEL: Record<string, string> = {
 
 /** The categories of the free courses (learn/categories.ts). */
 export const CATEGORY_LABEL: Record<string, string> = {
-    beginner: 'Beginner French', grammar: 'French Grammar', spelling: 'Spelling', listening: 'Listening',
+    beginner: 'Beginner French', grammar: 'French Grammar', conjugation: 'Conjugation', spelling: 'Spelling', listening: 'Listening',
     reading: 'Reading', pronunciation: 'Pronunciation', conversation: 'Conversation', tcf: 'TCF Canada',
     'tef-quebec': 'TEF Canada & Québec', 'delf-dalf': 'DELF & DALF', business: 'Business French', other: 'Other',
 };

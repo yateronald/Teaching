@@ -7,7 +7,7 @@ import { hasRecording, speak, stop as stopAudio, usePlaying } from '../audio';
 import { imageUrl } from '../categories';
 import { gloss, tx, type Lang, type ConceptStep, type ConjugateStep, type DictationStep, type FillStep, type McqStep } from '../types';
 import { UI } from '../ui';
-import { AccentKeys, AudioButton, DocBody, Rich, compare, normalize, seededShuffle, wordDiff } from './common';
+import { AccentKeys, AudioButton, DocBody, FrT, Rich, compare, frWithEn, normalize, seededShuffle, wordDiff } from './common';
 import { ConceptBody } from './conceptBody';
 import type { StepHandle, StepProps } from './stepTypes';
 
@@ -280,13 +280,25 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
   // Options appear in a shuffled order (authors may list the right answer first).
   const order = useMemo(() => (step.fixedOrder ? step.options.map((_, i) => i) : seededShuffle(step.options.map((_, i) => i), seed)), [step.options, step.fixedOrder, seed]);
   const [picked, setPicked] = useState<number | null>(null);
+  // Answers show in French, with the English on hover (FrT), unless the right
+  // French answer can be read in the question itself: it would give the
+  // answer away, so those answers keep the interface language.
+  const frFirst = useMemo(() => {
+    const right = step.options[step.answer];
+    if (typeof right === 'string') return true;
+    const flat = (x: string) => normalize(x).replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+    const shown = flat(`${step.fr ?? ''} ${step.audio && !step.listen ? step.audio : ''}`.replace(/___/g, ' '));
+    const answer = flat(right.fr);
+    return !(answer.length > 3 && shown.includes(answer));
+  }, [step]);
+  const optionText = (o: McqStep['options'][number]) => (frFirst ? tx(o, 'fr') : tx(o, lang));
   useImperativeHandle(ref, () => ({
     check: () => (picked === null ? null : {
       correct: picked === step.answer,
-      answer: tx(step.options[step.answer], lang),
+      answer: frFirst ? frWithEn(step.options[step.answer], lang) : tx(step.options[step.answer], lang),
       explain: tx(step.explain, lang) || undefined,
     }),
-  }), [picked, step, lang]);
+  }), [picked, step, lang, frFirst]);
   useEffect(() => { onReady(picked !== null); }, [picked, onReady]);
   // Listening questions start by themselves: the learner just pressed Continue.
   useEffect(() => { if (step.audio && step.listen) { const t = window.setTimeout(() => speak(step.audio!, { voice: step.voice }), 450); return () => window.clearTimeout(t); } }, [step.audio, step.listen, step.voice]);
@@ -341,7 +353,7 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
           {frParts && (
             <p className="lx-q-fr is-gap">
               {frParts.map((part, i) => (
-                <span key={i}>{part}{i < frParts.length - 1 && <b className={`lx-gap${picked !== null ? ' is-filled' : ''}`}>{picked !== null ? tx(step.options[picked], lang) : ' '}</b>}</span>
+                <span key={i}>{part}{i < frParts.length - 1 && <b className={`lx-gap${picked !== null ? ' is-filled' : ''}`}>{picked !== null ? optionText(step.options[picked]) : ' '}</b>}</span>
               ))}
             </p>
           )}
@@ -363,7 +375,7 @@ export const Mcq = forwardRef<StepHandle, StepProps<McqStep>>(function Mcq({ ste
                   transition={{ delay: locked ? 0 : 0.05 + k * 0.05, duration: locked ? 0.4 : 0.3 }}
                 >
                   <kbd>{k + 1}</kbd>
-                  <span><Rich text={tx(o, lang)} /></span>
+                  <span>{frFirst ? <FrT t={o} lang={lang} /> : <Rich text={tx(o, lang)} />}</span>
                   {locked && i === step.answer && <CheckOutlined className="lx-option-mark" />}
                   {locked && i === picked && i !== step.answer && <CloseOutlined className="lx-option-mark" />}
                 </motion.button>

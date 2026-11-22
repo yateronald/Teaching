@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, LockOutlined, PlayCircleFilled, SoundOutlined, StarFilled, UnorderedListOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, FireFilled, LockOutlined, PlayCircleFilled, SoundOutlined, StarFilled, TranslationOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { AUTOSTART } from '../paths';
 import { chime, hasRecording, setMuted, stop as stopAudio } from '../audio';
 import { isGraded, tx, type Lang, type Step } from '../types';
 import { UI } from '../ui';
+import { setShowTranslations, useShowTranslations } from './translations';
 import { Rich } from './common';
 import { Concept, Conjugate, Dictation, Fill, Mcq } from './stepsBasic';
 import { Categorize, Hotspot, Match, Order } from './stepsBuild';
@@ -80,6 +81,7 @@ export function playableSteps(steps: Step[]): Step[] {
 export default function Player({ steps: rawSteps, lang, seed, title, onExit, onFinish, onDemo, exam = false, menu }: Props) {
   const steps = useMemo(() => playableSteps(rawSteps), [rawSteps]);
   const ui = UI[lang].player;
+  const showTr = useShowTranslations();
   const [queue, setQueue] = useState<QueueItem[]>(() => steps.map((step, index) => ({ step, index, retry: false })));
   const [pos, setPos] = useState(0);
   const [ready, setReady] = useState(false);
@@ -200,6 +202,11 @@ export default function Player({ steps: rawSteps, lang, seed, title, onExit, onF
             <span className="lx-xp" aria-label={`${xp} ${ui.xp}`}><StarFilled /> <motion.b key={xp} initial={{ y: -8, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>{xp}</motion.b> <small>{ui.xp}</small></span>
             {menu && (
               <button type="button" className={`lx-icon-btn${menuOpen ? ' is-on' : ''}`} onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lx-pmenu" aria-label={ui.lessonsMenu} title={ui.lessonsMenu}><UnorderedListOutlined /></button>
+            )}
+            {lang === 'en' && (
+              <button type="button" className={`lx-icon-btn lx-tr-btn${showTr ? ' is-on' : ''}`} onClick={() => setShowTranslations(!showTr)} aria-pressed={showTr} aria-label={showTr ? ui.hideTranslations : ui.showTranslations} title={showTr ? ui.hideTranslations : ui.showTranslations}>
+                <TranslationOutlined /><small>EN</small>
+              </button>
             )}
             <button type="button" className={`lx-icon-btn${sound ? '' : ' is-off'}`} onClick={() => setSound(s => !s)} aria-pressed={sound} aria-label={sound ? ui.soundOn : ui.soundOff} title={sound ? ui.soundOn : ui.soundOff}><SoundOutlined /></button>
           </div>

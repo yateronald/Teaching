@@ -1400,6 +1400,55 @@ a.lx-pmenu-item:hover { background: var(--paper); border-color: var(--line); }
 }
 .lx-concept-body strong.is-short { white-space: nowrap; }
 
+/* Exercise answers stay in French; the English shows on hover, or under the
+   French when the learner turns translations on (header button, EN interface) */
+.lx-trw { position: relative; display: inline-flex; flex-direction: column; align-items: inherit; gap: 3px; max-width: 100%; }
+.lx-tr { display: block; color: var(--muted); font-size: 0.8em; font-style: italic; font-weight: 500; line-height: 1.35; letter-spacing: normal; text-transform: none; animation: lx-tr-in 0.25s ease both; }
+.lx-option.is-right .lx-tr, .lx-option.is-wrong .lx-tr { color: inherit; opacity: 0.8; }
+@keyframes lx-tr-in { from { opacity: 0; transform: translateY(-3px); } }
+@media (hover: hover) {
+  .lx-trw:not(.is-shown) > [lang='fr'] { text-decoration: underline dotted rgba(16, 43, 74, 0.3); text-decoration-thickness: 1.5px; text-underline-offset: 4px; }
+  .lx-trw:not(.is-shown)::after {
+    content: attr(data-tr);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    z-index: 40;
+    width: max-content;
+    max-width: min(280px, 72vw);
+    padding: 6px 11px;
+    border-radius: 9px;
+    background: #102b4a;
+    box-shadow: 0 8px 20px -8px rgba(16, 43, 74, 0.55);
+    color: #fff;
+    font-size: 13px;
+    font-style: normal;
+    font-weight: 550;
+    line-height: 1.35;
+    text-align: center;
+    text-transform: none;
+    letter-spacing: 0;
+    white-space: normal;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 4px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  :is(.lx-option, .lx-tile, .lx-bucket > p):hover .lx-trw:not(.is-shown)::after,
+  .lx-trw:not(.is-shown):hover::after {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    transition-delay: 0.25s;
+  }
+}
+.lx-tr-btn { width: auto; gap: 4px; padding-inline: 10px; }
+.lx-tr-btn small { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; }
+.lx-tr-btn.is-on { border-color: var(--blue); background: var(--blue-soft); color: var(--blue); }
+@media (prefers-reduced-motion: reduce) {
+  .lx-tr { animation: none; }
+  .lx-trw::after { transition: none !important; }
+}
+
 /* "Label: phrase, phrase, phrase" sentences, shown as rows of chips */
 .lx-cb-rows { display: grid; margin: 14px 0 0; padding: 0; }
 .lx-cb-row {

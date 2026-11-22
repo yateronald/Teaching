@@ -3,11 +3,11 @@
 // is published as soon as its content module exists (content/courses/<id>.ts),
 // so the plan can be written in batches. Lean on purpose: the description and
 // the outcomes live with the lessons (`export const about`). Image: course-<id>;
-// three lessons, 39 minutes unless stated.
+// three lessons of 13 minutes unless a row sets its number of lessons.
 import { hasCourseContent } from './content/registry';
 import { b, type CategoryId, type CourseMeta, type Level } from './types';
 
-type Row = [id: string, level: Level | `${Level} → ${Level}`, slugEn: string, slugFr: string, title: [string, string], subtitle: [string, string], minutes?: number];
+type Row = [id: string, level: Level | `${Level} → ${Level}`, slugEn: string, slugFr: string, title: [string, string], subtitle: [string, string], minutes?: number, lessons?: number];
 
 const levelsOf = (lv: string): Level[] => {
   const order: Level[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
@@ -15,12 +15,35 @@ const levelsOf = (lv: string): Level[] => {
   return z ? order.slice(order.indexOf(a), order.indexOf(z) + 1) : [a];
 };
 
-const path = (category: CategoryId, rows: Row[]): CourseMeta[] => rows.map(([id, level, en, fr, title, subtitle, minutes]) => ({
-  id, category, level, levels: levelsOf(level), minutes: minutes ?? 39, lessonCount: 3, image: `course-${id}`,
+const path = (category: CategoryId, rows: Row[]): CourseMeta[] => rows.map(([id, level, en, fr, title, subtitle, minutes, lessons = 3]) => ({
+  id, category, level, levels: levelsOf(level), minutes: minutes ?? 13 * lessons, lessonCount: lessons, image: `course-${id}`,
   slug: { en, fr }, title: b(...title), subtitle: b(...subtitle),
 }));
 
 const PLAN: CourseMeta[] = [
+  // ── Conjugation: one course per tense, A1 → C2 (November 2026) ───────────
+  // How to form each tense (endings, irregular verbs, auxiliaries, agreement)
+  // and use it; the grammar path covers when and why in more depth.
+  ...path('conjugation', [
+    ['cj-present', 'A1', 'present-tense-conjugation', 'conjugaison-du-present', ['The Present Tense: Every Verb Family', 'Le présent : toutes les familles de verbes'], ['-er, -ir, -re and -oir verbs, the key irregulars and pronominal verbs.', 'Verbes en -er, -ir, -re et -oir, les irréguliers clés et les verbes pronominaux.'], undefined, 5],
+    ['cj-futur-proche', 'A1', 'near-future-conjugation', 'conjugaison-futur-proche', ['The Near Future: aller + Infinitive', 'Le futur proche : aller + infinitif'], ['Talk about plans with aller, with negation and pronouns.', 'Parler de ses projets avec aller, avec la négation et les pronoms.']],
+    ['cj-imperatif', 'A1 → A2', 'imperative-conjugation', 'conjugaison-imperatif', ['The Imperative: Giving Instructions', 'L’impératif : donner des consignes'], ['Three persons, the -er trap, irregular forms and pronouns.', 'Trois personnes, le piège des verbes en -er, les formes irrégulières et les pronoms.'], undefined, 4],
+    ['cj-passe-compose', 'A2', 'passe-compose-conjugation', 'conjugaison-passe-compose', ['The Passé Composé: avoir, être and Participles', 'Le passé composé : avoir, être et participes'], ['Past participles, the être verbs, agreement, negation and questions.', 'Participes passés, verbes avec être, accords, négation et questions.'], undefined, 5],
+    ['cj-imparfait', 'A2', 'imparfait-conjugation', 'conjugaison-imparfait', ['The Imparfait: Endings and Uses', 'L’imparfait : terminaisons et emplois'], ['One rule for almost every verb, the être exception, description and habits.', 'Une règle pour presque tous les verbes, l’exception être, la description et l’habitude.'], undefined, 4],
+    ['cj-passe-recent', 'A2', 'recent-past-and-progressive', 'passe-recent-et-present-progressif', ['Venir de, être en train de, être sur le point de', 'Venir de, être en train de, être sur le point de'], ['The recent past, the action in progress and what is about to happen.', 'Le passé récent, l’action en cours et ce qui va arriver tout de suite.']],
+    ['cj-futur-simple', 'A2 → B1', 'future-tense-conjugation', 'conjugaison-futur-simple', ['The Future Tense: Regular and Irregular Stems', 'Le futur simple : radicaux réguliers et irréguliers'], ['Infinitive + endings, the irregular stems and quand + future.', 'Infinitif + terminaisons, les radicaux irréguliers et quand + futur.'], undefined, 4],
+    ['cj-pc-imparfait', 'B1', 'passe-compose-or-imparfait', 'passe-compose-ou-imparfait', ['Passé Composé or Imparfait?', 'Passé composé ou imparfait ?'], ['Event or background, once or habit: choose the right past tense.', 'Événement ou décor, une fois ou habitude : choisir le bon temps du passé.'], undefined, 4],
+    ['cj-plus-que-parfait', 'B1', 'pluperfect-conjugation', 'conjugaison-plus-que-parfait', ['The Plus-que-parfait: Going Further Back', 'Le plus-que-parfait : remonter plus loin'], ['Auxiliary in the imparfait, agreements and the order of past events.', 'Auxiliaire à l’imparfait, accords et ordre des événements passés.'], undefined, 4],
+    ['cj-conditionnel', 'B1', 'conditional-conjugation', 'conjugaison-conditionnel-present', ['The Present Conditional', 'Le conditionnel présent'], ['Future stem + imparfait endings: politeness, wishes, advice and hypotheses.', 'Radical du futur + terminaisons de l’imparfait : politesse, souhaits, conseils et hypothèses.'], undefined, 4],
+    ['cj-subjonctif', 'B1 → B2', 'subjunctive-conjugation', 'conjugaison-subjonctif-present', ['The Present Subjunctive', 'Le subjonctif présent'], ['Forming it from ils, the irregular verbs and the phrases that call for it.', 'Le former à partir de ils, les verbes irréguliers et les expressions qui l’appellent.'], undefined, 5],
+    ['cj-futur-anterieur', 'B2', 'future-perfect-conjugation', 'conjugaison-futur-anterieur', ['The Future Perfect', 'Le futur antérieur'], ['Auxiliary in the future + participle: before a future moment, and suppositions.', 'Auxiliaire au futur + participe : avant un moment futur, et les suppositions.']],
+    ['cj-conditionnel-passe', 'B2', 'past-conditional-conjugation', 'conjugaison-conditionnel-passe', ['The Past Conditional', 'Le conditionnel passé'], ['Regrets, reproaches, si + plus-que-parfait and unconfirmed facts.', 'Regrets, reproches, si + plus-que-parfait et faits non confirmés.'], undefined, 4],
+    ['cj-subjonctif-passe', 'B2', 'past-subjunctive-conjugation', 'conjugaison-subjonctif-passe', ['The Past Subjunctive', 'Le subjonctif passé'], ['Auxiliary in the subjunctive + participle, for what is already done.', 'Auxiliaire au subjonctif + participe, pour ce qui est déjà accompli.']],
+    ['cj-modes-impersonnels', 'B2', 'infinitive-participle-gerund', 'infinitif-participe-gerondif', ['Infinitive, Participles and Gerund', 'Infinitif, participes et gérondif'], ['The forms without a person: après avoir fini, en partant, ayant compris.', 'Les formes sans personne : après avoir fini, en partant, ayant compris.'], undefined, 4],
+    ['cj-bilan', 'B2 → C1', 'all-french-tenses-review', 'tous-les-temps-bilan', ['All the Tenses: Choosing the Right One', 'Tous les temps : choisir le bon'], ['Past, future, conditional and subjunctive side by side, in real texts.', 'Passé, futur, conditionnel et subjonctif côte à côte, dans de vrais textes.'], undefined, 4],
+    ['cj-passe-simple', 'C1', 'passe-simple-conjugation', 'conjugaison-passe-simple', ['The Passé Simple and Passé Antérieur', 'Le passé simple et le passé antérieur'], ['The tenses of novels and history books: forms in -a, -it, -ut and -int.', 'Les temps des romans et des livres d’histoire : formes en -a, -it, -ut et -int.'], undefined, 4],
+    ['cj-subjonctif-imparfait', 'C2', 'literary-subjunctive', 'subjonctif-imparfait-et-plus-que-parfait', ['The Literary Subjunctive', 'Le subjonctif littéraire'], ['Qu’il fût, qu’il eût fait: read the imperfect and pluperfect subjunctive.', 'Qu’il fût, qu’il eût fait : lire le subjonctif imparfait et plus-que-parfait.']],
+  ]),
   // ── Grammar: A1 → C2 ─────────────────────────────────────────────────────
   ...path('grammar', [
     ['etre-avoir', 'A1', 'etre-and-avoir', 'etre-et-avoir', ['Être & Avoir in Action', 'Être et avoir en action'], ['The two key verbs: identity, age, feelings, and c’est vs il est.', 'Les deux verbes clés : identité, âge, sensations, et c’est ou il est.'], 38],

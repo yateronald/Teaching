@@ -71,6 +71,10 @@ interface ModuleBlueprints {
   courseId?: string;
   /** A second course that practises the module's theme (from the wider catalogue). */
   practiceId?: string;
+  /** Further courses of the module, after the practice course. */
+  moreIds?: string[];
+  /** A conjugation module: courses, ear training and a dictation, no reading step. */
+  conjugation?: boolean;
   ladderId?: string;
   dialogueId?: string;
   earId?: string;
@@ -263,6 +267,70 @@ const COMPLETE_MODULES: Record<Level, ModuleBlueprints[]> = {
       courseId: 'sp-dictation-c2', practiceId: 'dalf-c2', dictMethod: 'exam',
     },
   ],
+};
+
+/**
+ * Conjugation modules of the Complete French goal (the conjugation path, one
+ * course per tense), placed right after the first module of each level.
+ */
+const CONJUGATION_MODULES: Record<Level, ModuleBlueprints[]> = {
+  A1: [
+    {
+      title: b('Conjugation: Present, Near Future & Imperative', 'Conjugaison : présent, futur proche et impératif'),
+      theme: b('Conjugate every verb family in the present, talk about plans and give simple instructions.', 'Conjuguer toutes les familles de verbes au présent, parler de ses projets et donner des consignes simples.'),
+      courseId: 'cj-present', practiceId: 'cj-futur-proche', moreIds: ['cj-imperatif'], dictMethod: 'conjugation', conjugation: true,
+    },
+  ],
+  A2: [
+    {
+      title: b('Conjugation: Talking About the Past', 'Conjugaison : parler du passé'),
+      theme: b('Master the passé composé, the imparfait and the recent past, with avoir, être and agreement.', 'Maîtriser le passé composé, l’imparfait et le passé récent, avec avoir, être et l’accord.'),
+      courseId: 'cj-passe-compose', practiceId: 'cj-imparfait', moreIds: ['cj-passe-recent'], dictMethod: 'conjugation', conjugation: true,
+    },
+  ],
+  B1: [
+    {
+      title: b('Conjugation: Telling a Story in the Past', 'Conjugaison : raconter au passé'),
+      theme: b('Choose between passé composé and imparfait, and go further back with the plus-que-parfait.', 'Choisir entre passé composé et imparfait, et remonter plus loin avec le plus-que-parfait.'),
+      courseId: 'cj-pc-imparfait', practiceId: 'cj-plus-que-parfait', dictMethod: 'story', conjugation: true,
+    },
+    {
+      title: b('Conjugation: Future & Conditional', 'Conjugaison : futur et conditionnel'),
+      theme: b('Form the future and the present conditional, irregular stems included, and use si correctly.', 'Former le futur et le conditionnel présent, radicaux irréguliers compris, et employer si correctement.'),
+      courseId: 'cj-futur-simple', practiceId: 'cj-conditionnel', dictMethod: 'conjugation', conjugation: true,
+    },
+  ],
+  B2: [
+    {
+      title: b('Conjugation: The Subjunctive', 'Conjugaison : le subjonctif'),
+      theme: b('Form the present and past subjunctive and know exactly when to use them.', 'Former le subjonctif présent et passé et savoir exactement quand les employer.'),
+      courseId: 'cj-subjonctif', practiceId: 'cj-subjonctif-passe', dictMethod: 'conjugation', conjugation: true,
+    },
+    {
+      title: b('Conjugation: Compound Tenses & Impersonal Forms', 'Conjugaison : temps composés et formes impersonnelles'),
+      theme: b('Futur antérieur, past conditional, infinitive, participles and gerund.', 'Futur antérieur, conditionnel passé, infinitif, participes et gérondif.'),
+      courseId: 'cj-futur-anterieur', practiceId: 'cj-conditionnel-passe', moreIds: ['cj-modes-impersonnels'], dictMethod: 'conjugation', conjugation: true,
+    },
+  ],
+  C1: [
+    {
+      title: b('Conjugation: Every Tense & the Literary Past', 'Conjugaison : tous les temps et le passé littéraire'),
+      theme: b('Choose the right tense in any text, then read and write the passé simple.', 'Choisir le bon temps dans n’importe quel texte, puis lire et écrire le passé simple.'),
+      courseId: 'cj-bilan', practiceId: 'cj-passe-simple', dictMethod: 'exam', conjugation: true,
+    },
+  ],
+  C2: [
+    {
+      title: b('Conjugation: The Literary Subjunctive', 'Conjugaison : le subjonctif littéraire'),
+      theme: b('Recognise the imperfect and pluperfect subjunctive and the set phrases still alive today.', 'Reconnaître le subjonctif imparfait et plus-que-parfait et les tournures figées encore vivantes.'),
+      courseId: 'cj-subjonctif-imparfait', dictMethod: 'conjugation', conjugation: true,
+    },
+  ],
+};
+
+/** The conjugation course of the Diploma goal's grammar module, per level. */
+const DIPLOMA_CONJUGATION: Record<Level, string> = {
+  A1: 'cj-present', A2: 'cj-passe-compose', B1: 'cj-conditionnel', B2: 'cj-subjonctif', C1: 'cj-bilan', C2: 'cj-subjonctif-imparfait',
 };
 
 /** Helper pools per level with deduplication cursors so no item repeats inside a Study Plan. */
@@ -524,7 +592,8 @@ function makeModule(index: number, id: string, title: T, theme: T, steps: (Study
 }
 
 function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyModule[] {
-  const specs = COMPLETE_MODULES[level];
+  const [first, ...rest] = COMPLETE_MODULES[level];
+  const specs = [first, ...CONJUGATION_MODULES[level], ...rest];
   return specs.map((spec, idx) => {
     const learn = spec.courseId
       ? pool.courseStep(spec.courseId) ?? pool.nextCourse()
@@ -532,15 +601,17 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
         ? pool.courseStep(spec.ladderId) ?? pool.nextCourse()
         : pool.nextCourse();
     const practice = spec.practiceId ? pool.courseStep(spec.practiceId) : null;
+    const more = (spec.moreIds ?? []).map(id => pool.courseStep(id));
     const listen = pool.nextListen({
       dialogueId: spec.dialogueId,
       earId: spec.earId,
       preferDoc: spec.preferDoc,
-      preferEar: level === 'C1' || level === 'C2' ? idx % 2 === 0 : false,
+      // Conjugation modules train the ear on verb forms.
+      preferEar: spec.conjugation || ((level === 'C1' || level === 'C2') && idx % 2 === 0),
     });
-    const read = pool.nextRead(Boolean(spec.preferMission));
+    const read = spec.conjugation ? null : pool.nextRead(Boolean(spec.preferMission));
     const write = pool.dictationStep(spec.dictMethod);
-    return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, practice, listen, read, write], lang);
+    return makeModule(idx + 1, `complete-${level}-${idx + 1}`, spec.title, spec.theme, [learn, practice, ...more, listen, read, write], lang);
   });
 }
 
@@ -646,10 +717,11 @@ function buildDiplomaModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
       theme: b('Strengthen level-defining grammar rules, spelling agreements and structured writing.', 'Verrouillez la grammaire exigée au diplôme, les accords et la rédaction structurée.'),
       steps: () => {
         const writing = skill(2);
+        const conjugation = pool.courseStep(DIPLOMA_CONJUGATION[level]);
         return [
           writing,
           pool.nextCourse(['grammar', 'tcf']),
-          writing ? null : pool.nextCourse(['spelling', 'tef-quebec']),
+          conjugation ?? (writing ? null : pool.nextCourse(['spelling', 'tef-quebec'])),
           pool.dictationStep('conjugation'),
           pool.dictationStep('story'),
         ];
