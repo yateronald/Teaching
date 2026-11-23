@@ -31,7 +31,7 @@ const fail = (res, err) => {
 router.get('/offers', noStore, async (req, res) => {
     try {
         if (!(await billing.enabled(req.db))) return res.json({ enabled: false, offers: [] });
-        res.json({ enabled: true, offers: (await billing.activeOffers(req.db)).map(billing.publicOffer) });
+        res.json({ enabled: true, offers: await billing.enrichOffersWithCharge(await billing.activeOffers(req.db)) });
     } catch (err) { fail(res, err); }
 });
 
@@ -43,7 +43,8 @@ router.get('/me', noStore, site.siteAuth({ required: true }), async (req, res) =
         const [offers, payments, sub] = await Promise.all([
             billing.activeOffers(req.db),
             req.db.all(
-                `SELECT p.reference, p.amount, p.currency, p.days, p.status, p.created_at, p.paid_at, p.renewal,
+                `SELECT p.reference, p.amount, p.currency, p.display_amount, p.display_currency, p.fx_rate, p.invoice_number,
+                        p.days, p.status, p.created_at, p.paid_at, p.renewal,
                         o.name_en, o.name_fr, l.ends_at AS premium_until
                    FROM learn_payments p LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
                   WHERE p.user_id = $1
@@ -55,16 +56,48 @@ router.get('/me', noStore, site.siteAuth({ required: true }), async (req, res) =
                    FROM learn_subscriptions s LEFT JOIN learn_offers o ON o.id = s.offer_id
                   WHERE s.user_id = $1 AND s.status IN ('active', 'non-renewing', 'attention') ORDER BY s.updated_at DESC LIMIT 1`, [uid]),
         ]);
+        const enrichedOffers = await billing.enrichOffersWithCharge(offers);
         res.json({
             enabled: true,
-            offers: offers.map(billing.publicOffer),
+            offers: enrichedOffers,
             payments: payments.map(p => ({
-                reference: p.reference, amount: Number(p.amount), currency: p.currency, days: p.days, status: p.status,
-                created_at: p.created_at, paid_at: p.paid_at, renewal: p.renewal, name: { en: p.name_en, fr: p.name_fr }, premium_until: p.premium_until,
+                reference: p.reference,
+                amount: Number(p.display_amount ?? p.amount),
+                currency: p.display_currency || p.currency,
+                charged_amount: Number(p.amount),
+                charged_currency: p.currency,
+                fx_rate: p.fx_rate ? Number(p.fx_rate) : null,
+                invoice_number: p.invoice_number || null,
+                has_invoice: p.status === 'success',
+                days: p.days,
+                status: p.status,
+                created_at: p.created_at,
+                paid_at: p.paid_at,
+                renewal: p.renewal,
+                name: { en: p.name_en, fr: p.name_fr },
+                premium_until: p.premium_until,
             })),
             subscription: sub ? { status: sub.status, next_payment_date: sub.next_payment_date, name: { en: sub.name_en, fr: sub.name_fr } } : null,
             can_pay: !['candidate', 'org_admin', 'admin', 'teacher'].includes(req.siteUser.role),
         });
+    } catch (err) { fail(res, err); }
+});
+
+// ── Download invoice PDF ──
+router.get('/payments/:reference/invoice.pdf', noStore, site.siteAuth({ required: true }), async (req, res) => {
+    try {
+        const reference = String(req.params.reference || '');
+        if (!REF_RE.test(reference)) return res.status(400).json({ error: 'Invalid reference.', code: 'BAD_REF' });
+        const row = await req.db.get(
+            "SELECT id FROM learn_payments WHERE reference = $1 AND user_id = $2 AND status = 'success'",
+            [reference, req.siteUser.id]);
+        if (!row) return res.status(404).json({ error: 'Invoice not found.', code: 'NO_INVOICE' });
+        const doc = await billing.buildInvoicePdfForPayment(req.db, row.id);
+        if (!doc) return res.status(404).json({ error: 'Invoice not found.', code: 'NO_INVOICE' });
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `${req.query.inline === '1' ? 'inline' : 'attachment'}; filename="${doc.filename}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.send(doc.buffer);
     } catch (err) { fail(res, err); }
 });
 

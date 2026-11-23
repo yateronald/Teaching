@@ -33,6 +33,7 @@
     "livekit-server-sdk": "^2.15.2",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
+    "pdfkit": "^0.21.0",
     "pg": "^8.16.3",
     "sharp": "^0.35.5",
     "sib-api-v3-sdk": "^8.5.0",

@@ -174,6 +174,7 @@ router.put('/mode', async (req, res) => {
 // ── Online payment (Paystack): prices and payments ──
 const billing = require('../services/billing');
 const paystack = require('../services/paystack');
+const fxRate = require('../services/fxRate');
 
 async function billingReady(req, res) {
     const t = await req.db.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'learn_offers'");
@@ -186,13 +187,14 @@ router.get('/billing', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
         const api = String(process.env.API_PUBLIC_URL || '').replace(/\/+$/, '').replace(/\/api$/, '');
-        const [offers, stats, merchantCurrencies] = await Promise.all([
+        const [offers, stats, merchantCurrencies, fx] = await Promise.all([
             req.db.all('SELECT * FROM learn_offers ORDER BY sort, amount'),
             req.db.get(`SELECT (SELECT COUNT(*) FROM learn_payments WHERE status = 'success')::int AS paid,
                                (SELECT COUNT(*) FROM learn_payments WHERE status = 'review')::int AS review,
                                (SELECT COUNT(*) FROM learn_subscriptions WHERE status IN ('active', 'attention'))::int AS subscriptions,
                                (SELECT COUNT(*) FROM learn_payment_events WHERE outcome IN ('error', 'unmatched') AND received_at > now() - INTERVAL '30 days')::int AS problems`),
             paystack.supportedCurrencies().catch(() => []),
+            fxRate.getUsdToXofRate().catch(() => null),
         ]);
         res.json({
             mode: paystack.config().mode,
@@ -200,6 +202,7 @@ router.get('/billing', async (req, res) => {
             webhook_url: api ? `${api}/api/learn/billing/webhook/paystack` : null,
             currencies: billing.CURRENCIES,
             merchant_currencies: merchantCurrencies,
+            fx_usd_xof: fx ? { rate: Number(fx.rate.toFixed(2)), source: fx.source } : null,
             offers: offers.map(o => ({ ...o, amount: Number(o.amount) })),
             stats,
         });
@@ -262,16 +265,46 @@ router.get('/billing/payments', async (req, res) => {
         if (q) { params.push(`%${q}%`); where.push(`(lower(u.email) LIKE $${params.length} OR lower(p.reference) LIKE $${params.length})`); }
         params.push(50, (page - 1) * 50);
         const rows = await req.db.all(
-            `SELECT p.id, p.reference, p.amount, p.currency, p.days, p.status, p.status_detail, p.created_at, p.paid_at, p.channel, p.renewal,
+            `SELECT p.id, p.reference, p.amount, p.currency, p.display_amount, p.display_currency, p.fx_rate, p.invoice_number,
+                    p.days, p.status, p.status_detail, p.created_at, p.paid_at, p.channel, p.renewal,
                     u.id AS user_id, u.first_name, u.last_name, u.email, o.name_en AS offer, l.ends_at AS premium_until
                FROM learn_payments p JOIN users u ON u.id = p.user_id
                LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
               WHERE ${where.join(' AND ')}
               ORDER BY p.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-        res.json({ rows: rows.map(r => ({ ...r, amount: Number(r.amount) })), page });
+        res.json({
+            rows: rows.map(r => ({
+                ...r,
+                amount: Number(r.amount),
+                display_amount: Number(r.display_amount ?? r.amount),
+                display_currency: r.display_currency || r.currency,
+                fx_rate: r.fx_rate ? Number(r.fx_rate) : null,
+                invoice_number: r.invoice_number || null,
+            })),
+            page,
+        });
     } catch (err) {
         console.error('[admin-learners] payments failed:', err.message);
         res.status(500).json({ error: 'Could not load the payments.' });
+    }
+});
+
+// Download PDF invoice for any paid transaction
+router.get('/billing/payments/:id/invoice.pdf', async (req, res) => {
+    try {
+        if (!(await billingReady(req, res))) return;
+        const id = intParam(req.params.id);
+        const p = id && await req.db.get("SELECT id FROM learn_payments WHERE id = $1 AND status = 'success'", [id]);
+        if (!p) return notFound(res);
+        const doc = await billing.buildInvoicePdfForPayment(req.db, id);
+        if (!doc) return notFound(res);
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${doc.filename}"`);
+        res.setHeader('Cache-Control', 'private, no-store');
+        res.send(doc.buffer);
+    } catch (err) {
+        console.error('[admin-learners] invoice pdf failed:', err.message);
+        res.status(500).json({ error: 'Could not generate invoice PDF.' });
     }
 });
 

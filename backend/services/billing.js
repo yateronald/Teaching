@@ -18,8 +18,13 @@
  */
 const crypto = require('crypto');
 const paystack = require('./paystack');
+const fxRate = require('./fxRate');
+const invoicePdf = require('./invoicePdf');
 const access = require('./learnAccess');
 const { isFreeForAll } = require('./learnMode');
+const { maskEmail } = require('./emailIdentity');
+const { paymentInvoice } = require('../emails/templates/learnInvoice');
+const { sendEmail } = require('../emails/brevoService');
 
 const CURRENCIES = ['NGN', 'GHS', 'ZAR', 'KES', 'USD', 'XOF', 'EGP', 'RWF'];
 const COMPANY_ROLES = new Set(['candidate', 'org_admin']);
@@ -61,7 +66,7 @@ async function withUserLock(userId, fn) {
 }
 
 // ── Offers ──
-const publicOffer = (o) => ({
+const publicOffer = (o, chargePreview = null) => ({
     code: o.code,
     name: { en: o.name_en, fr: o.name_fr },
     description: { en: o.description_en || '', fr: o.description_fr || '' },
@@ -69,8 +74,24 @@ const publicOffer = (o) => ({
     amount: Number(o.amount),
     currency: o.currency,
     recurring: !!o.recurring,
+    ...(chargePreview?.converted ? {
+        charge: {
+            amount: chargePreview.chargeAmount,
+            currency: chargePreview.chargeCurrency,
+            fx_rate: chargePreview.fxRate,
+        },
+    } : {}),
 });
 const activeOffers = (db) => db.all('SELECT * FROM learn_offers WHERE active ORDER BY sort, amount');
+
+async function enrichOffersWithCharge(offers) {
+    if (!offers.length) return [];
+    const merchantCurrencies = await paystack.supportedCurrencies().catch(() => []);
+    return Promise.all(offers.map(async (o) => {
+        const conv = await fxRate.convertOfferForCharge(o, merchantCurrencies).catch(() => null);
+        return publicOffer(o, conv);
+    }));
+}
 
 /** Checks an offer sent by the administrator. Returns the clean values or throws. */
 function cleanOffer(b, { partial = false } = {}) {
@@ -130,27 +151,42 @@ async function startCheckout(db, { user, offerCode, ip, lang }) {
     const recent = await db.get("SELECT COUNT(*)::int AS n FROM learn_payments WHERE user_id = $1 AND created_at > now() - INTERVAL '1 hour'", [user.id]);
     if (recent.n >= 10) throw new BillingError(429, 'TOO_MANY', 'Too many payment attempts. Please try again later.');
 
+    const merchantCurrencies = await paystack.supportedCurrencies().catch(() => []);
+    const charge = await fxRate.convertOfferForCharge(offer, merchantCurrencies);
+    if (!charge.supported) {
+        const msg = offer.recurring && merchantCurrencies.length
+            ? `Recurring plans must use a currency enabled on Paystack (${merchantCurrencies.join(', ')}).`
+            : `Online checkout in ${offer.currency} is not enabled on the payment account yet. Please contact support or choose another plan.`;
+        throw new BillingError(400, 'CURRENCY_UNSUPPORTED', msg);
+    }
+
     const reference = `lfwn-${Date.now().toString(36)}-${crypto.randomBytes(12).toString('hex')}`;
     let session;
     try {
         session = await paystack.initialize({
             email: user.email,
-            amount: Number(offer.amount),
-            currency: offer.currency,
+            amount: charge.chargeAmount,
+            currency: charge.chargeCurrency,
             reference,
             callbackUrl: `${apiBase()}/api/learn/billing/callback`,
             plan: offer.recurring ? offer.paystack_plan_code : undefined,
             metadata: {
                 user_id: user.id,
                 offer: offer.code,
+                display_amount: charge.displayAmount,
+                display_currency: charge.displayCurrency,
+                fx_rate: charge.fxRate,
                 cancel_action: subscriptionUrl(lang, 'payment=cancelled'),
-                custom_fields: [{ display_name: 'Offer', variable_name: 'offer', value: lang === 'fr' ? offer.name_fr : offer.name_en }],
+                custom_fields: [
+                    { display_name: 'Offer', variable_name: 'offer', value: lang === 'fr' ? offer.name_fr : offer.name_en },
+                    { display_name: 'Invoice Amount', variable_name: 'invoice_amount', value: invoicePdf.formatMoney(charge.displayAmount, charge.displayCurrency, lang) },
+                ],
             },
         });
     } catch (err) {
         console.error('[billing] checkout init failed:', err.message);
         if (/currency/i.test(String(err.message || ''))) {
-            throw new BillingError(400, 'CURRENCY_UNSUPPORTED', `Online checkout in ${offer.currency} is not enabled on the payment account yet. Please contact support or choose another plan.`);
+            throw new BillingError(400, 'CURRENCY_UNSUPPORTED', `Online checkout in ${charge.chargeCurrency} is not enabled on the payment account yet. Please contact support or choose another plan.`);
         }
         throw new BillingError(502, 'PROVIDER', 'The payment page could not be opened. Please try again in a moment.');
     }
@@ -159,9 +195,20 @@ async function startCheckout(db, { user, offerCode, ip, lang }) {
         throw new BillingError(502, 'PROVIDER', 'The payment page could not be opened. Please try again in a moment.');
     }
     await db.run(
-        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, days, ip)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [user.id, offer.id, reference, offer.amount, offer.currency, offer.days, String(ip || '').replace('::ffff:', '').slice(0, 45) || null]);
+        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, display_amount, display_currency, fx_rate, days, ip)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+            user.id,
+            offer.id,
+            reference,
+            charge.chargeAmount,
+            charge.chargeCurrency,
+            charge.displayAmount,
+            charge.displayCurrency,
+            charge.fxRate,
+            offer.days,
+            String(ip || '').replace('::ffff:', '').slice(0, 45) || null,
+        ]);
     return { url: session.authorization_url, reference };
 }
 
@@ -221,18 +268,24 @@ async function fulfil(db, reference, { via = 'verify' } = {}) {
             [payment.user_id, start.toISOString(), end.toISOString(), `Paid online: ${offer?.name_en || 'Premium'}`.slice(0, 200), reference]);
         const fresh = !!license;
         if (!license) license = await db.get("SELECT id, starts_at, ends_at FROM learn_licenses WHERE source = 'paystack' AND external_ref = $1", [reference]);
+        const paidAt = tx.paid_at || tx.paidAt || new Date().toISOString();
+        const invoiceNumber = payment.invoice_number || invoicePdf.formatInvoiceNumber(payment.id, paidAt);
         await db.run(
             `UPDATE learn_payments SET status = 'success', status_detail = NULL, paid_at = $2, provider_transaction_id = $3,
-                    customer_code = COALESCE($4, customer_code), channel = $5, license_id = $6, updated_at = now()
+                    customer_code = COALESCE($4, customer_code), channel = $5, license_id = $6,
+                    invoice_number = COALESCE(invoice_number, $7), updated_at = now()
               WHERE id = $1`,
-            [payment.id, tx.paid_at || tx.paidAt || new Date().toISOString(), Number(tx.id) || null,
-                tx.customer?.customer_code || null, String(tx.channel || '').slice(0, 30) || null, license.id]);
+            [payment.id, paidAt, Number(tx.id) || null,
+                tx.customer?.customer_code || null, String(tx.channel || '').slice(0, 30) || null, license.id, invoiceNumber]);
         if (fresh) {
-            await access.logAccess(db, { userId: payment.user_id, action: 'premium_paid', detail: { payment: payment.id, reference, amount: Number(payment.amount), currency: payment.currency, ends_at: license.ends_at, via } });
+            await access.logAccess(db, { userId: payment.user_id, action: 'premium_paid', detail: { payment: payment.id, reference, amount: Number(payment.amount), currency: payment.currency, display_amount: Number(payment.display_amount ?? payment.amount), display_currency: payment.display_currency || payment.currency, invoice_number: invoiceNumber, ends_at: license.ends_at, via } });
             await db.run("UPDATE learn_premium_requests SET status = 'done', handled_at = now() WHERE user_id = $1 AND status = 'open'", [payment.user_id]);
             require('./learnEvents').notifyUser(payment.user_id, 'premium_paid');
         }
-        return { outcome: fresh ? 'success' : 'already', payment, license };
+        if (fresh || !payment.invoice_emailed_at) {
+            sendInvoiceEmail(db, payment.id).catch(err => console.error('[billing] invoice email failed:', err.message));
+        }
+        return { outcome: fresh ? 'success' : 'already', payment: { ...payment, invoice_number: invoiceNumber }, license };
     });
 }
 
@@ -293,8 +346,8 @@ async function handleWebhook(db, raw, body) {
                     const userId = await userForCustomer(db, data.customer);
                     if (!offer || !userId) { outcome = 'unmatched'; break; }
                     payment = await db.get(
-                        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, days, renewal, customer_code)
-                         VALUES ($1, $2, $3, $4, $5, $6, true, $7) ON CONFLICT (reference) DO NOTHING RETURNING id`,
+                        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, display_amount, display_currency, days, renewal, customer_code)
+                         VALUES ($1, $2, $3, $4, $5, $4, $5, $6, true, $7) ON CONFLICT (reference) DO NOTHING RETURNING id`,
                         [userId, offer.id, reference, offer.amount, offer.currency, offer.days, data.customer?.customer_code || null]);
                 }
                 if (!payment && !(await db.get('SELECT id FROM learn_payments WHERE reference = $1', [reference]))) { outcome = 'unknown'; break; }
@@ -360,6 +413,144 @@ async function handleWebhook(db, raw, body) {
     }
 }
 
+// ── Invoices (PDF generation & Brevo delivery) ──
+async function buildInvoicePdfForPayment(db, paymentId) {
+    const row = await db.get(
+        `SELECT p.*,
+                u.first_name, u.last_name, u.email, u.country, u.whatsapp, u.preferred_lang,
+                o.name_en, o.name_fr, o.description_en, o.description_fr,
+                l.starts_at, l.ends_at
+           FROM learn_payments p
+           JOIN users u ON u.id = p.user_id
+           LEFT JOIN learn_offers o ON o.id = p.offer_id
+           LEFT JOIN learn_licenses l ON l.id = p.license_id
+          WHERE p.id = $1 AND p.status = 'success'`,
+        [paymentId]);
+    if (!row) return null;
+
+    let invoiceNumber = row.invoice_number || invoicePdf.formatInvoiceNumber(row.id, row.paid_at || row.created_at);
+    if (!row.invoice_number) {
+        const assigned = await db.get(
+            `UPDATE learn_payments SET invoice_number = $2
+              WHERE id = $1 AND invoice_number IS NULL
+             RETURNING invoice_number`,
+            [row.id, invoiceNumber]);
+        if (!assigned) {
+            const current = await db.get('SELECT invoice_number FROM learn_payments WHERE id = $1', [row.id]);
+            if (current?.invoice_number) invoiceNumber = current.invoice_number;
+        }
+    }
+
+    const lang = row.preferred_lang === 'fr' ? 'fr' : 'en';
+    const customerName = `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email;
+    const displayAmount = Number(row.display_amount ?? row.amount);
+    const displayCurrency = row.display_currency || row.currency;
+    const buffer = await invoicePdf.generateInvoicePdf({
+        invoiceNumber,
+        reference: row.reference,
+        providerTransactionId: row.provider_transaction_id,
+        paidAt: row.paid_at || row.created_at,
+        lang,
+        customer: {
+            name: customerName,
+            email: row.email,
+            country: row.country,
+            whatsapp: row.whatsapp,
+        },
+        offer: {
+            name: (lang === 'fr' ? row.name_fr : row.name_en) || row.name_en || 'Learn French with Natives Premium',
+            description: (lang === 'fr' ? row.description_fr : row.description_en) || null,
+            days: row.days,
+        },
+        displayAmount,
+        displayCurrency,
+        chargeAmount: Number(row.amount),
+        chargeCurrency: row.currency,
+        fxRate: row.fx_rate ? Number(row.fx_rate) : null,
+        channel: row.channel,
+        startsAt: row.starts_at || row.paid_at || row.created_at,
+        endsAt: row.ends_at,
+    });
+
+    return {
+        buffer,
+        invoiceNumber,
+        filename: `Invoice-${invoiceNumber}.pdf`,
+        row,
+        lang,
+    };
+}
+
+async function sendInvoiceEmail(db, paymentId) {
+    const claimed = await db.get(
+        `UPDATE learn_payments SET invoice_emailed_at = now()
+          WHERE id = $1 AND status = 'success' AND invoice_emailed_at IS NULL
+         RETURNING id`,
+        [paymentId]);
+    if (!claimed) return { skipped: true };
+
+    try {
+        const built = await buildInvoicePdfForPayment(db, paymentId);
+        if (!built) {
+            await db.run('UPDATE learn_payments SET invoice_emailed_at = NULL WHERE id = $1', [paymentId]).catch(() => {});
+            return { skipped: true };
+        }
+
+        const { buffer, invoiceNumber, filename, row, lang } = built;
+        const base = siteBase() || 'https://www.learnfrenchwithnatives.com';
+        const coursesUrl = `${base}${lang === 'fr' ? '/fr/apprendre/' : '/learn/'}`;
+        const subscriptionUrlVal = `${base}${SUBSCRIPTION_PAGE[lang]}`;
+        const displayCurrency = row.display_currency || row.currency;
+        const displayAmount = Number(row.display_amount ?? row.amount);
+        const formattedDisplay = invoicePdf.formatMoney(displayAmount, displayCurrency, lang);
+        const amountLabel = displayCurrency === 'USD' && !formattedDisplay.includes('USD')
+            ? `${formattedDisplay} USD`
+            : formattedDisplay;
+        const chargedLabel = displayCurrency !== row.currency
+            ? invoicePdf.formatMoney(row.amount, row.currency, lang)
+            : null;
+        const paidDate = invoicePdf.formatDate(row.paid_at || row.created_at, lang);
+        const validUntil = row.ends_at ? invoicePdf.formatDate(row.ends_at, lang) : null;
+        const offerName = (lang === 'fr' ? row.name_fr : row.name_en) || row.name_en || 'Premium';
+        const mail = paymentInvoice({
+            lang,
+            name: row.first_name || row.email.split('@')[0],
+            invoiceNumber,
+            offerName,
+            amountLabel,
+            chargedLabel,
+            paidDate,
+            validUntil,
+            reference: row.reference,
+            coursesUrl,
+            subscriptionUrl: subscriptionUrlVal,
+        });
+
+        if (String(process.env.LEARN_EMAIL_DRY_RUN || '').toLowerCase() === 'true') {
+            console.log(`[learn-invoice-email] dry-run to ${maskEmail(row.email)}: ${mail.subject} (${filename}, ${buffer.length} bytes)`);
+            return { ok: true, dryRun: true, invoiceNumber, filename, ...mail };
+        }
+
+        const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || 'support@learnfrenchwithnatives.com';
+        const fromName = process.env.EMAIL_FROM_NAME || 'Learn French with Natives';
+        await sendEmail({
+            from: from.includes('<') ? from : `${fromName} <${from}>`,
+            to: row.email,
+            subject: mail.subject,
+            html: mail.html,
+            text: mail.text,
+            attachments: [{ filename, content: buffer }],
+        });
+        return { ok: true, invoiceNumber, filename };
+    } catch (err) {
+        await db.run('UPDATE learn_payments SET invoice_emailed_at = NULL WHERE id = $1', [paymentId]).catch(() => {});
+        console.error(`[billing] invoice email failed for payment ${paymentId}:`, err.message);
+        throw err;
+    }
+}
+
 module.exports = {
-    CURRENCIES, BillingError, enabled, publicOffer, activeOffers, cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook, accountUrl, subscriptionUrl,
+    CURRENCIES, BillingError, enabled, publicOffer, activeOffers, enrichOffersWithCharge,
+    cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook,
+    accountUrl, subscriptionUrl, buildInvoicePdfForPayment, sendInvoiceEmail,
 };

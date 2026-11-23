@@ -2,7 +2,7 @@
 // paste in the dashboard, the prices, and every payment.
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, App, Button, Form, Input, InputNumber, Modal, Segmented, Select, Skeleton, Switch, Table, Tag, Tooltip, Typography } from 'antd';
-import { EditOutlined, PlusOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons';
+import { DownloadOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons';
 import { useAuth } from '../../../contexts/AuthContext';
 import { call, fmtDate } from '../../Org/orgModel';
 
@@ -11,11 +11,13 @@ interface OfferRow {
   days: number; amount: number; currency: string; recurring: boolean; paystack_plan_code: string | null; active: boolean; sort: number;
 }
 interface BillingInfo {
-  mode: 'live' | 'test' | 'off'; callback_url: string | null; webhook_url: string | null; currencies: string[]; merchant_currencies?: string[]; offers: OfferRow[];
+  mode: 'live' | 'test' | 'off'; callback_url: string | null; webhook_url: string | null; currencies: string[];
+  merchant_currencies?: string[]; fx_usd_xof?: { rate: number; source: string } | null; offers: OfferRow[];
   stats: { paid: number; review: number; subscriptions: number; problems: number };
 }
 interface PaymentRow {
-  id: number; reference: string; amount: number; currency: string; days: number; status: string; status_detail: string | null;
+  id: number; reference: string; amount: number; currency: string; display_amount?: number; display_currency?: string;
+  fx_rate?: number | null; invoice_number?: string | null; days: number; status: string; status_detail: string | null;
   created_at: string; paid_at: string | null; channel: string | null; renewal: boolean; first_name: string; last_name: string; email: string;
   offer: string | null; premium_until: string | null;
 }
@@ -58,12 +60,34 @@ export default function BillingAdmin() {
     } catch (e) { message.error((e as Error).message); }
   };
 
+  const downloadInvoice = async (p: PaymentRow) => {
+    try {
+      const res = await apiCall(`/admin/learners/billing/payments/${p.id}/invoice.pdf`);
+      if (!res.ok) throw new Error('Could not generate invoice PDF.');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Invoice-${p.invoice_number || p.reference}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) { message.error((e as Error).message); }
+  };
+
   if (error) return <Alert type="warning" showIcon message={error} />;
   if (!info) return <Skeleton active />;
   const merchantCurrencies = info.merchant_currencies || [];
+  const canAutoConvertUsd = merchantCurrencies.includes('XOF') && !merchantCurrencies.includes('USD');
+  const isAutoConverted = (o: Pick<OfferRow, 'currency' | 'recurring'>) => !o.recurring && o.currency === 'USD' && canAutoConvertUsd;
   const unsupportedOffers = merchantCurrencies.length > 0
-    ? info.offers.filter(o => o.active && !merchantCurrencies.includes(o.currency))
+    ? info.offers.filter(o => o.active && !merchantCurrencies.includes(o.currency) && !isAutoConverted(o))
     : [];
+  const approxXofSubunits = (usdSubunits: number) => {
+    if (!info.fx_usd_xof?.rate) return null;
+    return Math.max(100, Math.round((((usdSubunits / 100) * info.fx_usd_xof.rate) / 50)) * 50) * 100;
+  };
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 20 }}>
       <section style={{ padding: 16, border: '1px solid #e2e8f0', borderRadius: 12, background: '#fff' }}>
@@ -76,8 +100,11 @@ export default function BillingAdmin() {
         </div>
         {merchantCurrencies.length > 0 && (
           <p style={{ margin: '10px 0 0' }}>
-            Enabled currency on your Paystack account:{' '}
+            Paystack settlement currency:{' '}
             {merchantCurrencies.map(cur => <Tag key={cur} color="blue">{cur}</Tag>)}
+            {canAutoConvertUsd && info.fx_usd_xof && (
+              <Tag color="cyan">USD prices auto-convert to XOF at checkout (1 USD ≈ {info.fx_usd_xof.rate} XOF · Invoices in USD)</Tag>
+            )}
           </p>
         )}
         <p style={{ margin: '10px 0 0', color: '#64748b' }}>
@@ -92,7 +119,7 @@ export default function BillingAdmin() {
           type="error"
           showIcon
           message={`Paystack rejected ${unsupportedOffers.map(o => `"${o.name_en}" (${o.currency})`).join(', ')}: currency not enabled on Paystack`}
-          description={`Your Paystack account currently accepts ${merchantCurrencies.join(', ')} only. Edit each active offer below to use ${merchantCurrencies.join(' or ')}, or enable the offer currency in your Paystack merchant dashboard.`}
+          description={`Your Paystack account accepts ${merchantCurrencies.join(', ')} (or one-time USD offers converted automatically to XOF).`}
         />
       )}
 
@@ -106,14 +133,23 @@ export default function BillingAdmin() {
           columns={[
             { title: 'Offer', key: 'name', render: (_, o) => <span><strong>{o.name_en}</strong><div style={{ color: '#64748b', fontSize: 12 }}>{o.name_fr} · <code>{o.code}</code></div></span> },
             {
-              title: 'Price', key: 'price', render: (_, o) => (
-                <span>
-                  {money(o.amount, o.currency)}
-                  {merchantCurrencies.length > 0 && !merchantCurrencies.includes(o.currency) && (
-                    <Tag color="red" style={{ marginLeft: 6 }}>Not enabled on Paystack</Tag>
-                  )}
-                </span>
-              ),
+              title: 'Price', key: 'price', render: (_, o) => {
+                const converted = isAutoConverted(o);
+                const xofEst = converted ? approxXofSubunits(o.amount) : null;
+                return (
+                  <span>
+                    {money(o.amount, o.currency)}
+                    {converted && (
+                      <Tag color="cyan" style={{ marginLeft: 6 }}>
+                        Auto → {xofEst ? `~${money(xofEst, 'XOF')}` : 'XOF'}
+                      </Tag>
+                    )}
+                    {!converted && merchantCurrencies.length > 0 && !merchantCurrencies.includes(o.currency) && (
+                      <Tag color="red" style={{ marginLeft: 6 }}>Not enabled on Paystack</Tag>
+                    )}
+                  </span>
+                );
+              },
             },
             { title: 'Premium', key: 'days', render: (_, o) => `${o.days} days` },
             { title: 'Type', key: 'type', render: (_, o) => (o.recurring ? <Tooltip title={o.paystack_plan_code}><Tag color="gold">Recurring</Tag></Tooltip> : <Tag>One payment</Tag>) },
@@ -134,12 +170,24 @@ export default function BillingAdmin() {
           <Button icon={<ReloadOutlined />} onClick={() => { load(); loadPayments(); }}>Refresh</Button>
         </div>
         <Table<PaymentRow>
-          rowKey="id" dataSource={payments || []} loading={!payments} pagination={false} scroll={{ x: 900 }}
+          rowKey="id" dataSource={payments || []} loading={!payments} pagination={false} scroll={{ x: 960 }}
           columns={[
             { title: 'Date', key: 'date', render: (_, p) => fmtDate(p.paid_at || p.created_at, L) },
             { title: 'Person', key: 'who', render: (_, p) => <span>{p.first_name} {p.last_name}<div style={{ color: '#64748b', fontSize: 12 }}>{p.email}</div></span> },
-            { title: 'Offer', key: 'offer', render: (_, p) => <span>{p.offer || '—'}{p.renewal && <Tag style={{ marginLeft: 6 }}>renewal</Tag>}</span> },
-            { title: 'Amount', key: 'amount', render: (_, p) => money(p.amount, p.currency) },
+            { title: 'Offer', key: 'offer', render: (_, p) => <span>{p.offer || '—'}{p.renewal && <Tag style={{ marginLeft: 6 }}>renewal</Tag>}{p.invoice_number && <div style={{ color: '#64748b', fontSize: 12 }}><code>{p.invoice_number}</code></div>}</span> },
+            {
+              title: 'Amount', key: 'amount', render: (_, p) => {
+                const dispCur = p.display_currency || p.currency;
+                const dispAmt = p.display_amount ?? p.amount;
+                const converted = dispCur !== p.currency;
+                return (
+                  <span>
+                    <strong>{money(dispAmt, dispCur)}</strong>
+                    {converted && <div style={{ color: '#64748b', fontSize: 12 }}>Settled: {money(p.amount, p.currency)}</div>}
+                  </span>
+                );
+              },
+            },
             {
               title: 'Status', key: 'status', render: (_, p) => (
                 <span><Tag color={STATUS_COLOR[p.status] || 'default'}>{p.status}</Tag>
@@ -148,7 +196,15 @@ export default function BillingAdmin() {
               ),
             },
             { title: 'Reference', key: 'ref', render: (_, p) => <Typography.Text copyable={{ text: p.reference }} style={{ fontSize: 12 }}>{p.reference.slice(0, 18)}…</Typography.Text> },
-            { title: '', key: 'act', align: 'right', render: (_, p) => (['initialized', 'review'].includes(p.status) ? <Button icon={<SyncOutlined />} onClick={() => recheck(p)}>Ask Paystack</Button> : null) },
+            {
+              title: '', key: 'act', align: 'right', render: (_, p) => (
+                p.status === 'success'
+                  ? <Button icon={<DownloadOutlined />} size="small" onClick={() => void downloadInvoice(p)}>Invoice PDF</Button>
+                  : ['initialized', 'review'].includes(p.status)
+                    ? <Button icon={<SyncOutlined />} size="small" onClick={() => recheck(p)}>Ask Paystack</Button>
+                    : null
+              ),
+            },
           ]}
         />
       </section>
@@ -165,7 +221,8 @@ function OfferModal({ offer, currencies, merchantCurrencies, onClose, onSaved }:
   const [busy, setBusy] = useState(false);
   const recurring = Form.useWatch('recurring', form);
   const selectedCurrency = Form.useWatch('currency', form) as string | undefined;
-  const currencyMismatch = Boolean(selectedCurrency && merchantCurrencies.length > 0 && !merchantCurrencies.includes(selectedCurrency));
+  const canConvertUsd = !recurring && selectedCurrency === 'USD' && merchantCurrencies.includes('XOF');
+  const currencyMismatch = Boolean(selectedCurrency && merchantCurrencies.length > 0 && !merchantCurrencies.includes(selectedCurrency) && !canConvertUsd);
   const save = async () => {
     const v = await form.validateFields();
     // Paystack counts in the currency's smallest unit (×100).
@@ -178,11 +235,12 @@ function OfferModal({ offer, currencies, merchantCurrencies, onClose, onSaved }:
       onSaved();
     } catch (e) { message.error((e as Error).message); } finally { setBusy(false); }
   };
+  const defaultCurrency = currencies.includes('USD') && merchantCurrencies.includes('XOF') ? 'USD' : (merchantCurrencies[0] || currencies[0]);
   return (
     <Modal open title={offer ? 'Edit the price' : 'New price'} onCancel={onClose} onOk={save} okText="Save" confirmLoading={busy} width={640} destroyOnHidden>
       <Form form={form} layout="vertical" initialValues={offer
         ? { ...offer, price: offer.amount / 100 }
-        : { days: 30, currency: merchantCurrencies[0] || currencies[0], recurring: false, active: false, sort: 0 }}>
+        : { days: 30, currency: defaultCurrency, recurring: false, active: false, sort: 0 }}>
         {currencyMismatch && (
           <Alert
             type="warning"
@@ -197,14 +255,18 @@ function OfferModal({ offer, currencies, merchantCurrencies, onClose, onSaved }:
           <Form.Item name="description_en" label="Short line (English)"><Input maxLength={300} /></Form.Item>
           <Form.Item name="description_fr" label="Short line (French)"><Input maxLength={300} /></Form.Item>
           <Form.Item name="price" label="Price" rules={[{ required: true, type: 'number', min: 0.01 }]}
-            extra="Enter the normal display price (e.g. 12000 for 12,000 XOF, or 20 for $20); Paystack subunits are computed automatically.">
-            <InputNumber style={{ width: '100%' }} min={0.01} step={100} />
+            extra="Enter the normal display price (e.g. 30 for $30 USD). One-time USD offers automatically convert to XOF at Paystack checkout while staying in USD on site & invoices.">
+            <InputNumber style={{ width: '100%' }} min={0.01} step={5} />
           </Form.Item>
-          <Form.Item name="currency" label="Currency" rules={[{ required: true }]} extra="Must be enabled on your Paystack merchant account.">
+          <Form.Item name="currency" label="Currency" rules={[{ required: true }]} extra="USD one-time offers auto-convert to XOF at Paystack checkout.">
             <Select options={currencies.map(c => ({
               value: c,
               label: merchantCurrencies.length > 0
-                ? `${c} ${merchantCurrencies.includes(c) ? '(enabled on Paystack)' : '(not enabled on Paystack)'}`
+                ? merchantCurrencies.includes(c)
+                  ? `${c} (enabled directly on Paystack)`
+                  : c === 'USD' && merchantCurrencies.includes('XOF')
+                    ? `${c} (public & invoice in USD → auto XOF checkout)`
+                    : `${c} (not enabled on Paystack)`
                 : c,
             }))} />
           </Form.Item>

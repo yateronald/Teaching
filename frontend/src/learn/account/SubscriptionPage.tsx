@@ -5,14 +5,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   ArrowRightOutlined, CheckCircleFilled, CloseOutlined, CrownFilled,
-  CustomerServiceOutlined, EditOutlined, LoadingOutlined, LockOutlined,
-  ReadOutlined, SafetyCertificateOutlined, TeamOutlined, UserOutlined,
+  CustomerServiceOutlined, DownloadOutlined, EditOutlined, LoadingOutlined,
+  LockOutlined, ReadOutlined, SafetyCertificateOutlined, TeamOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { LearnShell, useMounted } from '../shell';
 import { hubPath } from '../paths';
 import type { Lang } from '../types';
 import { siteApi, type ApiError } from './api';
-import { formatPrice, startCheckout, type Offer } from './billingApi';
+import { downloadInvoicePdf, formatPrice, startCheckout, type Offer } from './billingApi';
 import { ACCOUNT_COPY, errorText } from './copy';
 import { accountPath } from './paths';
 import { PremiumRequest } from './AccessGate';
@@ -23,6 +23,11 @@ interface Payment {
   reference: string;
   amount: number;
   currency: string;
+  charged_amount?: number;
+  charged_currency?: string;
+  fx_rate?: number | null;
+  invoice_number?: string | null;
+  has_invoice?: boolean;
   days: number;
   status: string;
   created_at: string;
@@ -135,6 +140,9 @@ const T = {
     trustCard: 'Visa, Mastercard & Mobile Money',
     trustProvider: 'Processed securely by Paystack',
     trustInstant: 'Instant course activation',
+    fxCheckoutNote: (charged: string) => `Billed as ${charged} via Paystack · Official USD invoice emailed`,
+    settledLabel: (charged: string) => `Settled: ${charged}`,
+    invoiceBtn: 'Invoice PDF',
     manualTitle: 'Request Premium activation',
     manualText: 'Online checkout is being finalized. Send a quick request and our team will activate Premium for you.',
     benefitsEyebrow: 'What Premium unlocks',
@@ -213,6 +221,9 @@ const T = {
     trustCard: 'Carte bancaire & Mobile Money',
     trustProvider: 'Paiement sécurisé via Paystack',
     trustInstant: 'Activation instantanée',
+    fxCheckoutNote: (charged: string) => `Débité en ${charged} via Paystack · Facture officielle USD par email`,
+    settledLabel: (charged: string) => `Réglé : ${charged}`,
+    invoiceBtn: 'Facture PDF',
     manualTitle: 'Demander l’activation Premium',
     manualText: 'Le paiement en ligne est en cours de finalisation. Envoyez une demande et notre équipe active votre accès.',
     benefitsEyebrow: 'Ce que Premium débloque',
@@ -281,6 +292,8 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
   const [payError, setPayError] = useState('');
   const [subBusy, setSubBusy] = useState(false);
   const [subError, setSubError] = useState('');
+  const [invBusy, setInvBusy] = useState('');
+  const [invError, setInvError] = useState('');
 
   const { user, access, mode } = account;
   const isPremium = access.level === 'premium';
@@ -331,6 +344,18 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
     } catch (e) {
       setPayError(errorText(lang, e as ApiError));
       setPayBusy('');
+    }
+  };
+
+  const openInvoice = async (p: Payment) => {
+    setInvBusy(p.reference);
+    setInvError('');
+    try {
+      await downloadInvoicePdf(p.reference, `Invoice-${p.invoice_number || p.reference}.pdf`);
+    } catch (e) {
+      setInvError(errorText(lang, e as ApiError));
+    } finally {
+      setInvBusy('');
     }
   };
 
@@ -457,6 +482,9 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
                             <strong>{formatPrice(o.amount, o.currency, lang)}</strong>
                             <span>/ {t.periodLabel(o.days)}</span>
                           </p>
+                          {o.charge && o.charge.currency !== o.currency && (
+                            <p className="ax-sub-fx">{t.fxCheckoutNote(formatPrice(o.charge.amount, o.charge.currency, lang))}</p>
+                          )}
 
                           <p className="ax-sub-plan-days">{t.daysAccess(o.days)}</p>
                           {(o.description[lang] || o.description.en) && (
@@ -583,20 +611,40 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
                   <h2>{t.historyTitle}</h2>
                   <p className="ax-sub-box-desc">{t.historySub}</p>
                   <ul className="ax-payments">
-                    {billingData.payments.map(p => (
-                      <li key={p.reference}>
-                        <span>
-                          <strong>{p.name[lang] || p.name.en || 'Premium'}{p.renewal ? ` · ${t.renewalTag}` : ''}</strong>
-                          <small>
-                            {fmtDate(p.paid_at || p.created_at, lang)}
-                            {p.status === 'success' && p.premium_until ? ` · ${t.paidUntil(fmtDate(p.premium_until, lang))}` : ''}
-                          </small>
-                        </span>
-                        <span className="ax-pay-amount">{formatPrice(p.amount, p.currency, lang)}</span>
-                        <span className={`ax-pay-status is-${p.status}`}>{t.statusLabels[p.status] || p.status}</span>
-                      </li>
-                    ))}
+                    {billingData.payments.map(p => {
+                      const settledElsewhere = Boolean(p.charged_currency && p.charged_currency !== p.currency && p.charged_amount);
+                      return (
+                        <li key={p.reference}>
+                          <span>
+                            <strong>
+                              {p.name[lang] || p.name.en || 'Premium'}
+                              {p.renewal ? ` · ${t.renewalTag}` : ''}
+                              {p.invoice_number && <code className="ax-inv-num">{p.invoice_number}</code>}
+                            </strong>
+                            <small>
+                              {fmtDate(p.paid_at || p.created_at, lang)}
+                              {p.status === 'success' && p.premium_until ? ` · ${t.paidUntil(fmtDate(p.premium_until, lang))}` : ''}
+                              {settledElsewhere ? ` · ${t.settledLabel(formatPrice(p.charged_amount!, p.charged_currency!, lang))}` : ''}
+                            </small>
+                          </span>
+                          <span className="ax-pay-amount">{formatPrice(p.amount, p.currency, lang)}</span>
+                          <span className={`ax-pay-status is-${p.status}`}>{t.statusLabels[p.status] || p.status}</span>
+                          {p.has_invoice && (
+                            <button
+                              type="button"
+                              className="ax-inv-btn"
+                              disabled={invBusy === p.reference}
+                              onClick={() => void openInvoice(p)}
+                            >
+                              {invBusy === p.reference ? <LoadingOutlined /> : <DownloadOutlined />}
+                              <span>{t.invoiceBtn}</span>
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
+                  {invError && <p className="ax-error" role="alert">{invError}</p>}
                 </section>
               )}
             </div>
