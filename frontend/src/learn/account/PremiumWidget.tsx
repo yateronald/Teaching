@@ -196,7 +196,7 @@ export function PremiumInfoWidget({ lang, variant = 'banner', tier = 'premium', 
         {signedIn ? (
           account.payments
             ? (
-              <Link to={`${accountPath('account', lang)}#premium`} className="lp-btn lp-btn-primary">
+              <Link to={accountPath('subscription', lang)} className="lp-btn lp-btn-primary">
                 {c.upgradeNow} <ArrowRightOutlined aria-hidden />
               </Link>
             )
@@ -345,7 +345,7 @@ export function PremiumModalHost({ lang }: { lang: Lang }) {
               account.payments
                 ? (
                   <Link
-                    to={`${accountPath('account', lang)}#premium`}
+                    to={accountPath('subscription', lang)}
                     className="lp-btn lp-btn-primary lp-btn-lg ax-modal-primary"
                     onClick={closePremiumModal}
                   >

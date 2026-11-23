@@ -15,13 +15,13 @@ import type { Lang } from '../types';
 import { apiUrl, siteApi, type ApiError } from './api';
 import { ACCOUNT_COPY, errorText } from './copy';
 import { countries, guessCountry } from './countries';
+import { resolveUserBadge } from './identity';
 import { accountPath, safeNext, type AccountPage } from './paths';
 import {
   countryFlag, FRENCH_LEVEL_OPTIONS, phoneRule, splitWhatsAppNumber, validateWhatsAppInput,
   type FrenchLevelValue,
 } from './phone';
-import { PremiumRequest } from './AccessGate';
-import { BillingSection } from './Billing';
+import SubscriptionPage from './SubscriptionPage';
 import { loadAccount, setAccount, signedIn, signOut, useAccount, type SiteAccess, type SiteUser } from './store';
 import './account.css';
 
@@ -521,7 +521,7 @@ export function SignUpPage({ lang }: { lang: Lang }) {
       <Frame lang={lang} page="signUp" title={c.welcomeTitle(name)} sub={c.welcomeText} aside={false}>
         <div className="lp-hero-ctas">
           <Link to={next === accountPath('account', lang) ? hubPath(lang) : next} className="lp-btn lp-btn-primary">{c.startLearning}<ArrowRightOutlined /></Link>
-          <Link to={accountPath('account', lang)} className="lp-btn lp-btn-ghost"><CrownFilled />{c.seePremium}</Link>
+          <Link to={accountPath('subscription', lang)} className="lp-btn lp-btn-ghost"><CrownFilled />{c.seePremium}</Link>
         </div>
       </Frame>
     );
@@ -817,7 +817,8 @@ export function AccountPage({ lang }: { lang: Lang }) {
   const account = useAccount();
   const navigate = useNavigate();
   const q = useQuery();
-  const { user, access } = account;
+  const { user, access, mode } = account;
+  const identity = resolveUserBadge(account, lang);
 
   useEffect(() => {
     if (account.status !== 'unknown' && !user) navigate(accountPath('signIn', lang, accountPath('account', lang)), { replace: true });
@@ -830,50 +831,93 @@ export function AccountPage({ lang }: { lang: Lang }) {
       </Frame>
     );
   }
-  const notice = q.get('google') === 'linked' ? c.googleLinked : q.get('error') ? errorText(lang, { code: q.get('error') || '' }) : '';
-  return (
-    <Frame lang={lang} page="account" title={c.accountTitle(user.first_name)} sub={user.email} aside={false}>
-      {notice && <p className={`ax-note${q.get('error') ? ' is-warn' : ' is-ok'}`} role="status">{notice}</p>}
-      <AccessCard lang={lang} c={c} access={access} payments={account.payments} freeForAll={account.mode === 'free'} />
-      <BillingSection lang={lang} result={q.get('payment')} />
-      <DetailsCard lang={lang} c={c} user={user} />
-      <SecurityCard lang={lang} c={c} user={user} google={account.google} />
-      {user.portal && (
-        <section className="ax-section">
-          <p>{c.portalNote}</p>
-          <a className="lp-btn lp-btn-ghost" href="/app">{c.portalLink}<ArrowRightOutlined /></a>
-        </section>
-      )}
-    </Frame>
-  );
-}
 
-function AccessCard({ lang, c, access, payments, freeForAll }: { lang: Lang; c: Copy; access: SiteAccess; payments: boolean; freeForAll: boolean }) {
-  const premium = access.level === 'premium';
-  if (freeForAll && !premium) {
-    return (
-      <section className="ax-section ax-access">
-        <h2>{c.accessTitle}</h2>
-        <p className="ax-access-level"><UserOutlined aria-hidden /> <strong>{c.freeForAllTitle}</strong></p>
-        <p>{c.freeForAllText}</p>
-      </section>
-    );
-  }
-  const until = access.premium?.until ? new Date(access.premium.until).toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA', { year: 'numeric', month: 'long', day: 'numeric' }) : null;
+  const alternates = { en: accountPath('account', 'en'), fr: accountPath('account', 'fr') };
+  const notice = q.get('google') === 'linked' ? c.googleLinked : q.get('error') ? errorText(lang, { code: q.get('error') || '' }) : '';
+  const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
+  const countryLabel = user.country ? countries(lang).find(x => x.code === user.country)?.name || user.country : '';
+  const levelBadge = user.french_level ? FRENCH_LEVEL_OPTIONS.find(o => o.value === user.french_level) : null;
+  const isPremium = access.level === 'premium';
+  const showUpgradeCta = !isPremium && mode === 'premium' && !access.staff;
+  const variant = identity?.variant ?? (isPremium ? 'premium' : 'free');
+  const tierLabel = mode === 'free' && !isPremium
+    ? c.freeForAllTitle
+    : access.staff
+      ? (identity?.badge || 'Team')
+      : isPremium
+        ? c.levelPremium
+        : c.levelFree;
+
   return (
-    <section className={`ax-section ax-access${premium ? ' is-premium' : ''}`}>
-      <h2>{c.accessTitle}</h2>
-      <p className="ax-access-level">{premium ? <CrownFilled aria-hidden /> : <UserOutlined aria-hidden />} <strong>{premium ? c.levelPremium : c.levelFree}</strong>
-        {premium && access.premium && !access.staff && <span className="ax-access-until">{until ? c.until(until) : c.noEnd}{access.premium.via === 'company' ? `, ${c.viaCompany}` : ''}</span>}
-      </p>
-      <p>{access.staff ? c.staff : premium ? c.levelPremiumText : c.levelFreeText}</p>
-      {!premium && !payments && (
-        <>
-          <p className="ax-hint">{c.premiumAskText}</p>
-          <PremiumRequest lang={lang} withMessage />
-        </>
-      )}
-    </section>
+    <LearnShell
+      lang={lang}
+      alternates={alternates}
+      seo={{ title: `${c.profileTitle} | Learn French with Natives`, description: c.profileSub, path: alternates[lang], noindex: true }}
+    >
+      <section className="ax-wrap ax-prof-wrap">
+        <div className="lp-wrap ax-prof-shell">
+          {notice && <p className={`ax-note${q.get('error') ? ' is-warn' : ' is-ok'}`} role="status">{notice}</p>}
+
+          <header className="ax-prof-head">
+            <div className="ax-prof-who">
+              <span className={`ax-prof-ava is-${variant}`} aria-hidden>
+                {(user.first_name || user.email).slice(0, 1).toUpperCase()}
+              </span>
+              <div className="ax-prof-id">
+                <div className="ax-prof-title-row">
+                  <h1>{fullName}</h1>
+                  <span className={`ax-prof-tier is-${variant}`}>
+                    {isPremium && <CrownFilled aria-hidden />}
+                    {tierLabel}
+                  </span>
+                </div>
+                <p className="ax-prof-email">
+                  <span>{user.email}</span>
+                  {user.email_verified && (
+                    <span className="ax-prof-ver">
+                      <CheckCircleFilled aria-hidden /> {c.accountVerified}
+                    </span>
+                  )}
+                </p>
+                {(countryLabel || levelBadge) && (
+                  <div className="ax-prof-chips">
+                    {countryLabel && (
+                      <span className="ax-prof-chip">
+                        <span aria-hidden>{countryFlag(user.country || '')}</span> {countryLabel}
+                      </span>
+                    )}
+                    {levelBadge && (
+                      <span className="ax-prof-chip is-lvl">{levelBadge.badge} · {levelBadge.label[lang]}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="ax-prof-actions">
+              <Link
+                to={accountPath('subscription', lang)}
+                className={`lp-btn ${showUpgradeCta ? 'lp-btn-primary' : 'lp-btn-ghost'} lp-btn-sm`}
+              >
+                {showUpgradeCta && <CrownFilled aria-hidden />}
+                <span>{showUpgradeCta ? c.upgradeToPremium : c.manageSubscription}</span>
+                <ArrowRightOutlined aria-hidden />
+              </Link>
+              {user.portal && (
+                <a className="lp-btn lp-btn-ghost lp-btn-sm" href="/app">
+                  {c.portalLink} <ArrowRightOutlined aria-hidden />
+                </a>
+              )}
+            </div>
+          </header>
+
+          <div className="ax-prof-grid">
+            <DetailsCard lang={lang} c={c} user={user} />
+            <SecurityCard lang={lang} c={c} user={user} google={account.google} />
+          </div>
+        </div>
+      </section>
+    </LearnShell>
   );
 }
 
@@ -934,9 +978,11 @@ function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser })
   };
 
   return (
-    <section className="ax-section">
-      <h2>{c.detailsTitle}</h2>
-      <form className="ax-form ax-form-grid" onSubmit={save}>
+    <section className="ax-prof-card">
+      <div className="ax-prof-card-head">
+        <h2>{c.detailsTitle}</h2>
+      </div>
+      <form className="ax-form ax-form-grid ax-prof-form" onSubmit={save}>
         <Field label={c.firstName}><input value={f.first_name} disabled={!learner} onChange={e => setF(x => ({ ...x, first_name: e.target.value }))} maxLength={50} required /></Field>
         <Field label={c.lastName}><input value={f.last_name} disabled={!learner} onChange={e => setF(x => ({ ...x, last_name: e.target.value }))} maxLength={50} /></Field>
         <Field label={c.country}><CountrySelect lang={lang} c={c} value={f.country} onChange={v => setF(x => ({ ...x, country: v }))} /></Field>
@@ -956,7 +1002,7 @@ function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser })
           <input type="checkbox" checked={f.marketing_opt_in} onChange={e => setF(x => ({ ...x, marketing_opt_in: e.target.checked }))} />
           <span>{c.marketing}</span>
         </label>
-        <div className="ax-span ax-row">
+        <div className="ax-span ax-prof-savebar">
           <button type="submit" className="lp-btn lp-btn-primary" disabled={busy}>{busy ? <LoadingOutlined /> : null}{c.save}</button>
           {msg && <span className="ax-ok" role="status"><CheckCircleFilled /> {msg}</span>}
         </div>
@@ -1012,28 +1058,38 @@ function SecurityCard({ lang, c, user, google }: { lang: Lang; c: Copy; user: Si
   };
 
   return (
-    <section className="ax-section">
-      <h2>{c.securityTitle}</h2>
-      {!open ? (
-        <button type="button" className="lp-btn lp-btn-ghost" onClick={() => setOpen(true)}><LockOutlined />{user.has_password ? c.changePassword : c.setPassword}</button>
-      ) : (
-        <form className="ax-form" onSubmit={changePassword}>
-          {user.has_password && <Field label={c.currentPassword}><PasswordInput c={c} value={current} onChange={setCurrent} autoComplete="current-password" /></Field>}
-          <Field label={c.newPassword} hint={c.passwordHint}>
-            <PasswordInput c={c} value={next} onChange={setNext} autoComplete="new-password" />
-            <PasswordStrengthMeter password={next} c={c} />
-          </Field>
-          <div className="ax-row">
-            <button type="submit" className="lp-btn lp-btn-primary" disabled={busy}>{busy ? <LoadingOutlined /> : null}{c.save}</button>
-            <button type="button" className="ax-linkbtn" onClick={() => setOpen(false)}>×</button>
+    <section className="ax-prof-card ax-prof-security">
+      <div className="ax-prof-card-head">
+        <h2>{c.securityTitle}</h2>
+      </div>
+
+      <div className="ax-sec-block">
+        {!open ? (
+          <div className="ax-sec-row">
+            <span><LockOutlined aria-hidden /> {c.password}</span>
+            <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => setOpen(true)}>
+              {user.has_password ? c.changePassword : c.setPassword}
+            </button>
           </div>
-        </form>
-      )}
-      {msg && <p className="ax-note is-ok" role="status">{msg}</p>}
-      <ErrorLine text={error} />
+        ) : (
+          <form className="ax-form ax-sec-pwform" onSubmit={changePassword}>
+            {user.has_password && <Field label={c.currentPassword}><PasswordInput c={c} value={current} onChange={setCurrent} autoComplete="current-password" /></Field>}
+            <Field label={c.newPassword} hint={c.passwordHint}>
+              <PasswordInput c={c} value={next} onChange={setNext} autoComplete="new-password" />
+              <PasswordStrengthMeter password={next} c={c} />
+            </Field>
+            <div className="ax-row">
+              <button type="submit" className="lp-btn lp-btn-primary lp-btn-sm" disabled={busy}>{busy ? <LoadingOutlined /> : null}{c.save}</button>
+              <button type="button" className="ax-linkbtn" onClick={() => setOpen(false)}>{lang === 'fr' ? 'Annuler' : 'Cancel'}</button>
+            </div>
+          </form>
+        )}
+        {msg && <p className="ax-note is-ok" role="status">{msg}</p>}
+        <ErrorLine text={error} />
+      </div>
 
       {(google || user.google_linked) && (
-        <div className="ax-google-row">
+        <div className="ax-google-row ax-prof-google">
           <p>{user.google_linked ? c.googleLinked : c.googleNotLinked}</p>
           {user.google_linked
             ? <button type="button" className="ax-linkbtn" onClick={unlinkGoogle}>{c.unlinkGoogle}</button>
@@ -1041,18 +1097,21 @@ function SecurityCard({ lang, c, user, google }: { lang: Lang; c: Copy; user: Si
         </div>
       )}
 
-      <h3>{c.devicesTitle}</h3>
-      <ul className="ax-devices">
-        {devices.map(d => (
-          <li key={d.id}>
-            <LaptopOutlined aria-hidden />
-            <span><strong>{d.device}</strong><small>{d.current ? c.thisDevice : c.lastSeen(ago(lang, d.idle_seconds))}</small></span>
-            <button type="button" className="ax-linkbtn" onClick={() => endDevice(d)}>{c.signOutDevice}</button>
-          </li>
-        ))}
-      </ul>
-      <div className="ax-row">
-        <button type="button" className="lp-btn lp-btn-ghost" onClick={() => signOut(false)}><LogoutOutlined />{c.signOut}</button>
+      <div className="ax-sec-devices">
+        <h3>{c.devicesTitle}</h3>
+        <ul className="ax-devices">
+          {devices.map(d => (
+            <li key={d.id}>
+              <LaptopOutlined aria-hidden />
+              <span><strong>{d.device}</strong><small>{d.current ? c.thisDevice : c.lastSeen(ago(lang, d.idle_seconds))}</small></span>
+              <button type="button" className="ax-linkbtn" onClick={() => endDevice(d)}>{c.signOutDevice}</button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="ax-row ax-prof-signout">
+        <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => signOut(false)}><LogoutOutlined />{c.signOut}</button>
         <button type="button" className="ax-linkbtn" onClick={() => signOut(true)}>{c.signOutEverywhere}</button>
       </div>
     </section>
@@ -1066,6 +1125,7 @@ export default function AccountRoute({ lang, page }: { lang: Lang; page: Account
     case 'signUp': return <SignUpPage lang={lang} />;
     case 'forgot': return <ForgotPage lang={lang} />;
     case 'complete': return <CompletePage lang={lang} />;
+    case 'subscription': return <SubscriptionPage lang={lang} />;
     default: return <AccountPage lang={lang} />;
   }
 }

@@ -27,7 +27,9 @@ const COMPANY_ROLES = new Set(['candidate', 'org_admin']);
 const siteBase = () => String(process.env.LEARN_SITE_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
 const apiBase = () => String(process.env.API_PUBLIC_URL || '').trim().replace(/\/+$/, '').replace(/\/api$/, '');
 const ACCOUNT_PAGE = { en: '/learn/account/', fr: '/fr/apprendre/compte/' };
+const SUBSCRIPTION_PAGE = { en: '/learn/subscription/', fr: '/fr/apprendre/abonnement/' };
 const accountUrl = (lang, query) => `${siteBase()}${ACCOUNT_PAGE[lang === 'fr' ? 'fr' : 'en']}${query ? `?${query}` : ''}`;
+const subscriptionUrl = (lang, query) => `${siteBase()}${SUBSCRIPTION_PAGE[lang === 'fr' ? 'fr' : 'en']}${query ? `?${query}` : ''}`;
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 class BillingError extends Error {
@@ -129,10 +131,6 @@ async function startCheckout(db, { user, offerCode, ip, lang }) {
     if (recent.n >= 10) throw new BillingError(429, 'TOO_MANY', 'Too many payment attempts. Please try again later.');
 
     const reference = `lfwn-${Date.now().toString(36)}-${crypto.randomBytes(12).toString('hex')}`;
-    const payment = await db.get(
-        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, days, ip)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-        [user.id, offer.id, reference, offer.amount, offer.currency, offer.days, String(ip || '').replace('::ffff:', '').slice(0, 45) || null]);
     let session;
     try {
         session = await paystack.initialize({
@@ -144,21 +142,26 @@ async function startCheckout(db, { user, offerCode, ip, lang }) {
             plan: offer.recurring ? offer.paystack_plan_code : undefined,
             metadata: {
                 user_id: user.id,
-                payment_id: payment.id,
                 offer: offer.code,
-                cancel_action: accountUrl(lang, 'payment=cancelled'),
+                cancel_action: subscriptionUrl(lang, 'payment=cancelled'),
                 custom_fields: [{ display_name: 'Offer', variable_name: 'offer', value: lang === 'fr' ? offer.name_fr : offer.name_en }],
             },
         });
     } catch (err) {
-        await db.run("UPDATE learn_payments SET status = 'failed', status_detail = $2, updated_at = now() WHERE id = $1", [payment.id, String(err.message).slice(0, 200)]);
-        console.error('[billing] checkout failed:', err.message);
+        console.error('[billing] checkout init failed:', err.message);
+        if (/currency/i.test(String(err.message || ''))) {
+            throw new BillingError(400, 'CURRENCY_UNSUPPORTED', `Online checkout in ${offer.currency} is not enabled on the payment account yet. Please contact support or choose another plan.`);
+        }
         throw new BillingError(502, 'PROVIDER', 'The payment page could not be opened. Please try again in a moment.');
     }
     if (!paystack.isCheckoutUrl(session?.authorization_url)) {
-        await db.run("UPDATE learn_payments SET status = 'failed', status_detail = 'unexpected checkout address', updated_at = now() WHERE id = $1", [payment.id]);
+        console.error('[billing] checkout init failed: unexpected checkout URL');
         throw new BillingError(502, 'PROVIDER', 'The payment page could not be opened. Please try again in a moment.');
     }
+    await db.run(
+        `INSERT INTO learn_payments (user_id, offer_id, reference, amount, currency, days, ip)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [user.id, offer.id, reference, offer.amount, offer.currency, offer.days, String(ip || '').replace('::ffff:', '').slice(0, 45) || null]);
     return { url: session.authorization_url, reference };
 }
 
@@ -358,5 +361,5 @@ async function handleWebhook(db, raw, body) {
 }
 
 module.exports = {
-    CURRENCIES, BillingError, enabled, publicOffer, activeOffers, cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook, accountUrl,
+    CURRENCIES, BillingError, enabled, publicOffer, activeOffers, cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook, accountUrl, subscriptionUrl,
 };

@@ -91,6 +91,27 @@ function webhookIpAllowed(ip) {
 }
 
 /** Paystack's checkout pages only: the website refuses to send anyone elsewhere. */
-const isCheckoutUrl = (url) => /^https:\/\/checkout\.paystack\.com\/[A-Za-z0-9_-]+$/.test(String(url || ''));
+const isCheckoutUrl = (url) => /^https:\/\/checkout\.paystack\.com\/[A-Za-z0-9/_-]+(\?.*)?$/.test(String(url || ''));
 
-module.exports = { config, initialize, verify, disableSubscription, manageLink, validSignature, webhookIpAllowed, isCheckoutUrl, PaystackError, WEBHOOK_IPS };
+let balanceCache = { key: '', at: 0, currencies: [] };
+/** Returns the currency ISO codes currently enabled on the Paystack merchant account (cached 10 min). */
+async function supportedCurrencies() {
+    const { secret, enabled } = config();
+    if (!enabled) return [];
+    const key = crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16);
+    if (balanceCache.key === key && Date.now() - balanceCache.at < 600000) {
+        return balanceCache.currencies;
+    }
+    try {
+        const balances = await call('GET', '/balance');
+        const list = Array.isArray(balances)
+            ? [...new Set(balances.map(b => String(b?.currency || '').toUpperCase()).filter(Boolean))]
+            : [];
+        balanceCache = { key, at: Date.now(), currencies: list };
+        return list;
+    } catch {
+        return [];
+    }
+}
+
+module.exports = { config, initialize, verify, disableSubscription, manageLink, validSignature, webhookIpAllowed, isCheckoutUrl, supportedCurrencies, PaystackError, WEBHOOK_IPS };

@@ -1,10 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CloseOutlined, CrownFilled, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined, CrownOutlined, ExportOutlined, GlobalOutlined, LogoutOutlined,
+  MenuOutlined, RightOutlined, UserOutlined,
+} from '@ant-design/icons';
 import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
 import { LEARN_HOME } from '../../learn/entry';
+import { UserMenu } from '../../learn/account/UserMenu';
 import { resolveUserBadge } from '../../learn/account/identity';
-import { freeForAllCopy, loadAccount, startAccessWatcher, useAccount } from '../../learn/account/store';
+import { accountPath } from '../../learn/account/paths';
+import { freeForAllCopy, loadAccount, signOut, startAccessWatcher, useAccount } from '../../learn/account/store';
 
 const LEARN_LABEL: Record<Lang, string> = { en: 'Free courses', fr: 'Cours gratuits' };
 const LEARN_ONLINE_LABEL: Record<Lang, string> = { en: 'Online courses', fr: 'Cours en ligne' };
@@ -79,27 +84,56 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
     </div>
   );
 
-  const userPill = (mobile = false) => {
+  const mobileAccount = () => {
     if (!identity) {
-      return mobile
-        ? <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
-        : <a href="/login" className="lp-signin">{c.nav.signIn}</a>;
+      return <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>;
     }
-    const content = (
-      <>
-        <span className="lp-user-ava" aria-hidden>{identity.initial}</span>
-        <span className="lp-user-name">{identity.name}</span>
-        <span className="lp-user-role">
-          {identity.variant === 'premium' && <CrownFilled aria-hidden />}
-          {identity.badge}
-        </span>
-      </>
+    const person = account.user ?? account.portalUser;
+    const profLabel = lang === 'fr' ? 'Profil' : 'Profile';
+    const subLabel = lang === 'fr' ? 'Abonnement' : 'Subscription';
+    const portalLabel = lang === 'fr' ? `Portail ${identity.badge}` : `${identity.badge} portal`;
+    const signOutLabel = lang === 'fr' ? 'Déconnexion' : 'Log out';
+    return (
+      <div className="lp-mobile-account">
+        <div className="lp-mobile-account-head">
+          <span className={`lp-user-ava is-${identity.variant}`} aria-hidden>{identity.initial}</span>
+          <div className="lp-mobile-account-id">
+            <strong>{identity.fullName}</strong>
+            {person?.email && <small>{person.email}</small>}
+          </div>
+          <span className={`lp-user-role is-${identity.variant}`}>{identity.badge}</span>
+        </div>
+        <div className="lp-mobile-account-actions">
+          {account.user ? (
+            <Link to={accountPath('account', lang)} className="lp-btn lp-btn-ghost" onClick={() => setMenuOpen(false)}>
+              <UserOutlined aria-hidden /> {profLabel}
+            </Link>
+          ) : (
+            <a href={identity.href} className="lp-btn lp-btn-ghost" onClick={() => setMenuOpen(false)}>
+              <UserOutlined aria-hidden /> {profLabel}
+            </a>
+          )}
+          <Link to={accountPath('subscription', lang)} className="lp-btn lp-btn-ghost" onClick={() => setMenuOpen(false)}>
+            <CrownOutlined aria-hidden /> {subLabel}
+          </Link>
+          {identity.external && (
+            <a href={identity.href} className="lp-btn lp-btn-ghost" onClick={() => setMenuOpen(false)}>
+              <ExportOutlined aria-hidden /> {portalLabel}
+            </a>
+          )}
+          <button
+            type="button"
+            className="lp-btn lp-btn-ghost lp-mobile-signout"
+            onClick={() => {
+              setMenuOpen(false);
+              void signOut(false);
+            }}
+          >
+            <LogoutOutlined aria-hidden /> {signOutLabel}
+          </button>
+        </div>
+      </div>
     );
-    const cls = `lp-user-pill is-${identity.variant}${mobile ? ' is-mobile' : ''}`;
-    const close = mobile ? () => setMenuOpen(false) : undefined;
-    return identity.external
-      ? <a href={identity.href} className={cls} title={identity.fullName} onClick={close}>{content}</a>
-      : <Link to={identity.href} className={cls} title={identity.fullName} onClick={close}>{content}</Link>;
   };
 
   return (
@@ -116,7 +150,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
           </nav>
           <div className="lp-header-end">
             {langSwitch}
-            {userPill(false)}
+            {identity ? <UserMenu lang={lang} variant="header" /> : <a href="/login" className="lp-signin">{c.nav.signIn}</a>}
             <button type="button" className="lp-btn lp-btn-primary lp-btn-sm" onClick={demo}>{c.nav.demo}</button>
             <button type="button" className="lp-burger" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lp-mobile-menu" aria-label={menuOpen ? c.nav.close : c.nav.menu}>
               {menuOpen ? <CloseOutlined /> : <MenuOutlined />}
@@ -132,7 +166,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
         </nav>
         <div className="lp-mobile-foot">
           {langSwitch}
-          {userPill(true)}
+          {mobileAccount()}
           <button type="button" className="lp-btn lp-btn-primary" onClick={demo}>{c.nav.demo}</button>
         </div>
       </div>

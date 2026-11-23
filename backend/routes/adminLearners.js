@@ -186,18 +186,20 @@ router.get('/billing', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
         const api = String(process.env.API_PUBLIC_URL || '').replace(/\/+$/, '').replace(/\/api$/, '');
-        const [offers, stats] = await Promise.all([
+        const [offers, stats, merchantCurrencies] = await Promise.all([
             req.db.all('SELECT * FROM learn_offers ORDER BY sort, amount'),
             req.db.get(`SELECT (SELECT COUNT(*) FROM learn_payments WHERE status = 'success')::int AS paid,
                                (SELECT COUNT(*) FROM learn_payments WHERE status = 'review')::int AS review,
                                (SELECT COUNT(*) FROM learn_subscriptions WHERE status IN ('active', 'attention'))::int AS subscriptions,
                                (SELECT COUNT(*) FROM learn_payment_events WHERE outcome IN ('error', 'unmatched') AND received_at > now() - INTERVAL '30 days')::int AS problems`),
+            paystack.supportedCurrencies().catch(() => []),
         ]);
         res.json({
             mode: paystack.config().mode,
             callback_url: api ? `${api}/api/learn/billing/callback` : null,
             webhook_url: api ? `${api}/api/learn/billing/webhook/paystack` : null,
             currencies: billing.CURRENCIES,
+            merchant_currencies: merchantCurrencies,
             offers: offers.map(o => ({ ...o, amount: Number(o.amount) })),
             stats,
         });

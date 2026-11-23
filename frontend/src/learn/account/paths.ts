@@ -1,11 +1,11 @@
 // Addresses of the account pages (the same ones as backend/routes/siteAuth.js).
 import type { Lang } from '../types';
 
-export type AccountPage = 'signIn' | 'signUp' | 'forgot' | 'account' | 'complete';
+export type AccountPage = 'signIn' | 'signUp' | 'forgot' | 'account' | 'subscription' | 'complete';
 
 export const ACCOUNT_SLUG: Record<Lang, Record<AccountPage, string>> = {
-  en: { signIn: 'sign-in', signUp: 'sign-up', forgot: 'forgot-password', account: 'account', complete: 'complete-account' },
-  fr: { signIn: 'connexion', signUp: 'inscription', forgot: 'mot-de-passe-oublie', account: 'compte', complete: 'finaliser-compte' },
+  en: { signIn: 'sign-in', signUp: 'sign-up', forgot: 'forgot-password', account: 'account', subscription: 'subscription', complete: 'complete-account' },
+  fr: { signIn: 'connexion', signUp: 'inscription', forgot: 'mot-de-passe-oublie', account: 'compte', subscription: 'abonnement', complete: 'finaliser-compte' },
 };
 
 const BASE: Record<Lang, string> = { en: '/learn/', fr: '/fr/apprendre/' };

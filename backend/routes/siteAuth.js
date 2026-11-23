@@ -60,8 +60,8 @@ const ipOf = (req) => String(req.ip || '').replace('::ffff:', '').slice(0, 45) |
 
 /** The website pages these routes send people to (same addresses as frontend/src/learn/account/paths.ts). */
 const PAGES = {
-    en: { signIn: '/learn/sign-in/', signUp: '/learn/sign-up/', forgot: '/learn/forgot-password/', account: '/learn/account/', complete: '/learn/complete-account/', hub: '/learn/' },
-    fr: { signIn: '/fr/apprendre/connexion/', signUp: '/fr/apprendre/inscription/', forgot: '/fr/apprendre/mot-de-passe-oublie/', account: '/fr/apprendre/compte/', complete: '/fr/apprendre/finaliser-compte/', hub: '/fr/apprendre/' },
+    en: { signIn: '/learn/sign-in/', signUp: '/learn/sign-up/', forgot: '/learn/forgot-password/', account: '/learn/account/', subscription: '/learn/subscription/', complete: '/learn/complete-account/', hub: '/learn/' },
+    fr: { signIn: '/fr/apprendre/connexion/', signUp: '/fr/apprendre/inscription/', forgot: '/fr/apprendre/mot-de-passe-oublie/', account: '/fr/apprendre/compte/', subscription: '/fr/apprendre/abonnement/', complete: '/fr/apprendre/finaliser-compte/', hub: '/fr/apprendre/' },
 };
 const siteBase = () => String(process.env.LEARN_SITE_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
 const pageUrl = (lang, page, query = '') => `${siteBase()}${PAGES[langOf(lang)][page]}${query}`;

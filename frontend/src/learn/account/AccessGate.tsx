@@ -66,7 +66,7 @@ export function AccessGate({ lang, tier, kind = 'lesson' }: { lang: Lang; tier: 
       <p className="ax-gate-text">{text}</p>
       {signedIn && premium ? (
         account.payments
-          ? <div className="lp-hero-ctas"><Link to={`${accountPath('account', lang)}#premium`} className="lp-btn lp-btn-primary"><CrownFilled />{c.seePrices}</Link></div>
+          ? <div className="lp-hero-ctas"><Link to={accountPath('subscription', lang)} className="lp-btn lp-btn-primary"><CrownFilled />{c.seePrices}</Link></div>
           : <PremiumRequest lang={lang} />
       ) : (
         <div className="lp-hero-ctas">

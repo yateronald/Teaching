@@ -46,7 +46,10 @@ router.get('/me', noStore, site.siteAuth({ required: true }), async (req, res) =
                 `SELECT p.reference, p.amount, p.currency, p.days, p.status, p.created_at, p.paid_at, p.renewal,
                         o.name_en, o.name_fr, l.ends_at AS premium_until
                    FROM learn_payments p LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
-                  WHERE p.user_id = $1 AND p.status <> 'initialized' ORDER BY p.created_at DESC LIMIT 30`, [uid]),
+                  WHERE p.user_id = $1
+                    AND p.status <> 'initialized'
+                    AND NOT (p.status = 'failed' AND p.provider_transaction_id IS NULL AND p.status_detail LIKE 'Paystack:%')
+                  ORDER BY p.created_at DESC LIMIT 30`, [uid]),
             req.db.get(
                 `SELECT s.status, s.next_payment_date, s.plan_code, o.name_en, o.name_fr
                    FROM learn_subscriptions s LEFT JOIN learn_offers o ON o.id = s.offer_id
@@ -126,7 +129,7 @@ router.get('/callback', noStore, async (req, res) => {
     } else {
         outcome = 'failed';
     }
-    res.redirect(302, billing.accountUrl(lang, `payment=${outcome}`));
+    res.redirect(302, billing.subscriptionUrl(lang, `payment=${outcome}`));
 });
 
 // ── Paystack's notifications ──
