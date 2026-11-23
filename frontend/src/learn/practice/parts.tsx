@@ -1,7 +1,11 @@
 // Pieces shared by the pages of the practice space: the skill tabs, a text’s
 // card and status, and the reading score.
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, ReadOutlined, SoundOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, CrownFilled, LockOutlined, ReadOutlined, SoundOutlined } from '@ant-design/icons';
+import { itemTier } from '../access';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill } from '../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../account/store';
 import { imageUrl } from '../categories';
 import type { Progress } from '../progress';
 import { LevelChip, useMounted } from '../shell';
@@ -94,16 +98,33 @@ export function StatusChip({ p, text, lang }: { p: Progress; text: TextMeta; lan
 
 export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Progress }) {
   const c = P[lang];
+  const account = useAccount();
+  const tier = itemTier(`text:${text.id}`);
+  const locked = isTierLocked(account, tier);
+  const href = textPath(text, lang);
+  const onOpenModal = (e: React.MouseEvent) => {
+    if (!locked) return;
+    e.preventDefault();
+    openPremiumModal({ title: text.title, subtitle: tx(text.subtitle, lang), tier, kind: 'practice', level: text.level, to: href });
+  };
   return (
-    <article className="rx-card">
-      <div className="rx-card-img">
+    <article className={`rx-card${locked ? ' ax-locked-card' : ''}`}>
+      <div className={`rx-card-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(text.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+        {locked && (
+          <div className="ax-locked-veil" aria-hidden>
+            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
+            </span>
+          </div>
+        )}
         <LevelChip level={text.level} size="sm" />
         <span className="rx-card-genre-pill"><SoundOutlined aria-hidden /> {c.learn.genre[text.genre]}</span>
       </div>
-      <div className="rx-card-body">
+      <div className={`rx-card-body${locked ? ' ax-locked-copy' : ''}`}>
         <p className="rx-card-kicker"><strong>{c.learn.genre[text.genre]}</strong> <span aria-hidden="true">·</span> {tx(text.theme, lang)}</p>
-        <h3><Link to={textPath(text, lang)} className="lx-stretch">{text.title}</Link></h3>
+        <h3><Link to={href} onClick={onOpenModal} className="lx-stretch">{text.title}</Link></h3>
         <p className="rx-card-sub">{tx(text.subtitle, lang)}</p>
         <div className="rx-card-meta">
           <span><ReadOutlined aria-hidden /> {c.text.words(text.words)}</span>
@@ -111,7 +132,9 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
         </div>
         <div className="rx-card-footer">
           <StatusChip p={p} text={text} lang={lang} />
-          <span className="rx-card-go" aria-hidden="true">{c.library.readCard} <ArrowRightOutlined /></span>
+          {locked
+            ? <LockActionPill lang={lang} tier={tier} compact />
+            : <span className="rx-card-go" aria-hidden="true">{c.library.readCard} <ArrowRightOutlined /></span>}
         </div>
       </div>
     </article>

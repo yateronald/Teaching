@@ -7,19 +7,36 @@
 // (`sealed` in the manifest, sealedAudio.ts): not offered for download.
 import { useSyncExternalStore } from 'react';
 import manifest from './audio-manifest.json';
-import { loadSealed, sealedReady } from './sealedAudio';
+import { registerAccessRevokeListener } from './account/store';
+import { clearSealedCache, loadSealed, sealedReady } from './sealedAudio';
 import type { Voice } from './types';
 
-const AVAILABLE = new Set<string>((manifest as { keys: string[] }).keys);
-const SEALED = new Set<string>((manifest as { sealed?: string[] }).sealed ?? []);
+const BASE_AVAILABLE = (manifest as { keys: string[] }).keys;
+const BASE_SEALED = (manifest as { sealed?: string[] }).sealed ?? [];
+const AVAILABLE = new Set<string>(BASE_AVAILABLE);
+const SEALED = new Set<string>(BASE_SEALED);
 
 /**
- * Recordings of a lesson unlocked for this visitor: the public list leaves out
- * those only locked lessons use, the lesson brings them (content/registry.ts).
+ * Recordings of a lesson or practice item unlocked for this visitor: the public
+ * list leaves out those only locked items use, so the API delivers them.
  */
 export function registerRecordings(keys: string[] = [], sealed: string[] = []) {
   keys.forEach(k => AVAILABLE.add(k));
   sealed.forEach(k => SEALED.add(k));
+}
+
+/** Drops dynamically unlocked audio keys and stops playback when access is downgraded. */
+export function resetDynamicRecordings() {
+  stop();
+  AVAILABLE.clear();
+  BASE_AVAILABLE.forEach(k => AVAILABLE.add(k));
+  SEALED.clear();
+  BASE_SEALED.forEach(k => SEALED.add(k));
+  clearSealedCache();
+}
+
+if (typeof window !== 'undefined') {
+  registerAccessRevokeListener(() => resetDynamicRecordings());
 }
 
 /** Where a recording is: a plain mp3, or the scrambled file of a practice recording. */

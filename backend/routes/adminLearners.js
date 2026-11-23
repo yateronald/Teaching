@@ -16,6 +16,7 @@ const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const access = require('../services/learnAccess');
 const { endWebsiteSessions } = require('../services/siteSession');
+const learnEvents = require('../services/learnEvents');
 
 const router = express.Router();
 
@@ -131,6 +132,7 @@ router.put('/organizations/:id/website', async (req, res) => {
     const org = await req.db.get('UPDATE organizations SET learn_access = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING id', [id, value]);
     if (!org) return notFound(res);
     await access.logAccess(req.db, { organizationId: id, actorId: req.user.id, action: 'website_access', detail: { value } });
+    learnEvents.notifyOrg(id, 'org_website');
     res.json({ ok: true });
 });
 
@@ -140,6 +142,7 @@ router.post('/organizations/:id/premium', async (req, res) => {
     if (!id || !end.ok) return res.status(400).json({ error: 'Choose an end date in the future, or no end date.' });
     if (!(await req.db.get('SELECT 1 AS x FROM organizations WHERE id = $1', [id]))) return notFound(res);
     const row = await access.grantPremium(req.db, { organizationId: id, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    learnEvents.notifyOrg(id, 'org_premium_granted');
     res.json({ ok: true, license: row });
 });
 
@@ -147,6 +150,7 @@ router.post('/organizations/:id/premium/revoke', async (req, res) => {
     const id = intParam(req.params.id);
     if (!id) return notFound(res);
     const n = await access.revokePremium(req.db, { organizationId: id, source: null, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    learnEvents.notifyOrg(id, 'org_premium_revoked');
     res.json({ ok: true, ended: n });
 });
 
@@ -347,6 +351,7 @@ router.post('/:id/premium', async (req, res) => {
     const end = endDate(req.body?.ends_at);
     if (!end.ok) return res.status(400).json({ error: 'Choose an end date in the future, or no end date.' });
     const row = await access.grantPremium(req.db, { userId: u.id, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    learnEvents.notifyUser(u.id, 'premium_granted');
     res.json({ ok: true, license: row });
 });
 
@@ -355,6 +360,7 @@ router.post('/:id/premium/revoke', async (req, res) => {
     const u = id && await websiteAccount(req.db, id);
     if (!u) return notFound(res);
     const n = await access.revokePremium(req.db, { userId: u.id, source: null, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    learnEvents.notifyUser(u.id, 'premium_revoked');
     res.json({ ok: true, ended: n });
 });
 
@@ -372,6 +378,7 @@ router.put('/:id/website', async (req, res) => {
     let ended = 0;
     const a = await access.accessFor(req.db, { ...u, learn_access: value });
     if (!a.website) ended = await endWebsiteSessions(req.db, u.id, 'admin');
+    learnEvents.notifyUser(u.id, 'website_access');
     res.json({ ok: true, ended });
 });
 
@@ -384,6 +391,7 @@ router.put('/:id/active', async (req, res) => {
     await req.db.run('UPDATE users SET is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $1', [u.id, active]);
     await access.logAccess(req.db, { userId: u.id, actorId: req.user.id, action: active ? 'restored' : 'suspended' });
     if (!active) await endWebsiteSessions(req.db, u.id, 'admin');
+    learnEvents.notifyUser(u.id, active ? 'restored' : 'suspended');
     res.json({ ok: true });
 });
 

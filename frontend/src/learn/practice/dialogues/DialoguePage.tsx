@@ -8,6 +8,7 @@ import {
   ArrowLeftOutlined, ArrowRightOutlined, CaretRightFilled, CheckCircleFilled, CheckOutlined, CloseCircleFilled,
   CloseOutlined, PauseOutlined, ReloadOutlined, StepBackwardOutlined, StepForwardOutlined,
 } from '@ant-design/icons';
+import { ACCESS_GENERATED, itemTier } from '../../access';
 import { beforeSpeak, prefetchRecording, speak, stop } from '../../audio';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip, useMounted } from '../../shell';
@@ -21,6 +22,7 @@ import { DLGC } from './copy';
 import { DIALOGUES, THEMES, dialoguePath, dialoguesPath, themeOf } from './meta';
 import { DialogueCover, Initial, ThemeIcon } from './parts';
 import { useDialogue } from './registry';
+import { useUnlockedPractice } from '../unlocked';
 import type { Dialogue, DialogueMeta } from './types';
 import { optionOrder, readBest, saveBest } from './util';
 import '../ear/ear.css';
@@ -316,7 +318,10 @@ function Body({ d, meta, lang }: { d: Dialogue; meta: DialogueMeta; lang: Lang }
 
 export default function DialoguePage({ lang, meta }: { lang: Lang; meta: DialogueMeta }) {
   const c = DLGC[lang];
-  const d = useDialogue(meta.id, meta.theme);
+  const localD = useDialogue(meta.id, meta.theme);
+  const needsUnlock = Boolean(localD?.locked) || (ACCESS_GENERATED && itemTier(`dialogue:${meta.id}`) !== 'visitor');
+  const { data: unlocked } = useUnlockedPractice('dialogue', meta.id, localD, needsUnlock);
+  const d = unlocked && !unlocked.locked ? unlocked : null;
   const mounted = useMounted();
   const best = mounted ? readBest()[meta.id] : undefined;
   const theme = themeOf(meta.theme);

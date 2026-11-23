@@ -26,8 +26,10 @@ import { trackLearning } from '../../../utils/siteAnalytics';
 import { P } from '../copy';
 import { TEXTS, practicePath, readingPath, textMinutes, textPath } from '../meta';
 import { evidenceOf, fmtTime, isSpokenTitle, locate, narrationsOf, pct, sentencesOf, type FlatSentence, type Span } from '../model';
+import { ACCESS_GENERATED, itemTier } from '../../access';
 import { ScoreRing, TextCard } from '../parts';
 import { useText } from '../registry';
+import { useUnlockedPractice } from '../unlocked';
 import { textJsonLd } from '../schema';
 import { nextText } from '../stats';
 import { RATES, useNarration, type NarrationApi } from '../useNarration';
@@ -666,7 +668,10 @@ function TextView({ text, meta, lang }: { text: ReadingText; meta: TextMeta; lan
 export default function ReadingTextPage({ lang, meta }: { lang: Lang; meta: TextMeta }) {
   const c = P[lang];
   const ui = UI[lang];
-  const text = useText(meta.id);
+  const localText = useText(meta.id);
+  const needsUnlock = Boolean(localText?.locked) || (ACCESS_GENERATED && itemTier(`text:${meta.id}`) !== 'visitor');
+  const { data: unlocked } = useUnlockedPractice('text', meta.id, localText, needsUnlock);
+  const text = unlocked && !unlocked.locked ? unlocked : null;
   const path = textPath(meta, lang);
   return (
     <LearnShell

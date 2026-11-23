@@ -4,10 +4,14 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRightOutlined, BookOutlined, CheckCircleFilled, CheckOutlined,
-  ClockCircleOutlined, CustomerServiceOutlined, DownOutlined, EditOutlined,
-  PlayCircleFilled, ReadOutlined, RocketOutlined, ThunderboltOutlined,
+  ClockCircleOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined, EditOutlined,
+  LockOutlined, PlayCircleFilled, ReadOutlined, RocketOutlined, ThunderboltOutlined,
   TrophyOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { stepTier } from '../access';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../account/store';
 import { imageUrl } from '../categories';
 import { LEVEL_COPY, levelPath } from '../levels';
 import { AUTOSTART } from '../paths';
@@ -58,6 +62,7 @@ export function StudyRoadmap({
   showClassroomLink = true,
 }: StudyRoadmapProps) {
   const c = STUDY_COPY[lang].roadmap;
+  const account = useAccount();
   const snap = useActivitySnapshot();
   const { openDemo } = useDemo();
   const goal = goalById(plan.goal);
@@ -126,6 +131,13 @@ export function StudyRoadmap({
 
   const readingTotal = TEXTS.length + MISSIONS.length;
   const listeningTotal = DIALOGUES.length + EAR.length + LISTENING.length;
+  const nextStepTier = evaluated.nextStep ? stepTier(evaluated.nextStep) : 'visitor';
+  const nextStepLocked = !!(evaluated.nextStep && isTierLocked(account, nextStepTier));
+  const dailyGameTier = stepTier(plan.dailyGame);
+  const dailyGameLocked = isTierLocked(account, dailyGameTier);
+  const lockNote = (tier: 'visitor' | 'free' | 'premium') => (tier === 'premium'
+    ? (lang === 'fr' ? 'Compte Premium requis pour accéder à ce cours' : 'Premium account required to unlock this step')
+    : (lang === 'fr' ? 'Créez un compte gratuit pour ouvrir ce module' : 'Free account required to open this module'));
 
   return (
     <div className="sp-workspace">
@@ -154,19 +166,41 @@ export function StudyRoadmap({
 
             <div className="sp-plan-cta-box">
               {evaluated.nextStep && !evaluated.allComplete ? (
-                <Link
-                  to={evaluated.nextStep.to}
-                  state={evaluated.nextStep.autostart ? AUTOSTART : undefined}
-                  className="lp-btn lp-btn-light sp-primary-cta"
-                >
-                  <PlayCircleFilled />
-                  <span>
-                    {evaluated.completedSteps === 0
-                      ? c.startFirst(evaluated.nextStepModIndex)
-                      : c.continueMod(evaluated.nextStepModIndex)}
-                  </span>
-                  <ArrowRightOutlined />
-                </Link>
+                nextStepLocked ? (
+                  <button
+                    type="button"
+                    className="lp-btn lp-btn-light sp-primary-cta"
+                    onClick={() => openPremiumModal({
+                      title: evaluated.nextStep!.title,
+                      subtitle: evaluated.nextStep!.subtitle,
+                      tier: nextStepTier,
+                      level: evaluated.nextStep!.level,
+                      to: evaluated.nextStep!.to,
+                    })}
+                  >
+                    {nextStepTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />}
+                    <span>
+                      {nextStepTier === 'premium'
+                        ? (lang === 'fr' ? 'Débloquer avec Premium' : 'Unlock with Premium')
+                        : (lang === 'fr' ? 'Créer un compte gratuit' : 'Free account to start')}
+                    </span>
+                    <ArrowRightOutlined />
+                  </button>
+                ) : (
+                  <Link
+                    to={evaluated.nextStep.to}
+                    state={evaluated.nextStep.autostart ? AUTOSTART : undefined}
+                    className="lp-btn lp-btn-light sp-primary-cta"
+                  >
+                    <PlayCircleFilled />
+                    <span>
+                      {evaluated.completedSteps === 0
+                        ? c.startFirst(evaluated.nextStepModIndex)
+                        : c.continueMod(evaluated.nextStepModIndex)}
+                    </span>
+                    <ArrowRightOutlined />
+                  </Link>
+                )
               ) : plan.nextLevel ? (
                 onAdvanceLevel ? (
                   <button type="button" className="lp-btn lp-btn-light sp-primary-cta" onClick={() => onAdvanceLevel(plan.nextLevel!)}>
@@ -218,15 +252,21 @@ export function StudyRoadmap({
           )}
         </header>
 
+        {/* Premium advantages banner (only when Premium mode is active for visitors/free accounts) */}
+        <PremiumInfoWidget lang={lang} variant="banner" />
+
         {/* Numbered Mixed-Skill Module Stepper (Modules 1 → N) */}
         <ol className="sp-modules">
           {evaluated.modules.map(({ mod, steps, doneInMod, startedInMod, isComplete }, mIdx) => {
             const isActive = mIdx === evaluated.activeModIdx && !evaluated.allComplete;
             const isOpen = !!openMap[mod.id];
             const stateClass = isComplete ? 'is-done' : isActive ? 'is-active' : 'is-upcoming';
+            const stepTiers = steps.map(({ step }) => stepTier(step));
+            const modAllLocked = steps.length > 0 && stepTiers.every(t => isTierLocked(account, t));
+            const modNeedsPremium = stepTiers.some(t => t === 'premium');
 
             return (
-              <li key={mod.id} className={`sp-module ${stateClass}${isOpen ? ' is-open' : ''}`}>
+              <li key={mod.id} className={`sp-module ${stateClass}${isOpen ? ' is-open' : ''}${modAllLocked ? ' is-locked' : ''}`}>
                 <button
                   type="button"
                   className="sp-mod-head"
@@ -234,16 +274,22 @@ export function StudyRoadmap({
                   onClick={() => toggleMod(mod.id)}
                 >
                   <span className="sp-mod-node" aria-hidden>
-                    {isComplete ? <CheckOutlined /> : String(mod.index).padStart(2, '0')}
+                    {isComplete ? <CheckOutlined /> : modAllLocked ? <LockOutlined /> : String(mod.index).padStart(2, '0')}
                   </span>
 
                   <span className="sp-mod-info">
                     <span className="sp-mod-kicker">
                       <b>{c.moduleLabel(mod.index)}</b>
                       {isComplete && <span className="sp-mod-pill is-done"><CheckCircleFilled /> {c.statusDone}</span>}
-                      {isActive && (
+                      {isActive && !modAllLocked && (
                         <span className="sp-mod-pill is-active">
                           {startedInMod ? c.statusProgress : c.statusActive}
+                        </span>
+                      )}
+                      {modAllLocked && (
+                        <span className={`ax-badge ${modNeedsPremium ? 'is-premium' : 'is-account'}`}>
+                          {modNeedsPremium ? <CrownFilled aria-hidden /> : <LockOutlined aria-hidden />}
+                          {modNeedsPremium ? 'Premium' : (lang === 'fr' ? 'Compte gratuit' : 'Free account')}
                         </span>
                       )}
                       <span className="sp-mod-count">{doneInMod}/{steps.length}</span>
@@ -254,7 +300,7 @@ export function StudyRoadmap({
                     <span className="sp-mod-bar" aria-hidden><i style={{ transform: `scaleX(${steps.length ? doneInMod / steps.length : 0})` }} /></span>
                   </span>
 
-                  <span className="sp-mod-thumbs" aria-hidden>
+                  <span className={`sp-mod-thumbs${modAllLocked ? ' is-locked' : ''}`} aria-hidden>
                     {steps.slice(0, 4).map(({ step }) => {
                       const img = stepImage(step);
                       return img
@@ -272,18 +318,36 @@ export function StudyRoadmap({
                   <ul className="sp-steps">
                     {steps.map(({ step, comp }) => {
                       const isNextStep = evaluated.nextStep?.id === step.id && !evaluated.allComplete;
+                      const tier = stepTier(step);
+                      const locked = isTierLocked(account, tier);
                       const img = stepImage(step);
+                      const openModal = (e: React.MouseEvent) => {
+                        if (!locked) return;
+                        e.preventDefault();
+                        openPremiumModal({
+                          title: step.title,
+                          subtitle: step.subtitle,
+                          tier,
+                          level: step.level,
+                          to: step.to,
+                        });
+                      };
                       return (
-                        <li key={step.id} className={`sp-step${comp.done ? ' is-done' : ''}${isNextStep ? ' is-next' : ''}`}>
-                          <Link to={step.to} state={step.autostart ? AUTOSTART : undefined} className="sp-step-link">
-                            <span className={`sp-step-check${comp.done ? ' is-done' : comp.started ? ' is-part' : ''}`} aria-hidden>
-                              {comp.done ? <CheckOutlined /> : null}
+                        <li key={step.id} className={`sp-step${comp.done ? ' is-done' : ''}${isNextStep && !locked ? ' is-next' : ''}${locked ? ' is-locked' : ''}`}>
+                          <Link to={step.to} state={step.autostart && !locked ? AUTOSTART : undefined} onClick={openModal} className="sp-step-link">
+                            <span className={`sp-step-check${comp.done ? ' is-done' : comp.started ? ' is-part' : locked ? ' is-locked' : ''}`} aria-hidden>
+                              {comp.done ? <CheckOutlined /> : locked ? <LockOutlined /> : null}
                             </span>
 
-                            <span className={`sp-step-thumb is-${step.kind}`} aria-hidden>
+                            <span className={`sp-step-thumb is-${step.kind}${locked ? ' ax-locked-media' : ''}`} aria-hidden>
                               {img
                                 ? <img src={imageUrl(img, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
                                 : <span className="sp-step-thumb-ico">{KIND_ICON[step.kind]}</span>}
+                              {locked && (
+                                <span className="sp-step-veil">
+                                  {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                                </span>
+                              )}
                             </span>
 
                             <span className="sp-step-copy">
@@ -292,15 +356,21 @@ export function StudyRoadmap({
                                 <span>{tx(STEP_KIND_LABEL[step.kind], lang)}</span>
                               </span>
                               <strong>{step.title}</strong>
-                              <small>{step.badge} · ~{step.minutes} min</small>
+                              {locked
+                                ? <small className="sp-step-lock-note">{lockNote(tier)}</small>
+                                : <small>{step.badge} · ~{step.minutes} min</small>}
                             </span>
 
                             <span className="sp-step-end">
-                              {comp.detail && <span className={`sp-step-score${comp.done ? ' is-done' : ''}`}>{comp.detail}</span>}
-                              <span className={`sp-step-action${isNextStep ? ' is-next' : ''}`}>
-                                {comp.done ? c.reviewStep : comp.started ? c.continueStep : c.startStep}
-                                <ArrowRightOutlined aria-hidden />
-                              </span>
+                              {comp.detail && !locked && <span className={`sp-step-score${comp.done ? ' is-done' : ''}`}>{comp.detail}</span>}
+                              {locked ? (
+                                <LockActionPill lang={lang} tier={tier} compact />
+                              ) : (
+                                <span className={`sp-step-action${isNextStep ? ' is-next' : ''}`}>
+                                  {comp.done ? c.reviewStep : comp.started ? c.continueStep : c.startStep}
+                                  <ArrowRightOutlined aria-hidden />
+                                </span>
+                              )}
                             </span>
                           </Link>
                         </li>
@@ -370,14 +440,38 @@ export function StudyRoadmap({
         </section>
 
         {/* 3-Minute Daily Game Boost */}
-        <section className="sp-side-card is-game">
-          <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+        <section className={`sp-side-card is-game${dailyGameLocked ? ' ax-locked-card' : ''}`}>
+          <div className={dailyGameLocked ? 'ax-locked-media' : undefined}>
+            <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+            {dailyGameLocked && (
+              <div className="ax-locked-veil" aria-hidden>
+                <span className="ax-locked-veil-badge is-premium"><CrownFilled /> {lang === 'fr' ? 'Compte Premium requis' : 'Premium required'}</span>
+              </div>
+            )}
+          </div>
           <p className="sp-side-eyebrow"><PlayCircleFilled aria-hidden /> {c.dailyBoostEyebrow}</p>
           <h3>{plan.dailyGame.title}</h3>
-          <p>{plan.dailyGame.subtitle}</p>
-          <Link to={plan.dailyGame.to} className="lx-link sp-side-sublink">
-            {c.dailyBoostCta} ({plan.dailyGame.badge}) →
-          </Link>
+          <p>{dailyGameLocked ? lockNote(dailyGameTier) : plan.dailyGame.subtitle}</p>
+          {dailyGameLocked ? (
+            <button
+              type="button"
+              className="lp-btn lp-btn-ghost lp-btn-sm sp-side-btn"
+              onClick={() => openPremiumModal({
+                title: plan.dailyGame.title,
+                subtitle: plan.dailyGame.subtitle,
+                tier: dailyGameTier,
+                kind: 'game',
+                level: plan.dailyGame.level,
+                to: plan.dailyGame.to,
+              })}
+            >
+              <LockActionPill lang={lang} tier={dailyGameTier} compact />
+            </button>
+          ) : (
+            <Link to={plan.dailyGame.to} className="lx-link sp-side-sublink">
+              {c.dailyBoostCta} ({plan.dailyGame.badge}) →
+            </Link>
+          )}
         </section>
 
         {/* Direct Unguided Practice Links */}

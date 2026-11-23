@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RiseOutlined, TrophyOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
+import { itemTier } from '../access';
+import { stop as stopAudio } from '../audio';
 import { G } from '../games/copy';
-import { freeForAllCopy, useAccount } from '../account/store';
+import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import DailyWord from '../games/DailyWord';
 import { GameArt, Stars } from '../games/frame';
 import GenderBlitz from '../games/GenderBlitz';
@@ -26,7 +28,9 @@ import { Overlay, useScrollLock } from './LessonPage';
 export default function GamePage({ lang, game }: { lang: Lang; game: GameMeta }) {
   const ui = UI[lang];
   const g = G[lang];
-  const free = freeForAllCopy(useAccount());
+  const account = useAccount();
+  const free = freeForAllCopy(account);
+  const gameLocked = isTierLocked(account, itemTier(`game:${game.id}`));
   const p = useProgress();
   const mounted = useMounted();
   const [playing, setPlaying] = useState(false);
@@ -34,6 +38,12 @@ export default function GamePage({ lang, game }: { lang: Lang; game: GameMeta })
   const [run, setRun] = useState(0);
   const [practice, setPractice] = useState(false);
   useScrollLock(playing);
+  useEffect(() => {
+    if (gameLocked && playing) {
+      stopAudio();
+      setPlaying(false);
+    }
+  }, [gameLocked, playing]);
 
   const title = tx(game.title, lang);
   const path = gamePath(game, lang);

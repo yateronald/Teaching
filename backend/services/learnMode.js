@@ -11,7 +11,7 @@
  */
 const MODES = ['free', 'premium'];
 const DEFAULT_MODE = 'free';
-const TTL = 15 * 1000;
+const TTL = 1000;
 let cache = { mode: null, at: 0 };
 
 async function ensureTable(db) {
@@ -23,9 +23,9 @@ async function ensureTable(db) {
     )`);
 }
 
-/** 'free' or 'premium'. */
-async function getMode(db) {
-    if (cache.mode && Date.now() - cache.at < TTL) return cache.mode;
+/** 'free' or 'premium'. Pass { fresh: true } to bypass the 1s cache. */
+async function getMode(db, { fresh = false } = {}) {
+    if (!fresh && cache.mode && Date.now() - cache.at < TTL) return cache.mode;
     let mode = DEFAULT_MODE;
     try {
         const row = await db.get("SELECT value FROM learn_settings WHERE key = 'mode'");
@@ -37,11 +37,11 @@ async function getMode(db) {
     return mode;
 }
 
-const isFreeForAll = async (db) => (await getMode(db)) === 'free';
+const isFreeForAll = async (db, opts) => (await getMode(db, opts)) === 'free';
 
 /** The level the content checks use: everything when the courses are free for everyone. */
-async function contentLevel(db, access) {
-    return (await isFreeForAll(db)) ? 'premium' : access.level;
+async function contentLevel(db, access, opts) {
+    return (await isFreeForAll(db, opts)) ? 'premium' : access.level;
 }
 
 async function setMode(db, mode, actorId) {
@@ -52,6 +52,7 @@ async function setMode(db, mode, actorId) {
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), updated_by = EXCLUDED.updated_by`,
         [mode, actorId]);
     cache = { mode, at: Date.now() };
+    require('./learnEvents').broadcastMode(mode, new Date().toISOString());
     return mode;
 }
 

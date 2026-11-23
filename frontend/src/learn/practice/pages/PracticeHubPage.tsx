@@ -9,6 +9,10 @@ import {
   CommentOutlined, CompassOutlined, CustomerServiceOutlined, EditOutlined,
   ReadOutlined, SoundOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
+import { itemTier, type Tier } from '../../access';
+import { openPremiumModal } from '../../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
+import { freeForAllCopy, isTierLocked, useAccount } from '../../account/store';
 import { imageUrl } from '../../categories';
 import { hubPath, placementPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip, TeacherCta } from '../../shell';
@@ -30,6 +34,7 @@ const HOW_ICONS = [<ClockCircleOutlined />, <SoundOutlined />, <CheckOutlined />
 
 interface QuickPick {
   id: string;
+  tierKey: string;
   kind: 'text' | 'mission' | 'dialogue' | 'ear' | 'doc';
   badge: string;
   title: string;
@@ -44,6 +49,8 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
   const c = P[lang];
   const p = c.practice;
   const ui = UI[lang];
+  const account = useAccount();
+  const freeAll = freeForAllCopy(account);
   const skills = skillOverview(lang);
   const openSkills = skills.filter(s => s.ready);
   const upcomingSkills = skills.filter(s => !s.ready);
@@ -61,6 +68,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
     if (txt) {
       out.push({
         id: `t-${txt.id}`,
+        tierKey: `text:${txt.id}`,
         kind: 'text',
         badge: lang === 'fr' ? 'Texte · Audio' : 'Text · Audio',
         title: txt.title,
@@ -74,11 +82,12 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
     if (mis) {
       out.push({
         id: `m-${mis.id}`,
+        tierKey: `mission:${mis.id}`,
         kind: 'mission',
         badge: lang === 'fr' ? 'Mission de lecture' : 'Reading mission',
         title: tx(mis.title, lang),
         summary: tx(mis.summary, lang),
-        meta: `${mis.documents.length} ${lang === 'fr' ? 'étapes' : 'steps'} · ${mis.minutes} min`,
+        meta: `${mis.documentCount ?? mis.documents.length} ${lang === 'fr' ? 'étapes' : 'steps'} · ${mis.minutes} min`,
         level: mis.level,
         to: missionPath(mis, lang),
       });
@@ -87,6 +96,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
     if (dlg) {
       out.push({
         id: `d-${dlg.id}`,
+        tierKey: `dialogue:${dlg.id}`,
         kind: 'dialogue',
         badge: lang === 'fr' ? 'Dialogue' : 'Dialogue',
         title: dlg.title,
@@ -101,6 +111,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
       const e = earItems[0];
       out.push({
         id: `e-${e.id}`,
+        tierKey: `ear:${e.id}`,
         kind: 'ear',
         badge: lang === 'fr' ? 'Entraîner son oreille' : 'Ear training',
         title: e.title,
@@ -116,6 +127,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
       if (out.length >= 4) break;
       out.push({
         id: `l-${d.id}`,
+        tierKey: `doc:${d.id}`,
         kind: 'doc',
         badge: tx(d.format, lang),
         title: d.title,
@@ -129,6 +141,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
       if (out.length >= 4) break;
       out.push({
         id: `e-${e.id}`,
+        tierKey: `ear:${e.id}`,
         kind: 'ear',
         badge: lang === 'fr' ? 'Entraîner son oreille' : 'Ear training',
         title: e.title,
@@ -190,7 +203,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
               <dl className="px-hc-stats">
                 <div>
                   <dt>{totalAll}</dt>
-                  <dd>{lang === 'fr' ? 'activités gratuites' : 'free activities'}</dd>
+                  <dd>{freeAll ? (lang === 'fr' ? 'activités gratuites' : 'free activities') : (lang === 'fr' ? 'activités pratiques' : 'practice activities')}</dd>
                 </div>
                 <div>
                   <dt>A1–C2</dt>
@@ -373,24 +386,40 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
             </div>
           </header>
 
+          <div className="lp-wrap"><PremiumInfoWidget lang={lang} variant="banner" /></div>
+
           <ul className="px-picks">
-            {quickPicks.map(item => (
-              <li key={item.id}>
-                <Link to={item.to} className={`px-pick is-${item.kind}`}>
-                  <div className="px-pick-top">
-                    <LevelChip level={item.level} size="sm" />
-                    <span className="px-pick-badge">{item.badge}</span>
-                  </div>
-                  {item.sample && <p className="px-pick-sample" lang="fr">{item.sample}</p>}
-                  <h3 lang="fr">{item.title}</h3>
-                  <p className="px-pick-sum">{item.summary}</p>
-                  <div className="px-pick-foot">
-                    <span>{item.meta}</span>
-                    <span className="px-pick-go" aria-hidden>{lang === 'fr' ? 'Essayer' : 'Try'} <ArrowRightOutlined /></span>
-                  </div>
-                </Link>
-              </li>
-            ))}
+            {quickPicks.map(item => {
+              const tier: Tier = itemTier(item.tierKey);
+              const locked = isTierLocked(account, tier);
+              return (
+                <li key={item.id}>
+                  <Link
+                    to={item.to}
+                    onClick={e => {
+                      if (!locked) return;
+                      e.preventDefault();
+                      openPremiumModal({ title: item.title, subtitle: item.summary, tier, kind: 'practice', level: item.level, to: item.to });
+                    }}
+                    className={`px-pick is-${item.kind}${locked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                  >
+                    <div className="px-pick-top">
+                      <LevelChip level={item.level} size="sm" />
+                      <span className="px-pick-badge">{item.badge}</span>
+                    </div>
+                    {item.sample && <p className="px-pick-sample" lang="fr">{item.sample}</p>}
+                    <h3 lang="fr">{item.title}</h3>
+                    <p className="px-pick-sum">{item.summary}</p>
+                    <div className="px-pick-foot">
+                      <span>{item.meta}</span>
+                      {locked
+                        ? <LockActionPill lang={lang} tier={tier} compact />
+                        : <span className="px-pick-go" aria-hidden>{lang === 'fr' ? 'Essayer' : 'Try'} <ArrowRightOutlined /></span>}
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </section>

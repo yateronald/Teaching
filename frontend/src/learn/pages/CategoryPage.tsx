@@ -5,9 +5,13 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, BarsOutlined, CheckCircleFilled,
-  CheckOutlined, ClockCircleOutlined, CompassOutlined, DownOutlined,
-  PlayCircleFilled, ReadOutlined, SearchOutlined, UpOutlined,
+  CheckOutlined, ClockCircleOutlined, CompassOutlined, CrownFilled, DownOutlined,
+  LockOutlined, PlayCircleFilled, ReadOutlined, SearchOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { courseTier } from '../access';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill } from '../account/PremiumWidget';
+import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import { TOPIC_PATHS } from '../../components/Landing/sitePages';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { COURSES, coursePath, pathCourses } from '../catalog';
@@ -41,62 +45,96 @@ function PathCourseCard({
   passed: boolean;
 }) {
   const ui = UI[lang];
+  const account = useAccount();
+  const tier = courseTier(course.id);
+  const locked = isTierLocked(account, tier);
   const stepNum = String(index + 1).padStart(2, '0');
+  const title = tx(course.title, lang);
+  const href = coursePath(course, lang);
+  const openModal = (e: React.MouseEvent) => {
+    if (!locked) return;
+    e.preventDefault();
+    openPremiumModal({ title, tier, kind: 'course', level: course.level, to: href });
+  };
+  const lockMsg = tier === 'premium'
+    ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium account required')
+    : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required');
 
   if (compact) {
     return (
-      <article className={`lx-cat-compact-card${passed ? ' is-done' : ''}`}>
-        <span className="lx-cat-step-num" aria-hidden>{stepNum}</span>
-        <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="160" height="100" className="lx-cat-compact-thumb" />
-        <div className="lx-cat-compact-body">
+      <article className={`lx-cat-compact-card${passed ? ' is-done' : ''}${locked ? ' ax-locked-card' : ''}`}>
+        <span className="lx-cat-step-num" aria-hidden>{locked ? <LockOutlined /> : stepNum}</span>
+        <div className={locked ? 'ax-locked-media' : undefined} style={locked ? { borderRadius: 10 } : undefined}>
+          <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="160" height="100" className="lx-cat-compact-thumb" />
+        </div>
+        <div className={`lx-cat-compact-body${locked ? ' ax-locked-copy' : ''}`}>
           <div className="lx-cat-compact-top">
             <LevelChip level={course.level} size="sm" />
-            {course.popular && !done && <span className="lx-tag">{ui.popular}</span>}
+            {course.popular && !done && !locked && <span className="lx-tag">{ui.popular}</span>}
             {passed && <span className="lx-tag is-free"><CheckCircleFilled /> {ui.completed}</span>}
           </div>
-          <h3><Link to={coursePath(course, lang)} className="lx-stretch">{tx(course.title, lang)}</Link></h3>
-          <p>{tx(course.subtitle, lang)}</p>
+          <h3><Link to={href} onClick={openModal} className="lx-stretch">{title}</Link></h3>
+          <p>{locked ? lockMsg : tx(course.subtitle, lang)}</p>
           <div className="lx-cat-compact-meta">
             <span><ReadOutlined /> {ui.lessons(course.lessonCount)}</span>
             <span><ClockCircleOutlined /> {ui.minutes(course.minutes)}</span>
             {done > 0 && <span className="lx-row-done">{done}/{course.lessonCount} {ui.done.toLowerCase()}</span>}
           </div>
         </div>
-        <Link
-          to={coursePath(course, lang)}
-          state={AUTOSTART}
-          className="lx-cc-start"
-          aria-label={`${done ? ui.continue : ui.start} : ${tx(course.title, lang)}`}
-        >
-          <PlayCircleFilled />{done ? ui.continue : ui.start}
-        </Link>
+        {locked ? (
+          <button type="button" onClick={openModal} style={{ border: 'none', background: 'transparent', padding: 0, position: 'relative', zIndex: 2 }} aria-label={`${lockMsg} : ${title}`}>
+            <LockActionPill lang={lang} tier={tier} compact />
+          </button>
+        ) : (
+          <Link
+            to={href}
+            state={AUTOSTART}
+            className="lx-cc-start"
+            aria-label={`${done ? ui.continue : ui.start} : ${title}`}
+          >
+            <PlayCircleFilled />{done ? ui.continue : ui.start}
+          </Link>
+        )}
       </article>
     );
   }
 
   return (
-    <article className="lx-course-card is-path-card">
-      <div className="lx-cc-img">
+    <article className={`lx-course-card is-path-card${locked ? ' ax-locked-card' : ''}`}>
+      <div className={`lx-cc-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="640" height="360" />
+        {locked && (
+          <div className="ax-locked-veil" aria-hidden>
+            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />} {lockMsg}
+            </span>
+          </div>
+        )}
         <LevelChip level={course.level} size="sm" />
         <span className="lx-cc-step-badge">{ui.category.stepLabel(index + 1)}</span>
-        {course.popular && !done && <span className="lx-cc-flag">{ui.popular}</span>}
+        {course.popular && !done && !locked && <span className="lx-cc-flag">{ui.popular}</span>}
         {passed && <span className="lx-cc-flag is-done"><CheckCircleFilled /> {ui.completed}</span>}
       </div>
-      <div className="lx-cc-body">
-        <h3><Link to={coursePath(course, lang)} className="lx-stretch">{tx(course.title, lang)}</Link></h3>
+      <div className={`lx-cc-body${locked ? ' ax-locked-copy' : ''}`}>
+        <h3><Link to={href} onClick={openModal} className="lx-stretch">{title}</Link></h3>
         <p className="lx-cc-sub">{tx(course.subtitle, lang)}</p>
         <div className="lx-cc-meta">
           <span><ReadOutlined /> {ui.lessons(course.lessonCount)}</span>
           <span><ClockCircleOutlined /> {ui.minutes(course.minutes)}</span>
-          <Link
-            to={coursePath(course, lang)}
-            state={AUTOSTART}
-            className="lx-cc-start"
-            aria-label={`${done ? ui.continue : ui.start} : ${tx(course.title, lang)}`}
-          >
-            <PlayCircleFilled />{done ? ui.continue : ui.start}
-          </Link>
+          {locked ? (
+            <button type="button" onClick={openModal} style={{ border: 'none', background: 'transparent', padding: 0, marginLeft: 'auto', position: 'relative', zIndex: 2 }} aria-label={`${lockMsg} : ${title}`}>
+              <LockActionPill lang={lang} tier={tier} compact />
+            </button>
+          ) : (
+            <Link
+              to={href}
+              state={AUTOSTART}
+              className="lx-cc-start"
+              aria-label={`${done ? ui.continue : ui.start} : ${title}`}
+            >
+              <PlayCircleFilled />{done ? ui.continue : ui.start}
+            </Link>
+          )}
         </div>
         {done > 0 && (
           <div className="lx-cc-progress" aria-label={`${done}/${course.lessonCount}`}>
@@ -110,6 +148,8 @@ function PathCourseCard({
 
 export default function CategoryPage({ lang, category }: { lang: Lang; category: CategoryMeta }) {
   const ui = UI[lang];
+  const account = useAccount();
+  const freeAll = freeForAllCopy(account);
   const courses = useMemo(() => pathCourses(category.id), [category.id]);
   const p = useProgress();
   const mounted = useMounted();
@@ -185,6 +225,18 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
   const levelRange = availableLevels.length > 1
     ? `${availableLevels[0]} → ${availableLevels[availableLevels.length - 1]}`
     : (availableLevels[0] ?? 'A1');
+  const spotlightTier = spotlightCourse ? courseTier(spotlightCourse.id) : 'visitor';
+  const spotlightLocked = spotlightCourse ? isTierLocked(account, spotlightTier) : false;
+  const openSpotlightModal = () => {
+    if (!spotlightCourse) return;
+    openPremiumModal({
+      title: tx(spotlightCourse.title, lang),
+      tier: spotlightTier,
+      kind: 'course',
+      level: spotlightCourse.level,
+      to: coursePath(spotlightCourse, lang),
+    });
+  };
 
   return (
     <LearnShell
@@ -209,7 +261,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
             <p className="lx-cat-facts">
               <span><ReadOutlined /> {ui.courses(courses.length)} · {ui.lessons(totalLessons)}</span>
               <span><ClockCircleOutlined /> {ui.minutes(total)}</span>
-              <span><CheckOutlined /> {ui.free} · {ui.noSignup}</span>
+              {freeAll && <span><CheckOutlined /> {ui.free} · {ui.noSignup}</span>}
               {mounted && completedCourses > 0 && (
                 <span className="lx-cat-fact-done">
                   <CheckCircleFilled /> {ui.category.completedCount(completedCourses, courses.length)}
@@ -218,9 +270,19 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
             </p>
             <div className="lp-hero-ctas">
               {spotlightCourse && (
-                <Link to={coursePath(spotlightCourse, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary lp-btn-lg">
-                  {anyStarted ? ui.category.continuePath : ui.category.startPath}<ArrowRightOutlined />
-                </Link>
+                spotlightLocked ? (
+                  <button type="button" onClick={openSpotlightModal} className="lp-btn lp-btn-primary lp-btn-lg">
+                    {spotlightTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                    {spotlightTier === 'premium'
+                      ? (lang === 'fr' ? 'Débloquer avec Premium' : 'Unlock with Premium')
+                      : (lang === 'fr' ? 'Créer un compte gratuit' : 'Free account to start')}
+                    <ArrowRightOutlined />
+                  </button>
+                ) : (
+                  <Link to={coursePath(spotlightCourse, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary lp-btn-lg">
+                    {anyStarted ? ui.category.continuePath : ui.category.startPath}<ArrowRightOutlined />
+                  </Link>
+                )
               )}
               <a href="#lx-cat-courses" className="lp-btn lp-btn-ghost lp-btn-lg">{ui.category.browseCurriculum}</a>
             </div>
@@ -252,9 +314,19 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
       {spotlightCourse && (
         <section className="lx-cat-spotlight-sec" aria-label={ui.category.spotlightEyebrow}>
           <div className="lp-wrap">
-            <div className="lx-cat-spotlight">
-              <div className="lx-cat-spot-media">
+            <div className={`lx-cat-spotlight${spotlightLocked ? ' ax-locked-card' : ''}`}>
+              <div className={`lx-cat-spot-media${spotlightLocked ? ' ax-locked-media' : ''}`}>
                 <img src={imageUrl(spotlightCourse.image, 640)} alt="" width="640" height="360" />
+                {spotlightLocked && (
+                  <div className="ax-locked-veil" aria-hidden>
+                    <span className={`ax-locked-veil-badge${spotlightTier === 'premium' ? ' is-premium' : ''}`}>
+                      {spotlightTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                      {spotlightTier === 'premium'
+                        ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required')
+                        : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required')}
+                    </span>
+                  </div>
+                )}
                 <span className="lx-cat-spot-step">{ui.category.stepLabel(spotlightIdx + 1)}</span>
               </div>
               <div className="lx-cat-spot-body">
@@ -263,10 +335,12 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                     <CompassOutlined /> {anyStarted ? ui.category.spotlightContinue : ui.category.spotlightEyebrow}
                   </span>
                   <LevelChip level={spotlightCourse.level} size="sm" />
-                  {spotlightCourse.popular && <span className="lx-tag">{ui.popular}</span>}
+                  {spotlightCourse.popular && !spotlightLocked && <span className="lx-tag">{ui.popular}</span>}
                 </div>
                 <h2>
-                  <Link to={coursePath(spotlightCourse, lang)}>{tx(spotlightCourse.title, lang)}</Link>
+                  <Link to={coursePath(spotlightCourse, lang)} onClick={e => { if (spotlightLocked) { e.preventDefault(); openSpotlightModal(); } }}>
+                    {tx(spotlightCourse.title, lang)}
+                  </Link>
                 </h2>
                 <p className="lx-cat-spot-sub">{tx(spotlightCourse.subtitle, lang)}</p>
                 {spotlightOutcomes.length > 0 && (
@@ -277,9 +351,18 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
                   </ul>
                 )}
                 <div className="lx-cat-spot-foot">
-                  <Link to={coursePath(spotlightCourse, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary">
-                    <PlayCircleFilled /> {spotlightDone > 0 ? ui.continue : ui.start}
-                  </Link>
+                  {spotlightLocked ? (
+                    <button type="button" onClick={openSpotlightModal} className="lp-btn lp-btn-primary">
+                      {spotlightTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                      {spotlightTier === 'premium'
+                        ? (lang === 'fr' ? 'Débloquer avec Premium' : 'Unlock with Premium')
+                        : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required')}
+                    </button>
+                  ) : (
+                    <Link to={coursePath(spotlightCourse, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary">
+                      <PlayCircleFilled /> {spotlightDone > 0 ? ui.continue : ui.start}
+                    </Link>
+                  )}
                   <Link to={coursePath(spotlightCourse, lang)} className="lx-link">
                     {ui.category.viewSyllabus} <ArrowRightOutlined />
                   </Link>

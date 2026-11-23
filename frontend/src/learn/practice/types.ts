@@ -56,6 +56,8 @@ export interface ReadingText {
   glossary: GlossEntry[];
   questions: ReadingQuestion[];
   focus: Focus;
+  /** Set on public build outlines when this text requires an account or Premium. */
+  locked?: 'visitor' | 'free' | 'premium';
 }
 
 /** What lists, addresses and search engines need, without the text itself. */

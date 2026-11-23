@@ -927,3 +927,28 @@ body:has(.lp) { min-width: 0; }
 .lp-footer-legal { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
 .lp-footer-legal a { color: #a9b6d6; }
 .lp-footer-legal a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Logged-in identity pill in the header (Admin / Teacher / Student / Learner) */
+.lp-user-pill {
+  display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 5px;
+  border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink);
+  font-size: 13.5px; font-weight: 650; white-space: nowrap; text-decoration: none;
+  transition: border-color .18s ease, box-shadow .18s ease, color .18s ease;
+}
+.lp-user-pill:hover { border-color: var(--blue); color: var(--blue); box-shadow: 0 4px 14px -8px rgba(15, 23, 42, .25); }
+.lp-user-pill.is-mobile { width: 100%; justify-content: center; height: 46px; }
+.lp-user-ava {
+  display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--blue); color: #fff; font-size: 12.5px; font-weight: 800; flex-shrink: 0;
+}
+.lp-user-pill.is-premium .lp-user-ava { background: linear-gradient(135deg, #d4a017, #b7791f); }
+.lp-user-pill.is-staff .lp-user-ava { background: linear-gradient(135deg, #102b4a, #2c5282); }
+.lp-user-pill.is-portal .lp-user-ava { background: linear-gradient(135deg, #047857, #059669); }
+.lp-user-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.lp-user-role {
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px;
+  background: var(--blue-soft, #eef3fa); color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .01em;
+}
+.lp-user-pill.is-premium .lp-user-role { background: #fff4d6; color: #8a5a00; }
+.lp-user-pill.is-staff .lp-user-role { background: #e8eef8; color: #102b4a; }
+.lp-user-pill.is-portal .lp-user-role { background: #e8f7ef; color: #065f46; }

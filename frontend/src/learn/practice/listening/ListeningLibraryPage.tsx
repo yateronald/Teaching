@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
-  CloseOutlined, CommentOutlined, CustomerServiceOutlined, DownOutlined,
-  SearchOutlined, SoundOutlined, UpOutlined,
+  CloseOutlined, CommentOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined,
+  LockOutlined, SearchOutlined, SoundOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { itemTier } from '../../access';
+import { openPremiumModal } from '../../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../../account/store';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip, useMounted } from '../../shell';
 import { tx, type Lang } from '../../types';
@@ -27,6 +31,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u
 
 export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
   const c = listeningCopy[lang];
+  const account = useAccount();
   const mounted = useMounted();
   const location = useLocation();
   const [track, setTrack] = useState<TrackId>('all');
@@ -234,21 +239,43 @@ export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
             <ul className={`rxl-cards${view === 'list' ? ' is-compact' : ''}`}>
               {lessons.map((e, idx) => {
                 const hide = mounted && idx >= limit;
+                const tier = itemTier(`doc:${e.id}`);
+                const locked = isTierLocked(account, tier);
+                const href = exercisePath(e, lang);
                 return (
                   <li key={e.id} hidden={hide || undefined}>
-                    <Link className="rxl-card" to={exercisePath(e, lang)} aria-labelledby={`rxl-title-${e.id}`}>
-                      <div className="rxl-card-img">
+                    <Link
+                      className={`rxl-card${locked ? ' ax-locked-card' : ''}`}
+                      to={href}
+                      onClick={ev => {
+                        if (!locked) return;
+                        ev.preventDefault();
+                        openPremiumModal({ title: e.title, subtitle: tx(e.summary, lang), tier, kind: 'practice', level: e.level, to: href });
+                      }}
+                      aria-labelledby={`rxl-title-${e.id}`}
+                    >
+                      <div className={`rxl-card-img${locked ? ' ax-locked-media' : ''}`}>
                         <ListeningCover exercise={e} sizes="(min-width: 1120px) 275px, (min-width: 860px) 32vw, (min-width: 560px) 46vw, calc(100vw - 36px)" />
+                        {locked && (
+                          <div className="ax-locked-veil" aria-hidden>
+                            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+                              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
+                            </span>
+                          </div>
+                        )}
                         <LevelChip level={e.level} size="sm" />
                         <span className="rxl-card-format-pill"><SoundOutlined aria-hidden /> {tx(e.format, lang)}</span>
                       </div>
-                      <div className="rxl-card-body">
+                      <div className={`rxl-card-body${locked ? ' ax-locked-copy' : ''}`}>
                         <p className="rxl-card-format-inline"><SoundOutlined aria-hidden /> {tx(e.format, lang)}</p>
                         <h3 id={`rxl-title-${e.id}`} lang="fr">{e.title}</h3>
                         <p className="rxl-card-summary">{tx(e.summary, lang)}</p>
                         <div className="rxl-card-foot">
                           <span>{c.questions(e.count ?? e.questions.length)}</span>
-                          <span className="rxl-card-go" aria-hidden="true">{c.start} <ArrowRightOutlined /></span>
+                          {locked
+                            ? <LockActionPill lang={lang} tier={tier} compact />
+                            : <span className="rxl-card-go" aria-hidden="true">{c.start} <ArrowRightOutlined /></span>}
                         </div>
                       </div>
                     </Link>
@@ -256,6 +283,7 @@ export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
                 );
               })}
             </ul>
+            <PremiumInfoWidget lang={lang} variant="banner" />
 
             {lessons.length > baseLimit && (
               <div className="rxl-pager">

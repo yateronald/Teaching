@@ -178,6 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         try {
             const response = await fetch(`${API_BASE_URL}/auth/login`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json'
                 },
@@ -191,6 +192,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 setToken(data.token);
                 setUser(data.user);
                 applyCompanyLanguage(data.user);
+                if (typeof BroadcastChannel !== 'undefined') {
+                    try { const ch = new BroadcastChannel('lfwn-learn-access'); ch.postMessage({ type: 'refresh' }); ch.close(); } catch { /* ignore */ }
+                }
                 message.success('Login successful!');
                 // Sync profile timezone to browser on fresh login too.
                 autoDetectTimezone(data.user, data.token);
@@ -253,6 +257,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         localStorage.removeItem('token');
         setToken(null);
         setUser(null);
+        if (typeof BroadcastChannel !== 'undefined') {
+            try { const ch = new BroadcastChannel('lfwn-learn-access'); ch.postMessage({ type: 'refresh' }); ch.close(); } catch { /* ignore */ }
+        }
     };
 
     const logout = async () => {
@@ -262,9 +269,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (current) {
             await fetch(`${API_BASE_URL}/auth/logout`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: { 'Authorization': `Bearer ${current}` },
             }).catch(() => { /* signing out locally is what matters to the user */ });
         }
+        await fetch(`${API_BASE_URL}/site-auth/logout`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+        }).catch(() => { /* best effort website cookie clear */ });
         clearSession();
         message.success('Logged out successfully');
     };

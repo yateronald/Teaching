@@ -17,6 +17,15 @@ export function unscramble(u: Uint8Array) {
 const ready = new Map<string, string>();
 const pending = new Map<string, Promise<string>>();
 
+/** Clears all decrypted blob: URLs from memory (called immediately if access drops). */
+export function clearSealedCache() {
+  ready.forEach(url => {
+    try { URL.revokeObjectURL(url); } catch { /* ignore */ }
+  });
+  ready.clear();
+  pending.clear();
+}
+
 /** The blob: address of a recording already loaded, to start it straight from a tap. */
 export const sealedReady = (src: string) => ready.get(src);
 

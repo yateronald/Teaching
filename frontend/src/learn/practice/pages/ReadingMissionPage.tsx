@@ -8,6 +8,7 @@ import { Crumbs, LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang, type Voice } from '../../types';
 import { practicePath, readingPath } from '../meta';
 import { missionAudio, missionCoverKey, missionPath, missionVoice, type ReadingMission } from '../missions';
+import { useUnlockedPractice } from '../unlocked';
 import { saveMissionDone } from '../../studyPath/activityStore';
 import '../mission.css';
 
@@ -40,7 +41,7 @@ function DocumentAudio({ text, lang, voice }: { text: string; lang: Lang; voice:
   </button>;
 }
 
-export default function ReadingMissionPage({ lang, mission }: { lang: Lang; mission: ReadingMission }) {
+function ReadingMissionBody({ lang, mission }: { lang: Lang; mission: ReadingMission }) {
   const c = labels[lang];
   const [step, setStep] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
@@ -166,6 +167,22 @@ export default function ReadingMissionPage({ lang, mission }: { lang: Lang; miss
           </div>
         </div>
       </div>
+    </LearnShell>
+  );
+}
+
+export default function ReadingMissionPage({ lang, mission: stub }: { lang: Lang; mission: ReadingMission }) {
+  const c = labels[lang];
+  const needsUnlock = Boolean(stub.locked) || stub.documents.length === 0;
+  const { data: unlocked } = useUnlockedPractice('mission', stub.id, stub, needsUnlock);
+  const mission = unlocked && !unlocked.locked && unlocked.documents.length > 0 ? unlocked : null;
+  if (mission) return <ReadingMissionBody key={mission.id} lang={lang} mission={mission} />;
+  return (
+    <LearnShell lang={lang} alternates={{ fr: missionPath(stub, 'fr'), en: missionPath(stub, 'en') }} seo={{
+      title: `${tx(stub.title, lang)} · ${c.mission} ${stub.level}`,
+      description: tx(stub.summary, lang), path: missionPath(stub, lang), noindex: true,
+    }}>
+      <div className="rxm-page"><div className="lp-wrap"><div className="lx-loading" role="status" /></div></div>
     </LearnShell>
   );
 }

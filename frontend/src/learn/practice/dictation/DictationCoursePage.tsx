@@ -25,6 +25,7 @@ import { trackLearning } from '../../../utils/siteAnalytics';
 import { ScoreRing } from '../parts';
 import { ListeningPlayer } from '../listening/ListeningPlayer';
 import { DICTATIONS, dictationCoursePath, dictationPath } from './catalog';
+import { useUnlockedPractice } from '../unlocked';
 import { DICT_COPY } from './copy';
 import {
   buildHint, countWords, evaluateGuided, evaluateSentence, formatGrade,
@@ -81,7 +82,7 @@ function DiffFlow({ evalResult }: { evalResult: SentenceEvaluation }) {
   );
 }
 
-export default function DictationCoursePage({ lang, course }: { lang: Lang; course: DictationCourse }) {
+function DictationCourseBody({ lang, course }: { lang: Lang; course: DictationCourse }) {
   const c = DICT_COPY[lang];
   const method = courseMethod(course);
   const nextCourse = useMemo(() => {
@@ -813,6 +814,26 @@ export default function DictationCoursePage({ lang, course }: { lang: Lang; cour
           )}
         </div>
       </div>
+    </LearnShell>
+  );
+}
+
+export default function DictationCoursePage({ lang, course: stub }: { lang: Lang; course: DictationCourse }) {
+  const needsUnlock = Boolean(stub.locked) || !stub.text;
+  const { data: unlocked } = useUnlockedPractice('dictation', stub.id, stub, needsUnlock);
+  const course = unlocked && !unlocked.locked && unlocked.text ? unlocked : null;
+  if (course) return <DictationCourseBody key={course.id} lang={lang} course={course} />;
+  return (
+    <LearnShell
+      lang={lang}
+      alternates={{ en: dictationCoursePath(stub, 'en'), fr: dictationCoursePath(stub, 'fr') }}
+      seo={{
+        title: `${stub.title} | ${lang === 'fr' ? 'Dictée' : 'Dictation'}`,
+        description: tx(stub.subtitle, lang),
+        path: dictationCoursePath(stub, lang),
+      }}
+    >
+      <div className="dx-page"><div className="lp-wrap"><div className="lx-loading" role="status" /></div></div>
     </LearnShell>
   );
 }

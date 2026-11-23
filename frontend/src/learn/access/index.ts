@@ -55,3 +55,19 @@ export function itemTier(key: string): Tier {
   if (FREE.items.has(key)) return 'free';
   return 'premium';
 }
+
+export interface StepSourceLike {
+  type: 'course' | 'ladder' | 'dialogue' | 'ear' | 'doc' | 'text' | 'mission' | 'dictation' | 'placement' | 'game';
+  id?: string;
+  level?: Level;
+}
+
+/** The tier required by one study-path step. */
+export function stepTier(step: { source: StepSourceLike }): Tier {
+  const s = step.source;
+  if (s.type === 'placement') return 'visitor';
+  if (s.type === 'course' && s.id) return courseTier(s.id);
+  if (s.type === 'ladder' && s.id) return lessonTier(s.id, { level: s.level });
+  if (s.id) return itemTier(`${s.type}:${s.id}`);
+  return 'premium';
+}

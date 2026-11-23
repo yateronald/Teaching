@@ -3,7 +3,7 @@
 // cards, breadcrumbs, the teacher call to action).
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, PlayCircleFilled, RightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, CrownFilled, LockOutlined, PlayCircleFilled, RightOutlined } from '@ant-design/icons';
 import SEO from '../components/SEO/SEO';
 import SiteHeader from '../components/Landing/SiteHeader';
 import SiteFooter from '../components/Landing/SiteFooter';
@@ -19,9 +19,11 @@ import { PromoProvider } from '../promo/PromoProvider';
 import { PromoBar, PromoNudge } from '../promo/placements';
 import type { Audience } from '../promo/model';
 import { AcademyBar } from './components/AcademyBar';
-import { loadAccount, useAccount } from './account/store';
+import { loadAccount, isTierLocked, startAccessWatcher, useAccount } from './account/store';
 import { courseTier } from './access';
 import { TierBadge } from './account/AccessGate';
+import { openPremiumModal } from './account/premiumModal';
+import { LockActionPill, PremiumModalHost } from './account/PremiumWidget';
 import '../components/Landing/LandingPage.css';
 import './learn.css';
 
@@ -69,8 +71,11 @@ function useLearnMeta(lang: Lang) {
 export function LearnShell({ lang, alternates, seo, children, bare = false }: ShellProps) {
   const { openDemo, openExamOffer, modal } = useDemoModal();
   const mounted = useMounted();
-  // Who is signed in (once per visit): locks and the account button follow.
-  useEffect(() => { loadAccount(); }, []);
+  // Keep account + live mode SSE watcher active across the learning space.
+  useEffect(() => {
+    void loadAccount();
+    startAccessWatcher();
+  }, []);
   usePublicPage(lang, useLearnMeta(lang));
   return (
     <PromoProvider lang={lang} area="learn">
@@ -83,6 +88,7 @@ export function LearnShell({ lang, alternates, seo, children, bare = false }: Sh
         {!bare && <AcademyBar lang={lang} mounted={mounted} />}
         <main id="main">{children}</main>
         {!bare && <SiteFooter lang={lang} sectionBase={PATHS[lang]} onDemo={openDemo} />}
+        <PremiumModalHost lang={lang} />
         {modal}
       </div>
     </DemoCtx.Provider>
@@ -114,22 +120,42 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
   const ui = UI[lang];
   const p = useProgress();
   const mounted = useMounted();
-  const { access } = useAccount();
+  const account = useAccount();
+  const { access } = account;
+  const tier = courseTier(course.id);
+  const locked = isTierLocked(account, tier);
   const done = mounted ? courseDone(p, course.id, course.lessonCount) : 0;
   const passed = mounted && p.finals[course.id]?.passed;
   const cat = CATEGORIES.find(c => c.id === course.category)!;
   const title = tx(course.title, lang);
+  const href = coursePath(course, lang);
+  const onOpenModal = (e: React.MouseEvent) => {
+    if (!locked) return;
+    e.preventDefault();
+    openPremiumModal({ title, tier, kind: 'course', level: course.level, to: href });
+  };
+  const veilLabel = tier === 'premium'
+    ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium account required')
+    : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required');
+
   return (
-    <article className={`crs-card${compact ? ' is-compact' : ''}${done ? ' is-started' : ''}`}>
-      <div className="crs-img">
+    <article className={`crs-card${compact ? ' is-compact' : ''}${done ? ' is-started' : ''}${locked ? ' ax-locked-card' : ''}`}>
+      <div className={`crs-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(course.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+        {locked && (
+          <div className="ax-locked-veil" aria-hidden>
+            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />} {veilLabel}
+            </span>
+          </div>
+        )}
         <LevelChip level={course.level} size="sm" />
-        {course.popular && !done && <span className="crs-flag">{ui.popular}</span>}
+        {course.popular && !done && !locked && <span className="crs-flag">{ui.popular}</span>}
         {passed && <span className="crs-flag is-done"><CheckCircleFilled /> {ui.completed}</span>}
       </div>
-      <div className="crs-body">
+      <div className={`crs-body${locked ? ' ax-locked-copy' : ''}`}>
         <p className="crs-provider"><span className="crs-logo" aria-hidden>LF</span>{tx(cat.name, lang)}</p>
-        <h3><Link to={coursePath(course, lang)} className="lx-stretch">{title}</Link></h3>
+        <h3><Link to={href} onClick={onOpenModal} className="lx-stretch">{title}</Link></h3>
         {!compact && <p className="crs-sub">{tx(course.subtitle, lang)}</p>}
         <p className="crs-meta">
           <span>{ui.hub.levelNames[course.levels[0]]}</span>
@@ -142,14 +168,26 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
               <i><b style={{ transform: `scaleX(${done / course.lessonCount})` }} /></i>
               <small>{done}/{course.lessonCount}</small>
             </span>
-          ) : courseTier(course.id) === 'visitor' ? (
+          ) : tier === 'visitor' ? (
             <span className="crs-free">{ui.free}</span>
           ) : (
-            <TierBadge lang={lang} tier={courseTier(course.id)} level={access.level} />
+            <TierBadge lang={lang} tier={tier} level={access.level} />
           )}
-          <Link to={coursePath(course, lang)} state={AUTOSTART} className="crs-start" aria-label={`${done ? ui.continue : ui.start} : ${title}`}>
-            <PlayCircleFilled />{done ? ui.continue : ui.start}
-          </Link>
+          {locked ? (
+            <button
+              type="button"
+              onClick={onOpenModal}
+              className="ax-lock-cta"
+              style={{ border: 'none', background: 'transparent', padding: 0, position: 'relative', zIndex: 2 }}
+              aria-label={`${veilLabel} : ${title}`}
+            >
+              <LockActionPill lang={lang} tier={tier} compact />
+            </button>
+          ) : (
+            <Link to={href} state={AUTOSTART} className="crs-start" aria-label={`${done ? ui.continue : ui.start} : ${title}`}>
+              <PlayCircleFilled />{done ? ui.continue : ui.start}
+            </Link>
+          )}
         </div>
       </div>
     </article>

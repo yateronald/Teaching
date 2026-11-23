@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckCircleOutlined, CheckOutlined, CloseCircleFilled, CloseOutlined, CustomerServiceOutlined, EditOutlined, SoundOutlined } from '@ant-design/icons';
+import { ACCESS_GENERATED, itemTier } from '../../access';
 import { beforeSpeak, hasRecording, prefetchRecording, speak, stop, usePlaying } from '../../audio';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip } from '../../shell';
@@ -13,6 +14,7 @@ import { ListeningPlayer } from './ListeningPlayer';
 import { LISTENING_VOICES, passageAudio, questionAudio, type ListeningExercise, type ListeningVoice } from './types';
 import { usePinnedPlayer } from '../pinned';
 import { useFullExercise } from './advanced';
+import { useUnlockedPractice } from '../unlocked';
 import { saveListeningDocBest } from '../../studyPath/activityStore';
 import './listening.css';
 
@@ -217,9 +219,12 @@ function ExerciseBody({ exercise: e, lang }: { exercise: ListeningExercise; lang
   </LearnShell>;
 }
 
-/** The advanced documents arrive with their own download: until then, a short wait. */
+/** The locked or advanced documents arrive from the server on unlock: until then, a short wait. */
 export default function ListeningExercisePage({ exercise, lang }: { exercise: ListeningExercise; lang: Lang }) {
-  const full = useFullExercise(exercise);
+  const localFull = useFullExercise(exercise);
+  const needsUnlock = Boolean(exercise.locked || localFull?.locked || (ACCESS_GENERATED && itemTier(`doc:${exercise.id}`) !== 'visitor' && (!localFull || localFull.segments.length === 0)));
+  const { data: unlocked } = useUnlockedPractice('doc', exercise.id, localFull ?? exercise, needsUnlock);
+  const full = unlocked && !unlocked.locked && unlocked.segments.length > 0 ? unlocked : null;
   if (full) return <ExerciseBody key={full.id} exercise={full} lang={lang} />;
   const c = listeningCopy[lang];
   return <LearnShell lang={lang} alternates={{ en: exercisePath(exercise, 'en'), fr: exercisePath(exercise, 'fr') }}

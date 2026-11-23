@@ -203,7 +203,8 @@ app.use('/api/site-auth/signup/resend', limiter(60, 15, 'Too many codes requeste
 app.use('/api/site-auth/login', limiter(15, 30, 'Too many failed sign-in attempts. Please wait 15 minutes and try again.', { skipSuccessfulRequests: true }));
 app.use('/api/site-auth/password', limiter(15, 20, 'Too many attempts. Please wait 15 minutes and try again.'));
 app.use('/api/site-auth/google', limiter(15, 60, 'Too many attempts. Please wait a few minutes and try again.'));
-app.use('/api/site-auth', limiter(5, 300, 'Too many requests. Please wait a moment.'));
+app.get('/api/site-auth/events', limiter(5, 120, 'Too many live stream connections. Please wait a moment.'));
+app.use('/api/site-auth', limiter(5, 300, 'Too many requests. Please wait a moment.', { skip: (req) => req.path === '/events' }));
 // Payments: a person starts few checkouts; Paystack's notifications are never throttled hard.
 app.post('/api/learn/billing/checkout', limiter(60, 20, 'Too many payment attempts. Please try again later.'));
 app.use('/api/learn/billing/callback', limiter(15, 60, 'Too many requests. Please wait a moment.'));

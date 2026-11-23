@@ -15,7 +15,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
-const { verifyPassword, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
+const { authenticateToken, verifyPassword, recordFailedLogin, resetFailedLogins, isAccountLocked } = require('../middleware/auth');
 const hints = require('../services/signInHints');
 const sessions = require('../services/sessionService');
 const { checkEmail, cleanEmail, emailKey, maskEmail } = require('../services/emailIdentity');
@@ -23,12 +23,20 @@ const { passwordProblem } = require('../services/passwordPolicy');
 const access = require('../services/learnAccess');
 const site = require('../services/siteSession');
 const google = require('../services/googleAuth');
+const billing = require('../services/billing');
+const learnMode = require('../services/learnMode');
+const learnEvents = require('../services/learnEvents');
 const templates = require('../emails/templates/learnAccount');
 const { sendEmail } = require('../emails/brevoService');
 
 const router = express.Router();
 router.use(site.siteWriteGuard);
-router.use((req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+router.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Vary', 'Cookie');
+    next();
+});
 
 const TERMS_VERSION = process.env.LEARN_TERMS_VERSION || '2026-11';
 const CODE_MINUTES = 15;
@@ -136,9 +144,14 @@ async function createLearner(db, p) {
 /** Signs a person in on the website and answers with who they are and what they may use. */
 async function signedIn(req, res, user, extra = {}) {
     await site.openSiteSession(req.db, req, res, user);
-    const fresh = await req.db.get(`SELECT ${site.USER_FIELDS} FROM users WHERE id = $1`, [user.id]);
+    const [fresh, payments, mode] = await Promise.all([
+        req.db.get(`SELECT ${site.USER_FIELDS} FROM users WHERE id = $1`, [user.id]),
+        billing.enabled(req.db).catch(() => false),
+        learnMode.getMode(req.db, { fresh: true }),
+    ]);
     const a = await access.accessFor(req.db, fresh);
-    return res.json({ user: site.publicUser(fresh), access: access.publicAccess(a), ...extra });
+    res.setHeader('X-Learn-Mode', mode);
+    return res.json({ user: site.publicUser(fresh), access: access.publicAccess(a), mode, google: google.config().enabled, payments, ...extra });
 }
 
 /** Why an existing account cannot sign in on the website, if it cannot. */
@@ -163,8 +176,11 @@ async function websiteRefusal(db, user) {
 
 // ═══ Configuration the website needs ═══
 router.get('/config', async (req, res) => {
-    const payments = await require('../services/billing').enabled(req.db).catch(() => false);
-    const mode = await require('../services/learnMode').getMode(req.db);
+    const [payments, mode] = await Promise.all([
+        billing.enabled(req.db).catch(() => false),
+        learnMode.getMode(req.db, { fresh: true }),
+    ]);
+    res.setHeader('X-Learn-Mode', mode);
     res.json({ google: google.config().enabled, payments, mode, terms_version: TERMS_VERSION });
 });
 
@@ -176,7 +192,99 @@ router.get('/me', site.siteAuth(), async (req, res) => {
         request = await req.db.get(
             "SELECT status, created_at FROM learn_premium_requests WHERE user_id = $1 AND status = 'open'", [user.id]);
     }
-    res.json({ user: site.publicUser(user), access: access.publicAccess(req.siteAccess), premium_request: request || null });
+    const [payments, mode] = await Promise.all([
+        billing.enabled(req.db).catch(() => false),
+        learnMode.getMode(req.db, { fresh: true }),
+    ]);
+    res.setHeader('X-Learn-Mode', mode);
+    res.json({
+        user: site.publicUser(user),
+        access: access.publicAccess(req.siteAccess),
+        premium_request: request || null,
+        mode,
+        google: google.config().enabled,
+        payments,
+    });
+});
+
+// ═══ Bridge an active portal session (Admin / Teacher / Student / Candidate / Org Admin) ═══
+router.post('/portal-sync', authenticateToken, async (req, res) => {
+    try {
+        const [fresh, payments, mode] = await Promise.all([
+            req.db.get(`SELECT ${site.USER_FIELDS} FROM users WHERE id = $1 AND is_active = true`, [req.user.id]),
+            billing.enabled(req.db).catch(() => false),
+            learnMode.getMode(req.db, { fresh: true }),
+        ]);
+        res.setHeader('X-Learn-Mode', mode);
+        if (!fresh) return fail(res, 401, 'SESSION_ENDED', 'Account unavailable.');
+        const a = await access.accessFor(req.db, fresh);
+        if (a.website) {
+            await site.openSiteSession(req.db, req, res, fresh).catch(err => {
+                console.warn('[site-auth] portal-sync cookie skipped:', err.message);
+            });
+            let request = null;
+            if (await access.ready(req.db)) {
+                request = await req.db.get(
+                    "SELECT status, created_at FROM learn_premium_requests WHERE user_id = $1 AND status = 'open'", [fresh.id]);
+            }
+            return res.json({
+                user: site.publicUser(fresh),
+                portal_user: null,
+                access: access.publicAccess(a),
+                portal_only: false,
+                premium_request: request || null,
+                mode,
+                google: google.config().enabled,
+                payments,
+            });
+        }
+        // Portal-only user without online-courses access: share display identity ONLY, stay visitor on access.
+        return res.json({
+            user: null,
+            portal_user: {
+                id: fresh.id,
+                first_name: fresh.first_name,
+                last_name: fresh.last_name || '',
+                email: fresh.email,
+                role: fresh.role,
+            },
+            access: access.publicAccess(site.VISITOR),
+            portal_only: true,
+            premium_request: null,
+            mode,
+            google: google.config().enabled,
+            payments,
+        });
+    } catch (err) {
+        console.error('[site-auth] portal sync failed:', err.message);
+        return fail(res, 500, 'FAILED', 'Could not verify portal session.');
+    }
+});
+
+// ═══ Live mode & entitlement stream (SSE) ═══
+router.get('/events', site.siteAuth(), async (req, res) => {
+    try {
+        const mode = await learnMode.getMode(req.db, { fresh: true });
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache, no-store, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders?.();
+        res.write(`event: state\ndata: ${JSON.stringify({
+            mode,
+            level: req.siteAccess?.level || 'visitor',
+            userId: req.siteUser?.id || null,
+        })}\n\n`);
+        res.flush?.();
+        learnEvents.subscribe(res, {
+            userId: req.siteUser?.id || null,
+            orgId: req.siteUser?.organization_id || null,
+        });
+    } catch (err) {
+        console.error('[site-auth] events failed:', err.message);
+        if (!res.headersSent) res.status(503).end();
+        else res.end();
+    }
 });
 
 // ═══ Sign-up with email: step 1, the form ═══

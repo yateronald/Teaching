@@ -64,14 +64,14 @@ export function prepareLearn(): string[] {
     if (!text) { warnings.push(`text ${t.id} has no content file`); continue; }
     if (text.id !== t.id) warnings.push(`text ${t.id}: its file says id ${text.id}`);
     registerText(text);
-    warnings.push(...checkText(t, text));
+    if (!text.locked) warnings.push(...checkText(t, text));
   }
   // Ear-training courses: registered, and checked against their entry in practice/ear/meta.ts.
   for (const e of EAR) {
     const course = earModules[`./practice/ear/courses/${e.id}.ts`]?.default;
     if (!course) { warnings.push(`ear course ${e.id} has no content file`); continue; }
     registerEar(course);
-    warnings.push(...checkEar(e, course));
+    if (!course.locked) warnings.push(...checkEar(e, course));
   }
   // Dialogues: registered, and checked against their entry in practice/dialogues/meta.ts.
   const listed = new Set(DIALOGUES.map(d => d.id));
@@ -85,7 +85,7 @@ export function prepareLearn(): string[] {
     const d = dialogueModules[`./practice/dialogues/content/${m.theme}.ts`]?.default[m.id];
     if (!d) { warnings.push(`dialogue ${m.id} has no content in content/${m.theme}.ts`); continue; }
     registerDialogue(d);
-    warnings.push(...checkDialogue(m, d));
+    if (!d.locked) warnings.push(...checkDialogue(m, d));
   }
   // Advanced listening documents: registered, and their library entries checked against the content.
   const advanced = [...c1Listening, ...c2Listening];
@@ -93,6 +93,7 @@ export function prepareLearn(): string[] {
   for (const s of LISTENING.filter(e => e.lazy)) {
     const e = advanced.find(x => x.id === s.id);
     if (!e) { warnings.push(`listening ${s.id}: no content in c1.ts / c2.ts`); continue; }
+    if (e.locked) continue;
     if (e.title !== s.title || e.level !== s.level || e.voice !== s.voice || e.questions.length !== s.count || tx(e.format, 'fr') !== tx(s.format, 'fr') || tx(e.summary, 'en') !== tx(s.summary, 'en')) {
       warnings.push(`listening ${s.id}: advanced-meta.ts differs from its content (run node scripts/listening-stubs.mjs)`);
     }

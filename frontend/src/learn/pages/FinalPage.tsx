@@ -1,8 +1,9 @@
 // The final assessment of a course and its certificate of completion
 // (Premium: the assessment and the certificate open with Premium only).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRightOutlined, LoadingOutlined, PrinterOutlined, RedoOutlined, SafetyCertificateFilled, TrophyOutlined } from '@ant-design/icons';
+import { stop as stopAudio } from '../audio';
 import { BRAND_LOGO } from '../../components/Landing/landingContent';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath } from '../catalog';
@@ -74,6 +75,12 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
   const [result, setResult] = useState<PlayerOutcome | null>(null);
   const [, setFresh] = useState<BadgeId[]>([]);
   useScrollLock(phase === 'play');
+  useEffect(() => {
+    if ((!premium || !ready) && phase === 'play') {
+      stopAudio();
+      setPhase('intro');
+    }
+  }, [premium, ready, phase]);
   const cat = CATEGORIES.find(c => c.id === course.category)!;
   const title = tx(course.title, lang);
   const best = mounted ? p.finals[course.id] : undefined;

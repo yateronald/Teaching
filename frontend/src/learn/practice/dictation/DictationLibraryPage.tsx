@@ -6,11 +6,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
-  CheckOutlined, CloseOutlined, CustomerServiceOutlined, DownOutlined,
-  EditOutlined, FormOutlined, PlayCircleFilled, SafetyCertificateOutlined,
+  CheckOutlined, CloseOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined,
+  EditOutlined, FormOutlined, LockOutlined, PlayCircleFilled, SafetyCertificateOutlined,
   SearchOutlined, SoundOutlined, SwapOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
+import { itemTier } from '../../access';
+import { openPremiumModal } from '../../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../../account/store';
 import { speak, stop, usePlaying } from '../../audio';
 import { hubPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip, useMounted } from '../../shell';
@@ -29,7 +33,7 @@ import '../practice.css';
 import './dictation.css';
 
 const SITE = 'https://www.learnfrenchwithnatives.com';
-const SAMPLE_PHRASE = DICTATIONS[0].text;
+const SAMPLE_PHRASE = DICTATIONS.find(d => !d.locked && d.text)?.text ?? DICTATIONS[0]?.text ?? '';
 const HOW_ICONS = [<CustomerServiceOutlined />, <EditOutlined />, <CheckOutlined />];
 const PAGE_GRID = 12;
 const PAGE_LIST = 16;
@@ -65,6 +69,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
   const c = DICT_COPY[lang];
   const pc = P[lang];
   const ui = UI[lang];
+  const account = useAccount();
   const mounted = useMounted();
 
   const [level, setLevel] = useState<Level | 'all'>('all');
@@ -253,14 +258,25 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
               <ul className={`dx-cards${view === 'list' ? ' is-compact' : ''}`}>
                 {filtered.map((d, idx) => {
                   const hide = mounted && idx >= limit;
-                  const words = countWords(d.text);
+                  const words = d.wordCount ?? countWords(d.text);
                   const best = mounted ? readDictationBest(d.id) : undefined;
                   const m = courseMethod(d);
                   const to = dictationCoursePath(d, lang);
+                  const tier = itemTier(`dictation:${d.id}`);
+                  const locked = isTierLocked(account, tier);
                   return (
                     <li key={d.id} hidden={hide || undefined}>
-                      <Link to={to} className="dx-card" aria-labelledby={`dx-t-${d.id}`}>
-                        <div className="dx-card-img">
+                      <Link
+                        to={to}
+                        onClick={e => {
+                          if (!locked) return;
+                          e.preventDefault();
+                          openPremiumModal({ title: d.title, subtitle: tx(d.subtitle, lang), tier, kind: 'practice', level: d.level, to });
+                        }}
+                        className={`dx-card${locked ? ' ax-locked-card' : ''}`}
+                        aria-labelledby={`dx-t-${d.id}`}
+                      >
+                        <div className={`dx-card-img${locked ? ' ax-locked-media' : ''}`}>
                           <img
                             src={imageUrl(d.image, 640)}
                             srcSet={`${imageUrl(d.image, 640)} 640w, ${imageUrl(d.image, 1200)} 1200w`}
@@ -271,8 +287,16 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                             loading="lazy"
                             decoding="async"
                           />
+                          {locked && (
+                            <div className="ax-locked-veil" aria-hidden>
+                              <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+                                {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                                {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
+                              </span>
+                            </div>
+                          )}
                           <LevelChip level={d.level} size="sm" />
-                          {best ? (
+                          {best && !locked ? (
                             <span className="dx-card-best">{c.best(formatGrade(best.grade, lang))}</span>
                           ) : m !== 'story' ? (
                             <span className={`dx-card-method is-${m}`}>
@@ -284,7 +308,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                           </span>
                         </div>
 
-                        <div className="dx-card-body">
+                        <div className={`dx-card-body${locked ? ' ax-locked-copy' : ''}`}>
                           <p className="dx-card-inline-tag">
                             <MethodIcon method={m} /> {c.methodShort[m]} · {tx(d.theme, lang)}
                           </p>
@@ -294,9 +318,13 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
 
                           <div className="dx-card-foot">
                             <span className="dx-card-meta">{c.words(words)} · {d.minutes} min</span>
-                            <span className="dx-card-go" aria-hidden="true">
-                              {best ? c.cardRetry : c.cardStart} <ArrowRightOutlined />
-                            </span>
+                            {locked ? (
+                              <LockActionPill lang={lang} tier={tier} compact />
+                            ) : (
+                              <span className="dx-card-go" aria-hidden="true">
+                                {best ? c.cardRetry : c.cardStart} <ArrowRightOutlined />
+                              </span>
+                            )}
                           </div>
                         </div>
                       </Link>
@@ -304,6 +332,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                   );
                 })}
               </ul>
+              <PremiumInfoWidget lang={lang} variant="banner" />
 
               {filtered.length > baseLimit && (
                 <div className="rxl-pager">

@@ -81,7 +81,23 @@ async function openSiteSession(db, req, res, user) {
 
 /** Ends this request's website session (if any) and clears its cookie. */
 async function closeSiteSession(db, req, res, reason = 'logout') {
-    if (req.siteSession) await sessions.endSessions(db, [req.siteSession.id], reason).catch(() => 0);
+    if (req.siteSession) {
+        await sessions.endSessions(db, [req.siteSession.id], reason).catch(() => 0);
+    } else {
+        const token = parseCookies(req)[COOKIE];
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, JWT_SECRET, { audience: AUDIENCE });
+                if (decoded?.jti && decoded?.id) {
+                    await db.run(
+                        `UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, ended_reason = $3
+                          WHERE jti = $1 AND user_id = $2 AND door = 'website' AND ended_at IS NULL`,
+                        [decoded.jti, decoded.id, reason],
+                    ).catch(() => 0);
+                }
+            } catch { /* invalid or expired cookie: just clear it */ }
+        }
+    }
     clearCookie(res, COOKIE);
 }
 

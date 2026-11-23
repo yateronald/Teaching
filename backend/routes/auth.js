@@ -6,8 +6,20 @@ const hints = require('../services/signInHints');
 const sessions = require('../services/sessionService');
 const { createNotification } = require('../services/notificationService');
 const { hasColumn } = require('../services/schemaFeatures');
+const site = require('../services/siteSession');
+const learnAccess = require('../services/learnAccess');
 
 const router = express.Router();
+
+/** Opens the website cookie alongside a portal login when this role/account may use the website. */
+async function maybeOpenWebsiteSession(req, res, user) {
+    try {
+        const a = await learnAccess.accessFor(req.db, user);
+        if (a.website) await site.openSiteSession(req.db, req, res, user);
+    } catch (err) {
+        console.warn('[auth] website session bridge skipped:', err.message);
+    }
+}
 
 /** The user as the client may see them, with the password-change flag resolved. */
 function withoutPassword(user) {
@@ -192,6 +204,7 @@ router.post('/login', [
                 // A capped account must be countable: refuse rather than let an
                 // untracked device through. Other roles sign in as before.
                 if (limit !== null) return res.status(503).json({ error: 'Sign-in unavailable', message: 'Please try again in a moment.' });
+                await maybeOpenWebsiteSession(req, res, user);
                 return res.json({ message: 'Login successful', token: generateToken(user.id, user.role, null, days), user: withoutPassword(user) });
             }
         }
@@ -206,6 +219,8 @@ router.post('/login', [
                 message: `A new sign-in on ${sessions.describeDevice(req.headers['user-agent'])} signed out ${signedOutOthers === 1 ? 'the other device' : `${signedOutOthers} other devices`} on your account. If this was not you, change your password and tell your administrator.`,
             });
         }
+
+        await maybeOpenWebsiteSession(req, res, user);
 
         // Return user data (without password) and token
         res.json({
@@ -419,9 +434,11 @@ router.get('/verify', authenticateToken, (req, res) => {
 router.post('/logout', authenticateToken, async (req, res) => {
     try {
         if (req.session) await sessions.endSessions(req.db, req.session.id, 'logout');
+        await site.closeSiteSession(req.db, req, res, 'logout').catch(() => {});
         res.json({ message: 'Signed out' });
     } catch (error) {
         console.error('Logout error:', error);
+        await site.closeSiteSession(req.db, req, res, 'logout').catch(() => {});
         // The client clears its token regardless; never leave it stuck signed in.
         res.json({ message: 'Signed out' });
     }

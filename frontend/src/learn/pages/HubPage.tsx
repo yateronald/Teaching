@@ -37,7 +37,10 @@ import { countTotalCompleted, setStudyGoal, setStudyLevel, setStudyPath, useActi
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
 import { GOALS, goalById } from '../studyPath/copy';
 import type { StudyGoalId } from '../studyPath/types';
-import { freeForAllCopy, useAccount } from '../account/store';
+import { courseTier } from '../access';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../account/PremiumWidget';
+import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import '../games/games.css';
 import '../practice/practice.css';
 import './hub.css';
@@ -288,6 +291,7 @@ function Catalogue({ lang }: { lang: Lang }) {
   const fr = lang === 'fr';
   const ui = UI[lang];
   const h = ui.hub;
+  const account = useAccount();
   const [level, setLevel] = useState<Level | 'all'>('all');
   const [cat, setCat] = useState<string>('all');
   const [q, setQ] = useState('');
@@ -346,19 +350,36 @@ function Catalogue({ lang }: { lang: Lang }) {
             <ul className="hx-cat-list">
               {filtered.slice(0, shown).map(c => {
                 const catObj = CATEGORIES.find(x => x.id === c.category)!;
+                const tier = courseTier(c.id);
+                const locked = isTierLocked(account, tier);
+                const title = tx(c.title, lang);
+                const href = coursePath(c, lang);
+                const onOpenModal = (e: React.MouseEvent) => {
+                  if (!locked) return;
+                  e.preventDefault();
+                  openPremiumModal({ title, tier, kind: 'course', level: c.level, to: href });
+                };
                 return (
                   <li key={c.id}>
-                    <article className="hx-list-row">
-                      <img src={imageUrl(c.image, 640)} alt="" loading="lazy" decoding="async" width="224" height="140" />
-                      <div className="hx-list-body">
+                    <article className={`hx-list-row${locked ? ' ax-locked-card' : ''}`}>
+                      <div className={locked ? 'ax-locked-media' : undefined} style={locked ? { borderRadius: 10 } : undefined}>
+                        <img src={imageUrl(c.image, 640)} alt="" loading="lazy" decoding="async" width="224" height="140" />
+                      </div>
+                      <div className={`hx-list-body${locked ? ' ax-locked-copy' : ''}`}>
                         <div className="hx-list-top"><LevelChip level={c.level} size="sm" /><span className="hx-list-cat">{tx(catObj.name, lang)}</span></div>
-                        <h3><Link to={coursePath(c, lang)} className="lx-stretch">{tx(c.title, lang)}</Link></h3>
+                        <h3><Link to={href} onClick={onOpenModal} className="lx-stretch">{title}</Link></h3>
                         <div className="hx-list-meta">
                           <span><ReadOutlined /> {ui.lessons(c.lessonCount)}</span>
                           <span><ClockCircleOutlined /> {ui.minutes(c.minutes)}</span>
                         </div>
                       </div>
-                      <Link to={coursePath(c, lang)} state={AUTOSTART} className="lx-cc-start"><PlayCircleFilled /> {ui.start}</Link>
+                      {locked ? (
+                        <button type="button" onClick={onOpenModal} style={{ border: 'none', background: 'transparent', padding: 0, position: 'relative', zIndex: 2 }}>
+                          <LockActionPill lang={lang} tier={tier} compact />
+                        </button>
+                      ) : (
+                        <Link to={href} state={AUTOSTART} className="lx-cc-start"><PlayCircleFilled /> {ui.start}</Link>
+                      )}
                     </article>
                   </li>
                 );
@@ -452,14 +473,18 @@ export default function HubPage({ lang }: { lang: Lang }) {
         <div className="ah-hero-glow" aria-hidden />
         <div className="lp-wrap ah-hero-grid">
           <div className="ah-hero-copy">
-            <p className="ah-eyebrow"><span className="ah-tricolor" aria-hidden><i /><i /><i /></span>{fr ? 'Académie gratuite · A1 → C2' : 'Free French academy · A1 → C2'}</p>
+            <p className="ah-eyebrow"><span className="ah-tricolor" aria-hidden><i /><i /><i /></span>{freeAll ? (fr ? 'Académie gratuite · A1 → C2' : 'Free French academy · A1 → C2') : (fr ? 'Académie de français · A1 → C2' : 'French learning academy · A1 → C2')}</p>
             <h1 id="lx-hub-title">
               {fr ? <>Apprenez le français <em>pas à pas</em>, avec des voix natives.</> : <>Learn French <em>step by step</em>, with native voices.</>}
             </h1>
             <p className="ah-lead">
-              {fr
-                ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance. Le premier module de chaque parcours est gratuit.`
-                : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency. The first module of every path is free.`}
+              {freeAll
+                ? (fr
+                  ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance.`
+                  : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency.`)
+                : (fr
+                  ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours structuré de A1 à C2. Commencez gratuitement le module 1 ou passez à Premium.`
+                  : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from A1 to C2. Start Module 1 free or unlock everything with Premium.`)}
             </p>
             <button type="button" className="ah-search" onClick={openAcademySearch}>
               <SearchOutlined aria-hidden />
@@ -497,6 +522,10 @@ export default function HubPage({ lang }: { lang: Lang }) {
           </ul>
         </div>
       </section>
+
+      <div className="lp-wrap">
+        <PremiumInfoWidget lang={lang} variant="banner" />
+      </div>
 
       {/* ── Continue learning (returning learners) ── */}
       {last && (

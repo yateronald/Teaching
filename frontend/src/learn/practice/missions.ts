@@ -26,6 +26,8 @@ export type ReadingMission = {
   recipient: string;
   outcome?: { title: T; action: T };
   tip: T;
+  documentCount?: number;
+  locked?: 'visitor' | 'free' | 'premium';
 };
 
 const pilotMission: ReadingMission = {

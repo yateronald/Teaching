@@ -5,10 +5,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, BarsOutlined, CheckOutlined,
-  ClockCircleOutlined, CloseOutlined, CompassOutlined, CustomerServiceOutlined,
-  DownOutlined, FileTextOutlined, ReadOutlined, SearchOutlined,
+  ClockCircleOutlined, CloseOutlined, CompassOutlined, CrownFilled, CustomerServiceOutlined,
+  DownOutlined, FileTextOutlined, LockOutlined, ReadOutlined, SearchOutlined,
   SoundOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { itemTier } from '../../access';
+import { openPremiumModal } from '../../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../../account/store';
 import { imageUrl } from '../../categories';
 import { hubPath, placementPath } from '../../paths';
 import { useProgress } from '../../progress';
@@ -38,6 +42,7 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
   const c = P[lang];
   const l = c.library;
   const ui = UI[lang];
+  const account = useAccount();
   const p = useProgress();
   const mounted = useMounted();
   const location = useLocation();
@@ -280,10 +285,24 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
             <ul className={`rxm-feature-grid${missionView === 'list' ? ' is-compact' : ''}`}>
               {missions.map((m, idx) => {
                 const hide = mounted && idx >= missionLimit;
+                const docCount = m.documentCount ?? m.documents.length;
+                const tier = itemTier(`mission:${m.id}`);
+                const locked = isTierLocked(account, tier);
+                const href = missionPath(m, lang);
+                const title = tx(m.title, lang);
                 return (
                   <li key={m.id} hidden={hide || undefined}>
-                    <Link className="rxm-feature-link" to={missionPath(m, lang)} aria-label={tx(m.title, lang)}>
-                      <div className="rxm-feature-img">
+                    <Link
+                      className={`rxm-feature-link${locked ? ' ax-locked-card' : ''}`}
+                      to={href}
+                      onClick={e => {
+                        if (!locked) return;
+                        e.preventDefault();
+                        openPremiumModal({ title, subtitle: tx(m.summary, lang), tier, kind: 'practice', level: m.level, to: href });
+                      }}
+                      aria-label={title}
+                    >
+                      <div className={`rxm-feature-img${locked ? ' ax-locked-media' : ''}`}>
                         <img
                           src={imageUrl(missionCoverKey(m), 640)}
                           srcSet={`${imageUrl(missionCoverKey(m), 640)} 640w, ${imageUrl(missionCoverKey(m), 1200)} 1200w`}
@@ -294,20 +313,30 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
                           loading="lazy"
                           decoding="async"
                         />
+                        {locked && (
+                          <div className="ax-locked-veil" aria-hidden>
+                            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
+                              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+                              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
+                            </span>
+                          </div>
+                        )}
                         <LevelChip level={m.level} size="sm" />
                         <span className="rxm-tags-pill">
-                          <ClockCircleOutlined aria-hidden /> {lang === 'fr' ? `${m.documents.length} étapes` : `${m.documents.length} steps`} · {m.minutes} min
+                          <ClockCircleOutlined aria-hidden /> {lang === 'fr' ? `${docCount} étapes` : `${docCount} steps`} · {m.minutes} min
                         </span>
                       </div>
-                      <div className="rxm-feature-copy">
+                      <div className={`rxm-feature-copy${locked ? ' ax-locked-copy' : ''}`}>
                         <span className="rxm-tags-inline">
-                          {lang === 'fr' ? `${m.documents.length} étapes` : `${m.documents.length} steps`} · {m.minutes} min
+                          {lang === 'fr' ? `${docCount} étapes` : `${docCount} steps`} · {m.minutes} min
                         </span>
-                        <h3>{tx(m.title, lang)}</h3>
+                        <h3>{title}</h3>
                         <p>{tx(m.summary, lang)}</p>
                         <div className="rxm-feature-foot">
-                          <span>{lang === 'fr' ? `${m.documents.length} documents` : `${m.documents.length} documents`}</span>
-                          <span className="rxm-feature-cta">{lang === 'fr' ? 'Essayer' : 'Try mission'} <ArrowRightOutlined aria-hidden /></span>
+                          <span>{`${docCount} documents`}</span>
+                          {locked
+                            ? <LockActionPill lang={lang} tier={tier} compact />
+                            : <span className="rxm-feature-cta">{lang === 'fr' ? 'Essayer' : 'Try mission'} <ArrowRightOutlined aria-hidden /></span>}
                         </div>
                       </div>
                     </Link>
@@ -315,6 +344,7 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
                 );
               })}
             </ul>
+            <div className="lp-wrap"><PremiumInfoWidget lang={lang} variant="banner" /></div>
 
             {missions.length > baseMissionLimit && (
               <div className="rxl-pager">

@@ -27,6 +27,7 @@ export interface ListeningExercise {
   /** A library entry whose content is downloaded on demand (advanced.ts): its number of questions. */
   count?: number;
   lazy?: boolean;
+  locked?: 'visitor' | 'free' | 'premium';
 }
 
 export const passageAudio = (e: ListeningExercise) => e.segments.join(' ');

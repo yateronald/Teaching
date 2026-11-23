@@ -34,7 +34,7 @@ export default function CoursesModeSwitch() {
           <li>With a free account: the first module of every path.</li>
           <li>Everything else (lessons, practice library, games, certificates) needs Premium.</li>
           <li>Online payment opens, if Paystack is configured and a price is on sale.</li>
-          <li>Pages already open on the website follow the change when they are reloaded.</li>
+          <li>Changes take effect immediately across open browser tabs (active free users and visitors are automatically blocked from Premium content).</li>
         </ul>
       ) : (
         <ul style={{ paddingLeft: 18, margin: '8px 0 0' }}>

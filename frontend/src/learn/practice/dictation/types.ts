@@ -80,6 +80,9 @@ export interface DictationCourse {
   traps: DictationTrap[];
   /** Golden spelling rules shown in the correction report. */
   rules: DictationRule[];
+  /** Cached word count (kept on public build outlines). */
+  wordCount?: number;
+  locked?: 'visitor' | 'free' | 'premium';
 }
 
 export const courseMethod = (d: DictationCourse): DictationMethod => d.method ?? 'story';

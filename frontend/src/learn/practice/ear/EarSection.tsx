@@ -5,8 +5,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, BarsOutlined, CheckCircleFilled,
-  CloseOutlined, DownOutlined, SearchOutlined, SoundOutlined, UpOutlined,
+  CloseOutlined, CrownFilled, DownOutlined, LockOutlined, SearchOutlined, SoundOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { itemTier } from '../../access';
+import { openPremiumModal } from '../../account/premiumModal';
+import { LockActionPill } from '../../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../../account/store';
 import { LevelChip, useMounted } from '../../shell';
 import { tx, type Lang } from '../../types';
 import { EARC } from './copy';
@@ -22,6 +26,7 @@ const levelBand = (lvl: EarMeta['level']) => (lvl.startsWith('A') ? 'a' : lvl.st
 
 export function EarSection({ lang, hidden = false, focused = false }: { lang: Lang; hidden?: boolean; focused?: boolean }) {
   const c = EARC[lang];
+  const account = useAccount();
   const mounted = useMounted();
   const best = mounted ? readBest() : {};
   const baseLimit = focused ? 12 : 8;
@@ -116,23 +121,39 @@ export function EarSection({ lang, hidden = false, focused = false }: { lang: La
           <ul className={`ear-cards${view === 'list' ? ' is-compact' : ''}`}>
             {list.map((e, idx) => {
               const hide = mounted && idx >= limit;
+              const tier = itemTier(`ear:${e.id}`);
+              const locked = isTierLocked(account, tier);
+              const href = earPath(e, lang);
               return (
                 <li key={e.id} hidden={hide || undefined}>
-                  <Link to={earPath(e, lang)} className="ear-card" aria-labelledby={`ear-t-${e.id}`}>
+                  <Link
+                    to={href}
+                    onClick={ev => {
+                      if (!locked) return;
+                      ev.preventDefault();
+                      openPremiumModal({ title: e.title, subtitle: tx(e.summary, lang), tier, kind: 'practice', level: e.level, to: href });
+                    }}
+                    className={`ear-card${locked ? ' ax-locked-card' : ''}`}
+                    aria-labelledby={`ear-t-${e.id}`}
+                  >
                     <div className="ear-card-visual" data-band={levelBand(e.level)} aria-hidden>
                       <LevelChip level={e.level} size="sm" />
-                      <SoundOutlined className="ear-card-ico" />
-                      <span className="ear-card-sample" lang="fr">{e.sample}</span>
+                      {locked ? (tier === 'premium' ? <CrownFilled className="ear-card-ico" /> : <LockOutlined className="ear-card-ico" />) : <SoundOutlined className="ear-card-ico" />}
+                      <span className="ear-card-sample" lang="fr" style={locked ? { filter: 'blur(3px)' } : undefined}>{e.sample}</span>
                     </div>
-                    <div className="ear-card-body">
+                    <div className={`ear-card-body${locked ? ' ax-locked-copy' : ''}`}>
                       <p className="ear-card-tag">{tx(e.tag, lang)}</p>
                       <h3 id={`ear-t-${e.id}`} lang="fr">{e.title}</h3>
                       <p className="ear-card-sum">{tx(e.summary, lang)}</p>
                       <div className="ear-card-foot">
                         <span>{c.exercises(e.items)} · {c.minutes(e.minutes)}</span>
-                        {best[e.id] !== undefined
-                          ? <span className="ear-card-best"><CheckCircleFilled aria-hidden /> {c.best(best[e.id], e.items)}</span>
-                          : <span className="ear-card-go" aria-hidden>{c.start} <ArrowRightOutlined /></span>}
+                        {locked ? (
+                          <LockActionPill lang={lang} tier={tier} compact />
+                        ) : best[e.id] !== undefined ? (
+                          <span className="ear-card-best"><CheckCircleFilled aria-hidden /> {c.best(best[e.id], e.items)}</span>
+                        ) : (
+                          <span className="ear-card-go" aria-hidden>{c.start} <ArrowRightOutlined /></span>
+                        )}
                       </div>
                     </div>
                   </Link>

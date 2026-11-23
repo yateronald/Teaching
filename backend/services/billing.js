@@ -227,6 +227,7 @@ async function fulfil(db, reference, { via = 'verify' } = {}) {
         if (fresh) {
             await access.logAccess(db, { userId: payment.user_id, action: 'premium_paid', detail: { payment: payment.id, reference, amount: Number(payment.amount), currency: payment.currency, ends_at: license.ends_at, via } });
             await db.run("UPDATE learn_premium_requests SET status = 'done', handled_at = now() WHERE user_id = $1 AND status = 'open'", [payment.user_id]);
+            require('./learnEvents').notifyUser(payment.user_id, 'premium_paid');
         }
         return { outcome: fresh ? 'success' : 'already', payment, license };
     });
@@ -238,6 +239,7 @@ async function reversePayment(db, reference, status, reason) {
     if (!p) return false;
     await db.run("UPDATE learn_licenses SET revoked_at = now(), revoke_reason = $2 WHERE source = 'paystack' AND external_ref = $1 AND revoked_at IS NULL", [reference, status]);
     await access.logAccess(db, { userId: p.user_id, action: status === 'refunded' ? 'premium_refunded' : 'premium_disputed', detail: { reference, reason } });
+    require('./learnEvents').notifyUser(p.user_id, status);
     return true;
 }
 

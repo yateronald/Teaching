@@ -6,9 +6,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined,
-  ClockCircleOutlined, CompassOutlined, CustomerServiceOutlined, DownOutlined,
-  EditOutlined, ReadOutlined, UpOutlined,
+  ClockCircleOutlined, CompassOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined,
+  EditOutlined, LockOutlined, ReadOutlined, UpOutlined,
 } from '@ant-design/icons';
+import { itemTier, lessonTier } from '../access';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill } from '../account/PremiumWidget';
+import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath } from '../catalog';
 import { getLessons, loadLessons } from '../content/registry';
@@ -52,6 +56,7 @@ type BrowseFilter = 'all' | 'courses' | 'dictations' | 'listening' | 'reading' |
 
 interface FlatResource {
   id: string;
+  tierKey: string;
   tag: string;
   title: string;
   summary: string;
@@ -96,6 +101,8 @@ function PagedCourses({ courses, lang, mounted }: { courses: CourseMeta[]; lang:
 export default function LevelPage({ lang, level, category }: { lang: Lang; level: Level; category?: CategoryMeta }) {
   const fr = lang === 'fr';
   const ui = UI[lang];
+  const account = useAccount();
+  const freeAll = freeForAllCopy(account);
   const t = ui.levelPage;
   const lc = STUDY_COPY[lang].levelPage;
   const copy = LEVEL_COPY[level];
@@ -136,6 +143,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     if (category) return [];
     return DICTATIONS.filter(d => d.level === level).map(d => ({
       id: `d-${d.id}`,
+      tierKey: `dictation:${d.id}`,
       tag: tx(d.theme, lang),
       title: d.title,
       summary: tx(d.subtitle, lang),
@@ -150,6 +158,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     for (const d of DIALOGUES.filter(x => x.level === level)) {
       out.push({
         id: `dlg-${d.id}`,
+        tierKey: `dialogue:${d.id}`,
         tag: fr ? 'Dialogue · 2 voix' : 'Dialogue · 2 voices',
         title: d.title,
         summary: tx(d.summary, lang),
@@ -160,6 +169,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     for (const e of EAR.filter(x => x.level === level)) {
       out.push({
         id: `ear-${e.id}`,
+        tierKey: `ear:${e.id}`,
         tag: fr ? `Oreille · ${tx(e.tag, lang)}` : `Ear lab · ${tx(e.tag, lang)}`,
         title: e.title,
         summary: tx(e.summary, lang),
@@ -170,6 +180,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     for (const doc of LISTENING.filter(x => x.level === level)) {
       out.push({
         id: `doc-${doc.id}`,
+        tierKey: `doc:${doc.id}`,
         tag: tx(doc.format, lang),
         title: doc.title,
         summary: tx(doc.summary, lang),
@@ -186,6 +197,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     for (const m of MISSIONS.filter(x => x.level === level)) {
       out.push({
         id: `mis-${m.id}`,
+        tierKey: `mission:${m.id}`,
         tag: fr ? 'Mission de lecture' : 'Reading mission',
         title: tx(m.title, lang),
         summary: tx(m.summary, lang),
@@ -196,6 +208,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
     for (const txt of TEXTS.filter(x => x.level === level)) {
       out.push({
         id: `txt-${txt.id}`,
+        tierKey: `text:${txt.id}`,
         tag: fr ? 'Texte audio' : 'Audio text',
         title: txt.title,
         summary: tx(txt.subtitle, lang),
@@ -261,7 +274,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                   <span><EditOutlined /> {stats.dictations} {fr ? 'dictées' : 'dictations'}</span>
                 </>
               )}
-              <span><CheckOutlined /> {ui.free} · {ui.noSignup}</span>
+              {freeAll && <span><CheckOutlined /> {ui.free} · {ui.noSignup}</span>}
             </p>
 
             {!category && (
@@ -386,22 +399,34 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                     <h3>{fr ? `Dictées niveau ${level}` : `Level ${level} Dictations`} ({levelDictations.length})</h3>
                   </div>
                   <ul className="lv-resource-grid">
-                    {visibleDicts.map(item => (
-                      <li key={item.id}>
-                        <Link to={item.to} className="lv-res-card">
-                          <div className="lv-res-top">
-                            <span className="lv-res-tag">{item.tag}</span>
-                            <LevelChip level={level} size="sm" />
-                          </div>
-                          <strong>{item.title}</strong>
-                          <p>{item.summary}</p>
-                          <span className="lv-res-foot">
-                            <span>{item.meta}</span>
-                            <ArrowRightOutlined aria-hidden />
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
+                    {visibleDicts.map(item => {
+                      const tier = itemTier(item.tierKey);
+                      const locked = isTierLocked(account, tier);
+                      return (
+                        <li key={item.id}>
+                          <Link
+                            to={item.to}
+                            onClick={e => {
+                              if (!locked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: item.title, subtitle: item.summary, tier, kind: 'practice', level, to: item.to });
+                            }}
+                            className={`lv-res-card${locked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                          >
+                            <div className="lv-res-top">
+                              <span className="lv-res-tag">{item.tag}</span>
+                              <LevelChip level={level} size="sm" />
+                            </div>
+                            <strong>{item.title}</strong>
+                            <p>{item.summary}</p>
+                            <span className="lv-res-foot">
+                              <span>{item.meta}</span>
+                              {locked ? <LockActionPill lang={lang} tier={tier} compact /> : <ArrowRightOutlined aria-hidden />}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                   {levelDictations.length > 8 && (
                     <div className="lv-more-row">
@@ -419,22 +444,34 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                     <h3>{fr ? `Écoute & dialogues ${level}` : `Level ${level} Listening & Dialogues`} ({levelListening.length})</h3>
                   </div>
                   <ul className="lv-resource-grid">
-                    {visibleListen.map(item => (
-                      <li key={item.id}>
-                        <Link to={item.to} className="lv-res-card">
-                          <div className="lv-res-top">
-                            <span className="lv-res-tag">{item.tag}</span>
-                            <LevelChip level={level} size="sm" />
-                          </div>
-                          <strong>{item.title}</strong>
-                          <p>{item.summary}</p>
-                          <span className="lv-res-foot">
-                            <span>{item.meta}</span>
-                            <ArrowRightOutlined aria-hidden />
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
+                    {visibleListen.map(item => {
+                      const tier = itemTier(item.tierKey);
+                      const locked = isTierLocked(account, tier);
+                      return (
+                        <li key={item.id}>
+                          <Link
+                            to={item.to}
+                            onClick={e => {
+                              if (!locked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: item.title, subtitle: item.summary, tier, kind: 'practice', level, to: item.to });
+                            }}
+                            className={`lv-res-card${locked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                          >
+                            <div className="lv-res-top">
+                              <span className="lv-res-tag">{item.tag}</span>
+                              <LevelChip level={level} size="sm" />
+                            </div>
+                            <strong>{item.title}</strong>
+                            <p>{item.summary}</p>
+                            <span className="lv-res-foot">
+                              <span>{item.meta}</span>
+                              {locked ? <LockActionPill lang={lang} tier={tier} compact /> : <ArrowRightOutlined aria-hidden />}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                   {levelListening.length > 8 && (
                     <div className="lv-more-row">
@@ -452,22 +489,34 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                     <h3>{fr ? `Lecture & missions ${level}` : `Level ${level} Reading & Missions`} ({levelReading.length})</h3>
                   </div>
                   <ul className="lv-resource-grid">
-                    {levelReading.map(item => (
-                      <li key={item.id}>
-                        <Link to={item.to} className="lv-res-card">
-                          <div className="lv-res-top">
-                            <span className="lv-res-tag">{item.tag}</span>
-                            <LevelChip level={level} size="sm" />
-                          </div>
-                          <strong>{item.title}</strong>
-                          <p>{item.summary}</p>
-                          <span className="lv-res-foot">
-                            <span>{item.meta}</span>
-                            <ArrowRightOutlined aria-hidden />
-                          </span>
-                        </Link>
-                      </li>
-                    ))}
+                    {levelReading.map(item => {
+                      const tier = itemTier(item.tierKey);
+                      const locked = isTierLocked(account, tier);
+                      return (
+                        <li key={item.id}>
+                          <Link
+                            to={item.to}
+                            onClick={e => {
+                              if (!locked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: item.title, subtitle: item.summary, tier, kind: 'practice', level, to: item.to });
+                            }}
+                            className={`lv-res-card${locked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                          >
+                            <div className="lv-res-top">
+                              <span className="lv-res-tag">{item.tag}</span>
+                              <LevelChip level={level} size="sm" />
+                            </div>
+                            <strong>{item.title}</strong>
+                            <p>{item.summary}</p>
+                            <span className="lv-res-foot">
+                              <span>{item.meta}</span>
+                              {locked ? <LockActionPill lang={lang} tier={tier} compact /> : <ArrowRightOutlined aria-hidden />}
+                            </span>
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -479,20 +528,35 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                   </div>
                   <p className="lx-ladder-sub">{t.lessonsSub}</p>
                   <ol className="lx-syllabus">
-                    {ladderLessons.map(({ course, lesson }) => (
-                      <li key={lesson.id}>
-                        <Link to={lessonPath(course, lesson, lang)} className="lx-lesson-row">
-                          <span className="lx-lesson-n"><LevelChip level={level} size="sm" /></span>
-                          <div>
-                            <p className="lx-level-from">{t.fromCourse} · {tx(course.title, lang)}</p>
-                            <h3>{tx(lesson.title, lang)}</h3>
-                            <p>{tx(lesson.summary, lang)}</p>
-                            <div className="lx-lesson-meta"><span><ClockCircleOutlined /> {ui.minutes(lesson.minutes)}</span><span>{ui.steps(lesson.steps.length)}</span></div>
-                          </div>
-                          <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>
-                        </Link>
-                      </li>
-                    ))}
+                    {ladderLessons.map(({ course, lesson }) => {
+                      const lTier = lessonTier(course.id, lesson);
+                      const lLocked = isTierLocked(account, lTier);
+                      const href = lessonPath(course, lesson, lang);
+                      return (
+                        <li key={lesson.id}>
+                          <Link
+                            to={href}
+                            onClick={e => {
+                              if (!lLocked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: `${tx(course.title, lang)} · ${tx(lesson.title, lang)}`, tier: lTier, kind: 'lesson', level, to: href });
+                            }}
+                            className={`lx-lesson-row${lLocked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                          >
+                            <span className="lx-lesson-n">{lLocked ? (lTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />) : <LevelChip level={level} size="sm" />}</span>
+                            <div>
+                              <p className="lx-level-from">{t.fromCourse} · {tx(course.title, lang)}</p>
+                              <h3>{tx(lesson.title, lang)}</h3>
+                              <p>{tx(lesson.summary, lang)}</p>
+                              <div className="lx-lesson-meta"><span><ClockCircleOutlined /> {ui.minutes(lesson.minutes)}</span><span>{ui.steps(lesson.steps.length)}</span></div>
+                            </div>
+                            {lLocked
+                              ? <LockActionPill lang={lang} tier={lTier} compact />
+                              : <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ol>
                 </div>
               )}
@@ -515,20 +579,35 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
                   <h2 className="lx-h2">{t.lessonsTitle(level)}</h2>
                   <p className="lx-ladder-sub">{t.lessonsSub}</p>
                   <ol className="lx-syllabus">
-                    {ladderLessons.map(({ course, lesson }) => (
-                      <li key={lesson.id}>
-                        <Link to={lessonPath(course, lesson, lang)} className="lx-lesson-row">
-                          <span className="lx-lesson-n"><LevelChip level={level} size="sm" /></span>
-                          <div>
-                            <p className="lx-level-from">{t.fromCourse} · {tx(course.title, lang)}</p>
-                            <h3>{tx(lesson.title, lang)}</h3>
-                            <p>{tx(lesson.summary, lang)}</p>
-                            <div className="lx-lesson-meta"><span><ClockCircleOutlined /> {ui.minutes(lesson.minutes)}</span><span>{ui.steps(lesson.steps.length)}</span></div>
-                          </div>
-                          <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>
-                        </Link>
-                      </li>
-                    ))}
+                    {ladderLessons.map(({ course, lesson }) => {
+                      const lTier = lessonTier(course.id, lesson);
+                      const lLocked = isTierLocked(account, lTier);
+                      const href = lessonPath(course, lesson, lang);
+                      return (
+                        <li key={lesson.id}>
+                          <Link
+                            to={href}
+                            onClick={e => {
+                              if (!lLocked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: `${tx(course.title, lang)} · ${tx(lesson.title, lang)}`, tier: lTier, kind: 'lesson', level, to: href });
+                            }}
+                            className={`lx-lesson-row${lLocked ? ' ax-locked-card ax-locked-copy' : ''}`}
+                          >
+                            <span className="lx-lesson-n">{lLocked ? (lTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />) : <LevelChip level={level} size="sm" />}</span>
+                            <div>
+                              <p className="lx-level-from">{t.fromCourse} · {tx(course.title, lang)}</p>
+                              <h3>{tx(lesson.title, lang)}</h3>
+                              <p>{tx(lesson.summary, lang)}</p>
+                              <div className="lx-lesson-meta"><span><ClockCircleOutlined /> {ui.minutes(lesson.minutes)}</span><span>{ui.steps(lesson.steps.length)}</span></div>
+                            </div>
+                            {lLocked
+                              ? <LockActionPill lang={lang} tier={lTier} compact />
+                              : <span className="lx-round-arrow" aria-hidden><ArrowRightOutlined /></span>}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ol>
                 </>
               )}

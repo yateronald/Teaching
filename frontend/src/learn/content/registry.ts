@@ -8,23 +8,29 @@
 // lessons, which replace the outlines here; the pages showing them re-render.
 import type { CourseAbout, Lesson } from '../types';
 import type { PlacementQuestion } from './placement';
+import { canOpen, lessonTier, type AccessLevel } from '../access';
 import { siteApi, type ApiError } from '../account/api';
+import { loadAccount, registerAccessRevokeListener } from '../account/store';
 import { registerRecordings } from '../audio';
 import { addExampleTranslations } from './examples';
 
 type CourseModule = { default: Lesson[]; about?: CourseAbout };
 const loaders = import.meta.glob<CourseModule>('./courses/*.ts');
+const outlines = new Map<string, Lesson[]>();
 const cache = new Map<string, Lesson[]>();
 const abouts = new Map<string, CourseAbout>();
 const pending = new Map<string, Promise<Lesson[]>>();
 
-// Pages re-render when a course's lessons change (outline → full lessons).
+// Pages re-render when a course's lessons change (outline → full lessons, or full → outline on revoke).
 const listeners = new Set<() => void>();
 const changed = () => listeners.forEach(l => l());
 export const subscribeLessons = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 
 export const getLessons = (courseId: string): Lesson[] | undefined => cache.get(courseId);
 export const registerLessons = (courseId: string, lessons: Lesson[], about?: CourseAbout) => {
+  if (!outlines.has(courseId) && lessons.some(l => l.locked)) {
+    outlines.set(courseId, lessons);
+  }
   cache.set(courseId, lessons);
   if (about) abouts.set(courseId, about);
   changed();
@@ -40,7 +46,11 @@ export function loadLessons(courseId: string): Promise<Lesson[]> {
   if (!p) {
     const loader = loaders[`./courses/${courseId}.ts`];
     p = loader
-      ? loader().then(m => { if (!cache.has(courseId)) registerLessons(courseId, m.default, m.about); return cache.get(courseId)!; })
+      ? loader().then(m => {
+        if (!outlines.has(courseId)) outlines.set(courseId, m.default);
+        if (!cache.has(courseId)) registerLessons(courseId, m.default, m.about);
+        return cache.get(courseId)!;
+      })
       : Promise.resolve([]);
     pending.set(courseId, p);
   }
@@ -52,6 +62,32 @@ export const hasLockedLessons = (lessons: Lesson[] | null | undefined) => !!less
 
 export type FullResult = 'ok' | 'sign-in' | 'premium' | 'error';
 const full = new Map<string, Promise<FullResult>>();
+let revokeEpoch = 0;
+
+/**
+ * Restores locked outlines in memory immediately whenever access drops (e.g.
+ * Admin flips Free → Premium or revokes Premium on an open browser session).
+ */
+export function purgeLockedCourses(level: AccessLevel) {
+  revokeEpoch++;
+  full.clear();
+  let updated = false;
+  cache.forEach((lessons, courseId) => {
+    const baseOutlines = outlines.get(courseId);
+    const next = lessons.map((l, i) => {
+      const tier = baseOutlines?.[i]?.locked ?? lessonTier(courseId, l);
+      if (tier === 'visitor' || canOpen(level, tier)) return l;
+      return baseOutlines?.[i] ?? { ...l, steps: l.steps.map(s => ({ kind: s.kind } as Lesson['steps'][number])), notes: { points: [] }, locked: tier };
+    });
+    cache.set(courseId, next);
+    updated = true;
+  });
+  if (updated) changed();
+}
+
+if (typeof window !== 'undefined') {
+  registerAccessRevokeListener((level) => purgeLockedCourses(level));
+}
 
 /**
  * Replaces this course's outlines by the lessons the visitor's account may
@@ -60,11 +96,16 @@ const full = new Map<string, Promise<FullResult>>();
 export function loadFullCourse(courseId: string, { retry = false } = {}): Promise<FullResult> {
   const hit = full.get(courseId);
   if (hit && !retry) return hit;
+  const myEpoch = revokeEpoch;
   const p = (async (): Promise<FullResult> => {
     await loadLessons(courseId);
     try {
       const data = await siteApi<{ lessons: Lesson[]; about: CourseAbout | null; audio: { keys: string[]; sealed: string[] }; examples: Record<string, string> }>(
         `/learn/content/courses/${encodeURIComponent(courseId)}`);
+      if (myEpoch !== revokeEpoch) {
+        full.delete(courseId);
+        return 'premium';
+      }
       registerRecordings(data.audio?.keys, data.audio?.sealed);
       addExampleTranslations(data.examples);
       const byId = new Map(data.lessons.map(l => [l.id, l]));
@@ -74,8 +115,10 @@ export function loadFullCourse(courseId: string, { retry = false } = {}): Promis
     } catch (err) {
       full.delete(courseId);
       const e = err as ApiError;
-      if (e.status === 401) return 'sign-in';
-      if (e.status === 403) return 'premium';
+      if (e.status === 401 || e.status === 403) {
+        void loadAccount(true);
+        return e.status === 401 ? 'sign-in' : 'premium';
+      }
       return 'error';
     }
   })();

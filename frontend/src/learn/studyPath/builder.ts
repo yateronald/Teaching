@@ -630,7 +630,7 @@ class LevelPool {
       source: { type: 'mission', id: m.id },
       title: tx(m.title, this.lang),
       subtitle: tx(m.summary, this.lang),
-      badge: this.fr ? `Mission · ${m.documents.length} étapes` : `Mission · ${m.documents.length} steps`,
+      badge: this.fr ? `Mission · ${m.documentCount ?? m.documents.length} étapes` : `Mission · ${m.documentCount ?? m.documents.length} steps`,
       level: m.level,
       minutes: m.minutes,
       to: missionPath(m, this.lang),

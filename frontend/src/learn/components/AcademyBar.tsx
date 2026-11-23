@@ -25,8 +25,25 @@ import { getStepCompletion, useActivitySnapshot, useStudyPath } from '../studyPa
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
 import { COURSE_TRACKS, STUDY_COPY, goalById } from '../studyPath/copy';
 import { OPEN_SEARCH_EVENT, foldSearch, getSearchIndex, type SearchKind } from '../studyPath/searchIndex';
+import { courseTier, itemTier, type Tier } from '../access';
 import { AccountButton } from '../account/AccountButton';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill } from '../account/PremiumWidget';
+import { isTierLocked, useAccount } from '../account/store';
 import './academy.css';
+
+function searchEntryTier(id: string): Tier {
+  if (id === 'placement-test') return 'visitor';
+  if (id.startsWith('course-')) return courseTier(id.slice(7));
+  if (id.startsWith('dictation-')) return itemTier(`dictation:${id.slice(10)}`);
+  if (id.startsWith('dialogue-')) return itemTier(`dialogue:${id.slice(9)}`);
+  if (id.startsWith('ear-')) return itemTier(`ear:${id.slice(4)}`);
+  if (id.startsWith('doc-')) return itemTier(`doc:${id.slice(4)}`);
+  if (id.startsWith('text-')) return itemTier(`text:${id.slice(5)}`);
+  if (id.startsWith('mission-')) return itemTier(`mission:${id.slice(8)}`);
+  if (id.startsWith('game-')) return itemTier(`game:${id.slice(5)}`);
+  return 'visitor';
+}
 
 const KIND_ICON: Record<SearchKind, ReactNode> = {
   course: <BookOutlined />,
@@ -40,6 +57,7 @@ const levelBand = (lv: Level) => (lv === 'A1' || lv === 'A2' ? 'is-a' : lv === '
 
 function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean; onClose: () => void }) {
   const c = STUDY_COPY[lang].search;
+  const account = useAccount();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
   const [q, setQ] = useState('');
@@ -91,14 +109,19 @@ function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean;
         setCursor(n => (visible.length ? (n - 1 + visible.length) % visible.length : 0));
       } else if (e.key === 'Enter' && visible[cursor]) {
         e.preventDefault();
-        const target = visible[cursor].to;
+        const item = visible[cursor];
+        const t = searchEntryTier(item.id);
         onClose();
-        navigate(target);
+        if (isTierLocked(account, t)) {
+          openPremiumModal({ title: item.title, subtitle: item.subtitle, tier: t, level: item.levelLabel, to: item.to });
+        } else {
+          navigate(item.to);
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, visible, cursor, onClose, navigate]);
+  }, [open, visible, cursor, onClose, navigate, account]);
 
   if (!open) return null;
 
@@ -183,24 +206,34 @@ function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean;
             </div>
           ) : (
             <ul className="ac-search-list">
-              {visible.map((item, idx) => (
-                <li key={item.id}>
-                  <Link
-                    to={item.to}
-                    className={`ac-search-item${idx === cursor ? ' is-active' : ''}`}
-                    onMouseEnter={() => setCursor(idx)}
-                    onClick={onClose}
-                  >
-                    <span className={`ac-search-kind is-${item.kind}`} aria-hidden>{KIND_ICON[item.kind]}</span>
-                    <span className="ac-search-copy">
-                      <strong>{item.title}</strong>
-                      <small>{item.sublabel} · {item.subtitle}</small>
-                    </span>
-                    <span className={`ac-search-lvl ${levelBand(item.levels[0] ?? 'A1')}`}>{item.levelLabel}</span>
-                    <ArrowRightOutlined className="ac-search-go" aria-hidden />
-                  </Link>
-                </li>
-              ))}
+              {visible.map((item, idx) => {
+                const t = searchEntryTier(item.id);
+                const locked = isTierLocked(account, t);
+                return (
+                  <li key={item.id}>
+                    <Link
+                      to={item.to}
+                      className={`ac-search-item${idx === cursor ? ' is-active' : ''}${locked ? ' ax-locked-copy' : ''}`}
+                      onMouseEnter={() => setCursor(idx)}
+                      onClick={e => {
+                        onClose();
+                        if (locked) {
+                          e.preventDefault();
+                          openPremiumModal({ title: item.title, subtitle: item.subtitle, tier: t, level: item.levelLabel, to: item.to });
+                        }
+                      }}
+                    >
+                      <span className={`ac-search-kind is-${item.kind}`} aria-hidden>{KIND_ICON[item.kind]}</span>
+                      <span className="ac-search-copy">
+                        <strong>{item.title}</strong>
+                        <small>{item.sublabel} · {item.subtitle}</small>
+                      </span>
+                      <span className={`ac-search-lvl ${levelBand(item.levels[0] ?? 'A1')}`}>{item.levelLabel}</span>
+                      {locked ? <LockActionPill lang={lang} tier={t} compact /> : <ArrowRightOutlined className="ac-search-go" aria-hidden />}
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>

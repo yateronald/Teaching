@@ -24,6 +24,7 @@ const ROLES = ['admin', 'teacher', 'student', 'candidate', 'org_admin'];
 // later stays closed to them until it is listed here.
 const CANDIDATE_API = [
     /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo|logout|sessions)(\/|$)/,
+    /^\/api\/site-auth\/portal-sync$/,
     /^\/api\/email-change\//,
     /^\/api\/notifications(\/|$)/,
     /^\/api\/ai-credits\/me(\/|$)/,
@@ -41,6 +42,7 @@ const candidateMayUse = (req) => {
 // as for candidates: a route added later stays closed to them until listed here.
 const ORG_ADMIN_API = [
     /^\/api\/auth\/(profile|verify|change-password|timezones|profile-photo|logout|sessions)(\/|$)/,
+    /^\/api\/site-auth\/portal-sync$/,
     /^\/api\/email-change\//,
     /^\/api\/notifications(\/|$)/,
     /^\/api\/org(\/|$)/,

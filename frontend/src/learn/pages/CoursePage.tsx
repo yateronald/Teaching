@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowRightOutlined, AudioOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CommentOutlined, CustomerServiceOutlined,
+  ArrowRightOutlined, AudioOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CommentOutlined, CrownFilled, CustomerServiceOutlined,
   DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, ThunderboltOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
@@ -21,11 +21,13 @@ import { UI } from '../ui';
 import { useLessons } from '../useLessons';
 import AdaptiveTest from './AdaptiveTest';
 import { Overlay, useScrollLock } from './LessonPage';
-import { canOpen, courseTier } from '../access';
+import { courseTier, lessonTier } from '../access';
 import { hasLockedLessons } from '../content/registry';
 import { AccessGate, TierBadge } from '../account/AccessGate';
+import { openPremiumModal } from '../account/premiumModal';
+import { LockActionPill, PremiumInfoWidget } from '../account/PremiumWidget';
 import { useCourseUnlock } from '../account/useCourseUnlock';
-import { effectiveLevel, freeForAllCopy, useAccount } from '../account/store';
+import { effectiveLevel, freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 
 export const KIND_ICON: Record<StepKind, React.ReactNode> = {
   concept: <ReadOutlined />, mcq: <CheckOutlined />, fill: <EditOutlined />, order: <DragOutlined />, match: <TagsOutlined />, categorize: <TagsOutlined />,
@@ -37,6 +39,7 @@ export const KIND_ICON: Record<StepKind, React.ReactNode> = {
 function Ladder({ lang, course, lessons, onTest }: { lang: Lang; course: CourseMeta; lessons: Lesson[]; onTest: () => void }) {
   const ui = UI[lang];
   const t = ui.ladder;
+  const account = useAccount();
   const p = useProgress();
   const mounted = useMounted();
   const st = mounted ? ladderState(p, course.id) : { unlocked: 0, passed: new Set<number>(), current: 0, tested: undefined };
@@ -58,26 +61,43 @@ function Ladder({ lang, course, lessons, onTest }: { lang: Lang; course: CourseM
           if (!lesson) return null;
           const rec = mounted ? p.lessons[lesson.id] : undefined;
           const passed = st.passed.has(i);
-          const locked = i > st.unlocked;
-          const current = i === st.current && !passed;
+          const progLocked = i > st.unlocked;
+          const lvlTier = lessonTier(course.id, lesson);
+          const tierLocked = isTierLocked(account, lvlTier);
+          const locked = progLocked || tierLocked;
+          const current = i === st.current && !passed && !tierLocked;
           const state = passed ? 'is-done' : current ? 'is-current' : locked ? 'is-locked' : 'is-open';
+          const href = lessonPath(course, lesson, lang);
           return (
             <li key={lvl} className={state}>
-              <Link to={lessonPath(course, lesson, lang)} state={locked ? undefined : AUTOSTART} className="lx-ladder-row">
+              <Link
+                to={href}
+                state={locked ? undefined : AUTOSTART}
+                onClick={e => {
+                  if (!tierLocked) return;
+                  e.preventDefault();
+                  openPremiumModal({ title: `${lvl} · ${tx(lesson.title, lang)}`, tier: lvlTier, kind: 'lesson', level: lvl, to: href });
+                }}
+                className="lx-ladder-row"
+              >
                 <span className="lx-ladder-lvl"><b>{lvl}</b><small>{ui.hub.levelNames[lvl]}</small></span>
                 <div>
                   <p className="lx-ladder-status">
-                    {passed ? <><CheckCircleFilled /> {t.validated}</> : current ? <>{t.current}</> : locked ? <><LockOutlined /> {t.locked}</> : t.open}
+                    {passed ? <><CheckCircleFilled /> {t.validated}</> : tierLocked ? (
+                      <><LockOutlined /> {lvlTier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required')}</>
+                    ) : current ? <>{t.current}</> : progLocked ? <><LockOutlined /> {t.locked}</> : t.open}
                     {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
                   </p>
                   <h3>{tx(lesson.title, lang)}</h3>
-                  <p>{locked ? t.lockedHint(LEVELS[i - 1]) : tx(lesson.summary, lang)}</p>
+                  <p>{progLocked && !tierLocked ? t.lockedHint(LEVELS[i - 1]) : tx(lesson.summary, lang)}</p>
                   <div className="lx-lesson-meta">
                     <span><ClockCircleOutlined /> {ui.minutes(lesson.minutes)}</span>
                     <span>{ui.steps(lesson.steps.length)}</span>
                   </div>
                 </div>
-                <span className="lx-round-arrow" aria-hidden>{locked ? <LockOutlined /> : <PlayCircleFilled />}</span>
+                {tierLocked
+                  ? <LockActionPill lang={lang} tier={lvlTier} compact />
+                  : <span className="lx-round-arrow" aria-hidden>{locked ? <LockOutlined /> : <PlayCircleFilled />}</span>}
               </Link>
             </li>
           );
@@ -112,12 +132,20 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   // "Take the adaptive test" links from a locked level land on #test.
   const location = useLocation();
   useEffect(() => { if (course.ladder && location.hash === '#test' && lessons.length) setTesting(true); }, [course.ladder, location.hash, lessons.length]);
-  // “Start” on a course card: go straight to the lesson to do now, player open.
+  // “Start” on a course card: go straight to the lesson to do now, or open Premium modal if locked.
   const navigate = useNavigate();
   useEffect(() => {
     if (!hasAutostart(location.state) || !mounted || !lessons.length) return;
     const target = course.ladder ? ladderNext : next;
-    if (target) navigate(lessonPath(course, target, lang), { replace: true, state: AUTOSTART });
+    if (target) {
+      const targetTier = lessonTier(course.id, target);
+      if (isTierLocked(account, targetTier)) {
+        navigate(location.pathname, { replace: true, state: null });
+        openPremiumModal({ title, tier: targetTier, kind: 'course', level: course.level, to: coursePath(course, lang) });
+        return;
+      }
+      navigate(lessonPath(course, target, lang), { replace: true, state: AUTOSTART });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state, mounted, lessons.length]);
   const st = course.ladder && mounted ? ladderState(p, course.id) : null;
@@ -131,6 +159,16 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   const kindsAll = [...new Set(lessons.flatMap(l => l.steps.map(s => s.kind)))].filter(k => k !== 'concept');
   const started = course.ladder ? !!(st?.tested || st?.passed.size) : doneIds.length > 0;
   const startLesson = course.ladder ? ladderNext : next;
+  const startTier = startLesson ? lessonTier(course.id, startLesson) : courseTier(course.id);
+  const startLocked = isTierLocked(account, startTier);
+  const finalLocked = isTierLocked(account, 'premium');
+  const openCourseModal = () => openPremiumModal({
+    title,
+    tier: startLocked ? startTier : courseTier(course.id),
+    kind: 'course',
+    level: course.level,
+    to: coursePath(course, lang),
+  });
 
   // In-page tabs: the section under the tabs is highlighted as you scroll.
   const tabs: [string, string][] = [
@@ -168,20 +206,33 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   };
 
   /** The main call to action, the same in the banner and the side card. */
-  const cta = (variant: 'light' | 'primary', size = ' lp-btn-lg') => course.ladder ? (
-    <>
-      {!st?.tested && !st?.passed.size && <button type="button" className={`lp-btn lp-btn-${variant}${size}`} onClick={() => setTesting(true)}>{ui.ladder.testStart}<ArrowRightOutlined /></button>}
-      {ladderNext && (
-        <Link to={lessonPath(course, ladderNext, lang)} state={AUTOSTART} className={`lp-btn${size} ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost cp-btn-ghost' : `lp-btn-${variant}`}`}>
-          {st?.tested || st?.passed.size ? ui.ladder.continueAt(ladderNext.level!) : ui.ladder.startAt('A1')}<ArrowRightOutlined />
-        </Link>
-      )}
-    </>
-  ) : next ? (
-    <Link to={lessonPath(course, next, lang)} state={AUTOSTART} className={`lp-btn lp-btn-${variant}${size}`}>
-      <PlayCircleFilled /> {doneIds.length === 0 ? c.startCourse : doneIds.length === lessons.length ? c.restart : c.continueCourse}
-    </Link>
-  ) : null;
+  const cta = (variant: 'light' | 'primary', size = ' lp-btn-lg') => {
+    if (startLocked) {
+      return (
+        <button type="button" onClick={openCourseModal} className={`lp-btn lp-btn-${variant}${size}`}>
+          {startTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />}
+          {startTier === 'premium'
+            ? (fr ? 'Débloquer avec Premium' : 'Unlock with Premium')
+            : (fr ? 'Créer un compte gratuit' : 'Free account to start')}
+          <ArrowRightOutlined />
+        </button>
+      );
+    }
+    return course.ladder ? (
+      <>
+        {!st?.tested && !st?.passed.size && <button type="button" className={`lp-btn lp-btn-${variant}${size}`} onClick={() => setTesting(true)}>{ui.ladder.testStart}<ArrowRightOutlined /></button>}
+        {ladderNext && (
+          <Link to={lessonPath(course, ladderNext, lang)} state={AUTOSTART} className={`lp-btn${size} ${!st?.tested && !st?.passed.size ? 'lp-btn-ghost cp-btn-ghost' : `lp-btn-${variant}`}`}>
+            {st?.tested || st?.passed.size ? ui.ladder.continueAt(ladderNext.level!) : ui.ladder.startAt('A1')}<ArrowRightOutlined />
+          </Link>
+        )}
+      </>
+    ) : next ? (
+      <Link to={lessonPath(course, next, lang)} state={AUTOSTART} className={`lp-btn lp-btn-${variant}${size}`}>
+        <PlayCircleFilled /> {doneIds.length === 0 ? c.startCourse : doneIds.length === lessons.length ? c.restart : c.continueCourse}
+      </Link>
+    ) : null;
+  };
 
   return (
     <LearnShell
@@ -217,7 +268,15 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
             )}
           </div>
           <div className="cp-hero-media">
-            {startLesson ? (
+            {startLesson && startLocked ? (
+              <button type="button" onClick={openCourseModal} className="cp-preview ax-locked-card" style={{ border: 0, width: '100%', padding: 0, textAlign: 'left', cursor: 'pointer' }} aria-label={fr ? `Débloquer : ${title}` : `Unlock: ${title}`}>
+                <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" style={{ filter: 'blur(4px) brightness(0.75)' }} />
+                <span className="cp-play" aria-hidden>{startTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />}</span>
+                <span className="cp-preview-label">
+                  {startTier === 'premium' ? (fr ? 'Compte Premium requis' : 'Premium account required') : (fr ? 'Compte gratuit requis' : 'Free account required')}
+                </span>
+              </button>
+            ) : startLesson ? (
               <Link to={lessonPath(course, startLesson, lang)} state={AUTOSTART} className="cp-preview" aria-label={fr ? `Commencer : ${title}` : `Start: ${title}`}>
                 <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" />
                 <span className="cp-play" aria-hidden><PlayCircleFilled /></span>
@@ -265,6 +324,9 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                   <ul>{kindsAll.map(k => <li key={k}>{KIND_ICON[k]}{ui.kinds[k]}</li>)}</ul>
                 </div>
               )}
+              {(startLocked || lessons.some(l => isTierLocked(account, lessonTier(course.id, l)))) && (
+                <PremiumInfoWidget lang={lang} variant="card" tier={startLocked ? startTier : 'premium'} title={title} />
+              )}
             </section>
 
             <section id="syllabus" className="cp-block" aria-labelledby="lx-syllabus">
@@ -283,16 +345,28 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                       const rec = mounted ? p.lessons[l.id] : undefined;
                       const kinds = [...new Set(l.steps.map(s => s.kind))].filter(k => k !== 'concept');
                       const isNext = mounted && !rec && next?.id === l.id && doneIds.length > 0;
+                      const lTier = lessonTier(course.id, l);
+                      const lLocked = isTierLocked(account, lTier);
+                      const lHref = lessonPath(course, l, lang);
                       return (
-                        <li key={l.id} className={`${rec ? 'is-done' : ''}${isNext ? ' is-next' : ''}`}>
-                          <Link to={lessonPath(course, l, lang)} state={AUTOSTART} className="cp-lesson">
-                            <span className="cp-lesson-n" aria-hidden>{rec ? <CheckCircleFilled /> : i + 1}</span>
+                        <li key={l.id} className={`${rec ? 'is-done' : ''}${isNext && !lLocked ? ' is-next' : ''}${lLocked ? ' ax-locked-card' : ''}`}>
+                          <Link
+                            to={lHref}
+                            state={lLocked ? undefined : AUTOSTART}
+                            onClick={e => {
+                              if (!lLocked) return;
+                              e.preventDefault();
+                              openPremiumModal({ title: tx(l.title, lang), tier: lTier, kind: 'lesson', level: course.level, to: lHref });
+                            }}
+                            className="cp-lesson"
+                          >
+                            <span className="cp-lesson-n" aria-hidden>{rec ? <CheckCircleFilled /> : lLocked ? <LockOutlined /> : i + 1}</span>
                             <div className="cp-lesson-body">
                               <p className="cp-lesson-k">
                                 <b>{fr ? `Leçon ${i + 1}` : `Lesson ${i + 1}`}</b>
                                 <span><ClockCircleOutlined aria-hidden /> {ui.minutes(l.minutes)}</span>
                                 <span>{ui.steps(l.steps.length)}</span>
-                                {l.locked && !canOpen(access.level, l.locked) && <TierBadge lang={lang} tier={l.locked} level={access.level} />}
+                                {lLocked && <TierBadge lang={lang} tier={lTier} level={access.level} />}
                                 {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
                               </p>
                               <h3>{tx(l.title, lang)}</h3>
@@ -301,20 +375,32 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                                 {kinds.slice(0, 6).map(k => <li key={k}>{KIND_ICON[k]}{ui.kinds[k]}</li>)}
                               </ul>
                             </div>
-                            <span className="cp-lesson-go">{rec ? (fr ? 'Revoir' : 'Review') : (fr ? 'Commencer' : 'Start')}<PlayCircleFilled aria-hidden /></span>
+                            {lLocked
+                              ? <LockActionPill lang={lang} tier={lTier} compact />
+                              : <span className="cp-lesson-go">{rec ? (fr ? 'Revoir' : 'Review') : (fr ? 'Commencer' : 'Start')}<PlayCircleFilled aria-hidden /></span>}
                           </Link>
                         </li>
                       );
                     })}
-                    <li className={`is-final${final?.passed ? ' is-done' : ''}`}>
-                      <Link to={finalPath(course, lang)} className="cp-lesson">
-                        <span className="cp-lesson-n" aria-hidden><TrophyOutlined /></span>
+                    <li className={`is-final${final?.passed ? ' is-done' : ''}${finalLocked ? ' ax-locked-card' : ''}`}>
+                      <Link
+                        to={finalPath(course, lang)}
+                        onClick={e => {
+                          if (!finalLocked) return;
+                          e.preventDefault();
+                          openPremiumModal({ title: c.final, tier: 'premium', kind: 'course', level: course.level, to: finalPath(course, lang) });
+                        }}
+                        className="cp-lesson"
+                      >
+                        <span className="cp-lesson-n" aria-hidden>{finalLocked ? <LockOutlined /> : <TrophyOutlined />}</span>
                         <div className="cp-lesson-body">
                           <p className="cp-lesson-k"><b>{fr ? 'Évaluation' : 'Assessment'}</b><span>10 questions</span></p>
                           <h3>{c.final}</h3>
                           <p className="cp-lesson-sum">{c.finalDesc}</p>
                         </div>
-                        <span className="cp-lesson-go">{final?.passed ? `${Math.round(final.best * 100)}%` : c.finalStart}<ArrowRightOutlined aria-hidden /></span>
+                        {finalLocked
+                          ? <LockActionPill lang={lang} tier="premium" compact />
+                          : <span className="cp-lesson-go">{final?.passed ? `${Math.round(final.best * 100)}%` : c.finalStart}<ArrowRightOutlined aria-hidden /></span>}
                       </Link>
                     </li>
                   </ol>
@@ -328,9 +414,19 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                   <p className="lp-eyebrow">{c.certificate}</p>
                   <h2 id="cp-cert-title">{final?.passed ? c.certificateEarned : (fr ? 'Obtenez votre certificat' : 'Earn your certificate')}</h2>
                   <p>{c.finalDesc}</p>
-                  <Link to={finalPath(course, lang)} className="lp-btn lp-btn-primary">
-                    {final?.passed ? <><SafetyCertificateOutlined /> {c.certificateEarned}</> : <>{c.finalStart} <ArrowRightOutlined /></>}
-                  </Link>
+                  {finalLocked ? (
+                    <button
+                      type="button"
+                      onClick={() => openPremiumModal({ title: `${c.certificate} — ${title}`, tier: 'premium', kind: 'course', level: course.level, to: finalPath(course, lang) })}
+                      className="lp-btn lp-btn-primary"
+                    >
+                      <CrownFilled /> {fr ? 'Débloquer avec Premium' : 'Unlock with Premium'} <ArrowRightOutlined />
+                    </button>
+                  ) : (
+                    <Link to={finalPath(course, lang)} className="lp-btn lp-btn-primary">
+                      {final?.passed ? <><SafetyCertificateOutlined /> {c.certificateEarned}</> : <>{c.finalStart} <ArrowRightOutlined /></>}
+                    </Link>
+                  )}
                 </div>
                 <div className="cp-cert-card" aria-hidden>
                   <span className="cp-cert-flag"><i /><i /><i /></span>

@@ -29,6 +29,7 @@ import DictationLibraryPage from './practice/dictation/DictationLibraryPage';
 import DictationCoursePage from './practice/dictation/DictationCoursePage';
 import { loadAdvanced } from './practice/listening/advanced';
 import { loadText } from './practice/registry';
+import { itemTier } from './access';
 import AccountRoute from './account/AccountPages';
 import { ItemGate } from './account/ItemGate';
 import { tx } from './types';
@@ -43,7 +44,7 @@ import { gamePath } from './games/meta';
 /** Both languages' addresses of an item. */
 const both = <X,>(x: X, f: (x: X, l: Lang) => string) => ({ en: f(x, 'en'), fr: f(x, 'fr') });
 
-export default function LearnApp({ lang: _lang }: { lang: Lang }) {
+export default function LearnApp({ lang }: { lang: Lang }) {
   const { pathname } = useLocation();
   const route = resolveLearnPath(pathname);
   // Practice exercises and games outside the free modules need an account or Premium.
@@ -72,7 +73,7 @@ export default function LearnApp({ lang: _lang }: { lang: Lang }) {
     case 'dialogue': return gate(`dialogue:${route.dialogue.id}`, route.dialogue.title, both(route.dialogue, dialoguePath), <DialoguePage key={route.dialogue.id} lang={route.lang} meta={route.dialogue} />);
     case 'dictation': return <DictationLibraryPage lang={route.lang} />;
     case 'dictation-course': return gate(`dictation:${route.dictation.id}`, route.dictation.title, both(route.dictation, dictationCoursePath), <DictationCoursePage key={route.dictation.id} lang={route.lang} course={route.dictation} />);
-    default: return <NotFound lang={route.lang} />;
+    default: return <NotFound lang={lang} />;
   }
 }
 
@@ -86,10 +87,10 @@ export async function prepareForPath(pathname: string) {
     const first = pathCourses(route.category.id)[0];
     if (first && !first.outcomes && hasCourseContent(first.id)) await loadLessons(first.id);
   }
-  if (route.type === 'text') await loadText(route.text.id);
-  if (route.type === 'ear-course') await loadEar(route.ear.id);
-  if (route.type === 'dialogue') await loadDialogue(route.dialogue.id, route.dialogue.theme);
-  if (route.type === 'listening-exercise' && route.exercise.lazy) await loadAdvanced(route.exercise.level);
+  if (route.type === 'text' && itemTier(`text:${route.text.id}`) === 'visitor') await loadText(route.text.id);
+  if (route.type === 'ear-course' && itemTier(`ear:${route.ear.id}`) === 'visitor') await loadEar(route.ear.id);
+  if (route.type === 'dialogue' && itemTier(`dialogue:${route.dialogue.id}`) === 'visitor') await loadDialogue(route.dialogue.id, route.dialogue.theme);
+  if (route.type === 'listening-exercise' && route.exercise.lazy && itemTier(`doc:${route.exercise.id}`) === 'visitor') await loadAdvanced(route.exercise.level);
   // Level pages list the lesson of each levelled course at that level.
   if (route.type === 'level') await Promise.all(ladderCoursesFor(route.level, route.category).map(c => loadLessons(c.id)));
 }

@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CloseOutlined, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant-design/icons';
+import { CloseOutlined, CrownFilled, GlobalOutlined, MenuOutlined, RightOutlined } from '@ant-design/icons';
 import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
 import { LEARN_HOME } from '../../learn/entry';
+import { resolveUserBadge } from '../../learn/account/identity';
+import { freeForAllCopy, loadAccount, startAccessWatcher, useAccount } from '../../learn/account/store';
 
 const LEARN_LABEL: Record<Lang, string> = { en: 'Free courses', fr: 'Cours gratuits' };
+const LEARN_ONLINE_LABEL: Record<Lang, string> = { en: 'Online courses', fr: 'Cours en ligne' };
 
 // Sections of the home page, in the order of the navigation.
 export const SECTIONS = ['programs', 'simulator', 'pricing', 'platform', 'reviews', 'faq'] as const;
@@ -23,10 +26,18 @@ interface Props {
 /** Header and mobile menu shared by every public page. */
 const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', active = '', onDemo }) => {
   const c = LANDING[lang];
+  const account = useAccount();
+  const identity = resolveUserBadge(account, lang);
+  const learnLabel = freeForAllCopy(account) ? LEARN_LABEL[lang] : LEARN_ONLINE_LABEL[lang];
   const headerRef = useRef<HTMLElement | null>(null);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuTop, setMenuTop] = useState(72);
+
+  useEffect(() => {
+    void loadAccount();
+    startAccessWatcher();
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -68,6 +79,29 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
     </div>
   );
 
+  const userPill = (mobile = false) => {
+    if (!identity) {
+      return mobile
+        ? <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
+        : <a href="/login" className="lp-signin">{c.nav.signIn}</a>;
+    }
+    const content = (
+      <>
+        <span className="lp-user-ava" aria-hidden>{identity.initial}</span>
+        <span className="lp-user-name">{identity.name}</span>
+        <span className="lp-user-role">
+          {identity.variant === 'premium' && <CrownFilled aria-hidden />}
+          {identity.badge}
+        </span>
+      </>
+    );
+    const cls = `lp-user-pill is-${identity.variant}${mobile ? ' is-mobile' : ''}`;
+    const close = mobile ? () => setMenuOpen(false) : undefined;
+    return identity.external
+      ? <a href={identity.href} className={cls} title={identity.fullName} onClick={close}>{content}</a>
+      : <Link to={identity.href} className={cls} title={identity.fullName} onClick={close}>{content}</Link>;
+  };
+
   return (
     <>
       <header ref={headerRef} className={`lp-header${scrolled ? ' is-scrolled' : ''}${menuOpen ? ' is-open' : ''}`}>
@@ -78,11 +112,11 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
           </Link>
           <nav className="lp-nav" aria-label="Main">
             {navItems.map(n => <a key={n.id} href={n.href} className={active === n.id ? 'is-active' : ''}>{n.label}</a>)}
-            <Link to={LEARN_HOME[lang]} className={`lp-nav-learn${learnActive ? ' is-active' : ''}`}>{LEARN_LABEL[lang]}</Link>
+            <Link to={LEARN_HOME[lang]} className={`lp-nav-learn${learnActive ? ' is-active' : ''}`}>{learnLabel}</Link>
           </nav>
           <div className="lp-header-end">
             {langSwitch}
-            <a href="/login" className="lp-signin">{c.nav.signIn}</a>
+            {userPill(false)}
             <button type="button" className="lp-btn lp-btn-primary lp-btn-sm" onClick={demo}>{c.nav.demo}</button>
             <button type="button" className="lp-burger" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lp-mobile-menu" aria-label={menuOpen ? c.nav.close : c.nav.menu}>
               {menuOpen ? <CloseOutlined /> : <MenuOutlined />}
@@ -94,11 +128,11 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
       <div id="lp-mobile-menu" className="lp-mobile" hidden={!menuOpen} style={{ '--lp-menu-top': `${menuTop}px` } as React.CSSProperties}>
         <nav aria-label="Mobile">
           {navItems.map(n => <a key={n.id} href={n.href} onClick={() => setMenuOpen(false)}>{n.label}<RightOutlined /></a>)}
-          <Link to={LEARN_HOME[lang]} onClick={() => setMenuOpen(false)} className="lp-mobile-learn">{LEARN_LABEL[lang]}<RightOutlined /></Link>
+          <Link to={LEARN_HOME[lang]} onClick={() => setMenuOpen(false)} className="lp-mobile-learn">{learnLabel}<RightOutlined /></Link>
         </nav>
         <div className="lp-mobile-foot">
           {langSwitch}
-          <a href="/login" className="lp-btn lp-btn-ghost">{c.nav.signIn}</a>
+          {userPill(true)}
           <button type="button" className="lp-btn lp-btn-primary" onClick={demo}>{c.nav.demo}</button>
         </div>
       </div>

@@ -8,6 +8,7 @@ import {
   ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined, CloseCircleFilled, CloseOutlined,
   CustomerServiceOutlined, ReloadOutlined, RetweetOutlined,
 } from '@ant-design/icons';
+import { ACCESS_GENERATED, itemTier } from '../../access';
 import { stop } from '../../audio';
 import { RichBlock } from '../../player/common';
 import { hubPath } from '../../paths';
@@ -20,6 +21,7 @@ import { EARC } from './copy';
 import { EAR, earPath } from './meta';
 import { Marked, PlayButton } from './parts';
 import { useEar } from './registry';
+import { useUnlockedPractice } from '../unlocked';
 import type { EarCourse, EarItem, EarMeta, EarStep } from './types';
 import { SLOW, judge, plainOf, readBest, saveBest } from './util';
 import './ear.css';
@@ -212,7 +214,10 @@ function Results({ course, meta, results, lang, onRetry }: { course: EarCourse; 
 
 export default function EarCoursePage({ lang, meta }: { lang: Lang; meta: EarMeta }) {
   const c = EARC[lang];
-  const course = useEar(meta.id);
+  const localCourse = useEar(meta.id);
+  const needsUnlock = Boolean(localCourse?.locked) || (ACCESS_GENERATED && itemTier(`ear:${meta.id}`) !== 'visitor');
+  const { data: unlocked } = useUnlockedPractice('ear', meta.id, localCourse, needsUnlock);
+  const course = unlocked && !unlocked.locked ? unlocked : null;
   const mounted = useMounted();
   const [phase, setPhase] = useState<'intro' | 'run' | 'done'>('intro');
   const [i, setI] = useState(0);

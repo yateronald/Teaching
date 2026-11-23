@@ -23,6 +23,7 @@ export interface Dialogue {
   phrases: number[];
   /** A practical tip about life in France. */
   tip: T;
+  locked?: 'visitor' | 'free' | 'premium';
 }
 
 export interface DialogueMeta {

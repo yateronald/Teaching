@@ -21,11 +21,12 @@ import Player, { type PlayerOutcome } from '../player/Player';
 import EndScreen from '../player/EndScreen';
 import { KIND_ICON } from './CoursePage';
 import { trackLearning } from '../../utils/siteAnalytics';
-import { canOpen, lessonTier } from '../access';
+import { canOpen, lessonTier, type Tier } from '../access';
+import { stop as stopAudio } from '../audio';
 import { AccessGate } from '../account/AccessGate';
 import { useCourseUnlock } from '../account/useCourseUnlock';
 import { ACCOUNT_COPY } from '../account/copy';
-import { effectiveLevel, freeForAllCopy, useAccount } from '../account/store';
+import { effectiveLevel, freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 
 /** Locks the page behind the player. */
 export function useScrollLock(on: boolean) {
@@ -47,9 +48,10 @@ function LessonBody({ lang, course, lesson, lessons, unlock }: { lang: Lang; cou
   const account = useAccount();
   // While the courses are free for everyone, everything opens.
   const access = { ...account.access, level: effectiveLevel(account) };
-  // An outline (locked lesson): the account may open it (on its way from the server), or not (the lock card).
-  const gated = lesson.locked;
-  const opening = !!gated && canOpen(access.level, gated) && unlock.loading;
+  const tier = lessonTier(course.id, lesson);
+  // Enforce BOTH outline lock and live account/mode lock (kicks open players right away).
+  const gated: Tier | undefined = lesson.locked ?? (isTierLocked(account, tier) ? tier : undefined);
+  const opening = !!lesson.locked && canOpen(access.level, lesson.locked) && unlock.loading;
   const l = ui.lesson;
   const { openDemo } = useDemo();
   const p = useProgress();
@@ -62,6 +64,13 @@ function LessonBody({ lang, course, lesson, lessons, unlock }: { lang: Lang; cou
   useScrollLock(phase !== 'intro');
   // A new lesson (next lesson link) starts on its introduction.
   useEffect(() => { setPhase('intro'); setOutcome(null); setForce(false); }, [lesson.id]);
+  // If Premium mode or revocation lands mid-lesson, silence audio and exit player at once.
+  useEffect(() => {
+    if (gated && phase !== 'intro') {
+      stopAudio();
+      setPhase('intro');
+    }
+  }, [gated, phase]);
 
   const idx = lessons.findIndex(x => x.id === lesson.id);
   const prev = lessons[idx - 1];
@@ -130,7 +139,7 @@ function LessonBody({ lang, course, lesson, lessons, unlock }: { lang: Lang; cou
             <p className="lx-hero-sub">{tx(lesson.summary, lang)}</p>
             {gated ? (
               opening ? <p className="ax-opening" role="status"><LoadingOutlined /> {ac.opening}</p>
-              : unlock.error && canOpen(access.level, gated) ? (
+              : unlock.error && lesson.locked && canOpen(access.level, lesson.locked) ? (
                 <div className="ax-gate"><p className="ax-gate-text">{ac.openFailed}</p><div><button type="button" className="lp-btn lp-btn-primary" onClick={unlock.retry}>{ac.tryAgain}</button></div></div>
               ) : <AccessGate lang={lang} tier={gated} />
             ) : locked ? (

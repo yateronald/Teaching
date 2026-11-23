@@ -35,6 +35,7 @@ export interface EarCourse {
   examples: EarExample[];
   items: EarItem[];
   takeaway: T;
+  locked?: 'visitor' | 'free' | 'premium';
 }
 
 /** What the library needs, without the content. */
