@@ -7,6 +7,7 @@
 // the page about exactly that), with its English and French versions linked
 // to each other through hreflang.
 import { PATHS, type Lang } from './landingContent';
+import { LEGAL_PATHS, type LegalKind } from '../../legal/paths';
 
 export type TopicId = 'tcf-canada' | 'tef-canada' | 'quebec' | 'delf-dalf' | 'online' | 'business' | 'kids';
 
@@ -38,6 +39,8 @@ export interface PublicPage {
   offers?: boolean;
   /** The form of an email campaign (src/promo/EmailFormPage.tsx): pre-rendered, never indexed. */
   form?: boolean;
+  /** The Privacy Policy or the Terms of Service (src/legal). */
+  legal?: LegalKind;
   /** false: left out of the sitemap. */
   sitemap?: boolean;
   /** Weight in the sitemap (defaults: 1.0 for the home page, 0.8 for a topic page). */
@@ -54,4 +57,6 @@ export const PUBLIC_PAGES: PublicPage[] = [
   ...LANGS.map(lang => ({ path: OFFERS_PATHS[lang], lang, offers: true, priority: '0.7', alternates: OFFERS_PATHS })),
   // The page an email's form button opens (?t=…): a file of its own, so it answers whatever the server's rules for unknown addresses.
   ...LANGS.map(lang => ({ path: FORM_PATHS[lang], lang, form: true, sitemap: false, alternates: FORM_PATHS })),
+  // The Privacy Policy and the Terms of Service (linked from the footer and the sign-up form).
+  ...(['privacy', 'terms'] as LegalKind[]).flatMap(legal => LANGS.map(lang => ({ path: LEGAL_PATHS[legal][lang], lang, legal, priority: '0.3', alternates: LEGAL_PATHS[legal] }))),
 ];

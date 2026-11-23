@@ -25,6 +25,7 @@ import { DICTATIONS } from './practice/dictation/catalog';
 import type { DictationCourse } from './practice/dictation/types';
 import type { TextMeta } from './practice/types';
 import type { CategoryMeta, CourseMeta, Lang, Lesson, Level } from './types';
+import { accountPageOf, type AccountPage } from './account/paths';
 
 export { LEARN_BASE, categoryPath, coursePath };
 
@@ -64,6 +65,7 @@ export type LearnRoute =
   | { type: 'dialogue'; lang: Lang; dialogue: DialogueMeta }
   | { type: 'dictation'; lang: Lang }
   | { type: 'dictation-course'; lang: Lang; dictation: DictationCourse }
+  | { type: 'account'; lang: Lang; page: AccountPage }
   | { type: 'none'; lang: Lang };
 
 /** What an address of the learning space shows. Lessons are checked once their course is loaded. */
@@ -73,6 +75,8 @@ export function resolveLearnPath(pathname: string): LearnRoute {
   if (rest.length === 0) return { type: 'hub', lang };
   if (rest.length === 1 && rest[0] === PLACEMENT_SLUG[lang]) return { type: 'placement', lang };
   if (rest.length === 1 && rest[0] === PROGRESS_SLUG[lang]) return { type: 'progress', lang };
+  const accountPage = rest.length === 1 ? accountPageOf(rest[0], lang) : null;
+  if (accountPage) return { type: 'account', lang, page: accountPage };
   if (rest[0] === GAMES_SLUG[lang]) {
     if (rest.length === 1) return { type: 'games', lang };
     const game = rest.length === 2 ? GAMES.find(x => x.slug[lang] === rest[1]) : undefined;

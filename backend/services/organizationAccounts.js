@@ -10,6 +10,7 @@ const { hashPassword } = require('../middleware/auth');
 const sessions = require('./sessionService');
 const { generateTempPassword } = require('./tempPassword');
 const { sendCompanyInvite } = require('../emails/emailService');
+const { emailInUse } = require('./emailIdentity');
 const { OrgError, fromDbError, reclaimMany, audit, ACCOUNT_USED_SQL } = require('./organizationService');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -62,7 +63,7 @@ async function invite(org, user, tempPassword) {
 async function createAccount(db, org, role, body, actorId) {
     if (!['org_admin', 'candidate'].includes(role)) throw new OrgError('BAD_ROLE', 'Invalid account type.');
     const person = readPerson(body);
-    if (await db.get('SELECT 1 AS x FROM users WHERE lower(email) = $1', [person.email])) {
+    if (await emailInUse(db, person.email)) {
         throw new OrgError('EMAIL_TAKEN', 'An account already uses this email address. Ask the administrator if this person should join your company.', 409);
     }
     const username = await freeUsername(db, person.email);

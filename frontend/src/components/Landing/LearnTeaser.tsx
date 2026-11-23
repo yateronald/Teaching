@@ -8,10 +8,10 @@ import type { Lang } from './landingContent';
 // The home page section that opens the free courses (/learn/, /fr/apprendre/).
 const COPY = {
   en: {
-    eyebrow: 'Free French academy',
-    title: 'Start learning now, 100% free',
-    sub: 'More than 460 interactive courses, 221 reading & listening activities and 5 French games designed by our teaching team, from your first words to C2 in TCF and TEF Canada. No account needed.',
-    points: ['Native French audio', '221 practice drills', 'Certificates of completion'],
+    eyebrow: 'French online academy',
+    title: 'Start learning now, for free',
+    sub: 'More than 460 interactive courses, 221 reading & listening activities and 5 French games designed by our teaching team, from your first words to C2 in TCF and TEF Canada. The first module of every path is free.',
+    points: ['Native French audio', '221 practice drills', 'Certificates of completion (Premium)'],
     all: 'Explore free courses',
     test: 'Free 10-min level test',
     practiceLabel: 'Reading & Listening Studio',
@@ -21,10 +21,10 @@ const COPY = {
     allPathsLabel: `All ${CATEGORIES.length} learning paths:`,
   },
   fr: {
-    eyebrow: 'Espace gratuit',
-    title: 'Commencez à apprendre maintenant, 100 % gratuit',
-    sub: 'Plus de 460 cours interactifs, 221 activités d’écoute et de lecture et 5 jeux conçus par notre équipe pédagogique, de vos premiers mots jusqu’au C2 du TCF et du TEF Canada. Sans inscription.',
-    points: ['Audio en français natif', '221 activités pratiques', 'Certificats de réussite'],
+    eyebrow: 'Académie en ligne',
+    title: 'Commencez à apprendre maintenant, gratuitement',
+    sub: 'Plus de 460 cours interactifs, 221 activités d’écoute et de lecture et 5 jeux conçus par notre équipe pédagogique, de vos premiers mots jusqu’au C2 du TCF et du TEF Canada. Le premier module de chaque parcours est gratuit.',
+    points: ['Audio en français natif', '221 activités pratiques', 'Certificats de réussite (Premium)'],
     all: 'Explorer les cours gratuits',
     test: 'Test de niveau gratuit (10 min)',
     practiceLabel: 'Atelier d’écoute & lecture',

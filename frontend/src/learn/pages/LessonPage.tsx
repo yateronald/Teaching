@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RiseOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, LoadingOutlined, LockOutlined, PlayCircleFilled, RiseOutlined } from '@ant-design/icons';
 import NotFound from '../../components/Landing/NotFound';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath } from '../catalog';
@@ -21,6 +21,11 @@ import Player, { type PlayerOutcome } from '../player/Player';
 import EndScreen from '../player/EndScreen';
 import { KIND_ICON } from './CoursePage';
 import { trackLearning } from '../../utils/siteAnalytics';
+import { canOpen, lessonTier } from '../access';
+import { AccessGate } from '../account/AccessGate';
+import { useCourseUnlock } from '../account/useCourseUnlock';
+import { ACCOUNT_COPY } from '../account/copy';
+import { effectiveLevel, freeForAllCopy, useAccount } from '../account/store';
 
 /** Locks the page behind the player. */
 export function useScrollLock(on: boolean) {
@@ -36,8 +41,15 @@ export function Overlay({ children }: { children: React.ReactNode }) {
   return createPortal(<div className="lp lx lx-overlay">{children}</div>, document.body);
 }
 
-function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: CourseMeta; lesson: Lesson; lessons: Lesson[] }) {
+function LessonBody({ lang, course, lesson, lessons, unlock }: { lang: Lang; course: CourseMeta; lesson: Lesson; lessons: Lesson[]; unlock: ReturnType<typeof useCourseUnlock> }) {
   const ui = UI[lang];
+  const ac = ACCOUNT_COPY[lang];
+  const account = useAccount();
+  // While the courses are free for everyone, everything opens.
+  const access = { ...account.access, level: effectiveLevel(account) };
+  // An outline (locked lesson): the account may open it (on its way from the server), or not (the lock card).
+  const gated = lesson.locked;
+  const opening = !!gated && canOpen(access.level, gated) && unlock.loading;
   const l = ui.lesson;
   const { openDemo } = useDemo();
   const p = useProgress();
@@ -91,11 +103,11 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
   const navigate = useNavigate();
   const autostart = hasAutostart(location.state);
   useEffect(() => {
-    if (!autostart || !mounted || locked) return;
+    if (!autostart || !mounted || locked || gated) return;
     navigate(location.pathname, { replace: true, state: null });
     start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autostart, mounted, locked, lesson.id]);
+  }, [autostart, mounted, locked, gated, lesson.id]);
 
   const t = ui.ladder;
   const end = (() => {
@@ -116,7 +128,12 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
             <p className="lx-lesson-k"><LevelChip level={lesson.level ?? course.level} size="sm" /> {ladder ? t.level(lesson.level!) : l.lessonOf(idx + 1, lessons.length)} · {tx(course.title, lang)}</p>
             <h1 id="lx-lesson-title">{title}</h1>
             <p className="lx-hero-sub">{tx(lesson.summary, lang)}</p>
-            {locked ? (
+            {gated ? (
+              opening ? <p className="ax-opening" role="status"><LoadingOutlined /> {ac.opening}</p>
+              : unlock.error && canOpen(access.level, gated) ? (
+                <div className="ax-gate"><p className="ax-gate-text">{ac.openFailed}</p><div><button type="button" className="lp-btn lp-btn-primary" onClick={unlock.retry}>{ac.tryAgain}</button></div></div>
+              ) : <AccessGate lang={lang} tier={gated} />
+            ) : locked ? (
               <div className="lx-locked">
                 <p className="lx-locked-t"><LockOutlined /> {t.lockedTitle}</p>
                 <p>{t.lockedText(LEVELS[lvlIdx - 1])}</p>
@@ -148,7 +165,7 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
         <div className="lp-wrap lx-cat-layout">
           <article className="lx-notes">
             <h2 id="lx-notes" className="lx-h2">{l.notes}</h2>
-            <p className="lx-notes-sub">{l.notesSub}</p>
+            <p className="lx-notes-sub">{gated ? ac.outlineNote : l.notesSub}</p>
             <ul className="lx-notes-points">
               {lesson.notes.points.map((pt, i) => <li key={i}><span className="lx-n">{i + 1}</span><Rich text={tx(pt, lang)} /></li>)}
             </ul>
@@ -201,7 +218,7 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
                 href: lessonPath(course, x, lang),
                 current: x.id === lesson.id,
                 done: mounted && !!p.lessons[x.id],
-                locked: ladder && mounted && i > ladderState(p, course.id).unlocked,
+                locked: !!x.locked || (ladder && mounted && i > ladderState(p, course.id).unlocked),
               })),
             }}
           />
@@ -233,6 +250,9 @@ function LessonBody({ lang, course, lesson, lessons }: { lang: Lang; course: Cou
 
 export default function LessonPage({ lang, course, lessonSlug }: { lang: Lang; course: CourseMeta; lessonSlug: string }) {
   const lessons = useLessons(course.id);
+  // Locked lessons the account may open come from the server (they replace the outlines).
+  const unlock = useCourseUnlock(course.id, lessons);
+  const freeAll = freeForAllCopy(useAccount());
   const lesson = lessons?.find(l => l.slug[lang] === lessonSlug);
   if (lessons && !lesson) return <NotFound lang={lang} />;
   const ui = UI[lang];
@@ -242,10 +262,10 @@ export default function LessonPage({ lang, course, lessonSlug }: { lang: Lang; c
       lang={lang}
       alternates={alternates}
       seo={lesson
-        ? { title: ui.lesson.metaTitle(tx(lesson.title, lang), tx(course.title, lang)), description: `${tx(lesson.summary, lang)} ${lesson.objectives.map(o => tx(o, lang)).join(' · ')}`.slice(0, 290), path: lessonPath(course, lesson, lang), jsonLd: lessonJsonLd(course, lesson, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }
+        ? { title: ui.lesson.metaTitle(tx(lesson.title, lang), tx(course.title, lang), !freeAll && lessonTier(course.id, lesson) === 'premium'), description: `${tx(lesson.summary, lang)} ${lesson.objectives.map(o => tx(o, lang)).join(' · ')}`.slice(0, 290), path: lessonPath(course, lesson, lang), jsonLd: lessonJsonLd(course, lesson, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }
         : { title: tx(course.title, lang), description: tx(course.subtitle, lang), path: coursePath(course, lang) }}
     >
-      {lesson && lessons ? <LessonBody lang={lang} course={course} lesson={lesson} lessons={lessons} /> : <div className="lx-loading" role="status" />}
+      {lesson && lessons ? <LessonBody lang={lang} course={course} lesson={lesson} lessons={lessons} unlock={unlock} /> : <div className="lx-loading" role="status" />}
     </LearnShell>
   );
 }

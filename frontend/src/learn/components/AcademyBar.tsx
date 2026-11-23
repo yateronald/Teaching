@@ -25,6 +25,7 @@ import { getStepCompletion, useActivitySnapshot, useStudyPath } from '../studyPa
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
 import { COURSE_TRACKS, STUDY_COPY, goalById } from '../studyPath/copy';
 import { OPEN_SEARCH_EVENT, foldSearch, getSearchIndex, type SearchKind } from '../studyPath/searchIndex';
+import { AccountButton } from '../account/AccountButton';
 import './academy.css';
 
 const KIND_ICON: Record<SearchKind, ReactNode> = {
@@ -360,6 +361,8 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
                 <span className="ac-status-pct">{activeSummary.pct}%</span>
               </Link>
             )}
+
+            <AccountButton lang={lang} />
           </div>
         </div>
 

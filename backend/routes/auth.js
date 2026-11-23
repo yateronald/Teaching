@@ -5,6 +5,7 @@ const orgs = require('../services/organizationService');
 const hints = require('../services/signInHints');
 const sessions = require('../services/sessionService');
 const { createNotification } = require('../services/notificationService');
+const { hasColumn } = require('../services/schemaFeatures');
 
 const router = express.Router();
 
@@ -37,6 +38,9 @@ router.post('/identify', [body('email').isString().trim().isLength({ max: 254 })
 
 // Login endpoint
 router.post('/login', [
+    // The address as typed, before it is normalised: the email key below finds
+    // the account whichever way the address was written when it was created.
+    (req, _res, next) => { req.typedEmail = String(req.body?.email || '').trim().slice(0, 254); next(); },
     body('email').isEmail().normalizeEmail(),
     body('password').isLength({ min: 6 })
 ], async (req, res) => {
@@ -51,11 +55,17 @@ router.post('/login', [
 
         const { email, password } = req.body;
 
-        // Find user by email
-        const user = await req.db.get(
-            'SELECT * FROM users WHERE email = ?',
-            [email]
-        );
+        // Find user by email. Once migration 030 is applied, by email key too:
+        // yate.ronald@gmail.com, yateronald@gmail.com and Yate.Ronald+x@gmail.com
+        // are one inbox, so one account, however it was stored.
+        const user = await hasColumn(req.db, 'users', 'email_key')
+            ? await req.db.get(
+                'SELECT * FROM users WHERE email = $1 OR email_key = lfwn_email_key($2) ORDER BY (email = $1) DESC, id LIMIT 1',
+                [email, req.typedEmail || email])
+            : await req.db.get(
+                'SELECT * FROM users WHERE email = ?',
+                [email]
+            );
 
         // Nothing here may tell a stranger whether the email has an account:
         // an unknown email takes as long, fails the same way and even "locks"
@@ -113,6 +123,16 @@ router.post('/login', [
         // Successful login - reset failed attempts
         await resetFailedLogins(req.db, user.id);
 
+        // A website learner's account is for the online courses only: the
+        // portal never opens for it (told only to someone who knows the password).
+        if (user.role === 'learner') {
+            return res.status(403).json({
+                error: 'Website account',
+                message: 'This account is for our online courses. Please sign in on the website.',
+                code: 'LEARNER_ACCOUNT',
+            });
+        }
+
         // A company account signs in only while its company is enabled. Checked
         // after the password, so the answer tells a stranger nothing.
         if (user.organization_id || user.role === 'org_admin') {
@@ -156,7 +176,7 @@ router.post('/login', [
                         sessions: devices,
                     });
                 }
-                signedOutOthers = await sessions.endAllForUser(req.db, user.id, 'takeover');
+                signedOutOthers = await sessions.endAllForUser(req.db, user.id, 'takeover', null, { portal: true });
             }
         }
 

@@ -142,7 +142,7 @@ export const STUDY_COPY = {
     },
     finder: {
       eyebrow: 'Free French Study Academy · A1 to C2',
-      freePill: '100% free · No account required',
+      freePill: 'Start free · First module of every path',
       title: ['Follow one clear French path,', 'not a maze of links.'],
       sub: `Pick your goal and level in 15 seconds. We organize our ${N_ITEMS} free courses, dialogues, audio texts and dictations into a structured module-by-module roadmap.`,
       step1: 'Step 1 · Choose your goal',
@@ -256,7 +256,7 @@ export const STUDY_COPY = {
     },
     finder: {
       eyebrow: 'Académie gratuite de français · A1 à C2',
-      freePill: '100 % gratuit · Sans inscription',
+      freePill: 'Commencez gratuitement · 1er module de chaque parcours',
       title: ['Suivez un vrai parcours guidé,', 'sans jamais vous perdre.'],
       sub: `Choisissez votre objectif et votre niveau en 15 secondes. Nous organisons nos ${N_ITEMS} cours, dialogues, textes audio et dictées en modules progressifs prêts à suivre.`,
       step1: 'Étape 1 · Choisissez votre objectif',

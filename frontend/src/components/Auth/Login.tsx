@@ -193,6 +193,10 @@ const Login: React.FC = () => {
             'Le compte de votre entreprise est désactivé. Contactez l’administrateur de votre entreprise ou Learn French with Natives.'),
         });
         setAccountDisabledOpen(true);
+      } else if (result.code === 'LEARNER_ACCOUNT') {
+        // A website account (online courses): its sign-in is on the website.
+        message.info(tr('This account is for our online courses: sign in on the website.', 'Ce compte sert aux cours en ligne : connectez-vous sur le site.'));
+        window.location.assign(tr('/learn/sign-in/', '/fr/apprendre/connexion/'));
       } else if (result.code === 'ACCOUNT_LOCKED') {
         setAccountDisabledData({
           type: 'locked', message: result.message,

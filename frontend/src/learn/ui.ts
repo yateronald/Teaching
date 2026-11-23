@@ -11,7 +11,7 @@ type Cta = [title: string, text: string, button: string];
 const en = {
   brand: 'Free courses',
   free: 'Free',
-  noSignup: 'No sign-up',
+  noSignup: 'Start free',
   minutes: (n: number) => `${n} min`,
   lessons: (n: number) => `${n} lesson${n > 1 ? 's' : ''}`,
   courses: (n: number) => `${n} course${n > 1 ? 's' : ''}`,
@@ -34,13 +34,13 @@ const en = {
 
   hub: {
     metaTitle: `Free French Courses Online: ${N_COURSES} Interactive Courses from A1 to C2 | Learn French with Natives`,
-    metaDescription: `Learn French for free with ${N_COURSES} interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. No sign-up.`,
+    metaDescription: `Learn French with ${N_COURSES} interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. Start free: the first module of every path is free.`,
     eyebrow: 'Free French courses',
     title: ['Learn French by doing,', 'one lesson at a time.'],
     sub: `${N_COURSES} interactive courses designed by our teaching team, from your very first words to C2 level in TCF and TEF Canada. You listen to French voices, speak, build sentences and get instant feedback. Free, with no account.`,
     ctaTest: 'Find my level: free test',
     ctaBrowse: 'Browse the courses',
-    stats: [[String(N_COURSES), 'courses'], [String(N_LESSONS), 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'no sign-up']] as [string, string][],
+    stats: [[String(N_COURSES), 'courses'], [String(N_LESSONS), 'interactive lessons'], ['A1 → C2', 'every level'], ['0 $', 'to start']] as [string, string][],
     continueTitle: 'Pick up where you left off',
     continueCta: 'Resume',
     pathsEyebrow: 'Learning paths',
@@ -80,9 +80,14 @@ const en = {
     teacherPoints: ['A level assessment and a plan for your target CLB', 'Live classes online or in person', 'Your writing and speaking corrected by a certified teacher'],
     faqEyebrow: 'Questions',
     faqTitle: 'About the free courses',
+    /** Answers that replace the access ones while the courses are free for everyone. */
+    faqFree: {
+      'What is free?': 'Right now, everything: every lesson of every path, the practice library, the games and the certificates are open to everyone, with or without an account. Later, Premium will open the lessons beyond the first module of each path; the first module of every path will stay free.',
+      'Do I need to create an account?': 'No, not for now. An account is optional: it keeps your access to the free modules when Premium starts. Your progress and scores are saved in this browser: if you change device or clear your browser data, your progress starts again.',
+    } as Record<string, string>,
     faq: [
-      ['Are the courses really free?', `Yes. All ${N_COURSES} courses, the level test and the certificates are free, with no account and no card. We offer them so you can discover our teaching method; if you want to go faster, our teachers offer paid live classes and exam preparation.`],
-      ['Do I need to create an account?', 'No. Your progress, scores and certificates are saved in this browser. If you change device or clear your browser data, your progress starts again.'],
+      ['What is free?', 'Without an account: the level test and the first module of the A1 path. With a free account: the first module of every path, from A1 to C2. Premium opens every lesson of every path, the practice library, the games and the certificates; online payment is coming soon, and until then our team activates Premium for you when you ask for it from your account.'],
+      ['Do I need to create an account?', 'For the first module of the A1 path, no. For the first module of every other path, a free account is enough (email or Google). Your progress and scores are saved in this browser: if you change device or clear your browser data, your progress starts again.'],
       ['Which level should I start with?', 'Take the free level test (about 10 minutes): it estimates your CEFR level and recommends the courses that fit you. Complete beginners can start directly with “First Steps in French”.'],
       ['Do these courses prepare for the TCF Canada and the TEF Canada?', 'Yes: five levelled courses for each exam (listening, reading, writing, speaking, grammar and vocabulary), each from A1 to C2, with exam-style questions and tasks. To reach a precise CLB target, our teachers add full timed simulations and personal correction.'],
       ['How does the speaking practice work?', 'In speaking activities you say the sentence aloud; your browser’s speech recognition (Chrome, Edge, Safari) shows what it understood, word by word. Nothing is recorded or sent to us.'],
@@ -120,7 +125,7 @@ const en = {
   levelPage: {
     metaTitle: (lvl: string, name: string) => `Free French Courses, Level ${lvl} (${name}) | Learn French with Natives`,
     metaTitleCat: (cat: string, lvl: string) => `${cat}, Level ${lvl}: Free Lessons | Learn French with Natives`,
-    metaDescription: (lvl: string, n: number) => `${n} free interactive French courses and lessons at level ${lvl}: native audio, exercises with instant feedback, speaking practice. No sign-up.`,
+    metaDescription: (lvl: string, n: number) => `${n} interactive French courses and lessons at level ${lvl}: native audio, exercises with instant feedback, speaking practice. Start free with the first module of every path.`,
     eyebrow: 'French by level',
     h1: (lvl: string, name: string) => `Free French courses, level ${lvl} (${name})`,
     h1Cat: (cat: string, lvl: string) => `${cat}, level ${lvl}`,
@@ -151,7 +156,7 @@ const en = {
     certificate: 'Certificate of completion',
     certificateEarned: 'Certificate earned',
     includes: 'This course includes',
-    includeItems: ['Native audio for every phrase', 'Speaking practice with speech recognition', 'Instant feedback and explanations', 'A certificate of completion'],
+    includeItems: ['Native audio for every phrase', 'Speaking practice with speech recognition', 'Instant feedback and explanations', 'A certificate of completion (Premium)'],
     includeItemsLadder: ['An adaptive test that finds your level', 'Six levels, A1 to C2, each one a full lesson', 'Exam-style questions with native audio', 'Instant feedback and explanations'],
     level: 'Level',
     duration: 'Duration',
@@ -199,7 +204,7 @@ const en = {
   },
 
   lesson: {
-    metaTitle: (lesson: string, course: string) => `${lesson} | ${course} (free French lesson)`,
+    metaTitle: (lesson: string, course: string, premium = false) => `${lesson} | ${course} (${premium ? 'Premium French lesson' : 'free French lesson'})`,
     objectives: 'In this lesson you will',
     start: 'Start the lesson',
     restart: 'Do it again',
@@ -322,7 +327,7 @@ const en = {
     certIntro: 'This certifies that',
     certBody: (course: string) => `has completed the free interactive course “${course}”`,
     certScore: (pct: number) => `with a final score of ${pct}%`,
-    certNote: 'Learn French with Natives · learnfrenchwithnatives.com · This certificate attests completion of a free course; it is not an official language diploma.',
+    certNote: 'Learn French with Natives · learnfrenchwithnatives.com · This certificate attests completion of an online course; it is not an official language diploma.',
     retry: 'Try again',
   },
 
@@ -356,7 +361,7 @@ const en = {
   progress: {
     metaTitle: 'My progress | Free French courses',
     title: 'My progress',
-    sub: 'Saved in this browser only. No account needed.',
+    sub: 'Saved in this browser only.',
     xp: 'XP',
     streak: 'Day streak',
     lessonsDone: 'Lessons completed',
@@ -403,7 +408,7 @@ export type UiCopy = typeof en;
 const fr: UiCopy = {
   brand: 'Cours gratuits',
   free: 'Gratuit',
-  noSignup: 'Sans inscription',
+  noSignup: 'Commencez gratuitement',
   minutes: n => `${n} min`,
   lessons: n => `${n} leçon${n > 1 ? 's' : ''}`,
   courses: n => `${n} cours`,
@@ -426,13 +431,13 @@ const fr: UiCopy = {
 
   hub: {
     metaTitle: `Cours de français gratuits en ligne : ${N_COURSES} cours interactifs du A1 au C2 | Learn French with Natives`,
-    metaDescription: `Apprenez le français gratuitement avec ${N_COURSES} cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Sans inscription.`,
+    metaDescription: `Apprenez le français avec ${N_COURSES} cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Commencez gratuitement : le premier module de chaque parcours est gratuit.`,
     eyebrow: 'Cours de français gratuits',
     title: ['Apprenez le français en pratiquant,', 'une leçon à la fois.'],
     sub: `${N_COURSES} cours interactifs conçus par notre équipe pédagogique, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix françaises, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.`,
     ctaTest: 'Connaître mon niveau : test gratuit',
     ctaBrowse: 'Voir les cours',
-    stats: [[String(N_COURSES), 'cours'], [String(N_LESSONS), 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'sans inscription']],
+    stats: [[String(N_COURSES), 'cours'], [String(N_LESSONS), 'leçons interactives'], ['A1 → C2', 'tous les niveaux'], ['0 €', 'pour commencer']],
     continueTitle: 'Reprenez là où vous en étiez',
     continueCta: 'Reprendre',
     pathsEyebrow: 'Parcours',
@@ -472,9 +477,13 @@ const fr: UiCopy = {
     teacherPoints: ['Une évaluation de niveau et un plan vers votre NCLC cible', 'Des cours en direct, en ligne ou en présentiel', 'Vos écrits et vos oraux corrigés par un professeur certifié'],
     faqEyebrow: 'Questions',
     faqTitle: 'À propos des cours gratuits',
+    faqFree: {
+      'Qu’est-ce qui est gratuit ?': 'Pour le moment, tout : toutes les leçons de tous les parcours, la bibliothèque d’exercices, les jeux et les certificats sont ouverts à tous, avec ou sans compte. Plus tard, Premium ouvrira les leçons au-delà du premier module de chaque parcours ; le premier module de chaque parcours restera gratuit.',
+      'Faut-il créer un compte ?': 'Non, pas pour le moment. Un compte est facultatif : il garde votre accès aux modules gratuits quand Premium commencera. Votre progression et vos scores sont enregistrés dans ce navigateur : si vous changez d’appareil ou effacez les données du navigateur, votre progression repart de zéro.',
+    } as Record<string, string>,
     faq: [
-      ['Les cours sont-ils vraiment gratuits ?', `Oui. Les ${N_COURSES} cours, le test de niveau et les certificats sont gratuits, sans compte ni carte bancaire. Nous les proposons pour vous faire découvrir notre méthode ; pour aller plus vite, nos professeurs proposent des cours en direct et des préparations aux examens payants.`],
-      ['Faut-il créer un compte ?', 'Non. Votre progression, vos scores et vos certificats sont enregistrés dans ce navigateur. Si vous changez d’appareil ou effacez les données du navigateur, votre progression repart de zéro.'],
+      ['Qu’est-ce qui est gratuit ?', 'Sans compte : le test de niveau et le premier module du parcours A1. Avec un compte gratuit : le premier module de chaque parcours, du A1 au C2. Premium ouvre toutes les leçons de tous les parcours, la bibliothèque d’exercices, les jeux et les certificats ; le paiement en ligne arrive bientôt, et en attendant notre équipe active Premium pour vous quand vous le demandez depuis votre compte.'],
+      ['Faut-il créer un compte ?', 'Pour le premier module du parcours A1, non. Pour le premier module de chaque autre parcours, un compte gratuit suffit (email ou Google). Votre progression et vos scores sont enregistrés dans ce navigateur : si vous changez d’appareil ou effacez les données du navigateur, votre progression repart de zéro.'],
       ['Par quel niveau commencer ?', 'Passez le test de niveau gratuit (environ 10 minutes) : il estime votre niveau du CECR et vous recommande les cours adaptés. Les grands débutants peuvent commencer directement par « Premiers pas en français ».'],
       ['Ces cours préparent-ils au TCF Canada et au TEF Canada ?', 'Oui : cinq cours par niveaux pour chaque examen (compréhension orale, compréhension écrite, expression écrite, expression orale, grammaire et vocabulaire), chacun du A1 au C2, avec des questions et des tâches type examen. Pour atteindre un NCLC précis, nos professeurs ajoutent des simulations complètes chronométrées et une correction personnalisée.'],
       ['Comment fonctionne la pratique de l’oral ?', 'Dans les activités d’oral, vous dites la phrase à voix haute ; la reconnaissance vocale de votre navigateur (Chrome, Edge, Safari) affiche ce qu’elle a compris, mot par mot. Rien n’est enregistré ni envoyé.'],
@@ -512,7 +521,7 @@ const fr: UiCopy = {
   levelPage: {
     metaTitle: (lvl: string, name: string) => `Cours de français gratuits niveau ${lvl} (${name}) | Learn French with Natives`,
     metaTitleCat: (cat: string, lvl: string) => `${cat}, niveau ${lvl} : leçons gratuites | Learn French with Natives`,
-    metaDescription: (lvl: string, n: number) => `${n} cours et leçons de français interactifs et gratuits au niveau ${lvl} : audio natif, exercices corrigés immédiatement, pratique de l’oral. Sans inscription.`,
+    metaDescription: (lvl: string, n: number) => `${n} cours et leçons de français interactifs au niveau ${lvl} : audio natif, exercices corrigés immédiatement, pratique de l’oral. Commencez gratuitement avec le premier module de chaque parcours.`,
     eyebrow: 'Le français par niveau',
     h1: (lvl: string, name: string) => `Cours de français gratuits, niveau ${lvl} (${name})`,
     h1Cat: (cat: string, lvl: string) => `${cat}, niveau ${lvl}`,
@@ -543,7 +552,7 @@ const fr: UiCopy = {
     certificate: 'Certificat de réussite',
     certificateEarned: 'Certificat obtenu',
     includes: 'Ce cours comprend',
-    includeItems: ['L’audio natif de chaque phrase', 'La pratique de l’oral avec reconnaissance vocale', 'Une correction et des explications immédiates', 'Un certificat de réussite'],
+    includeItems: ['L’audio natif de chaque phrase', 'La pratique de l’oral avec reconnaissance vocale', 'Une correction et des explications immédiates', 'Un certificat de réussite (Premium)'],
     includeItemsLadder: ['Un test adaptatif qui trouve votre niveau', 'Six niveaux, du A1 au C2, chacun une vraie leçon', 'Des questions type examen avec audio natif', 'Une correction et des explications immédiates'],
     level: 'Niveau',
     duration: 'Durée',
@@ -591,7 +600,7 @@ const fr: UiCopy = {
   },
 
   lesson: {
-    metaTitle: (lesson, course) => `${lesson} | ${course} (leçon de français gratuite)`,
+    metaTitle: (lesson, course, premium = false) => `${lesson} | ${course} (${premium ? 'leçon de français Premium' : 'leçon de français gratuite'})`,
     objectives: 'Dans cette leçon, vous allez',
     start: 'Commencer la leçon',
     restart: 'Refaire la leçon',
@@ -714,7 +723,7 @@ const fr: UiCopy = {
     certIntro: 'Nous certifions que',
     certBody: course => `a terminé le cours interactif gratuit « ${course} »`,
     certScore: pct => `avec un score final de ${pct} %`,
-    certNote: 'Learn French with Natives · learnfrenchwithnatives.com · Ce certificat atteste la réussite d’un cours gratuit ; ce n’est pas un diplôme de langue officiel.',
+    certNote: 'Learn French with Natives · learnfrenchwithnatives.com · Ce certificat atteste la réussite d’un cours en ligne ; ce n’est pas un diplôme de langue officiel.',
     retry: 'Réessayer',
   },
 
@@ -748,7 +757,7 @@ const fr: UiCopy = {
   progress: {
     metaTitle: 'Ma progression | Cours de français gratuits',
     title: 'Ma progression',
-    sub: 'Enregistrée dans ce navigateur uniquement. Aucun compte nécessaire.',
+    sub: 'Enregistrée dans ce navigateur uniquement.',
     xp: 'XP',
     streak: 'Jours d’affilée',
     lessonsDone: 'Leçons terminées',

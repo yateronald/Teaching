@@ -10,7 +10,7 @@
  * friends runs out of devices, and every takeover is recorded and visible.
  */
 const crypto = require('crypto');
-const { hasTable } = require('./schemaFeatures');
+const { hasTable, hasColumn } = require('./schemaFeatures');
 
 /** How many devices may be signed in at the same time (null = no cap). */
 const DEVICE_LIMIT = { candidate: 2 };
@@ -32,6 +32,11 @@ const limitFor = (role) => DEVICE_LIMIT[role] ?? null;
 const newId = () => crypto.randomUUID();
 /** Sessions are only tracked once migration 021 has been applied. */
 const ready = (db) => hasTable(db, 'user_sessions');
+/**
+ * The portal's device limit counts portal sessions only: the public website's
+ * sessions (door = 'website', migration 030) have their own limit.
+ */
+const portalOnly = async (db) => ((await hasColumn(db, 'user_sessions', 'door')) ? " AND door = 'portal'" : '');
 
 /** "Chrome on Windows" — enough for someone to recognise their own device, nothing more. */
 function describeDevice(userAgent = '') {
@@ -61,12 +66,13 @@ const clientIp = (req) => String(req?.ip || req?.connection?.remoteAddress || ''
  */
 async function activeSessions(db, userId) {
     if (!(await ready(db))) return [];
+    const door = await portalOnly(db);
     return db.all(
         `SELECT id, jti, created_at, last_seen_at, expires_at, device, ip,
                 EXTRACT(EPOCH FROM (LOCALTIMESTAMP - last_seen_at))::int AS idle_seconds,
                 EXTRACT(EPOCH FROM (LOCALTIMESTAMP - created_at))::int AS age_seconds
            FROM user_sessions
-          WHERE user_id = $1 AND ended_at IS NULL
+          WHERE user_id = $1 AND ended_at IS NULL${door}
             AND expires_at > LOCALTIMESTAMP
             AND ${NOT_IDLE}
           ORDER BY last_seen_at DESC`,
@@ -84,13 +90,18 @@ async function endSessions(db, ids, reason) {
     return done.length;
 }
 
-/** Closes every session of a user, optionally sparing one (usually the caller's own). */
-async function endAllForUser(db, userId, reason, keepSessionId = null) {
+/**
+ * Closes every session of a user, optionally sparing one (usually the caller's
+ * own). With { portal: true }, only the student portal's sessions (a takeover
+ * there leaves the website signed in).
+ */
+async function endAllForUser(db, userId, reason, keepSessionId = null, { portal = false } = {}) {
     if (!(await ready(db))) return 0;
     const keep = Number.isInteger(Number(keepSessionId)) ? Number(keepSessionId) : null;
+    const door = portal ? await portalOnly(db) : '';
     const done = await db.all(
         `UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, ended_reason = $2
-          WHERE user_id = $1 AND ended_at IS NULL AND ($3::int IS NULL OR id <> $3::int) RETURNING id`,
+          WHERE user_id = $1 AND ended_at IS NULL AND ($3::int IS NULL OR id <> $3::int)${door} RETURNING id`,
         [userId, reason, keep]);
     return done.length;
 }
@@ -148,9 +159,10 @@ async function touch(db, session) {
  */
 async function takeoversToday(db, userId) {
     if (!(await ready(db))) return 0;
+    const door = await portalOnly(db);
     const row = await db.get(
         `SELECT COUNT(*)::int AS n FROM user_sessions
-          WHERE user_id = $1 AND took_over > 0 AND created_at > LOCALTIMESTAMP - INTERVAL '24 hours'`,
+          WHERE user_id = $1 AND took_over > 0 AND created_at > LOCALTIMESTAMP - INTERVAL '24 hours'${door}`,
         [userId]);
     return row?.n || 0;
 }

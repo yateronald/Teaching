@@ -219,6 +219,12 @@ export interface Lesson {
   level?: Level;
   /** The lesson in a few lines, printed under the player (revision + search engines). */
   notes: { points: T[]; vocab?: [string, Gloss][] };
+  /**
+   * Set on the outline of a locked lesson (the public website's copy): the
+   * access it needs. Its steps then only say their kind; the full lesson comes
+   * from the API (content/registry.ts, loadFullCourse).
+   */
+  locked?: 'free' | 'premium';
 }
 
 export interface CourseMeta {

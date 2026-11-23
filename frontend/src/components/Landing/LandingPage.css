@@ -922,3 +922,8 @@ body:has(.lp) { min-width: 0; }
 @media (max-width: 1340px) { .lp-nav a[href$="#platform"] { display: none; } }
 @media (max-width: 1240px) { .lp-nav a[href$="#faq"] { display: none; } }
 @media (max-width: 1150px) { .lp-nav a[href$="#reviews"] { display: none; } }
+
+/* The footer's links to these pages */
+.lp-footer-legal { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; }
+.lp-footer-legal a { color: #a9b6d6; }
+.lp-footer-legal a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }

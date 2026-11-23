@@ -36,6 +36,7 @@ import {
     RobotOutlined,
     NotificationOutlined,
     MailOutlined,
+    CrownOutlined,
 } from '@ant-design/icons';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -98,6 +99,7 @@ const NAV: Record<Role, NavGroup[]> = {
                 { key: '/app/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
                 { key: '/app/users', icon: <UserOutlined />, label: 'Users' },
                 { key: '/app/companies', icon: <BankOutlined />, label: 'Companies' },
+                { key: '/app/online-courses', icon: <CrownOutlined />, label: 'Online courses' },
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
                 { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
                 { key: '/app/marketing', icon: <NotificationOutlined />, label: 'Marketing', counter: 'registrations' },

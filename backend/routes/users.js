@@ -1,4 +1,5 @@
 const express = require('express');
+const { emailInUse } = require('../services/emailIdentity');
 const { body, validationResult } = require('express-validator');
 const { hashPassword, authenticateToken, teacherOrAdmin, authorizeRoles, ROLES } = require('../middleware/auth');
 const candidates = require('../services/candidateService');
@@ -174,7 +175,8 @@ router.post('/', [
             [username, email]
         );
 
-        if (existingUser) {
+        // One account per inbox: yate.ronald@gmail.com and yateronald@gmail.com are the same.
+        if (existingUser || await emailInUse(req.db, email)) {
             return res.status(400).json({ error: 'Username or email already exists' });
         }
 
@@ -299,7 +301,7 @@ router.put('/:id', [
                 'SELECT id FROM users WHERE (username = ? OR email = ?) AND id != ?',
                 [username || '', email || '', id]
             );
-            if (duplicateCheck) {
+            if (duplicateCheck || (email && await emailInUse(req.db, email, Number(id)))) {
                 return res.status(400).json({ error: 'Username or email already exists' });
             }
         }

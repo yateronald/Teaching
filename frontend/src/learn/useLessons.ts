@@ -1,17 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { courseAbout } from './catalog';
-import { getAbout, getLessons, hasCourseContent, loadLessons } from './content/registry';
+import { getAbout, getLessons, hasCourseContent, loadLessons, subscribeLessons } from './content/registry';
 import type { CourseAbout, CourseMeta, Lesson } from './types';
 
-/** A course's lessons: immediately when already loaded (pre-render, hydration), else after download. */
+/**
+ * A course's lessons: immediately when already loaded (pre-render, hydration),
+ * else after download. Re-renders when they change (a locked lesson unlocked).
+ */
 export function useLessons(courseId: string): Lesson[] | null {
-  const [lessons, setLessons] = useState<Lesson[] | null>(() => getLessons(courseId) ?? null);
+  const read = useCallback(() => getLessons(courseId) ?? null, [courseId]);
+  const lessons = useSyncExternalStore(subscribeLessons, read, read);
   useEffect(() => {
-    const hit = getLessons(courseId);
-    if (hit) { setLessons(hit); return; }
-    let alive = true;
-    loadLessons(courseId).then(l => { if (alive) setLessons(l); });
-    return () => { alive = false; };
+    if (!getLessons(courseId)) loadLessons(courseId);
   }, [courseId]);
   return lessons;
 }
@@ -23,12 +23,11 @@ export function useLessons(courseId: string): Lesson[] | null {
 export function useCourseAbout(course: CourseMeta | undefined): CourseAbout | undefined {
   const id = course?.id;
   const needsModule = !!course && !course.outcomes && hasCourseContent(course.id);
-  const [, setLoaded] = useState(0);
+  const read = useCallback(() => (id ? getAbout(id) : undefined), [id]);
+  useSyncExternalStore(subscribeLessons, read, read);
   useEffect(() => {
     if (!id || !needsModule || getAbout(id)) return;
-    let alive = true;
-    loadLessons(id).then(() => { if (alive) setLoaded(n => n + 1); }, () => {});
-    return () => { alive = false; };
+    loadLessons(id).catch(() => {});
   }, [id, needsModule]);
   return course ? courseAbout(course) : undefined;
 }

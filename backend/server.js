@@ -141,6 +141,10 @@ app.use('/api/public/promotions', (err, _req, res, next) => {
     return next();
 });
 
+// Paystack's payment notifications are signed over their exact bytes: that one
+// route keeps the raw body (read before the JSON parser below).
+app.use('/api/learn/billing/webhook', express.raw({ type: '*/*', limit: '256kb' }));
+
 app.use(express.json({ limit: '200mb' }));
 app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
@@ -189,6 +193,21 @@ app.use('/api/public/email/u', limiter(15, 60, 'Too many requests. Please try ag
 app.post(/^\/api\/public\/email\/form\/[^/]+$/, limiter(15, 20, 'Too many answers from this connection. Please try again later.'));
 app.use('/api/public/email/brevo', limiter(1, 600, 'Too many requests'));
 app.use('/api/public/email', limiter(5, 600, 'Too many requests'));
+// Website accounts (the courses): sign-ups and codes are rare and typed by hand;
+// sign-in only counts failures, like the portal's.
+// 30 an hour per connection: a class signing up together from one school network still fits.
+app.post('/api/site-auth/signup', limiter(60, 30, 'Too many sign-ups from this connection. Please try again later.'));
+app.use('/api/site-auth/signup/verify', limiter(15, 30, 'Too many attempts. Please wait a few minutes and try again.'));
+app.use('/api/site-auth/signup/confirm', limiter(15, 30, 'Too many attempts. Please wait a few minutes and try again.'));
+app.use('/api/site-auth/signup/resend', limiter(60, 15, 'Too many codes requested. Please try again later.'));
+app.use('/api/site-auth/login', limiter(15, 30, 'Too many failed sign-in attempts. Please wait 15 minutes and try again.', { skipSuccessfulRequests: true }));
+app.use('/api/site-auth/password', limiter(15, 20, 'Too many attempts. Please wait 15 minutes and try again.'));
+app.use('/api/site-auth/google', limiter(15, 60, 'Too many attempts. Please wait a few minutes and try again.'));
+app.use('/api/site-auth', limiter(5, 300, 'Too many requests. Please wait a moment.'));
+// Payments: a person starts few checkouts; Paystack's notifications are never throttled hard.
+app.post('/api/learn/billing/checkout', limiter(60, 20, 'Too many payment attempts. Please try again later.'));
+app.use('/api/learn/billing/callback', limiter(15, 60, 'Too many requests. Please wait a moment.'));
+app.use('/api/learn/billing/webhook', limiter(5, 1000, 'Too many requests'));
 
 // Every API request is timed for the monitoring space (route pattern only —
 // no user, no address, no body).
@@ -251,6 +270,13 @@ app.use('/api/public/promotions', require('./routes/promotionsPublic'));
 // Email campaigns: the administrator's console, and the links in the emails (tracking, unsubscribe)
 app.use('/api/admin/email-campaigns', require('./routes/emailCampaigns'));
 app.use('/api/public/email', require('./routes/emailPublic'));
+
+// The public website's accounts (sign-up, Google, My account), its protected
+// lessons, and the administrator's page for website learners and Premium.
+app.use('/api/site-auth', require('./routes/siteAuth'));
+app.use('/api/learn/billing', require('./routes/billing'));
+app.use('/api/learn', require('./routes/learnContent'));
+app.use('/api/admin/learners', require('./routes/adminLearners'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -536,6 +562,9 @@ async function startServer() {
 
         // Email campaigns go out in the background, at a steady pace
         require('./services/emailCampaignSender').start(database);
+
+        // Website accounts: expired sign-ups and codes are forgotten once a day
+        require('./services/learnHousekeeping').start(database);
 
         server.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);

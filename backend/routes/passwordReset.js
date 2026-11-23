@@ -1,4 +1,5 @@
 const express = require('express');
+const { userByEmail } = require('../services/emailIdentity');
 const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
@@ -29,7 +30,7 @@ router.post('/request', [
   try {
     const db = req.db;
 
-    const user = await db.get('SELECT id, username, first_name, email FROM users WHERE email = ?', [email]);
+    const user = await userByEmail(db, email, 'id, username, first_name, email');
     // Always compute a generic expiry for UI countdown; this must not reveal account existence
     const expiresAt = addMinutes(new Date(), 10).toISOString();
  
@@ -77,7 +78,7 @@ router.post('/verify', [
   try {
     const db = req.db;
 
-    const user = await db.get('SELECT id, username, first_name FROM users WHERE email = ?', [email]);
+    const user = await userByEmail(db, email, 'id, username, first_name');
     if (!user) {
       // Obscure existence
       return res.status(400).json({ error: 'Invalid code' });
@@ -143,7 +144,7 @@ router.post('/reset', [
   try {
     const db = req.db;
 
-    const user = await db.get('SELECT id, username, first_name FROM users WHERE email = ?', [email]);
+    const user = await userByEmail(db, email, 'id, username, first_name');
     if (!user) return res.status(400).json({ error: 'Invalid token' });
 
     const request = await db.get(

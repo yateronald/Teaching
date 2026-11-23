@@ -8,11 +8,16 @@ import { PUBLIC_PAGES, type PublicPage } from './components/Landing/sitePages';
 import { SiteRoutes } from './App';
 
 import { learnPages, prepareLearn } from './learn/ssr';
+import LegalPage from './legal/LegalPage';
+import { setLegalPage } from './legal/entry';
 
 export { PUBLIC_PAGES };
 
 /** The free courses: registered before rendering, listed for the pre-render and the sitemap. */
-export function prepare(): string[] { return prepareLearn(); }
+export function prepare(): string[] {
+  setLegalPage(LegalPage);
+  return prepareLearn();
+}
 export const LEARN_PAGES = () => learnPages();
 
 // Rendered through the same routes as in the browser, so the browser can take

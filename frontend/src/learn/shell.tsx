@@ -19,6 +19,9 @@ import { PromoProvider } from '../promo/PromoProvider';
 import { PromoBar, PromoNudge } from '../promo/placements';
 import type { Audience } from '../promo/model';
 import { AcademyBar } from './components/AcademyBar';
+import { loadAccount, useAccount } from './account/store';
+import { courseTier } from './access';
+import { TierBadge } from './account/AccessGate';
 import '../components/Landing/LandingPage.css';
 import './learn.css';
 
@@ -66,6 +69,8 @@ function useLearnMeta(lang: Lang) {
 export function LearnShell({ lang, alternates, seo, children, bare = false }: ShellProps) {
   const { openDemo, openExamOffer, modal } = useDemoModal();
   const mounted = useMounted();
+  // Who is signed in (once per visit): locks and the account button follow.
+  useEffect(() => { loadAccount(); }, []);
   usePublicPage(lang, useLearnMeta(lang));
   return (
     <PromoProvider lang={lang} area="learn">
@@ -109,6 +114,7 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
   const ui = UI[lang];
   const p = useProgress();
   const mounted = useMounted();
+  const { access } = useAccount();
   const done = mounted ? courseDone(p, course.id, course.lessonCount) : 0;
   const passed = mounted && p.finals[course.id]?.passed;
   const cat = CATEGORIES.find(c => c.id === course.category)!;
@@ -136,8 +142,10 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
               <i><b style={{ transform: `scaleX(${done / course.lessonCount})` }} /></i>
               <small>{done}/{course.lessonCount}</small>
             </span>
-          ) : (
+          ) : courseTier(course.id) === 'visitor' ? (
             <span className="crs-free">{ui.free}</span>
+          ) : (
+            <TierBadge lang={lang} tier={courseTier(course.id)} level={access.level} />
           )}
           <Link to={coursePath(course, lang)} state={AUTOSTART} className="crs-start" aria-label={`${done ? ui.continue : ui.start} : ${title}`}>
             <PlayCircleFilled />{done ? ui.continue : ui.start}

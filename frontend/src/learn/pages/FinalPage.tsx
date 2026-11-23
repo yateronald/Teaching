@@ -1,7 +1,8 @@
-// The final assessment of a course and its certificate of completion.
+// The final assessment of a course and its certificate of completion
+// (Premium: the assessment and the certificate open with Premium only).
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, PrinterOutlined, RedoOutlined, SafetyCertificateFilled, TrophyOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, LoadingOutlined, PrinterOutlined, RedoOutlined, SafetyCertificateFilled, TrophyOutlined } from '@ant-design/icons';
 import { BRAND_LOGO } from '../../components/Landing/landingContent';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
 import { coursePath } from '../catalog';
@@ -17,6 +18,11 @@ import Player, { type PlayerOutcome } from '../player/Player';
 import { ScoreRing, celebrate } from '../player/EndScreen';
 import { Overlay, useScrollLock } from './LessonPage';
 import { trackLearning } from '../../utils/siteAnalytics';
+import { hasLockedLessons } from '../content/registry';
+import { AccessGate } from '../account/AccessGate';
+import { useCourseUnlock } from '../account/useCourseUnlock';
+import { ACCOUNT_COPY } from '../account/copy';
+import { effectiveLevel, useAccount } from '../account/store';
 
 const PASS = 0.7;
 
@@ -53,7 +59,14 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
   const ui = UI[lang];
   const f = ui.final;
   const lessons = useLessons(course.id);
-  const steps = useMemo(() => (lessons ? finalSteps(course.id, lessons) : []), [lessons, course.id]);
+  const account = useAccount();
+  // While the courses are free for everyone, everything opens.
+  const access = { ...account.access, level: effectiveLevel(account) };
+  const premium = access.level === 'premium';
+  // Premium: every lesson of the course comes from the server first.
+  const unlock = useCourseUnlock(course.id, lessons);
+  const ready = premium && !!lessons && !hasLockedLessons(lessons);
+  const steps = useMemo(() => (ready && lessons ? finalSteps(course.id, lessons) : []), [ready, lessons, course.id]);
   const p = useProgress();
   const mounted = useMounted();
   const [phase, setPhase] = useState<'intro' | 'play'>('intro');
@@ -65,7 +78,7 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
   const title = tx(course.title, lang);
   const best = mounted ? p.finals[course.id] : undefined;
   const shownScore = result?.score ?? best?.best ?? 0;
-  const passed = result ? result.score >= PASS : !!best?.passed;
+  const passed = premium && (result ? result.score >= PASS : !!best?.passed);
 
   const finish = (o: PlayerOutcome) => {
     const ok = o.score >= PASS;
@@ -88,16 +101,18 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
               <p className="lx-lesson-k"><TrophyOutlined /> {f.title}</p>
               <h1 id="lx-final-title">{title}</h1>
               <p className="lx-hero-sub">{f.intro}</p>
-              {(result || best) && (
+              {premium && (result || best) && (
                 <div className={`lx-final-result${passed ? ' is-pass' : ' is-fail'}`}>
                   <ScoreRing score={shownScore} size={120} />
                   <p>{passed ? f.passed : f.failed}</p>
                 </div>
               )}
+              {!premium && <AccessGate lang={lang} tier="premium" />}
+              {premium && unlock.loading && !ready && <p className="ax-opening" role="status"><LoadingOutlined /> {ACCOUNT_COPY[lang].opening}</p>}
               <div className="lp-hero-ctas">
-                <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" disabled={!steps.length} onClick={() => { trackLearning({ kind: 'final', action: 'start', course: course.id, title }); setRun(n => n + 1); setPhase('play'); }}>
+                {premium && <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" disabled={!steps.length} onClick={() => { trackLearning({ kind: 'final', action: 'start', course: course.id, title }); setRun(n => n + 1); setPhase('play'); }}>
                   {result || best ? <><RedoOutlined />{f.retry}</> : <>{f.start}<ArrowRightOutlined /></>}
-                </button>
+                </button>}
                 <Link to={coursePath(course, lang)} className="lp-btn lp-btn-ghost lp-btn-lg">{ui.lesson.backToCourse}</Link>
               </div>
             </div>

@@ -92,6 +92,11 @@ async function authenticateToken(req, res, next) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
+        // Tokens made for something else (the public website's sessions, email
+        // links) carry an audience; the portal's never do. None of them opens the portal.
+        if (decoded.aud !== undefined || !decoded.id) {
+            return res.status(401).json({ error: 'Invalid token' });
+        }
         // Fetch user from DB and attach to request (include security fields).
         // The monitoring flag is only selected once its migration has run, so
         // deploying this code before the migration cannot lock anyone out.
@@ -104,6 +109,15 @@ async function authenticateToken(req, res, next) {
 
         if (!user) {
             return res.status(401).json({ error: 'Invalid token: user not found' });
+        }
+
+        // Website learners (public sign-up) use the courses on the website and
+        // never the student portal.
+        if (user.role === 'learner') {
+            return res.status(403).json({
+                error: 'This account is for the online courses on the website.',
+                code: 'LEARNER_ACCOUNT',
+            });
         }
 
         // Check if account is active

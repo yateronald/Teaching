@@ -37,6 +37,7 @@ import { countTotalCompleted, setStudyGoal, setStudyLevel, setStudyPath, useActi
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
 import { GOALS, goalById } from '../studyPath/copy';
 import type { StudyGoalId } from '../studyPath/types';
+import { freeForAllCopy, useAccount } from '../account/store';
 import '../games/games.css';
 import '../practice/practice.css';
 import './hub.css';
@@ -403,6 +404,7 @@ const STUDIOS = [
 ] as const;
 
 export default function HubPage({ lang }: { lang: Lang }) {
+  const freeAll = freeForAllCopy(useAccount());
   const fr = lang === 'fr';
   const ui = UI[lang];
   const h = ui.hub;
@@ -456,8 +458,8 @@ export default function HubPage({ lang }: { lang: Lang }) {
             </h1>
             <p className="ah-lead">
               {fr
-                ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance. Gratuit, sans compte.`
-                : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency. Free, no account needed.`}
+                ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance. Le premier module de chaque parcours est gratuit.`
+                : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency. The first module of every path is free.`}
             </p>
             <button type="button" className="ah-search" onClick={openAcademySearch}>
               <SearchOutlined aria-hidden />
@@ -491,7 +493,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
             <li><b><CountUp value={lessonsTotal} /></b><span>{fr ? 'leçons interactives' : 'interactive lessons'}</span></li>
             <li><b><CountUp value={practiceTotal} /></b><span>{fr ? 'ateliers pratiques' : 'practice labs'}</span></li>
             <li><b><CountUp value={TOTAL_ACADEMY_ITEMS} /></b><span>{fr ? 'activités en tout' : 'activities in all'}</span></li>
-            <li><b>100 %</b><span>{fr ? 'gratuit, sans compte' : 'free, no account'}</span></li>
+            <li><b>0 $</b><span>{fr ? 'pour commencer' : 'to start'}</span></li>
           </ul>
         </div>
       </section>
@@ -763,7 +765,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
             <p className="lx-faq-time"><ClockCircleOutlined /> {fr ? `${COURSES.length} cours · ${lessonsTotal} leçons · ${practiceTotal} ateliers · ${GAMES.length} jeux` : `${COURSES.length} courses · ${lessonsTotal} lessons · ${practiceTotal} practice labs · ${GAMES.length} games`}</p>
           </header>
           <div className="lp-faq-list">
-            {h.faq.map(([qq, a], i) => (
+            {h.faq.map(([qq, a]) => [qq, (freeAll && h.faqFree[qq]) || a]).map(([qq, a], i) => (
               <details key={qq} className="lp-faq-item" open={i === 0 || undefined}>
                 <summary><h3>{qq}</h3><span className="lp-faq-icon" aria-hidden /></summary>
                 <p>{a}</p>

@@ -12,6 +12,7 @@ import { gameJsonLd } from '../schema';
 import { Crumbs, LearnShell, useDemo, useMounted } from '../shell';
 import { tx, type Lang } from '../types';
 import { UI } from '../ui';
+import { freeForAllCopy, useAccount } from '../account/store';
 
 const WHY_ICONS = [<CustomerServiceOutlined />, <EditOutlined />, <SafetyCertificateOutlined />];
 
@@ -46,6 +47,7 @@ export function GameCard({ game, lang, wide = false }: { game: GameMeta; lang: L
 export default function GamesHubPage({ lang }: { lang: Lang }) {
   const ui = UI[lang];
   const g = G[lang];
+  const free = freeForAllCopy(useAccount());
   const { openDemo } = useDemo();
   const path = gamesPath(lang);
   const trail: [string, string][] = [[ui.home, lang === 'fr' ? '/fr/' : '/'], [ui.learnHome, hubPath(lang)], [g.crumb, path]];
@@ -70,12 +72,12 @@ export default function GamesHubPage({ lang }: { lang: Lang }) {
             <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [g.crumb]]} />
             <p className="lp-eyebrow">{g.hubEyebrow}</p>
             <h1 id="gx-hub-title">{g.hubTitle[0]} <em>{g.hubTitle[1]}</em></h1>
-            <p className="lx-hero-sub">{g.hubSub}</p>
+            <p className="lx-hero-sub">{free ? g.hubSubFree : g.hubSub}</p>
             <div className="lp-hero-ctas">
               <Link to={gamePath(story, lang)} state={AUTOSTART} className="lp-btn lp-btn-primary lp-btn-lg"><PlayCircleFilled />{g.hubCta}</Link>
               <Link to={gamePath(daily, lang)} state={AUTOSTART} className="lp-btn lp-btn-ghost lp-btn-lg">{g.hubCta2}</Link>
             </div>
-            <p className="lx-cat-facts"><span><CheckOutlined /> {g.free}</span></p>
+            <p className="lx-cat-facts"><span><CheckOutlined /> {free ? g.freeNow : g.free}</span></p>
           </div>
           <figure className="lx-cat-img"><img src={imageUrl('games-hero')} alt="" width="1200" height="675" fetchPriority="high" /></figure>
         </div>

@@ -55,7 +55,24 @@ function stepPhrases(s: Step, add: (text: string, voice?: Voice) => void, image:
   }
 }
 
-export function collectMedia() {
+/**
+ * The recordings one lesson plays (their keys): the private lesson pack sends
+ * them with the lesson (scripts/learn-pack.mjs), so the public list of
+ * recordings never names those of locked lessons.
+ */
+export function lessonAudioKeys(lesson: Lesson): string[] {
+  const keys = new Set<string>();
+  const add = (text: string, voice: Voice = 'f') => {
+    const t = normalizeForAudio(text);
+    if (t && !NO_AUDIO.has(t)) keys.add(audioKey(t, voice));
+  };
+  lesson.steps.forEach(s => stepPhrases(s, add, () => {}));
+  lesson.notes.vocab?.forEach(([fr]) => add(fr));
+  return [...keys];
+}
+
+/** Every picture and recording; `courses: false` leaves the course lessons out. */
+export function collectMedia({ courses = true }: { courses?: boolean } = {}) {
   const audio = new Map<string, AudioItem>();
   const images = new Set<string>(['hub-hero', 'teacher', 'placement']);
   const add = (text: string, voice: Voice = 'f', sealed = false) => {
@@ -70,7 +87,7 @@ export function collectMedia() {
   const image = (k: string) => images.add(k);
   CATEGORIES.forEach(c => images.add(c.image));
   COURSES.forEach(c => images.add(c.image));
-  for (const mod of Object.values(modules)) {
+  for (const mod of courses ? Object.values(modules) : []) {
     for (const lesson of mod.default) {
       lesson.steps.forEach(s => stepPhrases(s, add, image));
       lesson.notes.vocab?.forEach(([fr]) => add(fr));

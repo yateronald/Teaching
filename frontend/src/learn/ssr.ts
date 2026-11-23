@@ -29,6 +29,7 @@ import { DICTATIONS, dictationCoursePath, dictationPath } from './practice/dicta
 import { c1Listening } from './practice/listening/c1';
 import { c2Listening } from './practice/listening/c2';
 import { registerAdvanced } from './practice/listening/advanced';
+import { accountPath, type AccountPage } from './account/paths';
 
 const modules = import.meta.glob<{ default: Lesson[]; about?: CourseAbout }>('./content/courses/*.ts', { eager: true });
 const textModules = import.meta.glob<{ default: ReadingText }>('./practice/texts/*.ts', { eager: true });
@@ -111,6 +112,8 @@ export function learnPages(): LearnPage[] {
   both(hubPath, '0.9');
   both(placementPath, '0.8');
   both(progressPath, '0.1', false);
+  // The account pages (sign in, sign up…): pre-rendered as empty forms, never in the sitemap.
+  (['signIn', 'signUp', 'forgot', 'account', 'complete'] as AccountPage[]).forEach(pg => both(l => accountPath(pg, l), '0.1', false));
   both(gamesPath, '0.8');
   GAMES.forEach(g => both(l => gamePath(g, l), '0.7'));
   CATEGORIES.forEach(cat => both(l => categoryPath(cat, l), '0.8'));

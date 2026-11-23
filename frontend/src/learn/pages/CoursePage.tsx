@@ -21,6 +21,11 @@ import { UI } from '../ui';
 import { useLessons } from '../useLessons';
 import AdaptiveTest from './AdaptiveTest';
 import { Overlay, useScrollLock } from './LessonPage';
+import { canOpen, courseTier } from '../access';
+import { hasLockedLessons } from '../content/registry';
+import { AccessGate, TierBadge } from '../account/AccessGate';
+import { useCourseUnlock } from '../account/useCourseUnlock';
+import { effectiveLevel, freeForAllCopy, useAccount } from '../account/store';
 
 export const KIND_ICON: Record<StepKind, React.ReactNode> = {
   concept: <ReadOutlined />, mcq: <CheckOutlined />, fill: <EditOutlined />, order: <DragOutlined />, match: <TagsOutlined />, categorize: <TagsOutlined />,
@@ -86,7 +91,15 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
   const ui = UI[lang];
   const c = ui.course;
   const cat = CATEGORIES.find(x => x.id === course.category)!;
-  const lessons = useLessons(course.id) ?? [];
+  const loaded = useLessons(course.id);
+  const lessons = loaded ?? [];
+  // Locked lessons this account may open come from the server.
+  useCourseUnlock(course.id, loaded);
+  const account = useAccount();
+  // While the courses are free for everyone, everything opens.
+  const access = { ...account.access, level: effectiveLevel(account) };
+  const openToAll = freeForAllCopy(account);
+  const tier = openToAll ? 'visitor' : courseTier(course.id);
   const p = useProgress();
   const mounted = useMounted();
   const title = tx(course.title, lang);
@@ -191,7 +204,9 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
             </p>
             <div className="cp-ctas">
               {cta('light')}
-              <span className="cp-cta-note"><CheckCircleFilled aria-hidden /> {fr ? 'Gratuit · Sans inscription' : 'Free · No sign-up'}</span>
+              <span className="cp-cta-note">{tier === 'visitor'
+                ? <><CheckCircleFilled aria-hidden /> {fr ? 'Gratuit · Sans inscription' : 'Free · No sign-up'}</>
+                : <TierBadge lang={lang} tier={tier} level={access.level} />}</span>
             </div>
             {mounted && !course.ladder && doneIds.length > 0 && (
               <div className="cp-progress">
@@ -277,6 +292,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                                 <b>{fr ? `Leçon ${i + 1}` : `Lesson ${i + 1}`}</b>
                                 <span><ClockCircleOutlined aria-hidden /> {ui.minutes(l.minutes)}</span>
                                 <span>{ui.steps(l.steps.length)}</span>
+                                {l.locked && !canOpen(access.level, l.locked) && <TierBadge lang={lang} tier={l.locked} level={access.level} />}
                                 {rec && <span className="lx-best">{ui.lesson.best(Math.round(rec.best * 100))}</span>}
                               </p>
                               <h3>{tx(l.title, lang)}</h3>
@@ -330,7 +346,9 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
 
           <aside className="cp-aside">
             <div className="cp-aside-card">
-              <p className="cp-aside-price"><b>{ui.free}</b><span>{c.priceValue}</span></p>
+              <p className="cp-aside-price">{tier === 'visitor' ? <><b>{ui.free}</b><span>{c.priceValue}</span></>
+                : tier === 'free' ? <><b>{ui.free}</b><span>{fr ? 'Avec un compte gratuit' : 'With a free account'}</span></>
+                : <><b>Premium</b><span>{fr ? 'Inclus dans Premium' : 'Included in Premium'}</span></>}</p>
               <div className="cp-aside-cta">{cta('primary', '')}</div>
               <dl>
                 <div><dt>{c.level}</dt><dd>{course.level} · {levelLabel}</dd></div>
@@ -338,7 +356,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
                 <div><dt>{c.format}</dt><dd>{c.formatValue}</dd></div>
               </dl>
               <p className="cp-aside-k">{c.includes}</p>
-              <ul>{(course.ladder ? c.includeItemsLadder : c.includeItems).map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
+              <ul>{(course.ladder ? c.includeItemsLadder : c.includeItems).map(x => (openToAll ? x.replace(/ \(Premium\)$/, '') : x)).map(x => <li key={x}><CheckOutlined aria-hidden />{x}</li>)}</ul>
             </div>
             <TeacherCta lang={lang} offer={course.offer} audience={audienceOfCategory(course.category, course.id)} compact />
           </aside>
@@ -361,7 +379,12 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
       )}
       {testing && (
         <Overlay>
-          <AdaptiveTest lang={lang} course={course} lessons={lessons} onClose={() => setTesting(false)} />
+          {hasLockedLessons(lessons) ? (
+            <div className="lx-end-wrap">
+              <button type="button" className="lx-end-close" onClick={() => setTesting(false)} aria-label={ui.lesson.backToCourse}>×</button>
+              <AccessGate lang={lang} tier={tier === 'visitor' ? 'free' : tier} />
+            </div>
+          ) : <AdaptiveTest lang={lang} course={course} lessons={lessons} onClose={() => setTesting(false)} />}
         </Overlay>
       )}
     </LearnShell>

@@ -1,6 +1,6 @@
 import React, { type ReactNode } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
-import { Spin } from 'antd';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Button, Result, Spin } from 'antd';
 import { useAuth } from '../../contexts/AuthContext';
 import { homeFor, type Role } from '../../utils/roles';
 
@@ -13,6 +13,7 @@ interface ProtectedRouteProps {
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole }) => {
     const { user, loading, isAuthenticated } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
 
     if (loading) {
         return (
@@ -46,10 +47,19 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, requiredRole 
         return <Navigate to="/force-change-password" replace state={{ from: location }} />;
     }
 
-    // Check role-based access: anyone else goes back to their own home page
+    // Check role-based access. A page of another role does not exist for this
+    // person: the same "page not found" as an unknown address (nothing of the
+    // page is drawn, and its code is not even downloaded).
     const allowed = requiredRole ? (Array.isArray(requiredRole) ? requiredRole : [requiredRole]) : null;
     if (allowed && !allowed.includes(user?.role as Role)) {
-        return <Navigate to={homeFor(user?.role)} replace />;
+        return (
+            <Result
+                status="404"
+                title="Page not found"
+                subTitle="This page does not exist in your space. It may have moved, or the link may be incomplete."
+                extra={<Button type="primary" onClick={() => navigate(homeFor(user?.role), { replace: true })}>Back to my dashboard</Button>}
+            />
+        );
     }
 
     return <>{children}</>;

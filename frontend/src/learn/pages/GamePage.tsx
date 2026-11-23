@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RiseOutlined, TrophyOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
 import { G } from '../games/copy';
+import { freeForAllCopy, useAccount } from '../account/store';
 import DailyWord from '../games/DailyWord';
 import { GameArt, Stars } from '../games/frame';
 import GenderBlitz from '../games/GenderBlitz';
@@ -25,6 +26,7 @@ import { Overlay, useScrollLock } from './LessonPage';
 export default function GamePage({ lang, game }: { lang: Lang; game: GameMeta }) {
   const ui = UI[lang];
   const g = G[lang];
+  const free = freeForAllCopy(useAccount());
   const p = useProgress();
   const mounted = useMounted();
   const [playing, setPlaying] = useState(false);
@@ -89,7 +91,7 @@ export default function GamePage({ lang, game }: { lang: Lang; game: GameMeta })
             <p className="lx-cat-facts">
               <span><RiseOutlined /> {g.level} {game.level}</span>
               <span><ClockCircleOutlined /> {tx(game.duration, lang)}</span>
-              <span><CheckOutlined /> {g.free}</span>
+              <span><CheckOutlined /> {free ? g.freeNow : g.free}</span>
             </p>
             {stats && (
               <p className="gx-best"><TrophyOutlined /> {g.best} : <b>{stats.best}</b> · {g.plays(stats.plays)}</p>

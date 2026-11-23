@@ -22,6 +22,7 @@
  * works in any state (expired, suspended) and takes effect at once.
  */
 const express = require('express');
+const { emailInUse } = require('../services/emailIdentity');
 const { authenticateToken, adminOnly } = require('../middleware/auth');
 const sessions = require('../services/sessionService');
 const orgs = require('../services/organizationService');
@@ -151,7 +152,7 @@ router.post('/', async (req, res) => {
         const ee = credit(body.ee_credits);
         const eo = credit(body.eo_credits);
         const manager = accounts.readPerson(body.manager || {});
-        if (await req.db.get('SELECT 1 AS x FROM users WHERE lower(email) = $1', [manager.email])) {
+        if (await emailInUse(req.db, manager.email)) {
             throw new OrgError('EMAIL_TAKEN', 'An account already uses the manager’s email address.', 409);
         }
 

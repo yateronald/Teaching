@@ -197,7 +197,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
                 return { success: true, signed_out_others: data.signed_out_others };
             } else {
                 // Don't show message here for security errors - let the component handle it
-                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED' || data.code === 'ORG_SUSPENDED') {
+                if (data.code === 'ACCOUNT_DISABLED' || data.code === 'ACCOUNT_LOCKED' || data.code === 'ORG_SUSPENDED' || data.code === 'LEARNER_ACCOUNT') {
                     return {
                         success: false,
                         error: data.error,

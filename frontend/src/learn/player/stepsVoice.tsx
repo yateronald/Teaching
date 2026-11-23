@@ -9,9 +9,8 @@ import { UI } from '../ui';
 import { AccentKeys, AudioButton, Rich, RichBlock, seededShuffle, speechSupported, useSpeech, wordDiff } from './common';
 import type { StepHandle, StepProps } from './stepTypes';
 // English translations of the flashcards' example sentences (shown on English pages).
-import EXAMPLES from '../content/example-translations.json';
+import { EXAMPLE_EN } from '../content/examples';
 
-const EXAMPLE_EN = EXAMPLES as Record<string, string>;
 
 // ── Speaking ───────────────────────────────────────────────────────────────
 

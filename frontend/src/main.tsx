@@ -5,6 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { brandingUtils } from './utils/branding'
 import { isLearnPath, preloadLearn } from './learn/entry'
+import { isLegalPath, preloadLegal } from './legal/entry'
 
 const Boot = () => {
   useEffect(() => {
@@ -40,4 +41,5 @@ const start = () => (hydrate ? hydrateRoot(container, tree) : createRoot(contain
 // A learning page needs its code and its course before React can take over
 // the pre-rendered HTML; the page stays visible meanwhile.
 if (isLearnPath(location.pathname)) preloadLearn(location.pathname).then(start, start)
+else if (isLegalPath(location.pathname)) preloadLegal().then(start, start)
 else start()

@@ -5,6 +5,7 @@ import { BRAND_LOGO, CONTACT_EMAIL, LANDING, PATHS, type Lang } from './landingC
 import { OFFERS_PATHS, TOPIC_PATHS, type TopicId } from './sitePages';
 import { TOPICS } from './topicContent';
 import { LEARN_HOME } from '../../learn/entry';
+import { LEGAL_PATHS } from '../../legal/paths';
 
 const LEARN_LINKS: Record<Lang, [string, string][]> = {
   en: [['Free French courses', '/learn/'], ['Free level test', '/learn/french-level-test/'], ['French games', '/learn/games/']],
@@ -70,6 +71,10 @@ const SiteFooter: React.FC<Props> = ({ lang, sectionBase = '', onDemo }) => {
         </div>
         <div className="lp-footer-bottom">
           <p>© {new Date().getFullYear()} Learn French with Natives · {f.rights}</p>
+          <p className="lp-footer-legal">
+            <Link to={LEGAL_PATHS.privacy[lang]}>{lang === 'fr' ? 'Politique de confidentialité' : 'Privacy Policy'}</Link>
+            <Link to={LEGAL_PATHS.terms[lang]}>{lang === 'fr' ? 'Conditions d’utilisation' : 'Terms of Service'}</Link>
+          </p>
           <p>{f.made}</p>
         </div>
       </div>

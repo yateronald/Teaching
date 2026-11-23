@@ -1,0 +1,19 @@
+# Forwarding services that give one person unlimited addresses. Blocked for
+# website sign-up (one person, one account) unless LEARN_ALLOW_RELAY_EMAILS=true.
+# One domain per line; sub-domains are covered too.
+duck.com
+mozmail.com
+relay.firefox.com
+simplelogin.com
+simplelogin.co
+simplelogin.fr
+aleeas.com
+slmails.com
+slmail.me
+silomails.com
+addy.io
+anonaddy.com
+anonaddy.me
+privaterelay.appleid.com
+33mail.com
+e4ward.com

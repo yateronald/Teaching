@@ -13,6 +13,15 @@ import type { Voice } from './types';
 const AVAILABLE = new Set<string>((manifest as { keys: string[] }).keys);
 const SEALED = new Set<string>((manifest as { sealed?: string[] }).sealed ?? []);
 
+/**
+ * Recordings of a lesson unlocked for this visitor: the public list leaves out
+ * those only locked lessons use, the lesson brings them (content/registry.ts).
+ */
+export function registerRecordings(keys: string[] = [], sealed: string[] = []) {
+  keys.forEach(k => AVAILABLE.add(k));
+  sealed.forEach(k => SEALED.add(k));
+}
+
 /** Where a recording is: a plain mp3, or the scrambled file of a practice recording. */
 const srcOf = (key: string) => (SEALED.has(key) ? `/learn/audio/${key}.dat` : `/learn/audio/${key}.mp3`);
 

@@ -1,11 +1,12 @@
 // Structured data (schema.org) for the learning space, built from the text the
-// pages display: courses as free Course items, lessons as LearningResource,
+// pages display: courses as Course items (free or Premium, from access/), lessons as LearningResource,
 // the hub as a list of courses with its FAQ, breadcrumbs everywhere.
 import { CATEGORIES, categoryPath, imageUrl } from './categories';
 import { COURSES, courseAbout, coursePath } from './catalog';
 import { hubPath, lessonPath, placementPath } from './paths';
 import { tx, type CategoryMeta, type CourseMeta, type Lang, type Lesson } from './types';
 import { UI } from './ui';
+import { courseTier, lessonTier } from './access';
 
 const SITE = 'https://www.learnfrenchwithnatives.com';
 const ORG = { '@type': 'EducationalOrganization', '@id': `${SITE}/#organization`, name: 'Learn French with Natives', url: `${SITE}/`, logo: `${SITE}/logo.png` };
@@ -33,8 +34,9 @@ function courseNode(c: CourseMeta, lang: Lang) {
     availableLanguage: [lang === 'fr' ? 'French' : 'English'],
     educationalLevel: c.levels.map(l => ISO[l]).join(', '),
     teaches: courseAbout(c).outcomes.map(o => tx(o, lang)),
-    isAccessibleForFree: true,
-    offers: [{ '@type': 'Offer', category: 'Free', price: 0, priceCurrency: 'CAD' }],
+    // Free: open to visitors or with a free account. Premium courses carry no price until online payment exists.
+    isAccessibleForFree: courseTier(c.id) !== 'premium',
+    ...(courseTier(c.id) !== 'premium' ? { offers: [{ '@type': 'Offer', category: 'Free', price: 0, priceCurrency: 'CAD' }] } : {}),
     hasCourseInstance: [{ '@type': 'CourseInstance', courseMode: 'Online', courseWorkload: `PT${c.minutes}M` }],
   };
 }
@@ -119,7 +121,7 @@ export function lessonJsonLd(c: CourseMeta, lesson: Lesson, lang: Lang) {
         interactivityType: 'active',
         educationalLevel: c.levels.map(l => ISO[l]).join(', '),
         inLanguage: 'fr',
-        isAccessibleForFree: true,
+        isAccessibleForFree: lessonTier(c.id, lesson) !== 'premium',
         timeRequired: `PT${lesson.minutes}M`,
         teaches: lesson.objectives.map(o => tx(o, lang)),
         isPartOf: { '@id': `${abs(coursePath(c, lang))}#course` },
@@ -176,7 +178,8 @@ export function gameJsonLd(o: { lang: Lang; path: string; name: string; descript
         name: o.name,
         description: o.description,
         inLanguage: o.lang,
-        isAccessibleForFree: true,
+        // The games are part of Premium.
+        isAccessibleForFree: false,
         ...(o.items ? {} : { learningResourceType: 'Game', teaches: 'French', educationalLevel: o.level, provider: { '@id': ORG['@id'] } }),
       },
       ...(o.items ? [{ '@type': 'ItemList', itemListElement: o.items.map((it, i) => ({ '@type': 'ListItem', position: i + 1, name: it.name, url: abs(it.path) })) }] : []),

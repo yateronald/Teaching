@@ -26,11 +26,13 @@ function attachMeetingRealtime(io, db) {
             const token = socket.handshake.auth?.token || (header.startsWith('Bearer ') ? header.slice(7) : null);
             if (!token) return next(new Error('unauthorized'));
             const decoded = jwt.verify(token, JWT_SECRET);
+            // Only portal tokens (no audience): never a website session or an email link.
+            if (decoded.aud !== undefined) return next(new Error('unauthorized'));
             const user = await db.get(
                 'SELECT id, role, first_name, last_name, is_active FROM users WHERE id = $1',
                 [decoded.id],
             );
-            if (!user || !user.is_active) return next(new Error('unauthorized'));
+            if (!user || !user.is_active || user.role === 'learner') return next(new Error('unauthorized'));
             // A token whose session has been ended cannot open a socket either.
             if (decoded.jti && !(await sessions.liveSession(db, decoded.jti))) return next(new Error('unauthorized'));
             socket.data.user = user;

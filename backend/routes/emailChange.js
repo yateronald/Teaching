@@ -1,4 +1,5 @@
 const express = require('express');
+const { emailInUse } = require('../services/emailIdentity');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { sendEmailChangeVerification, sendEmailChangeNotifications } = require('../emails/emailService');
@@ -23,8 +24,8 @@ router.post('/request', authenticateToken, async (req, res) => {
     const db = req.db;
 
     // Ensure new email is not already used by another user
-    const existing = await db.get('SELECT id FROM users WHERE email = ?', [newEmail]);
-    if (existing) {
+    // One account per inbox (Gmail dots and +tags included).
+    if (await emailInUse(db, newEmail, req.user.id)) {
       return res.status(409).json({ error: 'Email already in use' });
     }
 

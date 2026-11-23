@@ -7,6 +7,7 @@ import LandingPage from './components/Landing/LandingPage';
 import TopicPage from './components/Landing/TopicPage';
 import NotFound from './components/Landing/NotFound';
 import { PUBLIC_PAGES } from './components/Landing/sitePages';
+import LegalEntry from './legal/entry';
 // The free courses (/learn/, /fr/apprendre/): a doorway here, the space itself
 // downloads on demand (src/learn/entry.tsx).
 import LearnEntry from './learn/entry';
@@ -63,6 +64,8 @@ const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDa
 const CandidateResults = lazy(() => import('./components/Candidate/CandidateResults'));
 // Companies: the administrator's pages and the company's own space.
 const Companies = lazy(() => import('./components/Admin/Companies/Companies'));
+// The website's courses: website learners, website access and Premium (activated by hand)
+const OnlineLearners = lazy(() => import('./components/Admin/Learners/OnlineLearners'));
 const CompanyDetail = lazy(() => import('./components/Admin/Companies/CompanyDetail'));
 // Marketing: campaigns shown on the public site, and who registered.
 const Marketing = lazy(() => import('./components/Admin/Marketing/Marketing'));
@@ -106,6 +109,11 @@ export function SiteRoutes() {
 
               {PUBLIC_PAGES.filter(p => p.offers).map(p => (
                 <Route key={p.path} path={p.path} element={<OffersPage lang={p.lang} />} />
+              ))}
+
+              {/* The Privacy Policy and the Terms of Service. */}
+              {PUBLIC_PAGES.filter(p => p.legal).map(p => (
+                <Route key={p.path} path={p.path} element={<LegalEntry kind={p.legal!} lang={p.lang} />} />
               ))}
 
               {/* The form an email campaign's button opens (?t=…). */}
@@ -210,6 +218,7 @@ export function SiteRoutes() {
                 } />
 
                 <Route path="companies" element={<ProtectedRoute requiredRole="admin"><Companies /></ProtectedRoute>} />
+                <Route path="online-courses" element={<ProtectedRoute requiredRole="admin"><OnlineLearners /></ProtectedRoute>} />
                 <Route path="companies/:id" element={<ProtectedRoute requiredRole="admin"><CompanyDetail /></ProtectedRoute>} />
                 <Route path="marketing" element={<ProtectedRoute requiredRole="admin"><Marketing /></ProtectedRoute>} />
                 <Route path="marketing/:id" element={<ProtectedRoute requiredRole="admin"><CampaignDetail /></ProtectedRoute>} />
