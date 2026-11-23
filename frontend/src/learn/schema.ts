@@ -10,7 +10,7 @@ import { courseTier, lessonTier } from './access';
 
 const SITE = 'https://www.learnfrenchwithnatives.com';
 const ORG = { '@type': 'EducationalOrganization', '@id': `${SITE}/#organization`, name: 'Learn French with Natives', url: `${SITE}/`, logo: `${SITE}/logo.png` };
-const abs = (p: string) => `${SITE}${p}`;
+const abs = (p: string) => (/^https?:\/\//.test(p) ? p : `${SITE}${p}`);
 
 function crumbs(items: [string, string][]) {
   return {

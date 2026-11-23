@@ -3,7 +3,7 @@
 // cards, breadcrumbs, the teacher call to action).
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, CrownFilled, LockOutlined, PlayCircleFilled, RightOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RightOutlined } from '@ant-design/icons';
 import SEO from '../components/SEO/SEO';
 import SiteHeader from '../components/Landing/SiteHeader';
 import SiteFooter from '../components/Landing/SiteFooter';
@@ -23,7 +23,7 @@ import { loadAccount, isTierLocked, startAccessWatcher, useAccount } from './acc
 import { courseTier } from './access';
 import { TierBadge } from './account/AccessGate';
 import { openPremiumModal } from './account/premiumModal';
-import { LockActionPill, PremiumModalHost } from './account/PremiumWidget';
+import { PremiumModalHost } from './account/PremiumWidget';
 import '../components/Landing/LandingPage.css';
 import './learn.css';
 
@@ -142,13 +142,6 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
     <article className={`crs-card${compact ? ' is-compact' : ''}${done ? ' is-started' : ''}${locked ? ' ax-locked-card' : ''}`}>
       <div className={`crs-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(course.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
-        {locked && (
-          <div className="ax-locked-veil" aria-hidden>
-            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />} {veilLabel}
-            </span>
-          </div>
-        )}
         <LevelChip level={course.level} size="sm" />
         {course.popular && !done && !locked && <span className="crs-flag">{ui.popular}</span>}
         {passed && <span className="crs-flag is-done"><CheckCircleFilled /> {ui.completed}</span>}
@@ -177,11 +170,10 @@ export function CourseCard({ course, lang, compact = false }: { course: CourseMe
             <button
               type="button"
               onClick={onOpenModal}
-              className="ax-lock-cta"
-              style={{ border: 'none', background: 'transparent', padding: 0, position: 'relative', zIndex: 2 }}
+              className={`ax-unlock-btn${tier === 'premium' ? ' is-premium' : ''}`}
               aria-label={`${veilLabel} : ${title}`}
             >
-              <LockActionPill lang={lang} tier={tier} compact />
+              <LockOutlined aria-hidden /> {lang === 'fr' ? 'Débloquer' : 'Unlock'}
             </button>
           ) : (
             <Link to={href} state={AUTOSTART} className="crs-start" aria-label={`${done ? ui.continue : ui.start} : ${title}`}>

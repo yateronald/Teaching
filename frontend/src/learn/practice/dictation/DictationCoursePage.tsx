@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import { chime, prefetchRecording, speak, stop } from '../../audio';
 import { imageUrl } from '../../categories';
+import { absoluteMediaUrl } from '../../mediaUrl';
 import { LearnShell, LevelChip } from '../../shell';
 import { tx, type Lang } from '../../types';
 import { trackLearning } from '../../../utils/siteAnalytics';
@@ -38,7 +39,6 @@ import {
 import '../practice.css';
 import './dictation.css';
 
-const SITE = 'https://www.learnfrenchwithnatives.com';
 const ACCENTS = ['é', 'è', 'ê', 'ë', 'à', 'â', 'ç', 'î', 'ô', 'ù', 'û', 'œ', '’', 'É', 'À'];
 const RATES = [0.65, 0.75, 0.85, 1, 1.15];
 const MAX_EXAM_LISTENS = 3;
@@ -406,7 +406,7 @@ function DictationCourseBody({ lang, course }: { lang: Lang; course: DictationCo
         title: c.courseMetaTitle(course.title, course.level),
         description: c.courseMetaDesc(tx(course.subtitle, lang)),
         path: dictationCoursePath(course, lang),
-        image: `${SITE}${imageUrl(course.image)}`,
+        image: absoluteMediaUrl(imageUrl(course.image)),
       }}
     >
       {/* ── Compact Sticky Studio Bar ── */}

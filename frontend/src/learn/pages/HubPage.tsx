@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { chime, speak, usePlaying } from '../audio';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { COURSES, courseById, coursePath } from '../catalog';
 import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { hubJsonLd } from '../schema';
@@ -466,7 +467,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
     <LearnShell
       lang={lang}
       alternates={{ en: hubPath('en'), fr: hubPath('fr') }}
-      seo={{ title: h.metaTitle, description: h.metaDescription, path: hubPath(lang), jsonLd: hubJsonLd(lang), image: `https://www.learnfrenchwithnatives.com${imageUrl('hub-hero')}` }}
+      seo={{ title: h.metaTitle, description: h.metaDescription, path: hubPath(lang), jsonLd: hubJsonLd(lang), image: absoluteMediaUrl(imageUrl('hub-hero')) }}
     >
       {/* ── Hero: search, topics, photo collage ── */}
       <section className="ah-hero" aria-labelledby="lx-hub-title">

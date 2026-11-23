@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, LockOutlined, PlayCircleFilled, RiseOutlined, TrophyOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { itemTier } from '../access';
 import { stop as stopAudio } from '../audio';
 import { G } from '../games/copy';
@@ -83,7 +84,7 @@ export default function GamePage({ lang, game }: { lang: Lang; game: GameMeta })
         description: tx(game.description, lang).slice(0, 300),
         path,
         jsonLd: gameJsonLd({ lang, path, name: title, description: tx(game.description, lang), trail, level: game.level }),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl(image)}`,
+        image: absoluteMediaUrl(imageUrl(image)),
       }}
     >
       <section className="gx-hero" aria-labelledby="gx-game-title">

@@ -8,6 +8,7 @@ import {
   DragOutlined, EditOutlined, FileTextOutlined, LockOutlined, PictureOutlined, PlayCircleFilled, ReadOutlined, RiseOutlined, SafetyCertificateOutlined, TagsOutlined, ThunderboltOutlined, TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { courseAbout, coursePath, coursesOf } from '../catalog';
 import { AUTOSTART, finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, useProgress } from '../progress';
@@ -238,7 +239,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
     <LearnShell
       lang={lang}
       alternates={{ en: coursePath(course, 'en'), fr: coursePath(course, 'fr') }}
-      seo={{ title: c.metaTitle(title, course.level), description: `${tx(course.subtitle, lang)} ${tx(about.description, lang)}`.slice(0, 290), path: coursePath(course, lang), jsonLd: courseJsonLd(course, lessons, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }}
+      seo={{ title: c.metaTitle(title, course.level), description: `${tx(course.subtitle, lang)} ${tx(about.description, lang)}`.slice(0, 290), path: coursePath(course, lang), jsonLd: courseJsonLd(course, lessons, lang), image: absoluteMediaUrl(imageUrl(course.image)) }}
     >
       {/* ── Banner ── */}
       <section className="cp-hero" aria-labelledby="lx-course-title">
@@ -270,7 +271,7 @@ export default function CoursePage({ lang, course }: { lang: Lang; course: Cours
           <div className="cp-hero-media">
             {startLesson && startLocked ? (
               <button type="button" onClick={openCourseModal} className="cp-preview ax-locked-card" style={{ border: 0, width: '100%', padding: 0, textAlign: 'left', cursor: 'pointer' }} aria-label={fr ? `Débloquer : ${title}` : `Unlock: ${title}`}>
-                <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" style={{ filter: 'blur(4px) brightness(0.75)' }} />
+                <img src={imageUrl(course.image)} alt="" width="1200" height="675" fetchPriority="high" />
                 <span className="cp-play" aria-hidden>{startTier === 'premium' ? <CrownFilled style={{ color: '#b7791f' }} /> : <LockOutlined />}</span>
                 <span className="cp-preview-label">
                   {startTier === 'premium' ? (fr ? 'Compte Premium requis' : 'Premium account required') : (fr ? 'Compte gratuit requis' : 'Free account required')}

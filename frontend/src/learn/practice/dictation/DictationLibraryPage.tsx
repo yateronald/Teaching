@@ -11,6 +11,7 @@ import {
   SearchOutlined, SoundOutlined, SwapOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
+import { absoluteMediaUrl } from '../../mediaUrl';
 import { itemTier } from '../../access';
 import { openPremiumModal } from '../../account/premiumModal';
 import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
@@ -132,7 +133,7 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
         description: c.metaDescription,
         path: dictationPath(lang),
         jsonLd,
-        image: `${SITE}${imageUrl(DICTATIONS[0].image)}`,
+        image: absoluteMediaUrl(imageUrl(DICTATIONS[0].image)),
       }}
     >
       {/* ── Compact 2-Column Dictation Studio Hero ── */}

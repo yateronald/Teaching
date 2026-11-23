@@ -11,7 +11,7 @@ import type { TextMeta } from './types';
 
 const SITE = 'https://www.learnfrenchwithnatives.com';
 const ORG = { '@type': 'EducationalOrganization', '@id': `${SITE}/#organization`, name: 'Learn French with Natives', url: `${SITE}/`, logo: `${SITE}/logo.png` };
-const abs = (p: string) => `${SITE}${p}`;
+const abs = (p: string) => (/^https?:\/\//.test(p) ? p : `${SITE}${p}`);
 const ISO: Record<string, string> = { A1: 'Beginner (CEFR A1)', A2: 'Elementary (CEFR A2)', B1: 'Intermediate (CEFR B1)', B2: 'Upper intermediate (CEFR B2)', C1: 'Advanced (CEFR C1)', C2: 'Proficient (CEFR C2)' };
 
 const crumbs = (items: [string, string][]) => ({

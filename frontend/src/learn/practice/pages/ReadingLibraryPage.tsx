@@ -14,6 +14,7 @@ import { openPremiumModal } from '../../account/premiumModal';
 import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
 import { isTierLocked, useAccount } from '../../account/store';
 import { imageUrl } from '../../categories';
+import { absoluteMediaUrl } from '../../mediaUrl';
 import { hubPath, placementPath } from '../../paths';
 import { useProgress } from '../../progress';
 import { Crumbs, LearnShell, LevelChip, TeacherCta, useMounted } from '../../shell';
@@ -126,7 +127,7 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
         description: l.metaDescription,
         path: readingPath(lang),
         jsonLd: libraryJsonLd(lang),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl('cat-reading')}`,
+        image: absoluteMediaUrl(imageUrl('cat-reading')),
       }}
     >
       {/* ── Compact 2-Column Reading Studio Hero ── */}

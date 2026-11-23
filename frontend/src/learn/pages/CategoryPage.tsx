@@ -14,6 +14,7 @@ import { LockActionPill } from '../account/PremiumWidget';
 import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import { TOPIC_PATHS } from '../../components/Landing/sitePages';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { COURSES, coursePath, pathCourses } from '../catalog';
 import { AUTOSTART, hubPath, placementPath } from '../paths';
 import { courseDone, useProgress } from '../progress';
@@ -103,13 +104,6 @@ function PathCourseCard({
     <article className={`lx-course-card is-path-card${locked ? ' ax-locked-card' : ''}`}>
       <div className={`lx-cc-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(course.image, 640)} alt="" loading="lazy" width="640" height="360" />
-        {locked && (
-          <div className="ax-locked-veil" aria-hidden>
-            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />} {lockMsg}
-            </span>
-          </div>
-        )}
         <LevelChip level={course.level} size="sm" />
         <span className="lx-cc-step-badge">{ui.category.stepLabel(index + 1)}</span>
         {course.popular && !done && !locked && <span className="lx-cc-flag">{ui.popular}</span>}
@@ -247,7 +241,7 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
         description: tx(category.description, lang).slice(0, 300),
         path: categoryPath(category, lang),
         jsonLd: categoryJsonLd(category, lang),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl(category.image)}`,
+        image: absoluteMediaUrl(imageUrl(category.image)),
       }}
     >
       {/* ── Hero ── */}
@@ -317,16 +311,6 @@ export default function CategoryPage({ lang, category }: { lang: Lang; category:
             <div className={`lx-cat-spotlight${spotlightLocked ? ' ax-locked-card' : ''}`}>
               <div className={`lx-cat-spot-media${spotlightLocked ? ' ax-locked-media' : ''}`}>
                 <img src={imageUrl(spotlightCourse.image, 640)} alt="" width="640" height="360" />
-                {spotlightLocked && (
-                  <div className="ax-locked-veil" aria-hidden>
-                    <span className={`ax-locked-veil-badge${spotlightTier === 'premium' ? ' is-premium' : ''}`}>
-                      {spotlightTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-                      {spotlightTier === 'premium'
-                        ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required')
-                        : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required')}
-                    </span>
-                  </div>
-                )}
                 <span className="lx-cat-spot-step">{ui.category.stepLabel(spotlightIdx + 1)}</span>
               </div>
               <div className="lx-cat-spot-body">

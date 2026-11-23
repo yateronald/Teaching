@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowRightOutlined, CheckOutlined, CloseOutlined, CustomerServiceOutlined, EditOutlined, FileTextOutlined, InfoCircleOutlined, ReadOutlined, RedoOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { COURSES } from '../catalog';
 import { getPlacement, loadPlacement } from '../content/registry';
 import { PLACEMENT_LEVELS, type PlacementQuestion } from '../content/placement';
@@ -186,7 +187,7 @@ export default function PlacementPage({ lang }: { lang: Lang }) {
 
   return (
     <LearnShell lang={lang} alternates={{ en: placementPath('en'), fr: placementPath('fr') }}
-      seo={{ title: pl.metaTitle, description: pl.metaDescription, path: placementPath(lang), jsonLd: placementJsonLd(lang), image: `https://www.learnfrenchwithnatives.com${imageUrl('placement')}` }}>
+      seo={{ title: pl.metaTitle, description: pl.metaDescription, path: placementPath(lang), jsonLd: placementJsonLd(lang), image: absoluteMediaUrl(imageUrl('placement')) }}>
       <section className="lx-place-hero" aria-labelledby="lx-place-title">
         <div className="lp-wrap lx-place-grid">
           <div>

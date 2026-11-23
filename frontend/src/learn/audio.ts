@@ -8,6 +8,7 @@
 import { useSyncExternalStore } from 'react';
 import manifest from './audio-manifest.json';
 import { registerAccessRevokeListener } from './account/store';
+import { mediaUrl } from './mediaUrl';
 import { clearSealedCache, loadSealed, sealedReady } from './sealedAudio';
 import type { Voice } from './types';
 
@@ -40,7 +41,7 @@ if (typeof window !== 'undefined') {
 }
 
 /** Where a recording is: a plain mp3, or the scrambled file of a practice recording. */
-const srcOf = (key: string) => (SEALED.has(key) ? `/learn/audio/${key}.dat` : `/learn/audio/${key}.mp3`);
+const srcOf = (key: string) => mediaUrl(SEALED.has(key) ? `/learn/audio/${key}.dat` : `/learn/audio/${key}.mp3`);
 
 /**
  * The playable address of a recording (a blob: address for a sealed one), for a

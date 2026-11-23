@@ -14,6 +14,7 @@ import { openPremiumModal } from '../account/premiumModal';
 import { LockActionPill } from '../account/PremiumWidget';
 import { freeForAllCopy, isTierLocked, useAccount } from '../account/store';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { coursePath } from '../catalog';
 import { getLessons, loadLessons } from '../content/registry';
 import { LEVEL_COPY, categoryLevelPath, categoryLevels, coursesAtLevel, levelPath } from '../levels';
@@ -254,7 +255,7 @@ export default function LevelPage({ lang, level, category }: { lang: Lang; level
         description,
         path,
         jsonLd: levelJsonLd({ lang, path, name: h1, description, items, trail }),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl(image)}`,
+        image: absoluteMediaUrl(imageUrl(image)),
       }}
     >
       <section className="lx-cat-hero" aria-labelledby="lx-level-title">

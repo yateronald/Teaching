@@ -12,7 +12,7 @@ import { LearnShell, useMounted } from '../shell';
 import { hubPath } from '../paths';
 import type { Lang } from '../types';
 import { siteApi, type ApiError } from './api';
-import { downloadInvoicePdf, formatPrice, startCheckout, type Offer } from './billingApi';
+import { downloadInvoicePdf, startCheckout, type Offer } from './billingApi';
 import { ACCOUNT_COPY, errorText } from './copy';
 import { accountPath } from './paths';
 import { PremiumRequest } from './AccessGate';
@@ -140,8 +140,25 @@ const T = {
     trustCard: 'Visa, Mastercard & Mobile Money',
     trustProvider: 'Processed securely by Paystack',
     trustInstant: 'Instant course activation',
-    fxCheckoutNote: (charged: string) => `Billed as ${charged} via Paystack · Official USD invoice emailed`,
-    settledLabel: (charged: string) => `Settled: ${charged}`,
+    passEyebrow: 'All-access Premium pass',
+    passTagline: 'Unlock every French course, listening studio, dictation and official exam prep path.',
+    instantActivation: 'Instant activation',
+    oneTimePass: 'One-time pass',
+    autoRenewPass: 'Auto-renewing pass',
+    specDurationLabel: 'Access duration',
+    specBillingLabel: 'Billing type',
+    specInvoiceLabel: 'Receipt & invoice',
+    specInvoiceVal: 'Official USD PDF invoice',
+    monthlyEq: (p: string) => `Only ${p} / month`,
+    unlockCta: (price: string) => `Unlock Premium — ${price}`,
+    extendCta: (price: string) => `Extend Premium — ${price}`,
+    includedItems: [
+      '464+ guided French courses (A1–C2) & 1,500+ interactive lessons',
+      '186 studio dictations graded /20 with Claire & Thomas native audio',
+      '400+ audio dialogues, reading missions & ear-training drills',
+      'Dedicated TCF Canada, TEF & DELF/DALF preparation tracks',
+      'Final assessments, verified certificates & multi-device sync',
+    ],
     invoiceBtn: 'Invoice PDF',
     manualTitle: 'Request Premium activation',
     manualText: 'Online checkout is being finalized. Send a quick request and our team will activate Premium for you.',
@@ -221,8 +238,25 @@ const T = {
     trustCard: 'Carte bancaire & Mobile Money',
     trustProvider: 'Paiement sécurisé via Paystack',
     trustInstant: 'Activation instantanée',
-    fxCheckoutNote: (charged: string) => `Débité en ${charged} via Paystack · Facture officielle USD par email`,
-    settledLabel: (charged: string) => `Réglé : ${charged}`,
+    passEyebrow: 'Pass Premium intégral',
+    passTagline: 'Débloquez tous nos parcours de français, studios d’écoute, dictées et préparations aux examens.',
+    instantActivation: 'Activation immédiate',
+    oneTimePass: 'Accès sans renouvellement',
+    autoRenewPass: 'Renouvellement auto',
+    specDurationLabel: 'Durée d’accès',
+    specBillingLabel: 'Facturation',
+    specInvoiceLabel: 'Justificatif',
+    specInvoiceVal: 'Facture officielle USD en PDF',
+    monthlyEq: (p: string) => `Soit ${p} / mois`,
+    unlockCta: (price: string) => `Passer à Premium — ${price}`,
+    extendCta: (price: string) => `Prolonger Premium — ${price}`,
+    includedItems: [
+      '464+ cours guidés de A1 à C2 et plus de 1 500 leçons interactives',
+      '186 dictées studio notées /20 avec voix natives (Claire & Thomas)',
+      '400+ dialogues audio, lectures immersives et entraînement auditif',
+      'Parcours dédiés TCF Canada, TEF et DELF/DALF inclus',
+      'Évaluations finales, certificats vérifiés et suivi multi-appareils',
+    ],
     invoiceBtn: 'Facture PDF',
     manualTitle: 'Demander l’activation Premium',
     manualText: 'Le paiement en ligne est en cours de finalisation. Envoyez une demande et notre équipe active votre accès.',
@@ -265,6 +299,32 @@ const T = {
 
 const fmtDate = (iso: string, lang: Lang) =>
   new Date(iso).toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA', { year: 'numeric', month: 'long', day: 'numeric' });
+
+function displayPlanPrice(amount: number, currency: string, lang: Lang) {
+  const cur = currency.toUpperCase();
+  const locale = cur === 'USD' ? (lang === 'fr' ? 'fr-CA' : 'en-US') : (lang === 'fr' ? 'fr-CA' : 'en-CA');
+  const maxDigits = amount % 100 === 0 ? 0 : 2;
+  try {
+    const formatted = new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: maxDigits }).format(amount / 100);
+    return cur === 'USD' && lang === 'fr' ? formatted.replace(/\s*US\b/, '') : formatted;
+  } catch {
+    return `${(amount / 100).toFixed(maxDigits)} ${cur}`;
+  }
+}
+
+function monthlyEquivalent(amount: number, currency: string, days: number, lang: Lang) {
+  if (days < 60) return null;
+  const cur = currency.toUpperCase();
+  const months = Math.max(1, days / 30);
+  const perMonth = (amount / 100) / months;
+  const locale = cur === 'USD' ? (lang === 'fr' ? 'fr-CA' : 'en-US') : (lang === 'fr' ? 'fr-CA' : 'en-CA');
+  try {
+    const formatted = new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(perMonth);
+    return cur === 'USD' && lang === 'fr' ? formatted.replace(/\s*US\b/, '') : formatted;
+  } catch {
+    return `${perMonth.toFixed(2)} ${cur}`;
+  }
+}
 
 function BenefitIcon({ kind }: { kind: BenefitMetric['icon'] }) {
   switch (kind) {
@@ -465,11 +525,111 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
 
               {loadingBilling && !billingData ? (
                 <p className="ax-loading" role="status"><LoadingOutlined /></p>
-              ) : onlineCheckoutReady && visibleOffers.length > 0 ? (
+              ) : onlineCheckoutReady && visibleOffers.length === 1 ? (
+                (() => {
+                  const o = visibleOffers[0];
+                  const mainPrice = displayPlanPrice(o.amount, o.currency, lang);
+                  const perMonth = monthlyEquivalent(o.amount, o.currency, o.days, lang);
+                  const desc = o.description[lang] || o.description.en;
+                  return (
+                    <>
+                      <article className="ax-plan-showcase">
+                        <div className="ax-plan-showcase-left">
+                          <span className="ax-plan-kicker">
+                            <CrownFilled aria-hidden /> {t.passEyebrow}
+                          </span>
+                          <h3>{o.name[lang] || o.name.en}</h3>
+                          <p className="ax-plan-tagline">{desc || t.passTagline}</p>
+                          <ul className="ax-plan-checks">
+                            {t.includedItems.map(item => (
+                              <li key={item}>
+                                <CheckCircleFilled aria-hidden />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="ax-plan-showcase-right">
+                          <div className="ax-plan-topmeta">
+                            <span className="ax-sub-tag">{o.recurring ? t.autoRenewPass : t.oneTimePass}</span>
+                            <span className="ax-plan-live">
+                              <i aria-hidden /> {t.instantActivation}
+                            </span>
+                          </div>
+
+                          <div className="ax-plan-price-block">
+                            <div className="ax-plan-price-row">
+                              <strong>{mainPrice}</strong>
+                              <span className="ax-plan-cur">{o.currency}</span>
+                              <span className="ax-plan-per">/ {t.periodLabel(o.days)}</span>
+                            </div>
+                            {perMonth && <span className="ax-plan-monthly">{t.monthlyEq(perMonth)}</span>}
+                          </div>
+
+                          <dl className="ax-plan-specs">
+                            <div>
+                              <dt>{t.specDurationLabel}</dt>
+                              <dd>{t.daysAccess(o.days)}</dd>
+                            </div>
+                            <div>
+                              <dt>{t.specBillingLabel}</dt>
+                              <dd>{o.recurring ? t.renews : t.once}</dd>
+                            </div>
+                            <div>
+                              <dt>{t.specInvoiceLabel}</dt>
+                              <dd>{t.specInvoiceVal}</dd>
+                            </div>
+                          </dl>
+
+                          <div className="ax-plan-cta">
+                            {user ? (
+                              <button
+                                type="button"
+                                className="lp-btn lp-btn-primary lp-btn-lg ax-sub-pay-btn"
+                                disabled={!!payBusy}
+                                onClick={() => void startPay(o.code)}
+                              >
+                                {payBusy === o.code ? <LoadingOutlined /> : <LockOutlined />}
+                                <span>{isPremium ? t.extendCta(mainPrice) : t.unlockCta(mainPrice)}</span>
+                                {payBusy !== o.code && <ArrowRightOutlined aria-hidden />}
+                              </button>
+                            ) : (
+                              <>
+                                <Link
+                                  to={accountPath('signUp', lang, accountPath('subscription', lang))}
+                                  className="lp-btn lp-btn-primary lp-btn-lg ax-sub-pay-btn"
+                                >
+                                  {t.signUpSubscribe} <ArrowRightOutlined aria-hidden />
+                                </Link>
+                                <Link
+                                  to={accountPath('signIn', lang, accountPath('subscription', lang))}
+                                  className="ax-sub-signin-link"
+                                >
+                                  {t.signInExisting}
+                                </Link>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="ax-plan-paybadges">
+                            <span><LockOutlined aria-hidden /> {t.trustCard}</span>
+                            <span><SafetyCertificateOutlined aria-hidden /> {t.trustProvider}</span>
+                          </div>
+                        </div>
+                      </article>
+                      {payBusy && <p className="ax-hint" role="status">{t.redirecting}</p>}
+                      {payError && <p className="ax-error" role="alert">{payError}</p>}
+                    </>
+                  );
+                })()
+              ) : onlineCheckoutReady && visibleOffers.length > 1 ? (
                 <>
-                  <div className="ax-sub-plan-grid">
+                  <div className="ax-sub-plan-grid is-multi">
                     {visibleOffers.map(o => {
-                      const featured = visibleOffers.length > 1 && o.code === maxDaysOffer;
+                      const featured = o.code === maxDaysOffer;
+                      const mainPrice = displayPlanPrice(o.amount, o.currency, lang);
+                      const perMonth = monthlyEquivalent(o.amount, o.currency, o.days, lang);
                       return (
                         <article key={o.code} className={`ax-sub-plan${o.recurring ? ' is-recurring' : ''}${featured ? ' is-featured' : ''}`}>
                           <div className="ax-sub-plan-top">
@@ -478,18 +638,25 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
                             {!featured && o.recurring && <span className="ax-sub-tag">{t.recurringBadge}</span>}
                           </div>
 
-                          <p className="ax-sub-price">
-                            <strong>{formatPrice(o.amount, o.currency, lang)}</strong>
-                            <span>/ {t.periodLabel(o.days)}</span>
-                          </p>
-                          {o.charge && o.charge.currency !== o.currency && (
-                            <p className="ax-sub-fx">{t.fxCheckoutNote(formatPrice(o.charge.amount, o.charge.currency, lang))}</p>
-                          )}
+                          <div className="ax-plan-price-row is-compact">
+                            <strong>{mainPrice}</strong>
+                            <span className="ax-plan-cur">{o.currency}</span>
+                            <span className="ax-plan-per">/ {t.periodLabel(o.days)}</span>
+                          </div>
+                          {perMonth && <span className="ax-plan-monthly">{t.monthlyEq(perMonth)}</span>}
 
                           <p className="ax-sub-plan-days">{t.daysAccess(o.days)}</p>
                           {(o.description[lang] || o.description.en) && (
                             <p className="ax-sub-plan-desc">{o.description[lang] || o.description.en}</p>
                           )}
+                          <ul className="ax-plan-checks is-light">
+                            {t.includedItems.slice(0, 3).map(item => (
+                              <li key={item}>
+                                <CheckCircleFilled aria-hidden />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
                           <p className="ax-sub-plan-kind">{o.recurring ? t.renews : t.once}</p>
 
                           <div className="ax-sub-plan-cta">
@@ -611,38 +778,34 @@ export default function SubscriptionPage({ lang }: { lang: Lang }) {
                   <h2>{t.historyTitle}</h2>
                   <p className="ax-sub-box-desc">{t.historySub}</p>
                   <ul className="ax-payments">
-                    {billingData.payments.map(p => {
-                      const settledElsewhere = Boolean(p.charged_currency && p.charged_currency !== p.currency && p.charged_amount);
-                      return (
-                        <li key={p.reference}>
-                          <span>
-                            <strong>
-                              {p.name[lang] || p.name.en || 'Premium'}
-                              {p.renewal ? ` · ${t.renewalTag}` : ''}
-                              {p.invoice_number && <code className="ax-inv-num">{p.invoice_number}</code>}
-                            </strong>
-                            <small>
-                              {fmtDate(p.paid_at || p.created_at, lang)}
-                              {p.status === 'success' && p.premium_until ? ` · ${t.paidUntil(fmtDate(p.premium_until, lang))}` : ''}
-                              {settledElsewhere ? ` · ${t.settledLabel(formatPrice(p.charged_amount!, p.charged_currency!, lang))}` : ''}
-                            </small>
-                          </span>
-                          <span className="ax-pay-amount">{formatPrice(p.amount, p.currency, lang)}</span>
-                          <span className={`ax-pay-status is-${p.status}`}>{t.statusLabels[p.status] || p.status}</span>
-                          {p.has_invoice && (
-                            <button
-                              type="button"
-                              className="ax-inv-btn"
-                              disabled={invBusy === p.reference}
-                              onClick={() => void openInvoice(p)}
-                            >
-                              {invBusy === p.reference ? <LoadingOutlined /> : <DownloadOutlined />}
-                              <span>{t.invoiceBtn}</span>
-                            </button>
-                          )}
-                        </li>
-                      );
-                    })}
+                    {billingData.payments.map(p => (
+                      <li key={p.reference}>
+                        <span>
+                          <strong>
+                            {p.name[lang] || p.name.en || 'Premium'}
+                            {p.renewal ? ` · ${t.renewalTag}` : ''}
+                            {p.invoice_number && <code className="ax-inv-num">{p.invoice_number}</code>}
+                          </strong>
+                          <small>
+                            {fmtDate(p.paid_at || p.created_at, lang)}
+                            {p.status === 'success' && p.premium_until ? ` · ${t.paidUntil(fmtDate(p.premium_until, lang))}` : ''}
+                          </small>
+                        </span>
+                        <span className="ax-pay-amount">{displayPlanPrice(p.amount, p.currency, lang)}</span>
+                        <span className={`ax-pay-status is-${p.status}`}>{t.statusLabels[p.status] || p.status}</span>
+                        {p.has_invoice && (
+                          <button
+                            type="button"
+                            className="ax-inv-btn"
+                            disabled={invBusy === p.reference}
+                            onClick={() => void openInvoice(p)}
+                          >
+                            {invBusy === p.reference ? <LoadingOutlined /> : <DownloadOutlined />}
+                            <span>{t.invoiceBtn}</span>
+                          </button>
+                        )}
+                      </li>
+                    ))}
                   </ul>
                   {invError && <p className="ax-error" role="alert">{invError}</p>}
                 </section>

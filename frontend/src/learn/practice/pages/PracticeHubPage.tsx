@@ -14,6 +14,7 @@ import { openPremiumModal } from '../../account/premiumModal';
 import { LockActionPill, PremiumInfoWidget } from '../../account/PremiumWidget';
 import { freeForAllCopy, isTierLocked, useAccount } from '../../account/store';
 import { imageUrl } from '../../categories';
+import { absoluteMediaUrl } from '../../mediaUrl';
 import { hubPath, placementPath } from '../../paths';
 import { Crumbs, LearnShell, LevelChip, TeacherCta } from '../../shell';
 import { LEVELS, tx, type Lang, type Level } from '../../types';
@@ -170,7 +171,7 @@ export default function PracticeHubPage({ lang }: { lang: Lang }) {
     <LearnShell
       lang={lang}
       alternates={{ en: practicePath('en'), fr: practicePath('fr') }}
-      seo={{ title: p.metaTitle, description: p.metaDescription, path: practicePath(lang), jsonLd, image: `${SITE}${imageUrl('cat-reading')}` }}
+      seo={{ title: p.metaTitle, description: p.metaDescription, path: practicePath(lang), jsonLd, image: absoluteMediaUrl(imageUrl('cat-reading')) }}
     >
       {/* ── Executive 2-Column Studio Hero ── */}
       <section className="rx-lib-hero px-hero" aria-labelledby="px-title">

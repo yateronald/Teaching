@@ -1,7 +1,7 @@
 // Pieces shared by the pages of the practice space: the skill tabs, a text’s
 // card and status, and the reading score.
 import { Link } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, CrownFilled, LockOutlined, ReadOutlined, SoundOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled, ClockCircleOutlined, ReadOutlined, SoundOutlined } from '@ant-design/icons';
 import { itemTier } from '../access';
 import { openPremiumModal } from '../account/premiumModal';
 import { LockActionPill } from '../account/PremiumWidget';
@@ -111,14 +111,6 @@ export function TextCard({ text, lang, p }: { text: TextMeta; lang: Lang; p: Pro
     <article className={`rx-card${locked ? ' ax-locked-card' : ''}`}>
       <div className={`rx-card-img${locked ? ' ax-locked-media' : ''}`}>
         <img src={imageUrl(text.image, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
-        {locked && (
-          <div className="ax-locked-veil" aria-hidden>
-            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
-            </span>
-          </div>
-        )}
         <LevelChip level={text.level} size="sm" />
         <span className="rx-card-genre-pill"><SoundOutlined aria-hidden /> {c.learn.genre[text.genre]}</span>
       </div>

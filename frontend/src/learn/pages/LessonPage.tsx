@@ -7,6 +7,7 @@ import { createPortal } from 'react-dom';
 import { ArrowLeftOutlined, ArrowRightOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, LoadingOutlined, LockOutlined, PlayCircleFilled, RiseOutlined } from '@ant-design/icons';
 import NotFound from '../../components/Landing/NotFound';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { coursePath } from '../catalog';
 import { finalPath, hasAutostart, hubPath, lessonPath } from '../paths';
 import { ladderState, PASS_MARK, recordLesson, REVIEW_MARK, useProgress, type BadgeId } from '../progress';
@@ -271,7 +272,7 @@ export default function LessonPage({ lang, course, lessonSlug }: { lang: Lang; c
       lang={lang}
       alternates={alternates}
       seo={lesson
-        ? { title: ui.lesson.metaTitle(tx(lesson.title, lang), tx(course.title, lang), !freeAll && lessonTier(course.id, lesson) === 'premium'), description: `${tx(lesson.summary, lang)} ${lesson.objectives.map(o => tx(o, lang)).join(' · ')}`.slice(0, 290), path: lessonPath(course, lesson, lang), jsonLd: lessonJsonLd(course, lesson, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }
+        ? { title: ui.lesson.metaTitle(tx(lesson.title, lang), tx(course.title, lang), !freeAll && lessonTier(course.id, lesson) === 'premium'), description: `${tx(lesson.summary, lang)} ${lesson.objectives.map(o => tx(o, lang)).join(' · ')}`.slice(0, 290), path: lessonPath(course, lesson, lang), jsonLd: lessonJsonLd(course, lesson, lang), image: absoluteMediaUrl(imageUrl(course.image)) }
         : { title: tx(course.title, lang), description: tx(course.subtitle, lang), path: coursePath(course, lang) }}
     >
       {lesson && lessons ? <LessonBody lang={lang} course={course} lesson={lesson} lessons={lessons} unlock={unlock} /> : <div className="lx-loading" role="status" />}

@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons';
 import { chime } from '../../audio';
 import { imageUrl } from '../../categories';
+import { absoluteMediaUrl } from '../../mediaUrl';
 import { AudioButton, Phrase, Rich, RichBlock } from '../../player/common';
 import { hubPath } from '../../paths';
 import { recordText, useProgress } from '../../progress';
@@ -682,7 +683,7 @@ export default function ReadingTextPage({ lang, meta }: { lang: Lang; meta: Text
         description: c.text.metaDescription(tx(meta.subtitle, lang)),
         path,
         jsonLd: textJsonLd(meta, lang),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl(meta.image)}`,
+        image: absoluteMediaUrl(imageUrl(meta.image)),
       }}
     >
       <div className="rx-top">

@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { beforeSpeak, stop as stopPhrase } from '../audio';
 import { registerAccessRevokeListener } from '../account/store';
+import { mediaUrl } from '../mediaUrl';
 import { loadSealed, sealedReady } from '../sealedAudio';
 import audioIndex from './text-audio.json';
 import type { Narration, NarrationId } from './types';
@@ -43,7 +44,7 @@ export const narrationOf = (textId: string, n: NarrationId): Narration | undefin
 /** The stored file of a recording, with its content version (the server caches it for a long time). */
 const narrationSrc = (textId: string, n: NarrationId) => {
   const x = narrationOf(textId, n);
-  return x ? `/learn/texts/${textId}-${n}.dat?v=${x.v}` : null;
+  return x ? mediaUrl(`/learn/texts/${textId}-${n}.dat?v=${x.v}`) : null;
 };
 export const hasNarration = (textId: string) =>
   Object.keys(dynamicIndex[textId] ?? BASE_INDEX[textId] ?? {}).length > 0;

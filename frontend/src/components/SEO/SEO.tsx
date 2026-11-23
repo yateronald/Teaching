@@ -39,6 +39,7 @@ const SEO: React.FC<SEOProps> = ({
   type = 'website', noindex = false, alternates, jsonLd, preloadImage,
 }) => {
   const canonical = `${SITE_URL}${path}`;
+  const resolvedImage = /^https?:\/\//.test(image) ? image : `${SITE_URL}${image}`;
   const robots = noindex ? 'noindex, nofollow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
   const alt = alternates ? (Object.entries(alternates) as [Lang, string][]) : [];
   return (
@@ -57,7 +58,7 @@ const SEO: React.FC<SEOProps> = ({
       <meta property="og:url" content={canonical} />
       <meta property="og:title" content={title} />
       <meta property="og:description" content={description} />
-      <meta property="og:image" content={image} />
+      <meta property="og:image" content={resolvedImage} />
       <meta property="og:image:width" content="1200" />
       <meta property="og:image:height" content="630" />
       <meta property="og:image:alt" content={imageAlt} />
@@ -67,7 +68,7 @@ const SEO: React.FC<SEOProps> = ({
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={image} />
+      <meta name="twitter:image" content={resolvedImage} />
       <meta name="twitter:image:alt" content={imageAlt} />
 
       {preloadImage && (

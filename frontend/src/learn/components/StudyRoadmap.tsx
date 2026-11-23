@@ -443,11 +443,6 @@ export function StudyRoadmap({
         <section className={`sp-side-card is-game${dailyGameLocked ? ' ax-locked-card' : ''}`}>
           <div className={dailyGameLocked ? 'ax-locked-media' : undefined}>
             <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
-            {dailyGameLocked && (
-              <div className="ax-locked-veil" aria-hidden>
-                <span className="ax-locked-veil-badge is-premium"><CrownFilled /> {lang === 'fr' ? 'Compte Premium requis' : 'Premium required'}</span>
-              </div>
-            )}
           </div>
           <p className="sp-side-eyebrow"><PlayCircleFilled aria-hidden /> {c.dailyBoostEyebrow}</p>
           <h3>{plan.dailyGame.title}</h3>

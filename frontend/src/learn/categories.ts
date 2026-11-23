@@ -1,6 +1,7 @@
 // The learning paths of the free courses. Small on purpose: the home page
 // imports it for its "Free courses" section without pulling in the courses.
 import { b, type CategoryMeta, type Lang } from './types';
+import { mediaUrl } from './mediaUrl';
 import versions from './image-versions.json';
 
 export const LEARN_BASE: Record<Lang, string> = { en: '/learn/', fr: '/fr/apprendre/' };
@@ -183,4 +184,4 @@ export const categoryPath = (c: CategoryMeta, lang: Lang) => `${LEARN_BASE[lang]
 const VERSIONS = versions as Record<string, string>;
 /** Picture URL with a content version (?v=…): the server caches pictures for a year. */
 export const imageUrl = (key: string, width: 640 | 1200 = 1200) =>
-  `/learn/img/${key}${width === 640 ? '-640' : ''}.webp${VERSIONS[key] ? `?v=${VERSIONS[key]}` : ''}`;
+  mediaUrl(`/learn/img/${key}${width === 640 ? '-640' : ''}.webp${VERSIONS[key] ? `?v=${VERSIONS[key]}` : ''}`);

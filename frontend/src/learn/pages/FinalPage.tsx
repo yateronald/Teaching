@@ -6,6 +6,7 @@ import { ArrowRightOutlined, LoadingOutlined, PrinterOutlined, RedoOutlined, Saf
 import { stop as stopAudio } from '../audio';
 import { BRAND_LOGO } from '../../components/Landing/landingContent';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { coursePath } from '../catalog';
 import { finalPath, hubPath } from '../paths';
 import { recordFinal, setName, useProgress, type BadgeId } from '../progress';
@@ -99,7 +100,7 @@ export default function FinalPage({ lang, course }: { lang: Lang; course: Course
 
   return (
     <LearnShell lang={lang} alternates={{ en: finalPath(course, 'en'), fr: finalPath(course, 'fr') }}
-      seo={{ title: f.metaTitle(title), description: `${f.intro} ${tx(course.subtitle, lang)}`, path: finalPath(course, lang), image: `https://www.learnfrenchwithnatives.com${imageUrl(course.image)}` }}>
+      seo={{ title: f.metaTitle(title), description: `${f.intro} ${tx(course.subtitle, lang)}`, path: finalPath(course, lang), image: absoluteMediaUrl(imageUrl(course.image)) }}>
       <section className="lx-lesson-hero" aria-labelledby="lx-final-title">
         <div className="lp-wrap lx-final">
           <Crumbs lang={lang} items={[[ui.learnHome, hubPath(lang)], [tx(cat.name, lang), categoryPath(cat, lang)], [title, coursePath(course, lang)], [f.title]]} />

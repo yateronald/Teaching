@@ -2,6 +2,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRightOutlined, CheckOutlined, ClockCircleOutlined, CrownFilled, CustomerServiceOutlined, EditOutlined, LockOutlined, PlayCircleFilled, SafetyCertificateOutlined, TrophyOutlined } from '@ant-design/icons';
 import { imageUrl } from '../categories';
+import { absoluteMediaUrl } from '../mediaUrl';
 import { itemTier } from '../access';
 import { openPremiumModal } from '../account/premiumModal';
 import { LockActionPill, PremiumInfoWidget } from '../account/PremiumWidget';
@@ -40,14 +41,6 @@ export function GameCard({ game, lang, wide = false }: { game: GameMeta; lang: L
     <article className={`gx-gcard${wide ? ' is-wide' : ''}${locked ? ' ax-locked-card' : ''}`}>
       <div className={`gx-gcard-art${locked ? ' ax-locked-media' : ''}`}>
         {game.id === 'story' ? <img src={imageUrl('story-airport', wide ? 1200 : 640)} alt="" loading="lazy" width="640" height="360" /> : <GameArt id={game.id} />}
-        {locked && (
-          <div className="ax-locked-veil" aria-hidden>
-            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account required')}
-            </span>
-          </div>
-        )}
         <span className="gx-gcard-tag">{tx(game.tag, lang)}</span>
       </div>
       <div className={`gx-gcard-body${locked ? ' ax-locked-copy' : ''}`}>
@@ -95,7 +88,7 @@ export default function GamesHubPage({ lang }: { lang: Lang }) {
         description: g.hubMetaDescription,
         path,
         jsonLd: gameJsonLd({ lang, path, name: g.hubTitle.join(' '), description: g.hubMetaDescription, trail, items: GAMES.map(x => ({ name: tx(x.title, lang), path: gamePath(x, lang) })) }),
-        image: `https://www.learnfrenchwithnatives.com${imageUrl('games-hero')}`,
+        image: absoluteMediaUrl(imageUrl('games-hero')),
       }}
     >
       <section className="gx-hero" aria-labelledby="gx-hub-title">

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "node scripts/learn-pack.mjs && tsc -b && vite build && node scripts/prerender.mjs && node scripts/learn-pack.mjs --check",
     "learn:pack": "node scripts/learn-pack.mjs",
+    "media:sync": "node scripts/sync-r2-media.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

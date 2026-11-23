@@ -332,10 +332,7 @@ export function PremiumModalHost({ lang }: { lang: Lang }) {
                     >
                       <span>{o.name[lang] || o.name.en}</span>
                       <b>{formatPrice(o.amount, o.currency, lang)}</b>
-                      <small>
-                        {o.days} {lang === 'fr' ? 'jours' : 'days'}
-                        {o.charge && o.charge.currency !== o.currency ? ` · ≈ ${formatPrice(o.charge.amount, o.charge.currency, lang)}` : ''}
-                      </small>
+                      <small>{o.days} {lang === 'fr' ? 'jours' : 'days'}</small>
                     </button>
                   );
                 })}
