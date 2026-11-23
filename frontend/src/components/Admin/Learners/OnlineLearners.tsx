@@ -15,14 +15,15 @@ type Filter = 'all' | 'learners' | 'portal' | 'premium' | 'requests';
 
 interface Row {
   id: number; first_name: string; last_name: string; email: string; role: string; is_active: boolean; created_at: string;
-  signup_source: string | null; email_verified: boolean; learn_access: 'off' | 'free'; country: string | null; google_linked: boolean;
+  signup_source: string | null; email_verified: boolean; learn_access: 'off' | 'free'; country: string | null;
+  whatsapp: string | null; french_level: string | null; google_linked: boolean;
   organization_id: number | null; organization: string | null; organization_access: 'off' | 'free' | null;
   premium: boolean; premium_until: string | null; premium_source: string | null; premium_via_company: boolean;
   request_id: number | null; requested_at: string | null; request_message: string | null; last_seen_at: string | null;
 }
 interface ListAnswer { rows: Row[]; total: number; page: number; limit: number; stats: { learners: number; new_week: number; premium_people: number; open_requests: number } }
 interface Detail {
-  user: { id: number; first_name: string; last_name: string; email: string; role: string; is_active: boolean; created_at: string; signup_source: string | null; email_verified: boolean; google_linked: boolean; country: string | null; lang: string | null; marketing_opt_in: boolean; learn_access: 'off' | 'free'; organization: { id: number; name: string; learn_access: string } | null };
+  user: { id: number; first_name: string; last_name: string; email: string; role: string; is_active: boolean; created_at: string; signup_source: string | null; email_verified: boolean; google_linked: boolean; country: string | null; whatsapp: string | null; french_level: string | null; lang: string | null; marketing_opt_in: boolean; learn_access: 'off' | 'free'; organization: { id: number; name: string; learn_access: string } | null };
   access: { level: 'visitor' | 'free' | 'premium'; website: boolean; premium: { until: string | null; via: string } | null };
   licenses: { id: number; source: string; starts_at: string; ends_at: string | null; reason: string | null; created_at: string; revoked_at: string | null; revoke_reason: string | null; via_company: boolean; active: boolean; created_by_name: string | null }[];
   history: { action: string; detail: Record<string, unknown> | null; created_at: string; actor_name: string | null }[];
@@ -76,7 +77,15 @@ export default function OnlineLearners() {
       title: 'Person', key: 'name', render: (_, r) => (
         <div>
           <strong>{r.first_name} {r.last_name}</strong>{!r.is_active && <Tag color="red" style={{ marginLeft: 6 }}>Suspended</Tag>}
+          {r.french_level && <Tag color="geekblue" style={{ marginLeft: 6 }}>{r.french_level === 'beginner' ? 'Beginner' : r.french_level}</Tag>}
           <div style={{ color: '#64748b', fontSize: 13 }}>{r.email}{r.google_linked && <Tooltip title="Google sign-in"><GoogleOutlined style={{ marginLeft: 6 }} /></Tooltip>}</div>
+          {r.whatsapp && (
+            <div style={{ fontSize: 12 }}>
+              <a href={`https://wa.me/${r.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" style={{ color: '#0f8a5f' }}>
+                WhatsApp: {r.whatsapp}
+              </a>
+            </div>
+          )}
         </div>
       ),
     },
@@ -197,8 +206,16 @@ function PersonDrawer({ id, onClose, onChanged }: { id: number | null; onClose: 
             <p style={{ margin: 0 }}><MailOutlined /> {u.email} {u.email_verified ? <Tag color="green">verified</Tag> : <Tag>not verified</Tag>}{u.google_linked && <Tag icon={<GoogleOutlined />}>Google</Tag>}</p>
             <p style={{ margin: '6px 0 0', color: '#64748b' }}>
               <UserOutlined /> {ROLE_LABEL[u.role] || u.role}{u.organization ? ` · ${u.organization.name}` : ''} · joined {fmtDate(u.created_at, L)}
-              {u.country ? ` · ${u.country}` : ''}{u.lang ? ` · ${u.lang.toUpperCase()}` : ''} · marketing {u.marketing_opt_in ? 'yes' : 'no'}
+              {u.country ? ` · ${u.country}` : ''}{u.french_level ? ` · French: ${u.french_level === 'beginner' ? 'Beginner' : u.french_level}` : ''}{u.lang ? ` · ${u.lang.toUpperCase()}` : ''} · marketing {u.marketing_opt_in ? 'yes' : 'no'}
             </p>
+            {u.whatsapp && (
+              <p style={{ margin: '6px 0 0', color: '#0f8a5f', fontSize: 13 }}>
+                WhatsApp:{' '}
+                <a href={`https://wa.me/${u.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" style={{ color: '#0f8a5f', fontWeight: 600 }}>
+                  {u.whatsapp}
+                </a>
+              </p>
+            )}
             <p style={{ margin: '6px 0 0', color: '#64748b' }}>{d.devices} device(s) signed in · {d.lessons_opened_30d} protected course loads in 30 days</p>
           </section>
 

@@ -196,7 +196,8 @@ app.use('/api/public/email', limiter(5, 600, 'Too many requests'));
 // Website accounts (the courses): sign-ups and codes are rare and typed by hand;
 // sign-in only counts failures, like the portal's.
 // 30 an hour per connection: a class signing up together from one school network still fits.
-app.post('/api/site-auth/signup', limiter(60, 30, 'Too many sign-ups from this connection. Please try again later.'));
+app.post('/api/site-auth/signup', limiter(15, 10, 'Too many sign-up attempts from this connection. Please wait a few minutes and try again.'));
+app.post('/api/site-auth/signup', limiter(60, 25, 'Too many sign-ups from this connection. Please try again later.'));
 app.use('/api/site-auth/signup/verify', limiter(15, 30, 'Too many attempts. Please wait a few minutes and try again.'));
 app.use('/api/site-auth/signup/confirm', limiter(15, 30, 'Too many attempts. Please wait a few minutes and try again.'));
 app.use('/api/site-auth/signup/resend', limiter(60, 15, 'Too many codes requested. Please try again later.'));

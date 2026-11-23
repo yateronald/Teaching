@@ -7,8 +7,9 @@
  *  - One account per inbox: every lookup goes through the email key.
  *  - An account exists only once its email is confirmed (a code, the link in
  *    the same email, or Google saying it verified the address).
- *  - Nothing tells a stranger whether an email has an account: sign-up and
- *    password reset answer the same way, and only the inbox's owner is told.
+ *  - Sign-up blocks duplicate emails before OTP / Google completion and alerts
+ *    the inbox owner (at most once an hour); password reset always answers the
+ *    same way so strangers cannot probe addresses there.
  *  - Website sessions are cookies the page's scripts cannot read, and every
  *    change must come from the website itself (siteWriteGuard).
  */
@@ -20,6 +21,7 @@ const hints = require('../services/signInHints');
 const sessions = require('../services/sessionService');
 const { checkEmail, cleanEmail, emailKey, maskEmail } = require('../services/emailIdentity');
 const { passwordProblem } = require('../services/passwordPolicy');
+const { validateWhatsApp, cleanFrenchLevel } = require('../services/phoneValidation');
 const access = require('../services/learnAccess');
 const site = require('../services/siteSession');
 const google = require('../services/googleAuth');
@@ -123,17 +125,31 @@ async function freeUsername(db, email) {
 const cleanName = (v) => String(v ?? '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 50);
 const cleanCountry = (v) => (/^[A-Z]{2}$/.test(String(v || '').toUpperCase()) ? String(v).toUpperCase() : null);
 
+function checkProfileFields(body, country) {
+    const wp = validateWhatsApp(body?.whatsapp, country);
+    if (!wp.ok) {
+        if (wp.problem === 'country_mismatch') {
+            return { err: [400, 'WHATSAPP_COUNTRY_MISMATCH', `Enter a WhatsApp number matching your selected country (${wp.dial}).`] };
+        }
+        return { err: [400, 'BAD_WHATSAPP', wp.ex ? `Enter a valid WhatsApp number (e.g. ${wp.dial} ${wp.ex}).` : 'Enter a valid WhatsApp number.'] };
+    }
+    const frenchLevel = cleanFrenchLevel(body?.french_level);
+    if (!frenchLevel) return { err: [400, 'BAD_FRENCH_LEVEL', 'Choose your current French level.'] };
+    return { whatsapp: wp.e164, frenchLevel };
+}
+
 /** Creates a learner account (email already confirmed). Null when the email key was taken meanwhile. */
 async function createLearner(db, p) {
     const username = await freeUsername(db, p.email);
     try {
         return await db.get(
             `INSERT INTO users (username, email, password_hash, role, first_name, last_name, is_active, must_change_password,
-                                email_verified_at, signup_source, country, preferred_lang, terms_version, terms_accepted_at,
-                                marketing_opt_in, has_password, password_changed_at, google_sub)
-             VALUES ($1, $2, $3, 'learner', $4, $5, true, 0, now(), $6, $7, $8, $9, now(), $10, $11, now(), $12)
+                                email_verified_at, signup_source, country, whatsapp, french_level, preferred_lang,
+                                terms_version, terms_accepted_at, marketing_opt_in, has_password, password_changed_at, google_sub)
+             VALUES ($1, $2, $3, 'learner', $4, $5, true, 0, now(), $6, $7, $8, $9, $10, $11, now(), $12, $13, now(), $14)
              RETURNING *`,
-            [username, p.email, p.passwordHash, p.firstName, p.lastName || '', p.source, p.country, p.lang, TERMS_VERSION,
+            [username, p.email, p.passwordHash, p.firstName, p.lastName || '', p.source, p.country,
+                p.whatsapp || null, p.frenchLevel || null, p.lang, TERMS_VERSION,
                 !!p.marketing, p.hasPassword !== false, p.googleSub || null]);
     } catch (err) {
         if (err.code === '23505') return null;
@@ -287,6 +303,35 @@ router.get('/events', site.siteAuth(), async (req, res) => {
     }
 });
 
+/**
+ * Records a blocked registration attempt for an email that already has an
+ * account, enforcing the 5/hour per-email rate limit and alerting the owner
+ * by email at most once an hour.
+ */
+async function notifyExistingSignupAttempt(req, existing, { email, key, firstName, country = null, lang = 'en', via = 'email' }) {
+    const resolvedKey = key || emailKey(email || existing?.email);
+    const targetEmail = existing?.email || email;
+    const safeEmail = String(email || targetEmail || '').slice(0, 100);
+    const told = await req.db.get(
+        "SELECT 1 AS x FROM learn_pending_signups WHERE email_key = $1 AND code_hash IS NULL AND created_at > now() - INTERVAL '1 hour'", [resolvedKey]);
+    await req.db.run(
+        `INSERT INTO learn_pending_signups (handle_hash, email, email_key, first_name, password_hash, country, lang, marketing_opt_in, terms_version, expires_at, used_at, ip)
+         VALUES ($1, $2, $3, $4, '!blocked', $5, $6, false, $7, now(), now(), $8)`,
+        [sha256(newHandle()), safeEmail, resolvedKey.slice(0, 100), cleanName(firstName) || 'Attempt', country, langOf(lang), TERMS_VERSION, ipOf(req)]);
+    if (!told && existing?.is_active && targetEmail) {
+        const a = await access.accessFor(req.db, { ...existing, learn_access: existing.learn_access });
+        const mailLang = langOf(existing.preferred_lang || lang);
+        mail(targetEmail, templates.existingAccount({
+            lang: mailLang,
+            name: existing.first_name,
+            portalOnly: !a.website,
+            via,
+            signInUrl: pageUrl(mailLang, 'signIn'),
+            resetUrl: pageUrl(mailLang, 'forgot'),
+        }));
+    }
+}
+
 // ═══ Sign-up with email: step 1, the form ═══
 router.post('/signup', async (req, res) => {
     try {
@@ -302,6 +347,8 @@ router.post('/signup', async (req, res) => {
         if (!firstName) return fail(res, 400, 'BAD_NAME', 'Enter your first name.');
         const country = cleanCountry(b.country);
         if (!country) return fail(res, 400, 'BAD_COUNTRY', 'Choose your country.');
+        const profile = checkProfileFields(b, country);
+        if (profile.err) return fail(res, ...profile.err);
         if (b.terms !== true) return fail(res, 400, 'TERMS_REQUIRED', 'Please accept the terms and the privacy policy.');
 
         const check = await checkEmail(b.email);
@@ -317,37 +364,27 @@ router.post('/signup', async (req, res) => {
             "SELECT COUNT(*)::int AS n FROM learn_pending_signups WHERE email_key = $1 AND created_at > now() - INTERVAL '1 hour'", [check.key]);
         if (recent.n >= 5) return fail(res, 429, 'TOO_MANY', 'Too many attempts with this email. Please try again in an hour.');
 
-        // The password is hashed in both cases, so the answer takes as long
-        // whether or not the email already has an account.
+        // Equalize response timing before revealing that this email already has an account.
         const passwordHash = await bcrypt.hash(String(b.password), 12);
-        const handle = newHandle();
-        const existing = await req.db.get('SELECT id, role, first_name, organization_id, learn_access, is_active FROM users WHERE email_key = $1 LIMIT 1', [check.key]);
-        const expires = new Date(Date.now() + SIGNUP_HOURS * 3600 * 1000);
-
+        const existing = await req.db.get(
+            'SELECT id, email, role, first_name, preferred_lang, organization_id, learn_access, is_active FROM users WHERE email_key = $1 LIMIT 1',
+            [check.key]);
         if (existing) {
-            // No code: this sign-up can never finish. The owner hears about it, at most once an hour.
-            const told = await req.db.get(
-                "SELECT 1 AS x FROM learn_pending_signups WHERE email_key = $1 AND code_hash IS NULL AND created_at > now() - INTERVAL '1 hour'", [check.key]);
-            await req.db.run(
-                `INSERT INTO learn_pending_signups (handle_hash, email, email_key, first_name, password_hash, country, lang, marketing_opt_in, terms_version, expires_at, ip)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-                [sha256(handle), check.email, check.key, firstName, passwordHash, country, lang, !!b.marketing, TERMS_VERSION, expires, ipOf(req)]);
-            if (!told && existing.is_active) {
-                const a = await access.accessFor(req.db, { ...existing, learn_access: existing.learn_access });
-                mail(check.email, templates.existingAccount({
-                    lang, name: existing.first_name, portalOnly: !a.website,
-                    signInUrl: pageUrl(lang, 'signIn'), resetUrl: pageUrl(lang, 'forgot'),
-                }));
-            }
-        } else {
-            const code = newCode();
-            const link = newHandle();
-            await req.db.run(
-                `INSERT INTO learn_pending_signups (handle_hash, link_hash, code_hash, email, email_key, first_name, password_hash, country, lang, marketing_opt_in, terms_version, expires_at, ip)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-                [sha256(handle), sha256(link), hmac(`${handle}:${code}`), check.email, check.key, firstName, passwordHash, country, lang, !!b.marketing, TERMS_VERSION, expires, ipOf(req)]);
-            mail(check.email, templates.signupCode({ lang, name: firstName, code, confirmUrl: pageUrl(lang, 'signUp', `?confirm=${encodeURIComponent(link)}`) }));
+            await notifyExistingSignupAttempt(req, existing, {
+                email: check.email, key: check.key, firstName, country, lang, via: 'email',
+            });
+            return fail(res, 409, 'EMAIL_TAKEN', 'An account already exists with this email. Please sign in instead.');
         }
+
+        const handle = newHandle();
+        const expires = new Date(Date.now() + SIGNUP_HOURS * 3600 * 1000);
+        const code = newCode();
+        const link = newHandle();
+        await req.db.run(
+            `INSERT INTO learn_pending_signups (handle_hash, link_hash, code_hash, email, email_key, first_name, password_hash, country, whatsapp, french_level, lang, marketing_opt_in, terms_version, expires_at, ip)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+            [sha256(handle), sha256(link), hmac(`${handle}:${code}`), check.email, check.key, firstName, passwordHash, country, profile.whatsapp, profile.frenchLevel, lang, !!b.marketing, TERMS_VERSION, expires, ipOf(req)]);
+        mail(check.email, templates.signupCode({ lang, name: firstName, code, confirmUrl: pageUrl(lang, 'signUp', `?confirm=${encodeURIComponent(link)}`) }));
         return res.json({ handle, email: check.email, resend_in: RESEND_SECONDS });
     } catch (err) {
         console.error('[site-auth] sign-up failed:', err.message);
@@ -365,7 +402,7 @@ async function completeSignup(req, res, row) {
     try {
         user = await createLearner(req.db, {
             email: row.email, passwordHash: row.password_hash, firstName: row.first_name, source: 'email',
-            country: row.country, lang: row.lang, marketing: row.marketing_opt_in,
+            country: row.country, whatsapp: row.whatsapp, frenchLevel: row.french_level, lang: row.lang, marketing: row.marketing_opt_in,
         });
     } catch (err) {
         await req.db.run('UPDATE learn_pending_signups SET used_at = NULL WHERE id = $1', [row.id]).catch(() => {});
@@ -384,12 +421,12 @@ router.post('/signup/verify', async (req, res) => {
         const code = String(req.body?.code || '').replace(/\D/g, '');
         const row = handle && await req.db.get(
             'SELECT * FROM learn_pending_signups WHERE handle_hash = $1 AND used_at IS NULL AND expires_at > now()', [sha256(handle)]);
-        if (!row) return fail(res, 400, 'CODE_EXPIRED', 'This sign-up has expired. Please start again.');
+        if (!row || !row.code_hash) return fail(res, 400, 'CODE_EXPIRED', 'This sign-up has expired. Please start again.');
         if (row.attempts >= MAX_TRIES) return fail(res, 400, 'CODE_LOCKED', 'Too many wrong codes. Ask for a new one.');
         const tried = await req.db.get('UPDATE learn_pending_signups SET attempts = attempts + 1 WHERE id = $1 RETURNING attempts', [row.id]);
         const left = Math.max(0, MAX_TRIES - tried.attempts);
         const fresh = Date.now() - new Date(row.last_sent_at).getTime() < CODE_MINUTES * 60 * 1000;
-        if (!row.code_hash || code.length !== 6 || !sameHex(row.code_hash, hmac(`${handle}:${code}`))) {
+        if (code.length !== 6 || !sameHex(row.code_hash, hmac(`${handle}:${code}`))) {
             return fail(res, 400, 'CODE_WRONG', left ? 'This code is not right. Check the email and try again.' : 'Too many wrong codes. Ask for a new one.', { tries_left: left });
         }
         if (!fresh) return fail(res, 400, 'CODE_OLD', 'This code has expired. Ask for a new one.');
@@ -422,15 +459,10 @@ router.post('/signup/resend', async (req, res) => {
         const handle = String(req.body?.handle || '');
         const row = handle && await req.db.get(
             'SELECT * FROM learn_pending_signups WHERE handle_hash = $1 AND used_at IS NULL AND expires_at > now()', [sha256(handle)]);
-        if (!row) return fail(res, 400, 'CODE_EXPIRED', 'This sign-up has expired. Please start again.');
+        if (!row || !row.code_hash) return fail(res, 400, 'CODE_EXPIRED', 'This sign-up has expired. Please start again.');
         const wait = RESEND_SECONDS - Math.floor((Date.now() - new Date(row.last_sent_at).getTime()) / 1000);
         if (wait > 0) return fail(res, 429, 'WAIT', `Please wait ${wait} seconds.`, { resend_in: wait });
         if (row.sends >= MAX_SENDS) return fail(res, 429, 'TOO_MANY', 'Too many codes sent. Please start again in an hour.');
-        if (!row.code_hash) {
-            // The email already has an account: nothing to send, the same answer.
-            await req.db.run('UPDATE learn_pending_signups SET sends = sends + 1, last_sent_at = now() WHERE id = $1', [row.id]);
-            return res.json({ ok: true, resend_in: RESEND_SECONDS });
-        }
         const code = newCode();
         const link = newHandle();
         await req.db.run(
@@ -508,10 +540,25 @@ router.put('/me', site.siteAuth({ required: true }), async (req, res) => {
             set('first_name', n);
         }
         if (u.role === 'learner' && b.last_name !== undefined) set('last_name', cleanName(b.last_name));
+        const nextCountry = b.country !== undefined ? cleanCountry(b.country) : u.country;
         if (b.country !== undefined) {
-            const c = cleanCountry(b.country);
-            if (!c) return fail(res, 400, 'BAD_COUNTRY', 'Choose your country.');
-            set('country', c);
+            if (!nextCountry) return fail(res, 400, 'BAD_COUNTRY', 'Choose your country.');
+            set('country', nextCountry);
+        }
+        if (b.whatsapp !== undefined) {
+            const wp = validateWhatsApp(b.whatsapp, nextCountry);
+            if (!wp.ok) {
+                if (wp.problem === 'country_mismatch') {
+                    return fail(res, 400, 'WHATSAPP_COUNTRY_MISMATCH', `Enter a WhatsApp number matching your selected country (${wp.dial}).`);
+                }
+                return fail(res, 400, 'BAD_WHATSAPP', wp.ex ? `Enter a valid WhatsApp number (e.g. ${wp.dial} ${wp.ex}).` : 'Enter a valid WhatsApp number.');
+            }
+            set('whatsapp', wp.e164);
+        }
+        if (b.french_level !== undefined) {
+            const fl = cleanFrenchLevel(b.french_level);
+            if (!fl) return fail(res, 400, 'BAD_FRENCH_LEVEL', 'Choose your current French level.');
+            set('french_level', fl);
         }
         if (b.lang !== undefined) set('preferred_lang', langOf(b.lang));
         if (b.marketing_opt_in !== undefined) set('marketing_opt_in', b.marketing_opt_in === true);
@@ -661,8 +708,10 @@ const STAFF = access.STAFF;
 
 router.get('/google/start', site.siteAuth(), (req, res) => {
     const lang = langOf(req.query.lang);
-    if (!google.config().enabled) return res.redirect(302, pageUrl(lang, 'signIn', '?error=google_unavailable'));
-    const mode = req.query.mode === 'link' && req.siteUser ? 'link' : 'signin';
+    const mode = req.query.mode === 'link' && req.siteUser ? 'link' : req.query.mode === 'signup' ? 'signup' : 'signin';
+    if (!google.config().enabled) {
+        return res.redirect(302, pageUrl(lang, mode === 'signup' ? 'signUp' : 'signIn', '?error=google_unavailable'));
+    }
     const g = google.startRequest({ lang });
     site.setFlowCookie(res, 'lfwn_g', {
         s: g.state, n: g.nonce, v: g.verifier, lang, mode,
@@ -675,22 +724,26 @@ router.get('/google/callback', async (req, res) => {
     const flow = site.readFlowCookie(req, 'lfwn_g');
     site.clearFlowCookie(res, 'lfwn_g');
     const lang = langOf(flow?.lang);
+    const originPage = flow?.mode === 'link' ? 'account' : flow?.mode === 'signup' ? 'signUp' : 'signIn';
+    const nextQ = originPage !== 'account' && flow?.next ? `&next=${encodeURIComponent(safeNext(flow.next, lang))}` : '';
     const back = (page, error, extra = '') => res.redirect(302, pageUrl(lang, page, `?${error ? `error=${error}` : ''}${extra}`));
     if (!flow) return back('signIn', 'google_expired');
-    if (req.query.error) return back(flow.mode === 'link' ? 'account' : 'signIn', 'google_cancelled');
-    if (!google.sameValue(req.query.state, flow.s) || !req.query.code) return back('signIn', 'google_failed');
-    if (!(await access.ready(req.db))) return back('signIn', 'google_unavailable');
+    if (req.query.error) return back(originPage, 'google_cancelled', nextQ);
+    if (!google.sameValue(req.query.state, flow.s) || !req.query.code) return back(originPage, 'google_failed', nextQ);
+    if (!(await access.ready(req.db))) return back(originPage, 'google_unavailable', nextQ);
 
     let person;
     try {
         person = await google.finish({ code: String(req.query.code), verifier: flow.v, nonce: flow.n });
     } catch (err) {
         console.error('[site-auth] Google sign-in failed:', err.message);
-        return back('signIn', 'google_failed');
+        return back(originPage, 'google_failed', nextQ);
     }
-    if (!person.email || !person.emailVerified) return back('signIn', 'google_unverified');
+    if (!person.email || !person.emailVerified) return back(originPage, 'google_unverified', nextQ);
     const check = await checkEmail(person.email);
-    if (!check.ok && check.problem !== 'no_mail') return back('signIn', check.problem === 'relay' ? 'email_relay' : check.problem === 'invalid' ? 'google_failed' : 'email_disposable');
+    if (!check.ok && check.problem !== 'no_mail') {
+        return back(originPage, check.problem === 'relay' ? 'email_relay' : check.problem === 'invalid' ? 'google_failed' : 'email_disposable', nextQ);
+    }
 
     try {
         // Linking Google to the signed-in account, from "My account".
@@ -707,31 +760,41 @@ router.get('/google/callback', async (req, res) => {
         }
 
         const signIn = async (user) => {
-            if (STAFF.has(user.role)) return back('signIn', 'google_staff');
+            if (STAFF.has(user.role)) return back('signIn', 'google_staff', nextQ);
             const refusal = await websiteRefusal(req.db, user);
-            if (refusal) return back('signIn', refusal.code === 'WEBSITE_ACCESS_OFF' ? 'website_off' : 'account_disabled');
+            if (refusal) return back('signIn', refusal.code === 'WEBSITE_ACCESS_OFF' ? 'website_off' : 'account_disabled', nextQ);
             await resetFailedLogins(req.db, user.id);
             await site.openSiteSession(req.db, req, res, user);
             return res.redirect(302, `${siteBase()}${safeNext(flow.next, lang)}`);
         };
 
         const byGoogle = await req.db.get('SELECT * FROM users WHERE google_sub = $1', [person.sub]);
-        if (byGoogle) return signIn(byGoogle);
-
         const byEmail = await findByEmail(req.db, person.email);
-        if (byEmail) {
-            if (STAFF.has(byEmail.role)) return back('signIn', 'google_staff');
-            if (byEmail.google_sub) return back('signIn', 'google_in_use');
-            if (google.googleOwnsInbox(person)) {
-                // Google owns this inbox: the same person, linked at once (and told by email).
-                await req.db.run('UPDATE users SET google_sub = $2, email_verified_at = COALESCE(email_verified_at, now()) WHERE id = $1 AND google_sub IS NULL', [byEmail.id, person.sub]);
-                await access.logAccess(req.db, { userId: byEmail.id, actorId: byEmail.id, action: 'google_linked' });
-                mail(byEmail.email, templates.googleLinked({ lang: byEmail.preferred_lang || lang, name: byEmail.first_name, resetUrl: pageUrl(lang, 'forgot') }));
-                return signIn(byEmail);
+
+        // Dedicated Google sign-up: block duplicate email or Google account before completion.
+        if (flow.mode === 'signup') {
+            const existing = byGoogle || byEmail;
+            if (existing) {
+                await notifyExistingSignupAttempt(req, existing, {
+                    email: check.email || person.email,
+                    key: emailKey(existing.email || person.email),
+                    firstName: person.givenName,
+                    country: null,
+                    lang,
+                    via: 'google',
+                });
+                return back('signUp', 'email_exists', nextQ);
             }
-            // Another provider's address on a Google account: the password confirms it once.
-            site.setFlowCookie(res, 'lfwn_gl', { sub: person.sub, uid: byEmail.id, lang, next: safeNext(flow.next, lang) }, 10);
-            return res.redirect(302, pageUrl(lang, 'signIn', `?link=google&email=${encodeURIComponent(byEmail.email)}`));
+        } else {
+            if (byGoogle) return signIn(byGoogle);
+            if (byEmail) {
+                if (STAFF.has(byEmail.role)) return back('signIn', 'google_staff', nextQ);
+                if (byEmail.google_sub) return back('signIn', 'google_in_use', nextQ);
+                if (byEmail.has_password === false) return back('signIn', 'google_failed', nextQ);
+                // Security: never auto-link by email alone; require one-time password confirmation first.
+                site.setFlowCookie(res, 'lfwn_gl', { sub: person.sub, uid: byEmail.id, lang, next: safeNext(flow.next, lang) }, 10);
+                return res.redirect(302, pageUrl(lang, 'signIn', `?link=google&email=${encodeURIComponent(byEmail.email)}${nextQ}`));
+            }
         }
 
         // A new person: a few details and the terms, then the account exists.
@@ -742,7 +805,7 @@ router.get('/google/callback', async (req, res) => {
         return res.redirect(302, pageUrl(lang, 'complete'));
     } catch (err) {
         console.error('[site-auth] Google account step failed:', err.message);
-        return back('signIn', 'google_failed');
+        return back(originPage, 'google_failed', nextQ);
     }
 });
 
@@ -763,20 +826,40 @@ router.post('/google/complete', async (req, res) => {
         if (!firstName) return fail(res, 400, 'BAD_NAME', 'Enter your first name.');
         const country = cleanCountry(b.country);
         if (!country) return fail(res, 400, 'BAD_COUNTRY', 'Choose your country.');
+        const profile = checkProfileFields(b, country);
+        if (profile.err) return fail(res, ...profile.err);
         if (b.terms !== true) return fail(res, 400, 'TERMS_REQUIRED', 'Please accept the terms and the privacy policy.');
+        const existingByEmail = await findByEmail(req.db, g.email);
+        const existingByGoogle = await req.db.get(
+            'SELECT id, email, role, first_name, preferred_lang, organization_id, learn_access, is_active FROM users WHERE google_sub = $1 LIMIT 1',
+            [g.sub]);
+        const existing = existingByGoogle || existingByEmail;
+        if (existing) {
+            site.clearFlowCookie(res, 'lfwn_gn');
+            await notifyExistingSignupAttempt(req, existing, {
+                email: g.email,
+                key: emailKey(existing.email || g.email),
+                firstName,
+                country,
+                lang: langOf(b.lang || g.lang),
+                via: 'google',
+            });
+            return fail(res, 409, 'EMAIL_TAKEN', 'An account already exists with this email. Please sign in instead.');
+        }
         // A random password nobody knows: this account signs in with Google until a password is chosen.
         const user = await createLearner(req.db, {
             email: g.email, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64'), 12), hasPassword: false,
-            firstName, lastName: cleanName(b.last_name ?? g.family), source: 'google', country, lang: langOf(b.lang || g.lang),
+            firstName, lastName: cleanName(b.last_name ?? g.family), source: 'google', country,
+            whatsapp: profile.whatsapp, frenchLevel: profile.frenchLevel, lang: langOf(b.lang || g.lang),
             marketing: b.marketing === true, googleSub: g.sub,
         });
         site.clearFlowCookie(res, 'lfwn_gn');
-        if (!user) return fail(res, 409, 'EMAIL_TAKEN', 'An account already uses this email. Please sign in.');
+        if (!user) return fail(res, 409, 'EMAIL_TAKEN', 'An account already exists with this email. Please sign in instead.');
         await access.logAccess(req.db, { userId: user.id, action: 'signup', detail: { source: 'google' } });
         return signedIn(req, res, user, { created: true, next: g.next });
     } catch (err) {
         console.error('[site-auth] Google sign-up failed:', err.message);
-        fail(res, 500, 'FAILED', 'Sign-up failed. Please try again.');
+        return fail(res, 500, 'FAILED', 'Sign-up failed. Please try again.');
     }
 });
 

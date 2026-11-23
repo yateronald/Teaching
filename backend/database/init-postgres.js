@@ -308,6 +308,27 @@ class PostgreSQLDatabase {
                 } catch (syncErr) {
                     console.warn('⚠️  Schedules meeting sync schema check:', syncErr.message);
                 }
+
+                // Auto-apply learner WhatsApp & French level columns if migration 030 tables exist
+                try {
+                    const pendingTbl = await this.client.query(`
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'learn_pending_signups'
+                    `);
+                    if (pendingTbl.rows.length > 0) {
+                        await this.client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(32)`);
+                        await this.client.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS french_level VARCHAR(16)`);
+                        await this.client.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_french_level_check`);
+                        await this.client.query(`
+                            ALTER TABLE users ADD CONSTRAINT users_french_level_check
+                            CHECK (french_level IS NULL OR french_level IN ('beginner', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'))
+                        `);
+                        await this.client.query(`ALTER TABLE learn_pending_signups ADD COLUMN IF NOT EXISTS whatsapp VARCHAR(32)`);
+                        await this.client.query(`ALTER TABLE learn_pending_signups ADD COLUMN IF NOT EXISTS french_level VARCHAR(16)`);
+                    }
+                } catch (profileErr) {
+                    console.warn('⚠️  Learner profile schema check skipped:', profileErr.message);
+                }
             }
             
             return true;

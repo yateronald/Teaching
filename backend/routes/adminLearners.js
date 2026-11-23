@@ -71,7 +71,7 @@ router.get('/', async (req, res) => {
         if (q) {
             params.push(`%${q.toLowerCase().replace(/[%_\\]/g, '\\$&')}%`);
             const i = params.length;
-            where.push(`(lower(u.email) LIKE $${i} OR lower(u.first_name || ' ' || u.last_name) LIKE $${i} OR lower(COALESCE(o.name, '')) LIKE $${i})`);
+            where.push(`(lower(u.email) LIKE $${i} OR lower(u.first_name || ' ' || u.last_name) LIKE $${i} OR lower(COALESCE(o.name, '')) LIKE $${i} OR lower(COALESCE(u.whatsapp, '')) LIKE $${i})`);
         }
         const from = `
             FROM users u
@@ -86,7 +86,8 @@ router.get('/', async (req, res) => {
         params.push(limit, (page - 1) * limit);
         const rows = await req.db.all(
             `SELECT u.id, u.first_name, u.last_name, u.email, u.role, u.is_active, u.created_at, u.signup_source,
-                    u.email_verified_at IS NOT NULL AS email_verified, u.learn_access, u.country, u.google_sub IS NOT NULL AS google_linked,
+                    u.email_verified_at IS NOT NULL AS email_verified, u.learn_access, u.country, u.whatsapp, u.french_level,
+                    u.google_sub IS NOT NULL AS google_linked,
                     o.id AS organization_id, o.name AS organization, o.learn_access AS organization_access,
                     l.id IS NOT NULL AS premium, l.ends_at AS premium_until, l.source AS premium_source,
                     (l.user_id IS NULL AND l.id IS NOT NULL) AS premium_via_company,
@@ -330,7 +331,8 @@ router.get('/:id', async (req, res) => {
             user: {
                 id: u.id, first_name: u.first_name, last_name: u.last_name, email: u.email, role: u.role, is_active: u.is_active,
                 created_at: u.created_at, signup_source: u.signup_source, email_verified: !!u.email_verified_at || u.signup_source == null,
-                google_linked: !!u.google_sub, country: u.country, lang: u.preferred_lang, marketing_opt_in: u.marketing_opt_in,
+                google_linked: !!u.google_sub, country: u.country, whatsapp: u.whatsapp || null, french_level: u.french_level || null,
+                lang: u.preferred_lang, marketing_opt_in: u.marketing_opt_in,
                 learn_access: u.learn_access, organization: org,
             },
             access: access.publicAccess(a),

@@ -12,6 +12,8 @@ export interface SiteUser {
   email: string;
   role: string;
   country: string | null;
+  whatsapp: string | null;
+  french_level: string | null;
   lang: 'en' | 'fr' | null;
   marketing_opt_in: boolean;
   email_verified: boolean;

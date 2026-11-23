@@ -5,8 +5,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  ArrowRightOutlined, CheckCircleFilled, CrownFilled, EyeInvisibleOutlined, EyeOutlined, LaptopOutlined,
-  LoadingOutlined, LockOutlined, LogoutOutlined, MailOutlined, SafetyCertificateOutlined, UserOutlined,
+  ArrowRightOutlined, CheckCircleFilled, CrownFilled, EyeInvisibleOutlined, EyeOutlined,
+  LaptopOutlined, LoadingOutlined, LockOutlined, LogoutOutlined, MailOutlined,
+  UserOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import { LearnShell, useMounted } from '../shell';
 import { hubPath } from '../paths';
@@ -15,6 +16,10 @@ import { apiUrl, siteApi, type ApiError } from './api';
 import { ACCOUNT_COPY, errorText } from './copy';
 import { countries, guessCountry } from './countries';
 import { accountPath, safeNext, type AccountPage } from './paths';
+import {
+  countryFlag, FRENCH_LEVEL_OPTIONS, phoneRule, splitWhatsAppNumber, validateWhatsAppInput,
+  type FrenchLevelValue,
+} from './phone';
 import { PremiumRequest } from './AccessGate';
 import { BillingSection } from './Billing';
 import { loadAccount, setAccount, signedIn, signOut, useAccount, type SiteAccess, type SiteUser } from './store';
@@ -45,14 +50,23 @@ function Frame({ lang, page, title, sub, children, aside = true }: { lang: Lang;
       <section className="ax-wrap">
         <div className={`lp-wrap ax-grid${aside ? '' : ' is-single'}`}>
           <div className="ax-card">
+            <span className="lp-eyebrow ax-card-eyebrow">Learn French with Natives</span>
             <h1 className="ax-title">{title}</h1>
             {sub && <p className="ax-sub">{sub}</p>}
             {children}
           </div>
           {aside && (
             <aside className="ax-aside" aria-label={c.signUpTitle}>
-              <p className="ax-aside-k"><SafetyCertificateOutlined aria-hidden /> Learn French with Natives</p>
-              <ul>{c.perks.map(p => <li key={p}><CheckCircleFilled aria-hidden />{p}</li>)}</ul>
+              <span className="lp-eyebrow is-light">{c.asideEyebrow}</span>
+              <ul className="ax-aside-list">
+                {c.perks.map((p, i) => (
+                  <li key={p}>
+                    <span className="ax-aside-num" aria-hidden>0{i + 1}</span>
+                    <span>{p}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="ax-aside-foot">{c.asideTrust}</p>
             </aside>
           )}
         </div>
@@ -61,10 +75,37 @@ function Frame({ lang, page, title, sub, children, aside = true }: { lang: Lang;
   );
 }
 
-function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+function AuthTabs({ lang, active, next }: { lang: Lang; active: 'signIn' | 'signUp'; next: string }) {
+  const c = ACCOUNT_COPY[lang];
+  return (
+    <div className="ax-tabs" role="tablist" aria-label={c.signIn}>
+      <Link
+        to={accountPath('signIn', lang, next)}
+        role="tab"
+        aria-selected={active === 'signIn'}
+        className={`ax-tab${active === 'signIn' ? ' is-active' : ''}`}
+      >
+        {c.tabSignIn}
+      </Link>
+      <Link
+        to={accountPath('signUp', lang, next)}
+        role="tab"
+        aria-selected={active === 'signUp'}
+        className={`ax-tab${active === 'signUp' ? ' is-active' : ''}`}
+      >
+        {c.tabSignUp}
+      </Link>
+    </div>
+  );
+}
+
+function Field({ label, children, hint, right }: { label: string; children: ReactNode; hint?: string; right?: ReactNode }) {
   return (
     <label className="ax-field">
-      <span>{label}</span>
+      <span className="ax-field-top">
+        <span>{label}</span>
+        {right}
+      </span>
       {children}
       {hint && <small className="ax-hint">{hint}</small>}
     </label>
@@ -83,12 +124,143 @@ function PasswordInput({ c, value, onChange, autoComplete, id }: { c: Copy; valu
   );
 }
 
+function PasswordStrengthMeter({ password, c }: { password: string; c: Copy }) {
+  if (!password) return null;
+  const repeated = /^(.)\1+$/.test(password);
+  const categories = [/[a-z]/.test(password), /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean).length;
+  const score = password.length < 10 || repeated ? 1 : (password.length >= 13 || categories >= 3) ? 3 : 2;
+  const label = score === 1 ? c.pwWeak : score === 2 ? c.pwFair : c.pwStrong;
+  return (
+    <div className={`ax-pw-meter is-s${score}`} aria-live="polite">
+      <div className="ax-pw-bars" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
+      <small>{label}</small>
+    </div>
+  );
+}
+
+function WhatsAppInput({
+  lang, c, country, value, onChange, required = true,
+}: {
+  lang: Lang;
+  c: Copy;
+  country: string;
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
+  const [touched, setTouched] = useState(false);
+  const rule = phoneRule(country);
+  const check = validateWhatsAppInput(value, country);
+  const hasVal = value.trim().length > 0;
+  const showState = hasVal && (touched || check.ok || value.trim().length >= (rule?.min ?? 8));
+
+  let tone: '' | 'is-ok' | 'is-err' = '';
+  let message = rule ? c.whatsappHint(rule.dial, rule.ex) : c.whatsappSelectCountryFirst;
+
+  if (!country) {
+    tone = hasVal ? 'is-err' : '';
+    message = c.whatsappSelectCountryFirst;
+  } else if (showState && check.ok) {
+    tone = 'is-ok';
+    message = c.whatsappValid(check.e164);
+  } else if (showState && !check.ok) {
+    tone = 'is-err';
+    message = check.problem === 'country_mismatch'
+      ? c.whatsappMismatch(check.dial)
+      : c.whatsappInvalid(check.dial, check.ex);
+  }
+
+  return (
+    <label className="ax-field">
+      <span className="ax-field-top">
+        <span>{c.whatsappLabel}</span>
+        <span className="ax-wa-badge">
+          <WhatsAppOutlined aria-hidden /> {c.whatsappBadge}
+        </span>
+      </span>
+      <span className={`ax-wa-wrap${tone ? ` ${tone}` : ''}`}>
+        <span className="ax-wa-prefix" aria-label={rule ? `${country} ${rule.dial}` : c.chooseCountry}>
+          <span className="ax-wa-flag" aria-hidden>{country ? countryFlag(country) : '🌍'}</span>
+          <strong>{rule ? rule.dial : '+--'}</strong>
+        </span>
+        <input
+          type="tel"
+          inputMode="tel"
+          autoComplete="tel-national"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onBlur={() => setTouched(true)}
+          placeholder={rule ? rule.ex : (lang === 'fr' ? 'Choisissez votre pays' : 'Select country first')}
+          required={required}
+          maxLength={24}
+        />
+        {check.ok && <CheckCircleFilled className="ax-wa-ok-ico" aria-hidden />}
+      </span>
+      <small className={`ax-hint${tone === 'is-ok' ? ' is-ok' : tone === 'is-err' ? ' is-err' : ''}`}>{message}</small>
+    </label>
+  );
+}
+
+function FrenchLevelPicker({
+  lang, c, value, onChange,
+}: {
+  lang: Lang;
+  c: Copy;
+  value: string;
+  onChange: (v: FrenchLevelValue) => void;
+}) {
+  const active = FRENCH_LEVEL_OPTIONS.find(o => o.value === value) || null;
+  return (
+    <div className="ax-field" role="group" aria-labelledby="ax-level-lbl">
+      <span id="ax-level-lbl" className="ax-field-top">
+        <span>{c.frenchLevelLabel}</span>
+      </span>
+      <div className="ax-lvl-grid">
+        {FRENCH_LEVEL_OPTIONS.map(opt => {
+          const selected = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              className={`ax-lvl-btn${selected ? ' is-selected' : ''}`}
+              aria-pressed={selected}
+              onClick={() => onChange(opt.value)}
+            >
+              <b>{opt.badge}</b>
+              {opt.value === 'beginner' && <span>{opt.label[lang]}</span>}
+            </button>
+          );
+        })}
+      </div>
+      <small className="ax-hint">{active ? `${active.label[lang]} — ${active.desc[lang]}` : c.frenchLevelHint}</small>
+    </div>
+  );
+}
+
 function ErrorLine({ text }: { text: string }) {
   return text ? <p className="ax-error" role="alert">{text}</p> : null;
 }
 
-function GoogleButton({ lang, next, label }: { lang: Lang; next: string; label: string }) {
-  const href = apiUrl(`/site-auth/google/start?lang=${lang}&next=${encodeURIComponent(next)}`);
+function ExistingAccountAlert({ lang, next }: { lang: Lang; next: string }) {
+  const c = ACCOUNT_COPY[lang];
+  return (
+    <div className="ax-exists" role="alert">
+      <p className="ax-exists-t">{c.emailExistsTitle}</p>
+      <p className="ax-exists-p">{c.emailExistsText}</p>
+      <div className="ax-exists-links">
+        <Link to={accountPath('signIn', lang, next)} className="lp-btn lp-btn-primary">{c.signIn}</Link>
+        <Link to={accountPath('forgot', lang)} className="lp-btn lp-btn-ghost">{c.forgot}</Link>
+      </div>
+    </div>
+  );
+}
+
+function GoogleButton({ lang, next, label, mode = 'signin' }: { lang: Lang; next: string; label: string; mode?: 'signin' | 'signup' }) {
+  const href = apiUrl(`/site-auth/google/start?lang=${lang}&mode=${mode}&next=${encodeURIComponent(next)}`);
   return (
     <a className="ax-google" href={href}>
       <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden>
@@ -166,6 +338,7 @@ export function SignInPage({ lang }: { lang: Lang }) {
 
   return (
     <Frame lang={lang} page="signIn" title={linking ? c.linkGoogleTitle : c.signInTitle} sub={linking ? c.linkGoogleText(email) : c.signInSub}>
+      {!linking && <AuthTabs lang={lang} active="signIn" next={next} />}
       {!linking && account.google && (
         <>
           <GoogleButton lang={lang} next={next} label={c.google} />
@@ -178,7 +351,10 @@ export function SignInPage({ lang }: { lang: Lang }) {
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" required maxLength={254} />
           </Field>
         )}
-        <Field label={c.password}>
+        <Field
+          label={c.password}
+          right={!linking ? <Link to={accountPath('forgot', lang)} className="ax-inline-link">{c.forgot}</Link> : undefined}
+        >
           <PasswordInput c={c} value={password} onChange={setPassword} autoComplete="current-password" />
         </Field>
         <ErrorLine text={error} />
@@ -188,7 +364,6 @@ export function SignInPage({ lang }: { lang: Lang }) {
       </form>
       {!linking && (
         <div className="ax-links">
-          <Link to={accountPath('forgot', lang)}>{c.forgot}</Link>
           <span>{c.noAccount} <Link to={accountPath('signUp', lang, next)}>{c.signUp}</Link></span>
         </div>
       )}
@@ -206,20 +381,41 @@ export function SignUpPage({ lang }: { lang: Lang }) {
   const next = useNext(lang);
   const shownAt = useRef(0);
   const [step, setStep] = useState<'form' | 'code' | 'confirm' | 'done'>('form');
-  const [f, setF] = useState({ first_name: '', email: '', password: '', country: '', terms: false, marketing: false, website: '' });
+  const [f, setF] = useState({
+    first_name: '',
+    email: '',
+    password: '',
+    country: '',
+    whatsapp: '',
+    french_level: '' as '' | FrenchLevelValue,
+    terms: false,
+    marketing: false,
+    website: '',
+  });
   const [suggestion, setSuggestion] = useState('');
   const [handle, setHandle] = useState('');
   const [code, setCode] = useState('');
   const [wait, setWait] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [existingEmail, setExistingEmail] = useState(false);
   const [name, setName] = useState('');
-  const set = (k: keyof typeof f) => (v: string | boolean) => setF(x => ({ ...x, [k]: v }));
+  const set = <K extends keyof typeof f>(k: K) => (v: (typeof f)[K]) => setF(x => ({ ...x, [k]: v }));
 
   useEffect(() => {
     shownAt.current = Date.now();
     setF(x => (x.country ? x : { ...x, country: guessCountry() }));
   }, []);
+  useEffect(() => {
+    const e = q.get('error');
+    if (!e) return;
+    if (e === 'email_exists' || e === 'EMAIL_TAKEN') {
+      setExistingEmail(true);
+      setError('');
+    } else {
+      setError(errorText(lang, { code: e }));
+    }
+  }, [q, lang]);
   useEffect(() => { if (q.get('confirm')) setStep('confirm'); }, [q]);
   useEffect(() => {
     if (account.user && step === 'form' && !q.get('confirm')) navigate(next, { replace: true });
@@ -231,12 +427,38 @@ export function SignUpPage({ lang }: { lang: Lang }) {
   }, [wait]);
 
   const send = async (keepEmail = false, email = f.email) => {
-    setBusy(true);
     setError('');
+    setExistingEmail(false);
     setSuggestion('');
+
+    const wp = validateWhatsAppInput(f.whatsapp, f.country);
+    if (!wp.ok) {
+      setError(
+        wp.problem === 'country_mismatch'
+          ? c.whatsappMismatch(wp.dial)
+          : wp.dial
+            ? c.whatsappInvalid(wp.dial, wp.ex)
+            : c.whatsappSelectCountryFirst,
+      );
+      return;
+    }
+    if (!f.french_level) {
+      setError(c.errors.BAD_FRENCH_LEVEL);
+      return;
+    }
+
+    setBusy(true);
     try {
       const data = await siteApi<{ handle: string; resend_in: number }>('/site-auth/signup', {
-        body: { ...f, email, lang, keep_email: keepEmail, elapsed_ms: Date.now() - shownAt.current },
+        body: {
+          ...f,
+          email,
+          whatsapp: wp.e164,
+          french_level: f.french_level,
+          lang,
+          keep_email: keepEmail,
+          elapsed_ms: Date.now() - shownAt.current,
+        },
       });
       setHandle(data.handle);
       setWait(data.resend_in || 60);
@@ -244,6 +466,7 @@ export function SignUpPage({ lang }: { lang: Lang }) {
     } catch (e) {
       const err = asError(e);
       if (err.code === 'EMAIL_TYPO' && typeof err.suggestion === 'string') setSuggestion(err.suggestion);
+      else if (err.code === 'EMAIL_TAKEN') setExistingEmail(true);
       else setError(errorText(lang, err));
     } finally {
       setBusy(false);
@@ -340,18 +563,32 @@ export function SignUpPage({ lang }: { lang: Lang }) {
 
   return (
     <Frame lang={lang} page="signUp" title={c.signUpTitle} sub={c.signUpSub}>
+      <AuthTabs lang={lang} active="signUp" next={next} />
+      {existingEmail && <ExistingAccountAlert lang={lang} next={next} />}
       {account.google && (
         <>
-          <GoogleButton lang={lang} next={next} label={c.google} />
+          <GoogleButton lang={lang} next={next} label={c.googleSignUp} mode="signup" />
           <p className="ax-or"><span>{c.orDivider}</span></p>
         </>
       )}
       <form className="ax-form" onSubmit={e => { e.preventDefault(); send(); }}>
-        <Field label={c.firstName}>
-          <input value={f.first_name} onChange={e => set('first_name')(e.target.value)} autoComplete="given-name" required maxLength={50} />
-        </Field>
+        <div className="ax-form-split">
+          <Field label={c.firstName}>
+            <input value={f.first_name} onChange={e => set('first_name')(e.target.value)} autoComplete="given-name" required maxLength={50} />
+          </Field>
+          <Field label={c.country}>
+            <CountrySelect lang={lang} c={c} value={f.country} onChange={v => set('country')(v)} />
+          </Field>
+        </div>
         <Field label={c.email}>
-          <input type="email" value={f.email} onChange={e => set('email')(e.target.value)} autoComplete="email" required maxLength={100} />
+          <input
+            type="email"
+            value={f.email}
+            onChange={e => { set('email')(e.target.value); if (existingEmail) setExistingEmail(false); }}
+            autoComplete="email"
+            required
+            maxLength={100}
+          />
         </Field>
         {suggestion && (
           <div className="ax-suggest" role="status">
@@ -362,11 +599,11 @@ export function SignUpPage({ lang }: { lang: Lang }) {
             </div>
           </div>
         )}
+        <WhatsAppInput lang={lang} c={c} country={f.country} value={f.whatsapp} onChange={v => set('whatsapp')(v)} />
+        <FrenchLevelPicker lang={lang} c={c} value={f.french_level} onChange={v => set('french_level')(v)} />
         <Field label={c.password} hint={c.passwordHint}>
-          <PasswordInput c={c} value={f.password} onChange={set('password')} autoComplete="new-password" />
-        </Field>
-        <Field label={c.country}>
-          <CountrySelect lang={lang} c={c} value={f.country} onChange={set('country')} />
+          <PasswordInput c={c} value={f.password} onChange={v => set('password')(v)} autoComplete="new-password" />
+          <PasswordStrengthMeter password={f.password} c={c} />
         </Field>
         {/* Left empty by people, filled by robots. */}
         <input className="ax-hp" tabIndex={-1} autoComplete="off" aria-hidden value={f.website} onChange={e => set('website')(e.target.value)} name="website" />
@@ -456,6 +693,7 @@ export function ForgotPage({ lang }: { lang: Lang }) {
           </Field>
           <Field label={c.newPassword} hint={c.passwordHint}>
             <PasswordInput c={c} value={password} onChange={setPassword} autoComplete="new-password" />
+            <PasswordStrengthMeter password={password} c={c} />
           </Field>
           <ErrorLine text={error} />
           <button type="submit" className="lp-btn lp-btn-primary ax-submit" disabled={busy || code.length !== 6}>{busy ? <LoadingOutlined /> : <LockOutlined />}{c.resetButton}</button>
@@ -472,9 +710,18 @@ export function CompletePage({ lang }: { lang: Lang }) {
   const c = ACCOUNT_COPY[lang];
   const navigate = useNavigate();
   const [pending, setPending] = useState<{ email: string; first_name: string; last_name: string } | null>(null);
-  const [f, setF] = useState({ first_name: '', last_name: '', country: '', terms: false, marketing: false });
+  const [f, setF] = useState({
+    first_name: '',
+    last_name: '',
+    country: '',
+    whatsapp: '',
+    french_level: '' as '' | FrenchLevelValue,
+    terms: false,
+    marketing: false,
+  });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [existingEmail, setExistingEmail] = useState(false);
 
   useEffect(() => {
     siteApi<{ email: string; first_name: string; last_name: string }>('/site-auth/google/pending')
@@ -484,28 +731,54 @@ export function CompletePage({ lang }: { lang: Lang }) {
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault();
-    setBusy(true);
     setError('');
+    setExistingEmail(false);
+    const wp = validateWhatsAppInput(f.whatsapp, f.country);
+    if (!wp.ok) {
+      setError(
+        wp.problem === 'country_mismatch'
+          ? c.whatsappMismatch(wp.dial)
+          : wp.dial
+            ? c.whatsappInvalid(wp.dial, wp.ex)
+            : c.whatsappSelectCountryFirst,
+      );
+      return;
+    }
+    if (!f.french_level) {
+      setError(c.errors.BAD_FRENCH_LEVEL);
+      return;
+    }
+
+    setBusy(true);
     try {
-      const data = await siteApi<{ user: SiteUser; access: SiteAccess; next?: string }>('/site-auth/google/complete', { body: { ...f, lang } });
+      const data = await siteApi<{ user: SiteUser; access: SiteAccess; next?: string }>('/site-auth/google/complete', {
+        body: { ...f, whatsapp: wp.e164, french_level: f.french_level, lang },
+      });
       signedIn(data);
       navigate(safeNext(data.next, lang) === accountPath('account', lang) ? hubPath(lang) : safeNext(data.next, lang), { replace: true });
     } catch (e) {
-      setError(errorText(lang, asError(e)));
+      const err = asError(e);
+      if (err.code === 'EMAIL_TAKEN') setExistingEmail(true);
+      else setError(errorText(lang, err));
       setBusy(false);
     }
   };
 
   return (
     <Frame lang={lang} page="complete" title={c.completeTitle} sub={pending ? c.completeSub(pending.email) : undefined}>
+      {existingEmail && <ExistingAccountAlert lang={lang} next={hubPath(lang)} />}
       {pending ? (
         <form className="ax-form" onSubmit={submit}>
-          <Field label={c.firstName}>
-            <input value={f.first_name} onChange={e => setF(x => ({ ...x, first_name: e.target.value }))} autoComplete="given-name" required maxLength={50} />
-          </Field>
-          <Field label={c.country}>
-            <CountrySelect lang={lang} c={c} value={f.country} onChange={v => setF(x => ({ ...x, country: v }))} />
-          </Field>
+          <div className="ax-form-split">
+            <Field label={c.firstName}>
+              <input value={f.first_name} onChange={e => setF(x => ({ ...x, first_name: e.target.value }))} autoComplete="given-name" required maxLength={50} />
+            </Field>
+            <Field label={c.country}>
+              <CountrySelect lang={lang} c={c} value={f.country} onChange={v => setF(x => ({ ...x, country: v }))} />
+            </Field>
+          </div>
+          <WhatsAppInput lang={lang} c={c} country={f.country} value={f.whatsapp} onChange={v => setF(x => ({ ...x, whatsapp: v }))} />
+          <FrenchLevelPicker lang={lang} c={c} value={f.french_level} onChange={v => setF(x => ({ ...x, french_level: v }))} />
           <label className="ax-check">
             <input type="checkbox" checked={f.terms} onChange={e => setF(x => ({ ...x, terms: e.target.checked }))} required />
             <span><TermsLine c={c} lang={lang} /></span>
@@ -605,18 +878,51 @@ function AccessCard({ lang, c, access, payments, freeForAll }: { lang: Lang; c: 
 }
 
 function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser }) {
-  const [f, setF] = useState({ first_name: user.first_name, last_name: user.last_name, country: user.country || '', lang: user.lang || lang, marketing_opt_in: user.marketing_opt_in });
+  const [f, setF] = useState({
+    first_name: user.first_name,
+    last_name: user.last_name,
+    country: user.country || '',
+    whatsapp: splitWhatsAppNumber(user.whatsapp, user.country || ''),
+    french_level: (user.french_level as FrenchLevelValue | null) || '',
+    lang: user.lang || lang,
+    marketing_opt_in: user.marketing_opt_in,
+  });
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
   const learner = !user.portal;
+
   const save = async (ev: FormEvent) => {
     ev.preventDefault();
-    setBusy(true);
     setMsg('');
     setError('');
+
+    let nextWhatsapp: string | undefined;
+    if (f.whatsapp.trim() || user.whatsapp) {
+      const wp = validateWhatsAppInput(f.whatsapp, f.country);
+      if (!wp.ok) {
+        setError(
+          wp.problem === 'country_mismatch'
+            ? c.whatsappMismatch(wp.dial)
+            : wp.dial
+              ? c.whatsappInvalid(wp.dial, wp.ex)
+              : c.whatsappSelectCountryFirst,
+        );
+        return;
+      }
+      nextWhatsapp = wp.e164;
+    }
+
+    setBusy(true);
     try {
-      const body = learner ? f : { country: f.country, lang: f.lang, marketing_opt_in: f.marketing_opt_in };
+      const base = {
+        country: f.country,
+        lang: f.lang,
+        marketing_opt_in: f.marketing_opt_in,
+        ...(nextWhatsapp ? { whatsapp: nextWhatsapp } : {}),
+        ...(f.french_level ? { french_level: f.french_level } : {}),
+      };
+      const body = learner ? { ...base, first_name: f.first_name, last_name: f.last_name } : base;
       const data = await siteApi<{ user: SiteUser }>('/site-auth/me', { method: 'PUT', body });
       setAccount({ user: data.user });
       setMsg(c.saved);
@@ -626,6 +932,7 @@ function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser })
       setBusy(false);
     }
   };
+
   return (
     <section className="ax-section">
       <h2>{c.detailsTitle}</h2>
@@ -639,6 +946,12 @@ function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser })
             <option value="fr">Français</option>
           </select>
         </Field>
+        <div className="ax-span">
+          <WhatsAppInput lang={lang} c={c} country={f.country} value={f.whatsapp} onChange={v => setF(x => ({ ...x, whatsapp: v }))} required={!!user.whatsapp} />
+        </div>
+        <div className="ax-span">
+          <FrenchLevelPicker lang={lang} c={c} value={f.french_level} onChange={v => setF(x => ({ ...x, french_level: v }))} />
+        </div>
         <label className="ax-check ax-span">
           <input type="checkbox" checked={f.marketing_opt_in} onChange={e => setF(x => ({ ...x, marketing_opt_in: e.target.checked }))} />
           <span>{c.marketing}</span>
@@ -647,7 +960,7 @@ function DetailsCard({ lang, c, user }: { lang: Lang; c: Copy; user: SiteUser })
           <button type="submit" className="lp-btn lp-btn-primary" disabled={busy}>{busy ? <LoadingOutlined /> : null}{c.save}</button>
           {msg && <span className="ax-ok" role="status"><CheckCircleFilled /> {msg}</span>}
         </div>
-        <ErrorLine text={error} />
+        <div className="ax-span"><ErrorLine text={error} /></div>
       </form>
     </section>
   );
@@ -706,7 +1019,10 @@ function SecurityCard({ lang, c, user, google }: { lang: Lang; c: Copy; user: Si
       ) : (
         <form className="ax-form" onSubmit={changePassword}>
           {user.has_password && <Field label={c.currentPassword}><PasswordInput c={c} value={current} onChange={setCurrent} autoComplete="current-password" /></Field>}
-          <Field label={c.newPassword} hint={c.passwordHint}><PasswordInput c={c} value={next} onChange={setNext} autoComplete="new-password" /></Field>
+          <Field label={c.newPassword} hint={c.passwordHint}>
+            <PasswordInput c={c} value={next} onChange={setNext} autoComplete="new-password" />
+            <PasswordStrengthMeter password={next} c={c} />
+          </Field>
           <div className="ax-row">
             <button type="submit" className="lp-btn lp-btn-primary" disabled={busy}>{busy ? <LoadingOutlined /> : null}{c.save}</button>
             <button type="button" className="ax-linkbtn" onClick={() => setOpen(false)}>×</button>

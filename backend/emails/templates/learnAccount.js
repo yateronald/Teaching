@@ -37,17 +37,32 @@ function signupCode({ lang, name, code, confirmUrl }) {
 
 /**
  * Someone tried to create an account with an email that already has one. Only
- * the owner of the inbox reads this, so the sign-up page never has to say it.
+ * the owner of the inbox reads this; registration is also blocked immediately.
  * `portalOnly`: the account belongs to a class or a company and the online
  * courses are not enabled on it.
  */
-function existingAccount({ lang, name, signInUrl, resetUrl, portalOnly = false }) {
+function existingAccount({ lang, name, signInUrl, resetUrl, portalOnly = false, via = 'email' }) {
     const fr = lang === 'fr';
+    const isGoogle = via === 'google';
     const subject = fr ? 'Vous avez déjà un compte' : 'You already have an account';
-    const preheader = fr ? 'Quelqu’un a voulu créer un compte avec votre adresse.' : 'Someone tried to create an account with your email.';
+    const preheader = fr
+        ? (isGoogle ? 'Quelqu’un a voulu créer un compte avec Google en utilisant votre adresse.' : 'Quelqu’un a voulu créer un compte avec votre adresse.')
+        : (isGoogle ? 'Someone tried to register with Google using your email.' : 'Someone tried to create an account with your email.');
     const body = portalOnly
-        ? `${p(fr ? 'Quelqu’un (peut-être vous) a voulu créer un compte avec cette adresse. Elle a déjà un compte chez nous, celui de vos cours. Les cours en ligne ne sont pas encore activés sur ce compte : demandez-les à votre école ou au responsable de votre entreprise.' : 'Someone (maybe you) tried to create an account with this email. It already has an account with us, the one of your classes. Online courses are not enabled on it yet: ask your school or your company manager.')}`
-        : `${p(fr ? 'Quelqu’un (peut-être vous) a voulu créer un compte avec cette adresse. Vous avez déjà un compte : connectez-vous, ou choisissez un nouveau mot de passe.' : 'Someone (maybe you) tried to create an account with this email. You already have one: sign in, or choose a new password.')}
+        ? `${p(fr
+            ? (isGoogle
+                ? 'Quelqu’un (peut-être vous) a voulu créer un compte avec Google en utilisant cette adresse. Elle a déjà un compte chez nous, celui de vos cours. Les cours en ligne ne sont pas encore activés sur ce compte : demandez-les à votre école ou au responsable de votre entreprise.'
+                : 'Quelqu’un (peut-être vous) a voulu créer un compte avec cette adresse. Elle a déjà un compte chez nous, celui de vos cours. Les cours en ligne ne sont pas encore activés sur ce compte : demandez-les à votre école ou au responsable de votre entreprise.')
+            : (isGoogle
+                ? 'Someone (maybe you) tried to register with Google using this email. It already has an account with us, the one of your classes. Online courses are not enabled on it yet: ask your school or your company manager.'
+                : 'Someone (maybe you) tried to create an account with this email. It already has an account with us, the one of your classes. Online courses are not enabled on it yet: ask your school or your company manager.'))}`
+        : `${p(fr
+            ? (isGoogle
+                ? 'Quelqu’un (peut-être vous) a voulu créer un compte avec Google en utilisant cette adresse. Vous avez déjà un compte : connectez-vous, ou choisissez un nouveau mot de passe.'
+                : 'Quelqu’un (peut-être vous) a voulu créer un compte avec cette adresse. Vous avez déjà un compte : connectez-vous, ou choisissez un nouveau mot de passe.')
+            : (isGoogle
+                ? 'Someone (maybe you) tried to register with Google using this email. You already have one: sign in, or choose a new password.'
+                : 'Someone (maybe you) tried to create an account with this email. You already have one: sign in, or choose a new password.'))}
            ${ctaButton({ label: fr ? 'Me connecter' : 'Sign in', href: signInUrl })}
            ${p(`<a href="${resetUrl}" style="color:#4338ca;">${fr ? 'J’ai oublié mon mot de passe' : 'I forgot my password'}</a>`)}`;
     const bodyHtml = `${hello(name, fr)}${body}

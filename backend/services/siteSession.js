@@ -55,8 +55,8 @@ const VISITOR = { website: false, level: 'visitor', staff: false, premium: null,
 
 /** The account fields the website needs (never the password hash). */
 const USER_FIELDS = `id, username, email, role, first_name, last_name, is_active, account_locked_until, organization_id,
-    learn_access, email_verified_at, google_sub IS NOT NULL AS google_linked, has_password, country, preferred_lang,
-    marketing_opt_in, signup_source, created_at`;
+    learn_access, email_verified_at, google_sub IS NOT NULL AS google_linked, has_password, country, whatsapp, french_level,
+    preferred_lang, marketing_opt_in, signup_source, created_at`;
 
 /** Opens a website session for this account and sets its cookie. */
 async function openSiteSession(db, req, res, user) {
@@ -200,6 +200,8 @@ function publicUser(user) {
         email: user.email,
         role: user.role,
         country: user.country || null,
+        whatsapp: user.whatsapp || null,
+        french_level: user.french_level || null,
         lang: user.preferred_lang || null,
         marketing_opt_in: !!user.marketing_opt_in,
         email_verified: !!user.email_verified_at || user.signup_source == null,

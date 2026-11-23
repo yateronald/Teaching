@@ -1,11 +1,10 @@
-// Persuasive Premium upgrade modal & inline advantages cards.
+// Editorial Premium upgrade dialog, inline banners, and lock pills.
 // Shown ONLY when an administrator enables Premium mode AND the current
 // visitor/free account does not already hold Premium or staff access.
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  ArrowRightOutlined, CheckCircleFilled, CloseOutlined, CrownFilled,
-  LockOutlined, SafetyCertificateFilled, UnlockOutlined,
+  ArrowRightOutlined, CloseOutlined, CrownFilled, LockOutlined, UnlockOutlined,
 } from '@ant-design/icons';
 import type { Tier } from '../access';
 import type { Lang } from '../types';
@@ -20,22 +19,24 @@ import {
 import { effectiveLevel, useAccount } from './store';
 import './account.css';
 
-const ADVANTAGES: Record<Lang, string[]> = {
+interface HighlightMetric {
+  value: string;
+  label: string;
+  detail: string;
+}
+
+const HIGHLIGHTS: Record<Lang, HighlightMetric[]> = {
   en: [
-    'All 464+ French courses & 1,500+ interactive native-voice lessons (A1 → C2)',
-    'All 400+ listening labs, everyday dialogues, ear training & reading missions',
-    '186 studio-recorded dictations in two native voices (Claire & Thomas) with /20 grading',
-    'TCF Canada, TEF Canada & DELF/DALF strategies & timed exam simulations',
-    'All 5 interactive French games, adaptive CEFR checkpoints & completion certificates',
-    'Instant sync across desktop and mobile — flexible access anytime',
+    { value: '464+', label: 'Guided courses (A1 → C2)', detail: '1,500+ interactive lessons with native audio & progress sync' },
+    { value: '400+', label: 'Practice & listening labs', detail: 'Everyday dialogues, ear training & reading missions' },
+    { value: '186', label: 'Studio dictations /20', detail: 'Recorded in two native voices (Claire & Thomas)' },
+    { value: 'Exams', label: 'TCF, TEF & DELF/DALF', detail: 'Exam preparation tracks & verified completion certificates' },
   ],
   fr: [
-    'Accès illimité aux 464+ cours et 1 500+ leçons interactives avec voix natives (A1 → C2)',
-    '400+ exercices de pratique : dialogues, entraînement de l’oreille, lectures & missions',
-    '186 dictées studio enregistrées à deux voix natives (Claire & Thomas) avec note /20',
-    'Parcours complets TCF Canada, TEF Canada & DELF/DALF en conditions réelles',
-    'Les 5 jeux de français, bilans CECR adaptatifs et certificats de réussite',
-    'Progression synchronisée sur ordinateur et mobile — accès immédiat après activation',
+    { value: '464+', label: 'Cours guidés (A1 → C2)', detail: 'Plus de 1 500 leçons interactives avec voix natives' },
+    { value: '400+', label: 'Ateliers de pratique', detail: 'Dialogues quotidiens, entraînement de l’oreille et lectures' },
+    { value: '186', label: 'Dictées studio notées /20', detail: 'Enregistrées à deux voix natives (Claire et Thomas)' },
+    { value: 'Examens', label: 'TCF, TEF & DELF/DALF', detail: 'Préparation structurée et certificats de réussite' },
   ],
 };
 
@@ -59,58 +60,64 @@ function usePublicOffers(enabled: boolean): Offer[] {
 
 const COPY = {
   en: {
-    pillPremium: 'Premium account required',
-    pillFree: 'Free account required',
-    modalUnlock: 'Unlock access to continue',
-    modalFreeDesc: 'Create a free account in 30 seconds to unlock Module 1 of all 24 study paths across A1 to C2.',
-    modalPremiumDesc: 'Upgrade to Premium to unlock every course, dictation studio, listening lab, mock exam and certificate.',
-    advantagesTitle: 'What you get with Premium',
-    pricingTitle: 'Plans & immediate activation',
+    pillPremium: 'Premium access',
+    pillFree: 'Free account',
+    eyebrowPremium: 'Premium membership',
+    eyebrowFree: 'Free member access',
+    modalFreeTitle: 'Unlock all 24 Module 1 paths free',
+    modalPremiumTitle: 'Full access to every course & studio',
+    modalFreeDesc: 'Create your free account in under a minute to open the first module of all 24 study paths across A1 to C2.',
+    modalPremiumDesc: 'Upgrade to Premium to unlock every lesson, native dictation studio, listening lab, mock exam and certificate.',
+    pricingTitle: 'Available plans',
     signUpFree: 'Create a free account',
-    signUpPremium: 'Sign up & get Premium',
+    signUpPremium: 'Sign up & unlock Premium',
     signIn: 'I already have an account',
-    upgradeNow: 'Choose a Premium plan',
-    previewSyllabus: 'Preview course outline',
-    bannerBadge: 'Premium mode active',
-    bannerTitle: 'Unlock all 464+ courses, 186 dictations & TCF/TEF prep',
-    bannerFreeSub: 'Module 1 of A1 is open without an account. Create a free account for all 24 Module 1 paths, or go Premium for everything.',
-    bannerAccountSub: 'Your free account opens every Module 1. Upgrade to Premium for full access from A1 to C2.',
-    bannerCta: 'See Premium & benefits',
-    lockPillPremium: 'Premium required',
+    upgradeNow: 'Upgrade to Premium',
+    previewSyllabus: 'Preview syllabus',
+    bannerBadge: 'Premium access',
+    bannerTitle: 'Open all 464+ French courses, 186 dictations & TCF/TEF prep',
+    bannerFreeSub: 'A1 Module 1 is open to everyone. Create a free account for all 24 Module 1 tracks, or upgrade for full access.',
+    bannerAccountSub: 'Your free account opens every Module 1. Upgrade to Premium to continue seamlessly from A1 to C2.',
+    bannerCta: 'Explore Premium',
+    lockPillPremium: 'Premium',
     lockPillFree: 'Free account',
     cardTitle: 'Unlock the complete course with Premium',
     cardFreeTitle: 'Create a free account to open this module',
-    cardSub: 'Get unlimited access to every lesson, audio recording, exercise, final test and certificate.',
-    close: 'Close window',
+    cardSub: 'Unlimited access to every interactive lesson, native voice recording, final test and certificate.',
+    close: 'Close',
+    reassurance: 'Instant activation · Cancel or switch anytime',
   },
   fr: {
-    pillPremium: 'Compte Premium requis',
-    pillFree: 'Compte gratuit requis',
-    modalUnlock: 'Débloquez l’accès pour continuer',
-    modalFreeDesc: 'Créez un compte gratuit en 30 secondes pour ouvrir le Module 1 des 24 parcours de A1 à C2.',
-    modalPremiumDesc: 'Passez à Premium pour débloquer tous les cours, dictées, dialogues, simulations d’examen et certificats.',
-    advantagesTitle: 'Vos avantages Premium',
-    pricingTitle: 'Formules et activation immédiate',
+    pillPremium: 'Accès Premium',
+    pillFree: 'Compte gratuit',
+    eyebrowPremium: 'Membre Premium',
+    eyebrowFree: 'Accès membre gratuit',
+    modalFreeTitle: 'Ouvrez les 24 modules 1 gratuitement',
+    modalPremiumTitle: 'Accès complet aux cours et ateliers',
+    modalFreeDesc: 'Créez votre compte gratuit en moins d’une minute pour débloquer le Module 1 des 24 parcours de A1 à C2.',
+    modalPremiumDesc: 'Passez à Premium pour débloquer toutes les leçons, dictées studio, dialogues, entraînements et certificats.',
+    pricingTitle: 'Formules disponibles',
     signUpFree: 'Créer un compte gratuit',
-    signUpPremium: 'S’inscrire et passer à Premium',
+    signUpPremium: 'Créer mon compte et continuer',
     signIn: 'J’ai déjà un compte',
-    upgradeNow: 'Voir les offres Premium',
-    previewSyllabus: 'Voir le programme du cours',
+    upgradeNow: 'Passer à Premium',
+    previewSyllabus: 'Aperçu du programme',
     bannerBadge: 'Accès Premium',
-    bannerTitle: 'Débloquez les 464+ cours, 186 dictées et la préparation TCF/TEF',
-    bannerFreeSub: 'Le module 1 du A1 est ouvert à tous. Créez un compte gratuit pour les 24 modules 1, ou passez à Premium.',
-    bannerAccountSub: 'Votre compte gratuit ouvre chaque Module 1. Passez à Premium pour tout débloquer de A1 à C2.',
+    bannerTitle: 'Accédez aux 464+ cours, 186 dictées studio et parcours TCF/TEF',
+    bannerFreeSub: 'Le module 1 A1 est ouvert à tous. Créez un compte gratuit pour les 24 modules 1, ou passez à Premium.',
+    bannerAccountSub: 'Votre compte gratuit ouvre chaque Module 1. Passez à Premium pour débloquer tout le programme A1 à C2.',
     bannerCta: 'Découvrir Premium',
-    lockPillPremium: 'Compte Premium requis',
-    lockPillFree: 'Compte gratuit requis',
+    lockPillPremium: 'Premium',
+    lockPillFree: 'Compte gratuit',
     cardTitle: 'Débloquez l’intégralité du cours avec Premium',
     cardFreeTitle: 'Créez un compte gratuit pour ouvrir ce module',
-    cardSub: 'Accédez à toutes les leçons, enregistrements natifs, exercices, tests finaux et certificats.',
-    close: 'Fermer la fenêtre',
+    cardSub: 'Accès complet à toutes les leçons, enregistrements natifs, tests finaux et certificats.',
+    close: 'Fermer',
+    reassurance: 'Activation immédiate · Accès multi-appareils',
   },
 };
 
-/** Small crisp pill rendered on locked cards instead of "Start →". */
+/** Refined understated lock pill shown on gated cards instead of "Start ->". */
 export function LockActionPill({ lang, tier, compact = false }: { lang: Lang; tier: Tier; compact?: boolean }) {
   const c = COPY[lang];
   const premium = tier === 'premium';
@@ -122,7 +129,7 @@ export function LockActionPill({ lang, tier, compact = false }: { lang: Lang; ti
   );
 }
 
-/** Inline Premium information + upgrade banner or course card (hidden in Free mode or for Premium/Staff). */
+/** Inline Premium editorial banner or course card (hidden in Free mode or for Premium/Staff). */
 export function PremiumInfoWidget({ lang, variant = 'banner', tier = 'premium', title }: {
   lang: Lang;
   variant?: 'banner' | 'card';
@@ -137,29 +144,30 @@ export function PremiumInfoWidget({ lang, variant = 'banner', tier = 'premium', 
   const ac = ACCOUNT_COPY[lang];
   const signedIn = !!account.user;
   const needPremium = tier === 'premium' || signedIn;
+  const metrics = HIGHLIGHTS[lang];
 
   if (variant === 'banner') {
     return (
       <aside className="ax-pw-banner" aria-label={c.bannerBadge}>
         <div className="ax-pw-banner-copy">
-          <span className="ax-pw-tag"><CrownFilled aria-hidden /> {c.bannerBadge}</span>
+          <span className="lp-eyebrow is-light">{c.bannerBadge}</span>
           <strong>{c.bannerTitle}</strong>
           <p>{signedIn ? c.bannerAccountSub : c.bannerFreeSub}</p>
         </div>
         <div className="ax-pw-banner-actions">
           <button
             type="button"
-            className="lp-btn lp-btn-primary ax-pw-btn"
+            className="lp-btn lp-btn-light ax-pw-btn"
             onClick={() => openPremiumModal({
               title: title || c.bannerTitle,
               tier: 'premium',
               to: pathname,
             })}
           >
-            <CrownFilled aria-hidden /> {c.bannerCta} <ArrowRightOutlined aria-hidden />
+            {c.bannerCta} <ArrowRightOutlined aria-hidden />
           </button>
           {!signedIn && (
-            <Link to={accountPath('signUp', lang, pathname)} className="lp-btn lp-btn-ghost">
+            <Link to={accountPath('signUp', lang, pathname)} className="lp-btn ax-pw-ghost-dark">
               {c.signUpFree}
             </Link>
           )}
@@ -169,23 +177,27 @@ export function PremiumInfoWidget({ lang, variant = 'banner', tier = 'premium', 
   }
 
   return (
-    <section className="ax-pw-card" aria-label={c.advantagesTitle}>
+    <section className="ax-pw-card" aria-label={c.eyebrowPremium}>
       <div className="ax-pw-card-head">
-        <span className="ax-pw-tag"><CrownFilled aria-hidden /> {needPremium ? c.pillPremium : c.pillFree}</span>
+        <span className="lp-eyebrow">{needPremium ? c.eyebrowPremium : c.eyebrowFree}</span>
         <h3>{needPremium ? c.cardTitle : c.cardFreeTitle}</h3>
         <p>{c.cardSub}</p>
       </div>
-      <ul className="ax-pw-perks">
-        {ADVANTAGES[lang].slice(0, 4).map(item => (
-          <li key={item}><CheckCircleFilled aria-hidden /><span>{item}</span></li>
+      <div className="ax-pw-metrics">
+        {metrics.map(m => (
+          <div key={m.value} className="ax-pw-metric">
+            <b>{m.value}</b>
+            <strong>{m.label}</strong>
+            <span>{m.detail}</span>
+          </div>
         ))}
-      </ul>
+      </div>
       <div className="ax-pw-card-actions">
         {signedIn ? (
           account.payments
             ? (
               <Link to={`${accountPath('account', lang)}#premium`} className="lp-btn lp-btn-primary">
-                <CrownFilled aria-hidden /> {c.upgradeNow} <ArrowRightOutlined aria-hidden />
+                {c.upgradeNow} <ArrowRightOutlined aria-hidden />
               </Link>
             )
             : <PremiumRequest lang={lang} />
@@ -204,13 +216,30 @@ export function PremiumInfoWidget({ lang, variant = 'banner', tier = 'premium', 
   );
 }
 
-/** Global modal triggered whenever a visitor/free user clicks a blurred/locked item. */
+/** Global split-panel dialog (desktop) / bottom sheet (mobile) for locked courses & practice. */
 export function PremiumModalHost({ lang }: { lang: Lang }) {
   const ctx = useSyncExternalStore(subscribePremiumModal, getPremiumModalCtx, () => null);
   const account = useAccount();
   const { pathname } = useLocation();
   const isVisible = Boolean(ctx && account.mode === 'premium' && effectiveLevel(account) !== 'premium');
   const offers = usePublicOffers(Boolean(isVisible && account.payments));
+  const [closing, setClosing] = useState(false);
+  const [selectedOffer, setSelectedOffer] = useState<string>('');
+  const closeTimerRef = useRef<number | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (closeTimerRef.current) return;
+    setClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setClosing(false);
+      closePremiumModal();
+    }, 180);
+  }, []);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (ctx && !isVisible) {
@@ -218,7 +247,7 @@ export function PremiumModalHost({ lang }: { lang: Lang }) {
       return;
     }
     if (!isVisible) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePremiumModal(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') requestClose(); };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -226,60 +255,87 @@ export function PremiumModalHost({ lang }: { lang: Lang }) {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [ctx, isVisible]);
+  }, [ctx, isVisible, requestClose]);
 
-  // Never show when courses are Free for everyone or user already has Premium/Staff.
   if (!isVisible || !ctx) return null;
 
   const c = COPY[lang];
   const signedIn = !!account.user;
   const needPremium = ctx.tier === 'premium' || signedIn;
   const nextPath = ctx.to || pathname;
+  const metrics = HIGHLIGHTS[lang];
+  const activeOfferCode = selectedOffer && offers.some(o => o.code === selectedOffer)
+    ? selectedOffer
+    : (offers[0]?.code ?? '');
 
   return (
     <div
-      className="ax-modal-backdrop"
+      className={`ax-modal-backdrop${closing ? ' is-closing' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="ax-premium-modal-title"
-      onClick={(e) => { if (e.target === e.currentTarget) closePremiumModal(); }}
+      onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
     >
-      <div className="ax-modal">
-        <button type="button" className="ax-modal-close" onClick={closePremiumModal} aria-label={c.close}>
+      <div className={`ax-modal${closing ? ' is-closing' : ''}`}>
+        <div className="ax-sheet-grab" aria-hidden />
+        <button type="button" className="ax-modal-close" onClick={requestClose} aria-label={c.close}>
           <CloseOutlined />
         </button>
 
-        <div className="ax-modal-hero">
-          <div className="ax-modal-pills">
+        <aside className="ax-modal-aside">
+          <div className="ax-modal-context">
+            <span className="lp-eyebrow is-light">{needPremium ? c.eyebrowPremium : c.eyebrowFree}</span>
+            <div className="ax-modal-item">
+              {ctx.level && <span className="ax-modal-lvl">{ctx.level}</span>}
+              <strong>{ctx.title}</strong>
+            </div>
+          </div>
+
+          <div className="ax-modal-stats">
+            {metrics.map((m, i) => (
+              <div key={m.value} className="ax-modal-stat" style={{ '--ax-i': i } as CSSProperties}>
+                <b>{m.value}</b>
+                <div>
+                  <strong>{m.label}</strong>
+                  <span>{m.detail}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="ax-modal-foot">{c.reassurance}</p>
+        </aside>
+
+        <div className="ax-modal-main">
+          <div className="ax-modal-head">
             <span className={`ax-pw-tag${needPremium ? ' is-premium' : ' is-free'}`}>
               {needPremium ? <CrownFilled aria-hidden /> : <LockOutlined aria-hidden />}
               {needPremium ? c.pillPremium : c.pillFree}
             </span>
-            {ctx.level && <span className="ax-modal-lvl">{ctx.level}</span>}
+            <h2 id="ax-premium-modal-title">{needPremium ? c.modalPremiumTitle : c.modalFreeTitle}</h2>
+            <p>{needPremium ? c.modalPremiumDesc : c.modalFreeDesc}</p>
           </div>
-          <h2 id="ax-premium-modal-title">{ctx.title}</h2>
-          <p>{needPremium ? c.modalPremiumDesc : c.modalFreeDesc}</p>
-        </div>
-
-        <div className="ax-modal-body">
-          <p className="ax-modal-sec-k"><SafetyCertificateFilled aria-hidden /> {c.advantagesTitle}</p>
-          <ul className="ax-pw-perks">
-            {ADVANTAGES[lang].map(item => (
-              <li key={item}><CheckCircleFilled aria-hidden /><span>{item}</span></li>
-            ))}
-          </ul>
 
           {offers.length > 0 && needPremium && (
             <div className="ax-modal-offers">
               <p className="ax-modal-sec-k">{c.pricingTitle}</p>
               <div className="ax-offer-grid">
-                {offers.slice(0, 3).map(o => (
-                  <div key={o.code} className="ax-offer-mini">
-                    <strong>{o.name[lang] || o.name.en}</strong>
-                    <b>{formatPrice(o.amount, o.currency, lang)}</b>
-                    <small>{o.days} {lang === 'fr' ? 'jours' : 'days'}</small>
-                  </div>
-                ))}
+                {offers.slice(0, 3).map(o => {
+                  const active = o.code === activeOfferCode;
+                  return (
+                    <button
+                      type="button"
+                      key={o.code}
+                      className={`ax-offer-mini${active ? ' is-active' : ''}`}
+                      onClick={() => setSelectedOffer(o.code)}
+                      aria-pressed={active}
+                    >
+                      <span>{o.name[lang] || o.name.en}</span>
+                      <b>{formatPrice(o.amount, o.currency, lang)}</b>
+                      <small>{o.days} {lang === 'fr' ? 'jours' : 'days'}</small>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -288,17 +344,29 @@ export function PremiumModalHost({ lang }: { lang: Lang }) {
             {signedIn ? (
               account.payments
                 ? (
-                  <Link to={`${accountPath('account', lang)}#premium`} className="lp-btn lp-btn-primary lp-btn-lg" onClick={closePremiumModal}>
-                    <CrownFilled aria-hidden /> {c.upgradeNow} <ArrowRightOutlined aria-hidden />
+                  <Link
+                    to={`${accountPath('account', lang)}#premium`}
+                    className="lp-btn lp-btn-primary lp-btn-lg ax-modal-primary"
+                    onClick={closePremiumModal}
+                  >
+                    {c.upgradeNow} <ArrowRightOutlined aria-hidden />
                   </Link>
                 )
                 : <PremiumRequest lang={lang} />
             ) : (
               <>
-                <Link to={accountPath('signUp', lang, nextPath)} className="lp-btn lp-btn-primary lp-btn-lg" onClick={closePremiumModal}>
-                  <UnlockOutlined aria-hidden /> {needPremium ? c.signUpPremium : c.signUpFree}
+                <Link
+                  to={accountPath('signUp', lang, nextPath)}
+                  className="lp-btn lp-btn-primary lp-btn-lg ax-modal-primary"
+                  onClick={closePremiumModal}
+                >
+                  {needPremium ? c.signUpPremium : c.signUpFree} <ArrowRightOutlined aria-hidden />
                 </Link>
-                <Link to={accountPath('signIn', lang, nextPath)} className="lp-btn lp-btn-ghost lp-btn-lg" onClick={closePremiumModal}>
+                <Link
+                  to={accountPath('signIn', lang, nextPath)}
+                  className="lp-btn lp-btn-ghost lp-btn-lg"
+                  onClick={closePremiumModal}
+                >
                   {c.signIn}
                 </Link>
               </>
