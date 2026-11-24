@@ -51,7 +51,9 @@ const Login: React.FC = () => {
   // The email being typed (step 1), read without touching the form during render.
   const typedEmail: string = Form.useWatch('email', form) || '';
   const { slug } = useParams<{ slug?: string }>();
-  const [slugCompany, setSlugCompany] = useState<CompanyBrand | null>(null);
+  const [companyLookup, setCompanyLookup] = useState<{ slug: string; company: CompanyBrand | null } | null>(null);
+  const slugCompany = companyLookup?.slug === slug ? companyLookup?.company ?? null : null;
+  const waitingForCompany = !!slug && companyLookup?.slug !== slug;
   const [step, setStep] = useState<'email' | 'password'>('email');
   const [email, setEmail] = useState('');
   const [found, setFound] = useState<Presentation | null>(null);
@@ -119,17 +121,21 @@ const Login: React.FC = () => {
 
   // A company's sign-in address shows its name and logo from the first step.
   useEffect(() => {
-    if (!slug) { setSlugCompany(null); return; }
+    if (!slug) { setCompanyLookup(null); return; }
     let alive = true;
-    fetch(`${API_BASE}/public/org/${encodeURIComponent(slug)}`)
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 7000);
+    fetch(`${API_BASE}/public/org/${encodeURIComponent(slug)}`, { signal: controller.signal })
       .then(r => (r.ok ? r.json() : null))
       .then((b: unknown) => {
-        if (!alive || !b) return;
-        const p = readPresentation({ audience: 'company_learner', company: b });
-        if (p.company) { setSlugCompany(p.company); followCompanyLanguage(p.company); }
+        if (!alive) return;
+        const company = readPresentation({ audience: 'company_learner', company: b }).company ?? null;
+        followCompanyLanguage(company);
+        setCompanyLookup({ slug, company });
       })
-      .catch(() => { /* the plain sign-in page still works */ });
-    return () => { alive = false; };
+      .catch(() => { if (alive) setCompanyLookup({ slug, company: null }); })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { alive = false; window.clearTimeout(timeout); controller.abort(); };
   }, [slug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // What the page shows. On a company's own address, the neutral answer keeps
@@ -243,9 +249,9 @@ const Login: React.FC = () => {
     }
   };
 
-  if (isAuthenticated) {
+  if (isAuthenticated || waitingForCompany) {
     return (
-      <div className="login-loading">
+      <div className="login-loading" role="status" aria-label={tr('Loading sign-in', 'Chargement de la connexion')}>
         <Spin size="large" />
       </div>
     );

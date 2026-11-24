@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button, DatePicker, Drawer, Input, InputNumber, Segmented } from 'antd';
-import { BankOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
+import { App as AntApp, Button, DatePicker, Drawer, Input, InputNumber, Segmented, Upload } from 'antd';
+import { BankOutlined, CheckCircleOutlined, UploadOutlined, WarningOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../../contexts/AuthContext';
 import { call, errorText } from '../../Org/orgModel';
+import { LogoTile } from '../../Org/OrgUi';
 import ContentTreePicker from '../../Org/ContentTreePicker';
 import { indexTree } from '../../Org/contentTreeIndex';
 import type { ContentNode } from '../../Org/contentTreeIndex';
@@ -12,6 +13,7 @@ import '../../Org/Org.css';
 
 const en = (e: string) => e;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LOGO_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 /* Administrator: a new company — who it is, its access, its exams, its credits, its first manager. */
 const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (id: number) => void }> = ({ open, onClose, onCreated }) => {
@@ -20,6 +22,8 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
   const [tree, setTree] = useState<ContentNode[] | null>(null);
   const [name, setName] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [logo, setLogo] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [language, setLanguage] = useState<'fr' | 'en'>('fr');
   const [starts, setStarts] = useState<Dayjs | null>(dayjs());
   const [ends, setEnds] = useState<Dayjs | null>(dayjs().add(3, 'month').endOf('day'));
@@ -36,10 +40,24 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
 
   useEffect(() => {
     if (!open) return;
-    setName(''); setDisplayName(''); setLanguage('fr'); setStarts(dayjs()); setEnds(dayjs().add(3, 'month').endOf('day'));
+    setName(''); setDisplayName(''); setLogo(null); setLanguage('fr'); setStarts(dayjs()); setEnds(dayjs().add(3, 'month').endOf('day'));
     setSeats(5); setContent([]); setEe(0); setEo(0); setFirst(''); setLast(''); setEmail(''); setNotes(''); setErr(null);
     call<ContentNode[]>(apiCall, '/tcf/exam-assignments/content-tree').then(setTree).catch(() => setTree([]));
   }, [open, apiCall]);
+
+  useEffect(() => {
+    if (!open || !logo) { setLogoPreview(null); return; }
+    const url = URL.createObjectURL(logo);
+    setLogoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [open, logo]);
+
+  const selectLogo = (file: File) => {
+    if (!LOGO_TYPES.includes(file.type)) message.error('Choose a PNG, JPG or WebP image.');
+    else if (file.size > 1024 * 1024) message.error('The logo must be 1 MB or less.');
+    else setLogo(file);
+    return false;
+  };
 
   const index = useMemo(() => indexTree(tree || []), [tree]);
   const everything = () => setContent(index.roots);
@@ -56,12 +74,20 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
     setBusy(true); setErr(null);
     try {
       const items = content.map(k => index.map.get(k)).filter(Boolean).map(r => ({ content_type: r!.node.type, content_id: r!.node.content_id ?? r!.node.id }));
-      const r = await call<{ organization: { id: number }; manager: { invitation_sent: boolean } }>(apiCall, '/admin/organizations', 'POST', {
+      const payload = {
         name: name.trim(), display_name: displayName.trim() || null, default_language: language,
         access_starts_at: starts?.toISOString(), access_ends_at: ends!.toISOString(), seat_limit: seats,
         content: items, ee_credits: ee || 0, eo_credits: eo || 0, notes: notes.trim() || null,
         manager: { first_name: first.trim(), last_name: last.trim(), email: email.trim() },
-      });
+      };
+      let body: typeof payload | FormData = payload;
+      if (logo) {
+        const form = new FormData();
+        form.append('payload', JSON.stringify(payload));
+        form.append('logo', logo);
+        body = form;
+      }
+      const r = await call<{ organization: { id: number }; manager: { invitation_sent: boolean } }>(apiCall, '/admin/organizations', 'POST', body);
       if (r.manager.invitation_sent) message.success(`${name} created · ${first} was invited by email`);
       else message.warning(`${name} created, but the invitation email could not be sent: send it again from the company’s page.`);
       onCreated(r.organization.id);
@@ -69,11 +95,11 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
   };
 
   return (
-    <Drawer open={open} onClose={onClose} width="min(760px, 100vw)" rootClassName="og-drawer" destroyOnHidden
+    <Drawer open={open} onClose={busy ? undefined : onClose} closable={!busy} keyboard={!busy} width="min(760px, 100vw)" rootClassName="og-drawer" destroyOnHidden
       title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}><BankOutlined />New company</span>}
       footer={<div className="og-foot">
         <span className="og-foot-note">{missing.length ? `Still needed: ${missing.join(', ')}.` : 'Ready: the manager receives an email with a temporary password.'}</span>
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>Cancel</Button>
         <Button type="primary" onClick={submit} loading={busy} disabled={missing.length > 0}>Create the company</Button>
       </div>}>
       <div className="og-form">
@@ -82,6 +108,22 @@ const CompanyCreate: React.FC<{ open: boolean; onClose: () => void; onCreated: (
           <div className="og-two">
             <div className="og-field"><label>Official name</label><Input value={name} onChange={e => setName(e.target.value)} maxLength={160} placeholder="e.g. Acme Formation SAS" autoFocus /></div>
             <div className="og-field"><label>Name shown to learners <em>optional</em></label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={160} placeholder={name || 'e.g. Acme'} /></div>
+          </div>
+          <div className="og-brand-preview">
+            {logoPreview
+              ? <span className="og-logo"><img src={logoPreview} alt="Company logo preview" /></span>
+              : <LogoTile name={displayName.trim() || name.trim() || 'Company'} />}
+            <div>
+              <strong>Company logo</strong>
+              <em>Optional. Shown on the sign-in page and in invitations.</em>
+              <div className="og-actions" style={{ marginTop: 8 }}>
+                <Upload accept=".png,.jpg,.jpeg,.webp" showUploadList={false} beforeUpload={selectLogo} disabled={busy}>
+                  <Button icon={<UploadOutlined />} disabled={busy}>{logo ? 'Change logo' : 'Add logo'}</Button>
+                </Upload>
+                {logo && <Button disabled={busy} onClick={() => setLogo(null)}>Remove logo</Button>}
+              </div>
+              <small className="og-muted">PNG, JPG or WebP, up to 1 MB.</small>
+            </div>
           </div>
           <div className="og-field"><label>Language of the company’s space and emails</label>
             <Segmented value={language} onChange={v => setLanguage(v as 'fr' | 'en')} options={[{ value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} /></div>

@@ -14,7 +14,10 @@ const { OrgError } = require('./organizationService');
 
 const MAX_LOGO_BYTES = 1024 * 1024; // 1 MB
 
-const upload = multer({ dest: os.tmpdir(), limits: { fileSize: MAX_LOGO_BYTES, files: 1 } });
+const upload = multer({
+    dest: os.tmpdir(),
+    limits: { fileSize: MAX_LOGO_BYTES + 1, files: 1, fields: 1, fieldSize: 256 * 1024 },
+});
 
 /** The image type from the first bytes of the file, or null. */
 function sniff(buffer) {
@@ -45,6 +48,7 @@ const cache = new Map(); // org id → { version, mime, buffer }
 async function saveLogo(db, org, file) {
     try {
         if (!file) throw new OrgError('LOGO_MISSING', 'Choose an image file (PNG, JPG or WebP).');
+        if (file.size > MAX_LOGO_BYTES) throw new OrgError('LOGO_TOO_BIG', 'The logo must be 1 MB or less.');
         const head = Buffer.alloc(16);
         const fd = fs.openSync(file.path, 'r');
         try { fs.readSync(fd, head, 0, 16, 0); } finally { fs.closeSync(fd); }
@@ -58,17 +62,32 @@ async function saveLogo(db, org, file) {
         const uploaded = await kdrive.uploadFile(file.path, folder.id, `company_${org.id}_${Date.now()}${EXT[mime]}`);
         if (!uploaded?.id) throw new Error('kDrive returned no file id');
 
-        await db.run(
-            `UPDATE organizations SET logo_file_id = $1, logo_mime = $2, logo_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
-            [String(uploaded.id), mime, org.id]
-        );
+        let updated;
+        try {
+            updated = await db.get(
+                `UPDATE organizations SET logo_file_id = $1, logo_mime = $2, logo_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $3 RETURNING *`,
+                [String(uploaded.id), mime, org.id]
+            );
+            if (!updated) throw new OrgError('ORG_NOT_FOUND', 'Company not found.', 404);
+        } catch (err) {
+            await deleteStoredLogo(uploaded.id);
+            throw err;
+        }
         cache.delete(Number(org.id));
         if (org.logo_file_id && String(org.logo_file_id) !== String(uploaded.id)) {
-            kdrive.deleteFile(org.logo_file_id).catch(e => console.warn('[organizations] old logo not deleted:', e.message));
+            void deleteStoredLogo(org.logo_file_id);
         }
+        return updated;
     } finally {
         cleanup(file);
     }
+}
+
+async function deleteStoredLogo(id) {
+    if (!id) return;
+    const kdrive = getKDriveService();
+    if (kdrive.isConfigured) await kdrive.deleteFile(id).catch(e => console.warn('[organizations] logo not deleted:', e.message));
 }
 
 async function removeLogo(db, org) {
@@ -77,10 +96,7 @@ async function removeLogo(db, org) {
         [org.id]
     );
     cache.delete(Number(org.id));
-    if (org.logo_file_id) {
-        const kdrive = getKDriveService();
-        if (kdrive.isConfigured) kdrive.deleteFile(org.logo_file_id).catch(e => console.warn('[organizations] logo not deleted:', e.message));
-    }
+    void deleteStoredLogo(org.logo_file_id);
 }
 
 /** The logo bytes of a company (by slug), or null. */
@@ -101,4 +117,4 @@ async function loadLogo(db, slug) {
     return entry;
 }
 
-module.exports = { MAX_LOGO_BYTES, sniff, receive, saveLogo, removeLogo, loadLogo, cleanup };
+module.exports = { MAX_LOGO_BYTES, sniff, receive, saveLogo, removeLogo, loadLogo, cleanup, deleteStoredLogo };
