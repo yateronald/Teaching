@@ -6,6 +6,7 @@ import {
   CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined,
   DownloadOutlined, EditOutlined, EnvironmentOutlined, ExclamationCircleFilled, LinkOutlined, MailOutlined, MoreOutlined,
   PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -651,6 +652,9 @@ const DemoRequests: React.FC = () => {
                 <div className="dr-dh-actions">
                   <a className="dr-chip-btn" href={`mailto:${d.email}`}><MailOutlined /> Email</a>
                   {d.phone && <a className="dr-chip-btn" href={`tel:${d.phone.replace(/[^\d+]/g, '')}`}><PhoneOutlined /> Call</a>}
+                  {d.phone && d.phone.replace(/[^\d]/g, '').length >= 7 && (
+                    <a className="dr-chip-btn" href={`https://wa.me/${d.phone.replace(/[^\d]/g, '')}`} target="_blank" rel="noopener noreferrer"><WhatsAppOutlined /> WhatsApp</a>
+                  )}
                   <button type="button" className="dr-chip-btn" onClick={() => copy(d.email, 'Email')}><CopyOutlined /> Copy email</button>
                 </div>
               </div>
@@ -693,7 +697,7 @@ const DemoRequests: React.FC = () => {
                 <h4>Contact</h4>
                 <dl className="dr-facts">
                   <div><dt>Email</dt><dd>{d.email}</dd></div>
-                  <div><dt>Phone</dt><dd>{d.phone || '—'}</dd></div>
+                  <div><dt>WhatsApp</dt><dd>{d.phone || '—'}</dd></div>
                   <div><dt>Country</dt><dd>{d.country || '—'}</dd></div>
                   <div><dt>Timezone</dt><dd>{d.timezone ? <>{d.timezone.replace(/_/g, ' ')}{dTz && <small> · now {inTz(new Date(), dTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</small>}</> : '—'}</dd></div>
                 </dl>

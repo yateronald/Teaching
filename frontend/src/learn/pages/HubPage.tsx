@@ -8,11 +8,11 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
-  AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined, BookOutlined,
+  AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarChartOutlined, BarsOutlined, BookOutlined,
   CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined,
   CompassOutlined, CustomerServiceOutlined, DownOutlined, DragOutlined, EditOutlined,
-  PlayCircleFilled, ReadOutlined, ReloadOutlined, RocketOutlined,
-  SafetyCertificateOutlined, SearchOutlined, SoundOutlined, SwapOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
+  FileTextOutlined, PlayCircleFilled, PlayCircleOutlined, ReadOutlined, ReloadOutlined, RocketOutlined,
+  SearchOutlined, SoundOutlined, SwapOutlined, ThunderboltOutlined, TrophyOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { chime, speak, usePlaying } from '../audio';
 import { CATEGORIES, categoryPath, imageUrl } from '../categories';
@@ -31,6 +31,7 @@ import { EAR } from '../practice/ear/meta';
 import { LISTENING, listeningPath } from '../practice/listening/catalog';
 import { DICTATIONS, dictationPath } from '../practice/dictation/catalog';
 import { openAcademySearch } from '../studyPath/searchIndex';
+import { HeroSearch } from '../components/AcademySearch';
 import { StudyRoadmap } from '../components/StudyRoadmap';
 import { CountUp, Reveal } from '../components/Reveal';
 import { CourseRow } from '../components/CourseRow';
@@ -66,21 +67,28 @@ const GOAL_ICON: Record<StudyGoalId, ReactNode> = {
 const levelBand = (lv: Level) => (lv === 'A1' || lv === 'A2' ? 'is-a' : lv === 'B1' || lv === 'B2' ? 'is-b' : 'is-c');
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-function HeroAudioPill({ lang }: { lang: Lang }) {
+function HeroNativePill({ lang }: { lang: Lang }) {
   const playing = usePlaying(HERO_PHRASE);
   return (
     <button
       type="button"
-      className={`sp-audio-chip${playing ? ' is-playing' : ''}`}
+      className={`ah-pill ah-pill-btn${playing ? ' is-playing' : ''}`}
       onClick={() => speak(HERO_PHRASE)}
       aria-label={lang === 'fr' ? `Écouter une voix native : ${HERO_PHRASE}` : `Listen to native French: ${HERO_PHRASE}`}
     >
-      <span className="sp-audio-ico" aria-hidden><PlayCircleFilled /></span>
-      <span className="sp-audio-copy">
-        <small>{lang === 'fr' ? 'Voix native · Cliquez pour écouter' : 'Native voice · Tap to listen'}</small>
-        <b lang="fr">« Je voudrais un café, s’il vous plaît. »</b>
+      <span className="ah-pill-ico is-blue" aria-hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
       </span>
-      <span className="hx-wave" aria-hidden><u /><u /><u /><u /></span>
+      <span className="ah-pill-copy">
+        <strong>{lang === 'fr' ? 'Apprenez avec des natifs' : 'Learn with native speakers'}</strong>
+        {playing && <small className="ah-pill-playing" lang="fr">« Je voudrais un café… »</small>}
+      </span>
+      <span className="ah-pill-wave" aria-hidden><u /><u /><u /></span>
     </button>
   );
 }
@@ -462,6 +470,21 @@ export default function HubPage({ lang }: { lang: Lang }) {
     listening: { name: fr ? 'Atelier d’écoute' : 'Listening Studio', desc: fr ? 'Dialogues à deux voix, entraînement de l’oreille et documents authentiques.' : 'Two-voice dialogues, ear training and authentic documents.', count: listeningTotal, to: listeningPath(lang) },
     dictation: { name: fr ? 'Atelier de dictée' : 'Dictation Studio', desc: fr ? 'Récits, homophones, verbes et défis d’examen, avec deux voix natives.' : 'Stories, homophones, verbs and exam challenges, with two native voices.', count: DICTATIONS.length, to: dictationPath(lang) },
   };
+  const catLink = (id: string) => {
+    const cat = CATEGORIES.find(c => c.id === id);
+    return cat ? categoryPath(cat, lang) : hubPath(lang);
+  };
+  const topicChips = [
+    { label: fr ? 'Français débutant' : 'Beginner French', icon: <BarChartOutlined aria-hidden />, to: catLink('beginner') },
+    { label: fr ? 'Grammaire' : 'Grammar', icon: <FileTextOutlined aria-hidden />, to: catLink('grammar') },
+    { label: fr ? 'Conjugaison' : 'Conjugation', icon: <SwapOutlined aria-hidden />, to: catLink('conjugation') },
+    { label: fr ? 'Verbes' : 'French Verbs', icon: <BookOutlined aria-hidden />, to: catLink('verbs') },
+    { label: fr ? 'Écoute' : 'Listening', icon: <CustomerServiceOutlined aria-hidden />, to: listeningPath(lang) },
+    { label: fr ? 'Lecture' : 'Reading', icon: <ReadOutlined aria-hidden />, to: readingPath(lang) },
+    { label: fr ? 'Dictée' : 'Spelling', icon: <EditOutlined aria-hidden />, to: dictationPath(lang) },
+    { label: fr ? 'Conversation' : 'Speaking', icon: <AudioOutlined aria-hidden />, to: catLink('conversation') },
+    { label: fr ? 'Prépa TEF / TCF' : 'Exam Prep (TEF/TCF)', icon: <TrophyOutlined aria-hidden />, to: catLink('tcf') },
+  ];
 
   return (
     <LearnShell
@@ -469,57 +492,169 @@ export default function HubPage({ lang }: { lang: Lang }) {
       alternates={{ en: hubPath('en'), fr: hubPath('fr') }}
       seo={{ title: h.metaTitle, description: h.metaDescription, path: hubPath(lang), jsonLd: hubJsonLd(lang), image: absoluteMediaUrl(imageUrl('hub-hero')) }}
     >
-      {/* ── Hero: search, topics, photo collage ── */}
+      {/* ── Hero: search, topics, arched photo & floating pillars ── */}
       <section className="ah-hero" aria-labelledby="lx-hub-title">
         <div className="ah-hero-glow" aria-hidden />
+        <div className="ah-hero-swoosh-bg" aria-hidden />
         <div className="lp-wrap ah-hero-grid">
           <div className="ah-hero-copy">
-            <p className="ah-eyebrow"><span className="ah-tricolor" aria-hidden><i /><i /><i /></span>{freeAll ? (fr ? 'Académie gratuite · A1 → C2' : 'Free French academy · A1 → C2') : (fr ? 'Académie de français · A1 → C2' : 'French learning academy · A1 → C2')}</p>
+            <p className="ah-eyebrow">
+              <span className="ah-tricolor" aria-hidden><i /><i /><i /></span>
+              <span>{freeAll ? (fr ? 'Plateforme gratuite – A1 à C2' : 'Free French Platform – A1 to C2') : (fr ? 'Plateforme de français – A1 à C2' : 'French Learning Platform – A1 to C2')}</span>
+            </p>
             <h1 id="lx-hub-title">
-              {fr ? <>Apprenez le français <em>pas à pas</em>, avec des voix natives.</> : <>Learn French <em>step by step</em>, with native voices.</>}
+              {fr
+                ? <>Apprenez le français pas à pas, avec des <span className="ah-accent">voix natives.<svg className="ah-swoosh" viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path d="M3 10.5C58 3.2 152 1.8 217 6.8" fill="none" stroke="currentColor" strokeWidth="4.2" strokeLinecap="round" /></svg></span></>
+                : <>Learn French step by step, with <span className="ah-accent">native voices.<svg className="ah-swoosh" viewBox="0 0 220 14" preserveAspectRatio="none" aria-hidden="true"><path d="M3 10.5C58 3.2 152 1.8 217 6.8" fill="none" stroke="currentColor" strokeWidth="4.2" strokeLinecap="round" /></svg></span></>}
             </h1>
             <p className="ah-lead">
-              {freeAll
-                ? (fr
-                  ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance.`
-                  : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency.`)
-                : (fr
-                  ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours structuré de A1 à C2. Commencez gratuitement le module 1 ou passez à Premium.`
-                  : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from A1 to C2. Start Module 1 free or unlock everything with Premium.`)}
+              {fr
+                ? `${COURSES.length} cours guidés, ${practiceTotal} ateliers pratiques et un parcours clair, de vos premiers mots à l’aisance.`
+                : `${COURSES.length} guided courses, ${practiceTotal} practice labs and one clear path from your first words to fluency.`}
             </p>
-            <button type="button" className="ah-search" onClick={openAcademySearch}>
-              <SearchOutlined aria-hidden />
-              <span className="ah-search-text">{fr ? 'Que voulez-vous apprendre ? Passé composé, TCF, dictée…' : 'What do you want to learn? Passé composé, TCF, dictation…'}</span>
-              <kbd>Ctrl K</kbd>
-            </button>
+            <HeroSearch lang={lang} />
             <div className="ah-topics" aria-label={fr ? 'Sujets populaires' : 'Popular topics'}>
-              {CATEGORIES.slice(0, 7).map(c => <Link key={c.id} to={categoryPath(c, lang)}>{tx(c.name, lang)}</Link>)}
+              {topicChips.map(t => (
+                <Link key={t.label} to={t.to}>{t.icon}<span>{t.label}</span></Link>
+              ))}
             </div>
             <div className="ah-hero-ctas">
-              <button type="button" className="lp-btn lp-btn-primary lp-btn-lg" onClick={() => scrollTo('paths')}>
-                {fr ? 'Commencer gratuitement' : 'Start learning free'} <ArrowRightOutlined />
+              <button type="button" className="lp-btn lp-btn-primary lp-btn-lg ah-pill-btn ah-cta-navy" onClick={() => scrollTo('paths')}>
+                {fr ? 'Explorer nos programmes' : 'Explore our programs'} <ArrowRightOutlined />
               </button>
-              <Link to={placementPath(lang)} className="lp-btn lp-btn-ghost lp-btn-lg"><ThunderboltOutlined /> {fr ? 'Trouver mon niveau' : 'Find my level'}</Link>
+              <Link to={placementPath(lang)} className="lp-btn lp-btn-ghost lp-btn-lg ah-pill-btn ah-cta-light">
+                <PlayCircleOutlined aria-hidden /> {fr ? 'Trouver mon niveau' : 'Find my level'}
+              </Link>
             </div>
           </div>
+
           <div className="ah-hero-art">
-            <div className="ah-collage" aria-hidden>
-              <figure className="ah-photo is-main"><img src={imageUrl('hub-hero', 1200)} alt="" width="1200" height="675" fetchPriority="high" /></figure>
-              <figure className="ah-photo is-a"><img src={imageUrl('dialogue-a-la-boulangerie', 640)} alt="" width="640" height="360" /></figure>
-              <figure className="ah-photo is-b"><img src={imageUrl('scene-greetings', 640)} alt="" width="640" height="360" /></figure>
-              <div className="ah-float is-done"><CheckCircleFilled /><span><b>{fr ? 'Leçon terminée' : 'Lesson complete'}</b><small>{fr ? 'Score 92 %' : 'Score 92%'}</small></span></div>
-              <div className="ah-float is-cert"><SafetyCertificateOutlined /><span><b>{fr ? 'Certificat A1' : 'A1 certificate'}</b><small>{fr ? 'Débloqué' : 'Unlocked'}</small></span></div>
+            <div className="ah-visual-stage">
+              <div className="ah-arch-accent-blue" aria-hidden />
+              <div className="ah-arch-accent-red" aria-hidden />
+              <figure className="ah-photo-arch">
+                <img
+                  src={imageUrl('hub-hero', 1200)}
+                  srcSet={`${imageUrl('hub-hero', 640)} 640w, ${imageUrl('hub-hero', 1200)} 1200w`}
+                  sizes="(max-width: 900px) calc(100vw - 36px), 620px"
+                  alt={fr ? 'Apprenante souriante avec casque audio et livres de français devant la tour Eiffel' : 'Smiling French learner with headphones, silver laptop and A1–C2 French books by a sunlit Paris window'}
+                  width="1200"
+                  height="896"
+                  fetchPriority="high"
+                />
+              </figure>
+
+              <div className="ah-pills">
+                <div className="ah-pill">
+                  <span className="ah-pill-ico is-blue" aria-hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 10 12 5 2 10l10 5 10-5Z" />
+                      <path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5" />
+                    </svg>
+                  </span>
+                  <span className="ah-pill-copy">
+                    <strong>{fr ? 'Cours structurés' : 'Structured courses'}</strong>
+                  </span>
+                </div>
+
+                <div className="ah-pill">
+                  <span className="ah-pill-ico is-red" aria-hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="9" />
+                      <circle cx="12" cy="12" r="5" />
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+                    </svg>
+                  </span>
+                  <span className="ah-pill-copy">
+                    <strong>{fr ? 'Préparation examens' : 'Exam preparation'}</strong>
+                    <small>(TEF / TCF / Canada)</small>
+                  </span>
+                </div>
+
+                <HeroNativePill lang={lang} />
+
+                <div className="ah-pill">
+                  <span className="ah-pill-ico is-green" aria-hidden>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 3v18h18" />
+                      <path d="m7 14 4-4 4 3 5-6" />
+                      <path d="M17 7h3v3" />
+                    </svg>
+                  </span>
+                  <span className="ah-pill-copy">
+                    <strong>{fr ? 'Suivez votre progression' : 'Track your progress'}</strong>
+                  </span>
+                </div>
+              </div>
             </div>
-            <HeroAudioPill lang={lang} />
           </div>
         </div>
+
         <div className="lp-wrap">
           <ul className="ah-stats">
-            <li><b><CountUp value={COURSES.length} /></b><span>{fr ? 'cours guidés' : 'guided courses'}</span></li>
-            <li><b><CountUp value={lessonsTotal} /></b><span>{fr ? 'leçons interactives' : 'interactive lessons'}</span></li>
-            <li><b><CountUp value={practiceTotal} /></b><span>{fr ? 'ateliers pratiques' : 'practice labs'}</span></li>
-            <li><b><CountUp value={TOTAL_ACADEMY_ITEMS} /></b><span>{fr ? 'activités en tout' : 'activities in all'}</span></li>
-            <li><b>0 $</b><span>{fr ? 'pour commencer' : 'to start'}</span></li>
+            <li>
+              <span className="ah-stat-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 10 12 5 2 10l10 5 10-5Z" />
+                  <path d="M6 12v5c0 1.66 2.69 3 6 3s6-1.34 6-3v-5" />
+                  <path d="M22 10v6" />
+                </svg>
+              </span>
+              <span className="ah-stat-copy">
+                <b><CountUp value={COURSES.length} /></b>
+                <span>{fr ? 'Cours guidés' : 'Guided courses'}</span>
+              </span>
+            </li>
+            <li>
+              <span className="ah-stat-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                  <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                </svg>
+              </span>
+              <span className="ah-stat-copy">
+                <b><CountUp value={lessonsTotal} /></b>
+                <span>{fr ? 'Leçons interactives' : 'Interactive lessons'}</span>
+              </span>
+            </li>
+            <li>
+              <span className="ah-stat-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />
+                </svg>
+              </span>
+              <span className="ah-stat-copy">
+                <b><CountUp value={practiceTotal} /></b>
+                <span>{fr ? 'Ateliers pratiques' : 'Practice labs'}</span>
+              </span>
+            </li>
+            <li>
+              <span className="ah-stat-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m12 2 10 5-10 5L2 7l10-5Z" />
+                  <path d="m2 12 10 5 10-5" />
+                  <path d="m2 17 10 5 10-5" />
+                </svg>
+              </span>
+              <span className="ah-stat-copy">
+                <b><CountUp value={TOTAL_ACADEMY_ITEMS} /></b>
+                <span>{fr ? 'Activités au total' : 'Activities in all'}</span>
+              </span>
+            </li>
+            <li>
+              <span className="ah-stat-ico" aria-hidden>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              </span>
+              <span className="ah-stat-copy">
+                <b>{fr ? '3 000+' : '3,000+'}</b>
+                <span>{fr ? 'Apprenants actifs' : 'Active learners'}</span>
+              </span>
+            </li>
           </ul>
         </div>
       </section>

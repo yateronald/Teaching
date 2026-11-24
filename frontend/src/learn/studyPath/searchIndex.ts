@@ -1,15 +1,16 @@
 // Lightweight unified search index across ALL free learning items:
 // 75 Courses, 186 Dictations, 50 Dialogues, 70 Ear Labs, 50 Audio Docs,
 // 41 Audio Texts, 10 Reading Missions, 5 Daily Games, and 1 Placement Test.
+import { courseTier, itemTier, type Tier } from '../access';
 import { CATEGORIES } from '../categories';
 import { COURSES, coursePath } from '../catalog';
 import { GAMES, gamePath } from '../games/meta';
 import { placementPath } from '../paths';
 import { TEXTS, textPath } from '../practice/meta';
-import { MISSIONS, missionPath } from '../practice/missions';
-import { DIALOGUES, dialoguePath } from '../practice/dialogues/meta';
+import { MISSIONS, missionCoverKey, missionPath } from '../practice/missions';
+import { DIALOGUES, dialogueCoverKey, dialoguePath } from '../practice/dialogues/meta';
 import { EAR, earPath } from '../practice/ear/meta';
-import { LISTENING, exercisePath } from '../practice/listening/catalog';
+import { LISTENING, exercisePath, listeningCoverKey } from '../practice/listening/catalog';
 import { DICTATIONS, dictationCoursePath } from '../practice/dictation/catalog';
 import { tx, type Lang, type Level } from '../types';
 
@@ -25,15 +26,46 @@ export interface SearchEntry {
   levels: Level[];
   to: string;
   haystack: string;
+  image?: string;
 }
 
 export const OPEN_SEARCH_EVENT = 'lfwn-open-academy-search';
+export const FOCUS_HERO_SEARCH_EVENT = 'lfwn-focus-hero-search';
 
-/** Open the Global Academy Search modal from anywhere in the learning space. */
+/** Open Academy Search (focuses inline hero search on the hub page, or modal on subpages). */
 export function openAcademySearch() {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event(OPEN_SEARCH_EVENT));
   }
+}
+
+/** Focus and scroll smoothly to the on-page Hero Search bar on the hub page. */
+export function focusHeroSearch() {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(FOCUS_HERO_SEARCH_EVENT));
+  }
+}
+
+export const levelBand = (lv?: Level) =>
+  lv === 'A1' || lv === 'A2' ? 'is-a' : lv === 'B1' || lv === 'B2' ? 'is-b' : 'is-c';
+
+export function modalKindOfSearch(kind: SearchKind): 'course' | 'game' | 'practice' {
+  if (kind === 'course') return 'course';
+  if (kind === 'game') return 'game';
+  return 'practice';
+}
+
+export function searchEntryTier(id: string): Tier {
+  if (id === 'placement-test') return 'visitor';
+  if (id.startsWith('course-')) return courseTier(id.slice(7));
+  if (id.startsWith('dictation-')) return itemTier(`dictation:${id.slice(10)}`);
+  if (id.startsWith('dialogue-')) return itemTier(`dialogue:${id.slice(9)}`);
+  if (id.startsWith('ear-')) return itemTier(`ear:${id.slice(4)}`);
+  if (id.startsWith('doc-')) return itemTier(`doc:${id.slice(4)}`);
+  if (id.startsWith('text-')) return itemTier(`text:${id.slice(5)}`);
+  if (id.startsWith('mission-')) return itemTier(`mission:${id.slice(8)}`);
+  if (id.startsWith('game-')) return itemTier(`game:${id.slice(5)}`);
+  return 'visitor';
 }
 
 export const foldSearch = (s: string) =>
@@ -42,6 +74,38 @@ export const foldSearch = (s: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[’']/g, "'");
+
+/** Filter and rank academy search entries by title/sublabel relevance. */
+export function filterSearchEntries(
+  index: SearchEntry[],
+  query: string,
+  kind: SearchKind | 'all',
+  lvl: Level | 'all',
+): SearchEntry[] {
+  const cleanQuery = foldSearch(query.trim());
+  const words = cleanQuery.split(/\s+/).filter(Boolean);
+  const matched = index.filter(item => {
+    if (kind !== 'all' && item.kind !== kind) return false;
+    if (lvl !== 'all' && !item.levels.includes(lvl)) return false;
+    if (!words.length) return true;
+    return words.every(w => item.haystack.includes(w));
+  });
+  if (!cleanQuery) return matched;
+
+  const scoreOf = (item: SearchEntry): number => {
+    const title = foldSearch(item.title);
+    if (title === cleanQuery || title.startsWith(cleanQuery)) return 0;
+    if (words.every(w => title.includes(w))) return 1;
+    const sublabel = foldSearch(item.sublabel);
+    if (words.every(w => sublabel.includes(w))) return 2;
+    return 3;
+  };
+
+  return matched
+    .map((item, idx) => ({ item, idx, score: scoreOf(item) }))
+    .sort((a, b) => a.score - b.score || a.idx - b.idx)
+    .map(x => x.item);
+}
 
 const cache: Partial<Record<Lang, SearchEntry[]>> = {};
 
@@ -64,6 +128,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
     levels: ['A1', 'A2', 'B1', 'B2', 'C1'],
     to: placementPath(lang),
     haystack: foldSearch('test niveau placement level cefr cecr a1 a2 b1 b2 c1 clb nclc'),
+    image: 'placement',
   });
 
   // 2. 75 Courses
@@ -81,6 +146,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: c.levels,
       to: coursePath(c, lang),
       haystack: foldSearch(`${title} ${subtitle} ${cat} ${c.level} ${c.id}`),
+      image: c.image,
     });
   }
 
@@ -99,6 +165,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: [d.level],
       to: dictationCoursePath(d, lang),
       haystack: foldSearch(`${d.title} ${subtitle} ${theme} dictee dictation ${method} ${d.level} ${d.focus.map(f => tx(f, lang)).join(' ')}`),
+      image: d.image,
     });
   }
 
@@ -115,6 +182,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: [d.level],
       to: dialoguePath(d, lang),
       haystack: foldSearch(`${d.title} ${subtitle} dialogue ecoute listening ${d.theme} ${d.level}`),
+      image: dialogueCoverKey(d),
     });
   }
 
@@ -149,6 +217,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: [l.level],
       to: exercisePath(l, lang),
       haystack: foldSearch(`${l.title} ${subtitle} ${format} audio ecoute listening ${l.level}`),
+      image: listeningCoverKey(l),
     });
   }
 
@@ -165,6 +234,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: [t.level],
       to: textPath(t, lang),
       haystack: foldSearch(`${t.title} ${subtitle} lecture reading texte text ${t.level}`),
+      image: t.image,
     });
   }
 
@@ -182,6 +252,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: [m.level],
       to: missionPath(m, lang),
       haystack: foldSearch(`${title} ${subtitle} mission lecture reading ${m.level}`),
+      image: missionCoverKey(m),
     });
   }
 
@@ -199,6 +270,7 @@ export function getSearchIndex(lang: Lang): SearchEntry[] {
       levels: ['A1', 'A2', 'B1', 'B2'],
       to: gamePath(g, lang),
       haystack: foldSearch(`${title} ${subtitle} jeu game ${g.id}`),
+      image: g.id === 'story' ? 'story-airport' : 'games-hero',
     });
   }
 

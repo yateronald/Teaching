@@ -344,7 +344,7 @@ export function StudyRoadmap({
                                 ? <img src={imageUrl(img, 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
                                 : <span className="sp-step-thumb-ico">{KIND_ICON[step.kind]}</span>}
                               {locked && (
-                                <span className="sp-step-veil">
+                                <span className={`sp-step-lock-badge${tier === 'premium' ? ' is-premium' : ''}`}>
                                   {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
                                 </span>
                               )}
@@ -441,8 +441,13 @@ export function StudyRoadmap({
 
         {/* 3-Minute Daily Game Boost */}
         <section className={`sp-side-card is-game${dailyGameLocked ? ' ax-locked-card' : ''}`}>
-          <div className={dailyGameLocked ? 'ax-locked-media' : undefined}>
+          <div className="sp-side-media">
             <img className="sp-side-photo" src={imageUrl('games-hero', 640)} alt="" loading="lazy" decoding="async" width="640" height="360" />
+            {dailyGameLocked && (
+              <span className={`sp-step-lock-badge${dailyGameTier === 'premium' ? ' is-premium' : ''}`} aria-hidden>
+                {dailyGameTier === 'premium' ? <CrownFilled /> : <LockOutlined />}
+              </span>
+            )}
           </div>
           <p className="sp-side-eyebrow"><PlayCircleFilled aria-hidden /> {c.dailyBoostEyebrow}</p>
           <h3>{plan.dailyGame.title}</h3>

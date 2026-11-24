@@ -34,10 +34,10 @@ import AccountRoute from './account/AccountPages';
 import { ItemGate } from './account/ItemGate';
 import { tx } from './types';
 import { textPath } from './practice/meta';
-import { missionPath } from './practice/missions';
-import { exercisePath } from './practice/listening/catalog';
+import { missionCoverKey, missionPath } from './practice/missions';
+import { exercisePath, listeningCoverKey } from './practice/listening/catalog';
 import { earPath } from './practice/ear/meta';
-import { dialoguePath } from './practice/dialogues/meta';
+import { dialogueCoverKey, dialoguePath } from './practice/dialogues/meta';
 import { dictationCoursePath } from './practice/dictation/catalog';
 import { gamePath } from './games/meta';
 
@@ -48,8 +48,8 @@ export default function LearnApp({ lang }: { lang: Lang }) {
   const { pathname } = useLocation();
   const route = resolveLearnPath(pathname);
   // Practice exercises and games outside the free modules need an account or Premium.
-  const gate = (key: string, title: string, alternates: Record<Lang, string>, page: React.ReactNode) => (
-    <ItemGate key={key} lang={route.lang} itemKey={key} title={title} alternates={alternates}>{page}</ItemGate>
+  const gate = (key: string, title: string, alternates: Record<Lang, string>, page: React.ReactNode, image?: string) => (
+    <ItemGate key={key} lang={route.lang} itemKey={key} title={title} alternates={alternates} image={image}>{page}</ItemGate>
   );
   switch (route.type) {
     case 'account': return <AccountRoute lang={route.lang} page={route.page} />;
@@ -57,7 +57,7 @@ export default function LearnApp({ lang }: { lang: Lang }) {
     case 'placement': return <PlacementPage lang={route.lang} />;
     case 'progress': return <ProgressPage lang={route.lang} />;
     case 'games': return <GamesHubPage lang={route.lang} />;
-    case 'game': return gate(`game:${route.game.id}`, tx(route.game.title, route.lang), both(route.game, gamePath), <GamePage key={route.game.id} lang={route.lang} game={route.game} />);
+    case 'game': return gate(`game:${route.game.id}`, tx(route.game.title, route.lang), both(route.game, gamePath), <GamePage key={route.game.id} lang={route.lang} game={route.game} />, route.game.id === 'story' ? 'story-airport' : 'games-hero');
     case 'category': return <CategoryPage lang={route.lang} category={route.category} />;
     case 'level': return <LevelPage key={`${route.level}-${route.category?.id ?? 'all'}`} lang={route.lang} level={route.level} category={route.category} />;
     case 'course': return <CoursePage key={route.course.id} lang={route.lang} course={route.course} />;
@@ -65,14 +65,14 @@ export default function LearnApp({ lang }: { lang: Lang }) {
     case 'final': return <FinalPage key={route.course.id} lang={route.lang} course={route.course} />;
     case 'practice': return <PracticeHubPage lang={route.lang} />;
     case 'reading': return <ReadingLibraryPage lang={route.lang} />;
-    case 'text': return gate(`text:${route.text.id}`, route.text.title, both(route.text, textPath), <ReadingTextPage key={route.text.id} lang={route.lang} meta={route.text} />);
-    case 'reading-mission': return gate(`mission:${route.mission.id}`, tx(route.mission.title, route.lang), both(route.mission, missionPath), <ReadingMissionPage key={route.mission.id} lang={route.lang} mission={route.mission} />);
+    case 'text': return gate(`text:${route.text.id}`, route.text.title, both(route.text, textPath), <ReadingTextPage key={route.text.id} lang={route.lang} meta={route.text} />, route.text.image);
+    case 'reading-mission': return gate(`mission:${route.mission.id}`, tx(route.mission.title, route.lang), both(route.mission, missionPath), <ReadingMissionPage key={route.mission.id} lang={route.lang} mission={route.mission} />, missionCoverKey(route.mission));
     case 'listening': return <ListeningLibraryPage lang={route.lang} />;
-    case 'listening-exercise': return gate(`doc:${route.exercise.id}`, tx(route.exercise.title, route.lang), both(route.exercise, exercisePath), <ListeningExercisePage key={route.exercise.id} lang={route.lang} exercise={route.exercise} />);
+    case 'listening-exercise': return gate(`doc:${route.exercise.id}`, tx(route.exercise.title, route.lang), both(route.exercise, exercisePath), <ListeningExercisePage key={route.exercise.id} lang={route.lang} exercise={route.exercise} />, listeningCoverKey(route.exercise));
     case 'ear-course': return gate(`ear:${route.ear.id}`, route.ear.title, both(route.ear, earPath), <EarCoursePage key={route.ear.id} lang={route.lang} meta={route.ear} />);
-    case 'dialogue': return gate(`dialogue:${route.dialogue.id}`, route.dialogue.title, both(route.dialogue, dialoguePath), <DialoguePage key={route.dialogue.id} lang={route.lang} meta={route.dialogue} />);
+    case 'dialogue': return gate(`dialogue:${route.dialogue.id}`, route.dialogue.title, both(route.dialogue, dialoguePath), <DialoguePage key={route.dialogue.id} lang={route.lang} meta={route.dialogue} />, dialogueCoverKey(route.dialogue));
     case 'dictation': return <DictationLibraryPage lang={route.lang} />;
-    case 'dictation-course': return gate(`dictation:${route.dictation.id}`, route.dictation.title, both(route.dictation, dictationCoursePath), <DictationCoursePage key={route.dictation.id} lang={route.lang} course={route.dictation} />);
+    case 'dictation-course': return gate(`dictation:${route.dictation.id}`, route.dictation.title, both(route.dictation, dictationCoursePath), <DictationCoursePage key={route.dictation.id} lang={route.lang} course={route.dictation} />, route.dictation.image);
     default: return <NotFound lang={lang} />;
   }
 }

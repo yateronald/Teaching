@@ -2,7 +2,7 @@
 // balanced 5×2 situation grid, and 5 sleek levelled cards (A1 → C1).
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ArrowRightOutlined, CheckCircleFilled, CrownFilled, LockOutlined } from '@ant-design/icons';
+import { ArrowRightOutlined, CheckCircleFilled } from '@ant-design/icons';
 import { itemTier } from '../../access';
 import { openPremiumModal } from '../../account/premiumModal';
 import { LockActionPill } from '../../account/PremiumWidget';
@@ -94,14 +94,6 @@ export function DialogueSection({ lang, hidden = false }: { lang: Lang; hidden?:
               >
                 <div className={`dlg-card-img${locked ? ' ax-locked-media' : ''}`}>
                   <DialogueCover id={d.id} sizes="(min-width: 1140px) 230px, (min-width: 820px) 31vw, (min-width: 560px) 46vw, calc(100vw - 36px)" />
-                  {locked && (
-                    <div className="ax-locked-veil" aria-hidden>
-                      <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-                        {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-                        {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
-                      </span>
-                    </div>
-                  )}
                   <LevelChip level={d.level} size="sm" />
                   <span className="dlg-card-step" aria-hidden>{k + 1}/{list.length}</span>
                 </div>

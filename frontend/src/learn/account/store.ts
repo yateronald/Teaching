@@ -31,7 +31,14 @@ export interface PortalUser {
   role: string;
 }
 
-export interface SiteAccess { level: AccessLevel; website: boolean; staff: boolean; premium: { until: string | null; via: string } | null }
+export type PlanTier = 'visitor' | 'free' | 'standard' | 'premium';
+export interface SiteAccess {
+  level: AccessLevel;
+  plan?: PlanTier;
+  website: boolean;
+  staff: boolean;
+  premium: { until: string | null; via: string; tier?: 'standard' | 'premium' } | null;
+}
 export interface AccountState {
   status: 'unknown' | 'ready' | 'offline';
   user: SiteUser | null;
@@ -69,6 +76,14 @@ const emit = () => listeners.forEach(l => l());
 const subscribe = (l: () => void) => { listeners.add(l); return () => { listeners.delete(l); }; };
 
 export const effectiveLevel = (s: AccountState): AccessLevel => (s.mode === 'free' ? 'premium' : s.access.level);
+export const currentPlan = (s: AccountState): PlanTier => {
+  if (s.access.staff) return 'premium';
+  if (s.access.level === 'premium') {
+    if (s.access.plan === 'standard' || s.access.premium?.tier === 'standard') return 'standard';
+    return 'premium';
+  }
+  return s.user ? 'free' : 'visitor';
+};
 export const freeForAllCopy = (s: AccountState) => s.mode !== 'premium';
 export const isTierLocked = (s: AccountState, tier: Tier): boolean => s.mode === 'premium' && !canOpen(effectiveLevel(s), tier);
 

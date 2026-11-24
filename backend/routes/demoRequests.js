@@ -66,11 +66,45 @@ const SKILLS = ['ce', 'co', 'ee', 'eo'];
 const isExamRequest = (req) => String(req.body ? req.body.interest || '' : '').trim() === 'exam';
 const classOnly = (chain) => chain.if((_value, { req }) => !isExamRequest(req));
 
+const WA_BAD_RUN_RE = /^(.)\1+$/;
+const WA_BAD_SEQ_RE = /(?:01234567|12345678|23456789|98765432|87654321|76543210)/;
+
+/**
+ * Validates and normalizes the compulsory WhatsApp phone number submitted by
+ * the demo request form (7 to 15 digits, optional leading + or 00).
+ */
+function normalizeDemoWhatsApp(raw) {
+    const stripped = String(raw ?? '').replace(/[\u200e\u200f\u202a-\u202e\s().-]+/g, '');
+    if (!stripped) {
+        return { ok: false, message: 'WhatsApp number is required so an administrator can contact you' };
+    }
+    if (!/^\+?\d+$/.test(stripped)) {
+        return { ok: false, message: 'Enter a valid WhatsApp number with digits and optional + country code' };
+    }
+    const hasIntlPrefix = stripped.startsWith('+') || stripped.startsWith('00');
+    const digits = stripped.startsWith('+')
+        ? stripped.slice(1)
+        : (stripped.startsWith('00') ? stripped.slice(2) : stripped);
+    const isDummyRun = WA_BAD_RUN_RE.test(digits)
+        || WA_BAD_RUN_RE.test(digits.slice(1))
+        || WA_BAD_RUN_RE.test(digits.slice(2))
+        || WA_BAD_RUN_RE.test(digits.slice(3))
+        || WA_BAD_SEQ_RE.test(digits);
+    if (digits.length < 7 || digits.length > 15 || (hasIntlPrefix && digits.startsWith('0')) || isDummyRun) {
+        return { ok: false, message: 'Enter a valid WhatsApp number (7 to 15 digits with country code)' };
+    }
+    return { ok: true, normalized: hasIntlPrefix ? `+${digits}` : digits };
+}
+
 // Create a new demo request (public endpoint)
 router.post('/', [
     body('fullName').notEmpty().withMessage('Full name is required'),
     body('email').isEmail().withMessage('Valid email is required'),
-    body('phone').optional().isString(),
+    body('phone').custom((value) => {
+        const check = normalizeDemoWhatsApp(value);
+        if (!check.ok) throw new Error(check.message);
+        return true;
+    }),
     body('country').notEmpty().withMessage('Country is required'),
     body('interest').optional().isIn(INTERESTS).withMessage('Choose classes or exam preparation'),
     body('hasPreviousExperience').isIn(['yes', 'no']).withMessage('Previous experience must be yes or no'),
@@ -92,10 +126,11 @@ router.post('/', [
     try {
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
+            const errorList = errors.array();
             return res.status(400).json({ 
                 success: false, 
-                message: 'Validation failed', 
-                errors: errors.array() 
+                message: errorList[0]?.msg || 'Validation failed', 
+                errors: errorList 
             });
         }
 
@@ -140,10 +175,11 @@ router.post('/', [
             ) RETURNING *
         `;
 
+        const normalizedPhone = normalizeDemoWhatsApp(phone).normalized;
         const values = [
             fullName,
             email,
-            phone || null,
+            normalizedPhone || null,
             country,
             hasPreviousExperience,
             currentLevel,

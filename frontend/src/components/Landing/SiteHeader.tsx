@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  CloseOutlined, CrownOutlined, ExportOutlined, GlobalOutlined, LogoutOutlined,
+  CalendarOutlined, CloseOutlined, CrownOutlined, ExportOutlined, GlobalOutlined, LogoutOutlined,
   MenuOutlined, RightOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { BRAND_LOGO, LANDING, PATHS, type Lang } from './landingContent';
@@ -151,7 +151,11 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
           <div className="lp-header-end">
             {langSwitch}
             {identity ? <UserMenu lang={lang} variant="header" /> : <a href="/login" className="lp-signin">{c.nav.signIn}</a>}
-            <button type="button" className="lp-btn lp-btn-primary lp-btn-sm" onClick={demo}>{c.nav.demo}</button>
+            <button type="button" className="lp-btn lp-btn-demo lp-btn-sm" onClick={demo} aria-label={c.nav.demo}>
+              <CalendarOutlined aria-hidden />
+              <span className="lp-demo-full">{c.nav.demo}</span>
+              <span className="lp-demo-short">{c.nav.demoShort}</span>
+            </button>
             <button type="button" className="lp-burger" onClick={() => setMenuOpen(o => !o)} aria-expanded={menuOpen} aria-controls="lp-mobile-menu" aria-label={menuOpen ? c.nav.close : c.nav.menu}>
               {menuOpen ? <CloseOutlined /> : <MenuOutlined />}
             </button>
@@ -167,7 +171,7 @@ const SiteHeader: React.FC<Props> = ({ lang, alternates, sectionBase = '', activ
         <div className="lp-mobile-foot">
           {langSwitch}
           {mobileAccount()}
-          <button type="button" className="lp-btn lp-btn-primary" onClick={demo}>{c.nav.demo}</button>
+          <button type="button" className="lp-btn lp-btn-demo" onClick={demo}><CalendarOutlined aria-hidden /> {c.nav.demo}</button>
         </div>
       </div>
     </>

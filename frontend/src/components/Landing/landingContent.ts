@@ -33,7 +33,7 @@ export interface LandingCopy {
   announce: { tag: string; text: string; link: string };
   statsLabel: string;
   langSuggest: { text: string; link: string; dismiss: string };
-  nav: { programs: string; method: string; simulator: string; pricing: string; platform: string; reviews: string; faq: string; signIn: string; demo: string; menu: string; close: string; language: string };
+  nav: { programs: string; method: string; simulator: string; pricing: string; platform: string; reviews: string; faq: string; signIn: string; demo: string; demoShort: string; menu: string; close: string; language: string };
   hero: {
     eyebrow: string; before: string; accent: string; after: string; sub: string;
     ctaPrimary: string; ctaSecondary: string;
@@ -100,7 +100,7 @@ const en: LandingCopy = {
   announce: { tag: 'New', text: 'TCF Canada speaking & writing simulator with an AI examiner.', link: 'See how it works' },
   statsLabel: 'Learn French with Natives in numbers',
   langSuggest: { text: 'Cette page existe aussi en français.', link: 'Voir en français', dismiss: 'Close' },
-  nav: { programs: 'Programs', method: 'Method', simulator: 'Exam simulator', pricing: 'Pricing', platform: 'Platform', reviews: 'Reviews', faq: 'FAQ', signIn: 'Student space', demo: 'Book a free demo', menu: 'Open menu', close: 'Close menu', language: 'Language' },
+  nav: { programs: 'Programs', method: 'Method', simulator: 'Exam simulator', pricing: 'Pricing', platform: 'Platform', reviews: 'Reviews', faq: 'FAQ', signIn: 'Student space', demo: 'Book a free demo', demoShort: 'Free demo', menu: 'Open menu', close: 'Close menu', language: 'Language' },
   hero: {
     eyebrow: 'TEF Canada · TCF Canada · DELF · DALF',
     before: 'Learn French with',
@@ -302,7 +302,7 @@ const fr: LandingCopy = {
   announce: { tag: 'Nouveau', text: 'Simulateur d’expression orale et écrite du TCF Canada avec examinateur IA.', link: 'Découvrir' },
   statsLabel: 'Learn French with Natives en chiffres',
   langSuggest: { text: 'This page is also available in English.', link: 'View in English', dismiss: 'Fermer' },
-  nav: { programs: 'Programmes', method: 'Méthode', simulator: 'Simulateur', pricing: 'Tarifs', platform: 'Plateforme', reviews: 'Avis', faq: 'FAQ', signIn: 'Espace étudiant', demo: 'Démo gratuite', menu: 'Ouvrir le menu', close: 'Fermer le menu', language: 'Langue' },
+  nav: { programs: 'Programmes', method: 'Méthode', simulator: 'Simulateur', pricing: 'Tarifs', platform: 'Plateforme', reviews: 'Avis', faq: 'FAQ', signIn: 'Espace étudiant', demo: 'Démo gratuite', demoShort: 'Démo', menu: 'Ouvrir le menu', close: 'Fermer le menu', language: 'Langue' },
   hero: {
     eyebrow: 'TEF Canada · TCF Canada · DELF · DALF',
     before: 'Apprenez le français avec des',

@@ -8,6 +8,7 @@ import {
   BookOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
+  CheckCircleFilled,
   LoadingOutlined,
   ExclamationCircleOutlined,
   AimOutlined,
@@ -17,7 +18,10 @@ import {
   FileTextOutlined,
   TeamOutlined,
   TrophyOutlined,
+  WhatsAppOutlined,
 } from '@ant-design/icons';
+import { countries } from '../../learn/account/countries';
+import { phoneRule, validateWhatsAppInput } from '../../learn/account/phone';
 import './DemoRequestModal.css';
 
 interface DemoRequestModalProps {
@@ -58,6 +62,103 @@ interface FormData {
 
 /** What the visitor came for. Chosen before any question is asked. */
 type Interest = 'classes' | 'exam';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const BAD_RUN_RE = /^(.)\1+$/;
+const BAD_SEQ_RE = /(?:01234567|12345678|23456789|98765432|87654321|76543210)/;
+
+const COUNTRY_NAME_ALIASES: Record<string, string> = {
+  'antigua and barbuda': 'AG',
+  'bosnia and herzegovina': 'BA',
+  bolivia: 'BO',
+  brunei: 'BN',
+  'cabo verde': 'CV',
+  congo: 'CG',
+  'czech republic': 'CZ',
+  'democratic republic of the congo': 'CD',
+  eswatini: 'SZ',
+  iran: 'IR',
+  'ivory coast': 'CI',
+  laos: 'LA',
+  micronesia: 'FM',
+  moldova: 'MD',
+  myanmar: 'MM',
+  'north korea': 'KP',
+  'north macedonia': 'MK',
+  palestine: 'PS',
+  russia: 'RU',
+  'saint kitts and nevis': 'KN',
+  'saint lucia': 'LC',
+  'saint vincent and the grenadines': 'VC',
+  'sao tome and principe': 'ST',
+  'south korea': 'KR',
+  syria: 'SY',
+  taiwan: 'TW',
+  tanzania: 'TZ',
+  'timor-leste': 'TL',
+  'trinidad and tobago': 'TT',
+  turkey: 'TR',
+  'vatican city': 'VA',
+  venezuela: 'VE',
+  vietnam: 'VN',
+};
+
+let countryMapCache: Record<string, string> | null = null;
+function resolveCountryCode(countryName: string): string {
+  const key = String(countryName || '').trim().toLowerCase();
+  if (!key) return '';
+  if (COUNTRY_NAME_ALIASES[key]) return COUNTRY_NAME_ALIASES[key];
+  if (!countryMapCache) {
+    const map: Record<string, string> = { ...COUNTRY_NAME_ALIASES };
+    for (const item of countries('en')) {
+      map[item.name.toLowerCase()] = item.code;
+    }
+    countryMapCache = map;
+  }
+  return countryMapCache[key] || '';
+}
+
+type DemoWhatsAppResult =
+  | { ok: true; e164: string; example: string }
+  | { ok: false; problem: 'missing' | 'invalid' | 'need_country_code'; example: string; e164: '' };
+
+function validateDemoWhatsApp(rawPhone: string, countryName: string): DemoWhatsAppResult {
+  const iso = resolveCountryCode(countryName);
+  const rule = phoneRule(iso);
+  const example = rule ? `${rule.dial} ${rule.ex}` : '+1 514 555 0199';
+
+  const stripped = String(rawPhone ?? '').replace(/[\u200e\u200f\u202a-\u202e\s().-]+/g, '');
+  if (!stripped) return { ok: false, problem: 'missing', example, e164: '' };
+  if (!/^\+?\d+$/.test(stripped)) return { ok: false, problem: 'invalid', example, e164: '' };
+
+  if (stripped.startsWith('+') || stripped.startsWith('00')) {
+    const digits = stripped.startsWith('+') ? stripped.slice(1) : stripped.slice(2);
+    if (rule && digits.startsWith(rule.dial.slice(1))) {
+      const check = validateWhatsAppInput(rawPhone, iso);
+      return check.ok
+        ? { ok: true, e164: check.e164, example }
+        : { ok: false, problem: 'invalid', example, e164: '' };
+    }
+    const isDummyRun = BAD_RUN_RE.test(digits)
+      || BAD_RUN_RE.test(digits.slice(1))
+      || BAD_RUN_RE.test(digits.slice(2))
+      || BAD_RUN_RE.test(digits.slice(3))
+      || BAD_SEQ_RE.test(digits);
+    if (!/^[1-9]\d{6,14}$/.test(digits) || isDummyRun) {
+      return { ok: false, problem: 'invalid', example, e164: '' };
+    }
+    return { ok: true, e164: `+${digits}`, example };
+  }
+
+  if (iso && rule) {
+    const check = validateWhatsAppInput(rawPhone, iso);
+    return check.ok
+      ? { ok: true, e164: check.e164, example }
+      : { ok: false, problem: 'invalid', example, e164: '' };
+  }
+
+  return { ok: false, problem: 'need_country_code', example, e164: '' };
+}
 
 /** The exams the platform prepares for. */
 const EXAM_OPTIONS: { value: string; label: string; note: string }[] = [
@@ -138,6 +239,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [customTimezone, setCustomTimezone] = useState('');
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
@@ -204,6 +306,14 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
     setIsLoading(true);
     
     try {
+      const waCheck = validateDemoWhatsApp(formData.phone, formData.country);
+      if (!waCheck.ok) {
+        setIsLoading(false);
+        setPhoneTouched(true);
+        setErrorMessage('Please enter a valid WhatsApp number with your country code so our admin can contact you on WhatsApp.');
+        setShowErrorModal(true);
+        return;
+      }
       if (formData.timezone === 'other' && !customTimezone.trim()) {
         setIsLoading(false);
         setErrorMessage('Please enter your timezone when selecting "Other".');
@@ -212,6 +322,9 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
       }
       const payload = {
         ...formData,
+        fullName: formData.fullName.trim(),
+        email: formData.email.trim(),
+        phone: waCheck.e164,
         interest: interest || 'classes',
         // Keep the selected published offer with the request in the existing
         // expectations field, so the team can see duration, currency and credits.
@@ -258,6 +371,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
           skills: [],
         });
         setCustomTimezone('');
+        setPhoneTouched(false);
         setCurrentStep(1);
         setInterest(initialInterest ?? '');
       } else {
@@ -282,6 +396,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
       setShowSuccessModal(false);
       setShowErrorModal(false);
       setErrorMessage('');
+      setPhoneTouched(false);
       setInterest(initialInterest ?? '');
       setCurrentStep(1);
     }
@@ -327,11 +442,19 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
     };
   }, [isShowing, showSuccessModal, showErrorModal, isLoading]);
 
+  const waCheck = validateDemoWhatsApp(formData.phone, formData.country);
+  const step1Valid = !!(
+    formData.fullName.trim() &&
+    EMAIL_RE.test(formData.email.trim()) &&
+    formData.country &&
+    waCheck.ok
+  );
+
   const isStepValid = () => {
     if (isExam) {
       switch (currentStep) {
         case 1:
-          return !!(formData.fullName && formData.email && formData.country);
+          return step1Valid;
         case 2:
           return !!(formData.targetExam && formData.currentLevel && formData.hasPreviousExperience);
         case 3:
@@ -342,7 +465,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
     }
     switch (currentStep) {
       case 1:
-        return !!(formData.fullName && formData.email && formData.country);
+        return step1Valid;
       case 2:
         return !!(formData.hasPreviousExperience && formData.currentLevel);
       case 3:
@@ -568,17 +691,6 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
             
             <div className="form-row">
               <div className="form-group">
-                <label>Phone Number</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => handleInputChange('phone', e.target.value)}
-                  placeholder="+1 (555) 123-4567"
-                  className="form-input"
-                />
-              </div>
-              
-              <div className="form-group">
                 <label>Country *</label>
                 <select
                   value={formData.country}
@@ -784,6 +896,52 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
                   <option value="Zimbabwe">Zimbabwe</option>
                 </select>
               </div>
+
+              {(() => {
+                const showWaError = !waCheck.ok && (phoneTouched || formData.phone.trim().length >= 4);
+                const waToneClass = waCheck.ok ? ' is-ok' : showWaError ? ' is-err' : '';
+                let waNotice = 'WhatsApp number only (with country code) — an admin will contact you on WhatsApp.';
+                if (waCheck.ok) {
+                  waNotice = `WhatsApp verified (${waCheck.e164}) — an admin will contact you on WhatsApp.`;
+                } else if (showWaError) {
+                  if (waCheck.problem === 'missing') {
+                    waNotice = 'WhatsApp number is compulsory — an admin will contact you on WhatsApp.';
+                  } else if (waCheck.problem === 'need_country_code') {
+                    waNotice = `Select your country or include your country code (e.g., ${waCheck.example}). WhatsApp only.`;
+                  } else {
+                    waNotice = `Enter a valid WhatsApp number with country code (e.g., ${waCheck.example}). WhatsApp only.`;
+                  }
+                }
+                return (
+                  <div className="form-group">
+                    <label className="wa-field-label" htmlFor="demo-whatsapp-input">
+                      <span>WhatsApp Number *</span>
+                      <span className="wa-only-badge">
+                        <WhatsAppOutlined aria-hidden="true" /> WhatsApp only
+                      </span>
+                    </label>
+                    <div className={`wa-input-wrap${waToneClass}`}>
+                      <span className="wa-input-icon" aria-hidden="true">
+                        <WhatsAppOutlined />
+                      </span>
+                      <input
+                        id="demo-whatsapp-input"
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        required
+                        value={formData.phone}
+                        onChange={(e) => handleInputChange('phone', e.target.value)}
+                        onBlur={() => setPhoneTouched(true)}
+                        placeholder={waCheck.example}
+                        className="wa-input"
+                      />
+                      {waCheck.ok && <CheckCircleFilled className="wa-ok-icon" aria-hidden="true" />}
+                    </div>
+                    <span className={`form-hint wa-notice${waToneClass}`}>{waNotice}</span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         );
@@ -1008,8 +1166,8 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
             <div className="success-content">
               <CheckCircleOutlined className="success-icon" />
               <p className="status-lead">Thank you for your interest in learning French with us.</p>
-              <p>We have received your request and <strong>an administrator will contact you soon</strong> to schedule your session.</p>
-              <p>Please check your email for confirmation details and further instructions.</p>
+              <p>We have received your request and <strong>an administrator will contact you soon on WhatsApp</strong> to schedule your session.</p>
+              <p>Please check your WhatsApp messages and email for confirmation details.</p>
             </div>
           </div>
           <div className="modal-footer">

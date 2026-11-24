@@ -837,16 +837,20 @@ export function AccountPage({ lang }: { lang: Lang }) {
   const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email;
   const countryLabel = user.country ? countries(lang).find(x => x.code === user.country)?.name || user.country : '';
   const levelBadge = user.french_level ? FRENCH_LEVEL_OPTIONS.find(o => o.value === user.french_level) : null;
-  const isPremium = access.level === 'premium';
+  const hasPaidPlan = access.level === 'premium';
+  const isStandard = hasPaidPlan && (access.plan === 'standard' || access.premium?.tier === 'standard');
+  const isPremium = hasPaidPlan && !isStandard;
   const showUpgradeCta = !isPremium && mode === 'premium' && !access.staff;
-  const variant = identity?.variant ?? (isPremium ? 'premium' : 'free');
-  const tierLabel = mode === 'free' && !isPremium
+  const variant = identity?.variant ?? (isStandard ? 'standard' : isPremium ? 'premium' : 'free');
+  const tierLabel = mode === 'free' && !hasPaidPlan
     ? c.freeForAllTitle
     : access.staff
       ? (identity?.badge || 'Team')
-      : isPremium
-        ? c.levelPremium
-        : c.levelFree;
+      : isStandard
+        ? 'Standard'
+        : isPremium
+          ? c.levelPremium
+          : c.levelFree;
 
   return (
     <LearnShell

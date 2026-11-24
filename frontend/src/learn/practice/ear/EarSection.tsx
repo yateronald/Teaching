@@ -139,7 +139,7 @@ export function EarSection({ lang, hidden = false, focused = false }: { lang: La
                     <div className="ear-card-visual" data-band={levelBand(e.level)} aria-hidden>
                       <LevelChip level={e.level} size="sm" />
                       {locked ? (tier === 'premium' ? <CrownFilled className="ear-card-ico" /> : <LockOutlined className="ear-card-ico" />) : <SoundOutlined className="ear-card-ico" />}
-                      <span className="ear-card-sample" lang="fr" style={locked ? { filter: 'blur(3px)' } : undefined}>{e.sample}</span>
+                      <span className="ear-card-sample" lang="fr">{e.sample}</span>
                     </div>
                     <div className={`ear-card-body${locked ? ' ax-locked-copy' : ''}`}>
                       <p className="ear-card-tag">{tx(e.tag, lang)}</p>

@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
-  CheckOutlined, CloseOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined,
-  EditOutlined, FormOutlined, LockOutlined, PlayCircleFilled, SafetyCertificateOutlined,
+  CheckOutlined, CloseOutlined, CustomerServiceOutlined, DownOutlined,
+  EditOutlined, FormOutlined, PlayCircleFilled, SafetyCertificateOutlined,
   SearchOutlined, SoundOutlined, SwapOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { imageUrl } from '../../categories';
@@ -288,14 +288,6 @@ export default function DictationLibraryPage({ lang }: { lang: Lang }) {
                             loading="lazy"
                             decoding="async"
                           />
-                          {locked && (
-                            <div className="ax-locked-veil" aria-hidden>
-                              <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-                                {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-                                {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
-                              </span>
-                            </div>
-                          )}
                           <LevelChip level={d.level} size="sm" />
                           {best && !locked ? (
                             <span className="dx-card-best">{c.best(formatGrade(best.grade, lang))}</span>

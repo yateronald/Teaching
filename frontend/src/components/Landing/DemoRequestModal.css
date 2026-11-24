@@ -370,6 +370,110 @@
   color: #94a3b8;
 }
 
+/* ── Compulsory WhatsApp-only Field ── */
+.form-group label.wa-field-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.wa-only-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.wa-input-wrap {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  gap: 9px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 9px;
+  background: #ffffff;
+  box-sizing: border-box;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.wa-input-wrap:focus-within {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.demo-modal.is-exam .wa-input-wrap:focus-within {
+  border-color: #0e7490;
+  box-shadow: 0 0 0 3px rgba(14, 116, 144, 0.12);
+}
+
+.wa-input-wrap.is-ok {
+  border-color: #16a34a;
+}
+
+.wa-input-wrap.is-err {
+  border-color: #dc2626;
+}
+
+.wa-input-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #16a34a;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.wa-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  height: 100%;
+  font-size: 13.5px;
+  color: #0f172a;
+}
+
+.wa-input::placeholder {
+  color: #94a3b8;
+}
+
+.wa-ok-icon {
+  color: #16a34a;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.form-hint.wa-notice {
+  margin-top: 5px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  color: #065f46;
+}
+
+.form-hint.wa-notice.is-ok {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.form-hint.wa-notice.is-err {
+  color: #dc2626;
+  font-weight: 600;
+}
+
 /* ── Radio Group (Cards Layout) ── */
 .radio-group {
   display: grid;
@@ -1292,7 +1396,8 @@
 @media (pointer: coarse) {
   .form-input,
   .form-select,
-  .form-textarea {
+  .form-textarea,
+  .wa-input {
     font-size: 16px;
   }
 

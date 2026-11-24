@@ -1,12 +1,11 @@
-// Persistent Free Academy Navigation Strip + Global Instant Search Modal (every free item).
-// Mounted in LearnShell directly beneath SiteHeader (in document flow so it never
-// fights sticky studio bars) across every /learn/ and /fr/apprendre/ page.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+// Persistent Free Academy Navigation Strip + Global Instant Search Modal (subpages).
+// On the Hub page (/learn/), search focuses the inline on-page HeroSearch bar.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRightOutlined, BookOutlined, CheckCircleOutlined, CloseOutlined,
   CompassOutlined, CustomerServiceOutlined, DownOutlined, EditOutlined,
-  PlayCircleOutlined, ReadOutlined, SearchOutlined, ThunderboltOutlined,
+  ReadOutlined, SearchOutlined, ThunderboltOutlined,
   TrophyOutlined,
 } from '@ant-design/icons';
 import { CATEGORIES, categoryPath } from '../categories';
@@ -24,36 +23,22 @@ import { LEVELS, tx, type Lang, type Level } from '../types';
 import { getStepCompletion, useActivitySnapshot, useStudyPath } from '../studyPath/activityStore';
 import { TOTAL_ACADEMY_ITEMS, buildStudyPlan, levelActivityStats } from '../studyPath/builder';
 import { COURSE_TRACKS, STUDY_COPY, goalById } from '../studyPath/copy';
-import { OPEN_SEARCH_EVENT, foldSearch, getSearchIndex, type SearchKind } from '../studyPath/searchIndex';
-import { courseTier, itemTier, type Tier } from '../access';
+import {
+  OPEN_SEARCH_EVENT,
+  filterSearchEntries,
+  focusHeroSearch,
+  getSearchIndex,
+  levelBand,
+  modalKindOfSearch,
+  searchEntryTier,
+  type SearchEntry,
+  type SearchKind,
+} from '../studyPath/searchIndex';
 import { AccountButton } from '../account/AccountButton';
 import { openPremiumModal } from '../account/premiumModal';
-import { LockActionPill } from '../account/PremiumWidget';
 import { isTierLocked, useAccount } from '../account/store';
+import { AcademySearchResults } from './AcademySearch';
 import './academy.css';
-
-function searchEntryTier(id: string): Tier {
-  if (id === 'placement-test') return 'visitor';
-  if (id.startsWith('course-')) return courseTier(id.slice(7));
-  if (id.startsWith('dictation-')) return itemTier(`dictation:${id.slice(10)}`);
-  if (id.startsWith('dialogue-')) return itemTier(`dialogue:${id.slice(9)}`);
-  if (id.startsWith('ear-')) return itemTier(`ear:${id.slice(4)}`);
-  if (id.startsWith('doc-')) return itemTier(`doc:${id.slice(4)}`);
-  if (id.startsWith('text-')) return itemTier(`text:${id.slice(5)}`);
-  if (id.startsWith('mission-')) return itemTier(`mission:${id.slice(8)}`);
-  if (id.startsWith('game-')) return itemTier(`game:${id.slice(5)}`);
-  return 'visitor';
-}
-
-const KIND_ICON: Record<SearchKind, ReactNode> = {
-  course: <BookOutlined />,
-  dictation: <EditOutlined />,
-  listening: <CustomerServiceOutlined />,
-  reading: <ReadOutlined />,
-  game: <PlayCircleOutlined />,
-};
-
-const levelBand = (lv: Level) => (lv === 'A1' || lv === 'A2' ? 'is-a' : lv === 'B1' || lv === 'B2' ? 'is-b' : 'is-c');
 
 function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean; onClose: () => void }) {
   const c = STUDY_COPY[lang].search;
@@ -66,18 +51,25 @@ function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean;
   const [cursor, setCursor] = useState(0);
 
   const index = useMemo(() => getSearchIndex(lang), [lang]);
+  const filtered = useMemo(() => filterSearchEntries(index, q, kind, lvl), [index, q, kind, lvl]);
+  const visible = filtered.slice(0, 20);
 
-  const filtered = useMemo(() => {
-    const words = foldSearch(q).split(/\s+/).filter(Boolean);
-    return index.filter(item => {
-      if (kind !== 'all' && item.kind !== kind) return false;
-      if (lvl !== 'all' && !item.levels.includes(lvl)) return false;
-      if (!words.length) return true;
-      return words.every(w => item.haystack.includes(w));
-    });
-  }, [index, q, kind, lvl]);
-
-  const visible = filtered.slice(0, 36);
+  const handleSelect = useCallback((item: SearchEntry) => {
+    const t = searchEntryTier(item.id);
+    onClose();
+    if (isTierLocked(account, t)) {
+      openPremiumModal({
+        title: item.title,
+        subtitle: item.subtitle,
+        tier: t,
+        kind: modalKindOfSearch(item.kind),
+        level: item.levelLabel,
+        to: item.to,
+      });
+    } else {
+      navigate(item.to);
+    }
+  }, [account, navigate, onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -109,30 +101,14 @@ function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean;
         setCursor(n => (visible.length ? (n - 1 + visible.length) % visible.length : 0));
       } else if (e.key === 'Enter' && visible[cursor]) {
         e.preventDefault();
-        const item = visible[cursor];
-        const t = searchEntryTier(item.id);
-        onClose();
-        if (isTierLocked(account, t)) {
-          openPremiumModal({ title: item.title, subtitle: item.subtitle, tier: t, level: item.levelLabel, to: item.to });
-        } else {
-          navigate(item.to);
-        }
+        handleSelect(visible[cursor]);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, visible, cursor, onClose, navigate, account]);
+  }, [open, visible, cursor, onClose, handleSelect]);
 
   if (!open) return null;
-
-  const kinds: [SearchKind | 'all', string][] = [
-    ['all', c.all],
-    ['course', c.courses],
-    ['dictation', c.dictations],
-    ['listening', c.listening],
-    ['reading', c.reading],
-    ['game', c.games],
-  ];
 
   return (
     <div
@@ -165,78 +141,25 @@ function GlobalSearchModal({ lang, open, onClose }: { lang: Lang; open: boolean;
           </button>
         </div>
 
-        <div className="ac-search-filters">
-          <div className="ac-search-pills" role="group" aria-label={c.title}>
-            {kinds.map(([k, label]) => (
-              <button
-                key={k}
-                type="button"
-                className={kind === k ? 'is-on' : ''}
-                aria-pressed={kind === k}
-                onClick={() => setKind(k)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="ac-search-levels" role="group" aria-label={c.allLevels}>
-            <button type="button" className={lvl === 'all' ? 'is-on' : ''} onClick={() => setLvl('all')}>
-              {c.all}
-            </button>
-            {LEVELS.map(lv => (
-              <button key={lv} type="button" className={lvl === lv ? 'is-on' : ''} onClick={() => setLvl(lv)}>
-                {lv}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="ac-search-meta">
-          <span>{c.results(filtered.length)}</span>
-          <span className="ac-search-tip">{c.tip}</span>
-        </div>
-
-        <div className="ac-search-body">
-          {visible.length === 0 ? (
-            <div className="ac-search-empty">
-              <p>{c.empty}</p>
-              <button type="button" className="lp-btn lp-btn-ghost lp-btn-sm" onClick={() => { setQ(''); setKind('all'); setLvl('all'); }}>
-                {c.reset}
-              </button>
-            </div>
-          ) : (
-            <ul className="ac-search-list">
-              {visible.map((item, idx) => {
-                const t = searchEntryTier(item.id);
-                const locked = isTierLocked(account, t);
-                return (
-                  <li key={item.id}>
-                    <Link
-                      to={item.to}
-                      className={`ac-search-item${idx === cursor ? ' is-active' : ''}${locked ? ' ax-locked-copy' : ''}`}
-                      onMouseEnter={() => setCursor(idx)}
-                      onClick={e => {
-                        onClose();
-                        if (locked) {
-                          e.preventDefault();
-                          openPremiumModal({ title: item.title, subtitle: item.subtitle, tier: t, level: item.levelLabel, to: item.to });
-                        }
-                      }}
-                    >
-                      <span className={`ac-search-kind is-${item.kind}`} aria-hidden>{KIND_ICON[item.kind]}</span>
-                      <span className="ac-search-copy">
-                        <strong>{item.title}</strong>
-                        <small>{item.sublabel} · {item.subtitle}</small>
-                      </span>
-                      <span className={`ac-search-lvl ${levelBand(item.levels[0] ?? 'A1')}`}>{item.levelLabel}</span>
-                      {locked ? <LockActionPill lang={lang} tier={t} compact /> : <ArrowRightOutlined className="ac-search-go" aria-hidden />}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+        <AcademySearchResults
+          lang={lang}
+          query={q}
+          onQueryChange={next => {
+            setQ(next);
+            inputRef.current?.focus();
+          }}
+          kind={kind}
+          onKindChange={setKind}
+          lvl={lvl}
+          onLvlChange={setLvl}
+          allEntries={index}
+          filtered={filtered}
+          cursor={cursor}
+          onCursorChange={setCursor}
+          onSelect={handleSelect}
+          onClose={onClose}
+          variant="modal"
+        />
       </div>
     </div>
   );
@@ -246,6 +169,7 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
   const c = STUDY_COPY[lang].bar;
   const { pathname } = useLocation();
   const route = useMemo(() => resolveLearnPath(pathname), [pathname]);
+  const account = useAccount();
   const saved = useStudyPath();
   const snap = useActivitySnapshot();
 
@@ -274,9 +198,12 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
     };
   }, [mounted, saved, snap, lang]);
 
+  const isHub = route.type === 'hub';
+
   // Close menus on route change
   useEffect(() => {
     setMenu(null);
+    setSearchOpen(false);
   }, [pathname]);
 
   // Close menus on click outside or Escape; global Ctrl/Cmd+K shortcut
@@ -290,14 +217,16 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setMenu(null);
-        setSearchOpen(prev => !prev);
+        if (isHub) focusHeroSearch();
+        else setSearchOpen(prev => !prev);
       } else if (e.key === 'Escape' && menu) {
         setMenu(null);
       }
     };
     const onOpenEvent = () => {
       setMenu(null);
-      setSearchOpen(true);
+      if (isHub) focusHeroSearch();
+      else setSearchOpen(true);
     };
     document.addEventListener('mousedown', onDocClick);
     window.addEventListener('keydown', onKey);
@@ -307,9 +236,8 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
       window.removeEventListener('keydown', onKey);
       window.removeEventListener(OPEN_SEARCH_EVENT, onOpenEvent);
     };
-  }, [menu]);
+  }, [menu, isHub]);
 
-  const isHub = route.type === 'hub';
   const isLevel = route.type === 'level';
   const isLibraryArea =
     route.type === 'category' ||
@@ -379,7 +307,11 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
             <button
               type="button"
               className="ac-search-btn"
-              onClick={() => { setMenu(null); setSearchOpen(true); }}
+              onClick={() => {
+                setMenu(null);
+                if (isHub) focusHeroSearch();
+                else setSearchOpen(true);
+              }}
               aria-label={c.searchPlaceholder}
             >
               <SearchOutlined aria-hidden />
@@ -395,7 +327,7 @@ export function AcademyBar({ lang, mounted }: { lang: Lang; mounted: boolean }) 
               </Link>
             )}
 
-            <AccountButton lang={lang} />
+            {!account.user && !account.portalUser && <AccountButton lang={lang} />}
           </div>
         </div>
 

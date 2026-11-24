@@ -28,6 +28,45 @@ const { sendEmail } = require('../emails/brevoService');
 
 const CURRENCIES = ['NGN', 'GHS', 'ZAR', 'KES', 'USD', 'XOF', 'EGP', 'RWF'];
 const COMPANY_ROLES = new Set(['candidate', 'org_admin']);
+const PLAN_TIERS = ['standard', 'premium'];
+const BILLING_PERIODS = ['monthly', 'quarterly', 'yearly'];
+const PERIOD_DAYS = { monthly: 30, quarterly: 90, yearly: 365 };
+const CANONICAL_PLAN_CODES = [
+    'standard-monthly', 'standard-quarterly', 'standard-yearly',
+    'premium-monthly', 'premium-quarterly', 'premium-yearly',
+];
+const PLAN_SETTINGS_KEYS = ['plan_currency', 'plan_quarterly_discount', 'plan_yearly_discount', 'plan_premium_ai_credits'];
+const DEFAULT_PLAN_CONFIG = {
+    currency: 'USD',
+    discounts: { quarterly: 10, yearly: 20 },
+    premium_ai_credits: 30,
+    standard: { active: true, monthly: 999, quarterly: 2697, yearly: 9590 },
+    premium: { active: true, monthly: 1499, quarterly: 4047, yearly: 14390 },
+};
+const CANONICAL_COPY = {
+    standard: {
+        en: {
+            name: { monthly: 'Standard — Monthly', quarterly: 'Standard — Quarterly', yearly: 'Standard — Yearly' },
+            desc: 'Full access to all 464+ guided French courses (A1–C2), practice & listening labs, studio dictations and certificates.',
+        },
+        fr: {
+            name: { monthly: 'Standard — Mensuel', quarterly: 'Standard — Trimestriel', yearly: 'Standard — Annuel' },
+            desc: 'Accès complet aux 464+ cours de français (A1–C2), ateliers d’écoute, dictées studio et certificats.',
+        },
+        sortBase: 10,
+    },
+    premium: {
+        en: {
+            name: { monthly: 'Premium — Monthly', quarterly: 'Premium — Quarterly', yearly: 'Premium — Yearly' },
+            desc: 'All Standard courses plus TCF / TEF Exam Simulator, CO & CE past exam subjects, and AI credits for EE & EO.',
+        },
+        fr: {
+            name: { monthly: 'Premium — Mensuel', quarterly: 'Premium — Trimestriel', yearly: 'Premium — Annuel' },
+            desc: 'Tous les cours Standard plus Simulateur d’examen TCF / TEF, sujets CO / CE et crédits IA pour EE / EO.',
+        },
+        sortBase: 40,
+    },
+};
 
 const siteBase = () => String(process.env.LEARN_SITE_URL || process.env.FRONTEND_URL || '').trim().replace(/\/+$/, '');
 const apiBase = () => String(process.env.API_PUBLIC_URL || '').trim().replace(/\/+$/, '').replace(/\/api$/, '');
@@ -39,6 +78,44 @@ const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 class BillingError extends Error {
     constructor(status, code, message) { super(message); this.status = status; this.code = code; }
+}
+
+let planSchemaReady = false;
+/** Ensures migration 034 columns & constraints exist when migration 031 tables are present (idempotent, memoized once applied). */
+async function ensurePlanSchema(db) {
+    if (planSchemaReady) return true;
+    try {
+        const hasOffers = await db.get("SELECT 1 AS ok FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'learn_offers'");
+        if (!hasOffers) return false;
+        const col = await db.get("SELECT 1 AS ok FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'learn_offers' AND column_name = 'plan_tier'");
+        if (!col) {
+            await db.run(`
+                ALTER TABLE learn_licenses DROP CONSTRAINT IF EXISTS learn_licenses_tier_check;
+                ALTER TABLE learn_licenses ADD CONSTRAINT learn_licenses_tier_check CHECK (tier IN ('standard', 'premium'));
+                ALTER TABLE learn_offers
+                    ADD COLUMN IF NOT EXISTS plan_tier VARCHAR(20) NOT NULL DEFAULT 'premium',
+                    ADD COLUMN IF NOT EXISTS billing_period VARCHAR(20),
+                    ADD COLUMN IF NOT EXISTS discount_pct SMALLINT NOT NULL DEFAULT 0;
+                ALTER TABLE learn_offers DROP CONSTRAINT IF EXISTS learn_offers_plan_tier_check;
+                ALTER TABLE learn_offers ADD CONSTRAINT learn_offers_plan_tier_check CHECK (plan_tier IN ('standard', 'premium'));
+                ALTER TABLE learn_offers DROP CONSTRAINT IF EXISTS learn_offers_billing_period_check;
+                ALTER TABLE learn_offers ADD CONSTRAINT learn_offers_billing_period_check CHECK (billing_period IS NULL OR billing_period IN ('monthly', 'quarterly', 'yearly'));
+                ALTER TABLE learn_offers DROP CONSTRAINT IF EXISTS learn_offers_discount_pct_check;
+                ALTER TABLE learn_offers ADD CONSTRAINT learn_offers_discount_pct_check CHECK (discount_pct BETWEEN 0 AND 95);
+                CREATE TABLE IF NOT EXISTS learn_settings (
+                    key VARCHAR(40) PRIMARY KEY,
+                    value VARCHAR(200) NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+                );
+            `);
+        }
+        planSchemaReady = true;
+        return true;
+    } catch (err) {
+        console.warn('[billing] ensurePlanSchema skipped:', err.message);
+        return false;
+    }
 }
 
 /** Payments are possible: Paystack configured, migration 031 applied, and the courses not free for everyone. */
@@ -70,6 +147,9 @@ const publicOffer = (o, chargePreview = null) => ({
     code: o.code,
     name: { en: o.name_en, fr: o.name_fr },
     description: { en: o.description_en || '', fr: o.description_fr || '' },
+    plan_tier: o.plan_tier === 'standard' ? 'standard' : 'premium',
+    billing_period: BILLING_PERIODS.includes(o.billing_period) ? o.billing_period : null,
+    discount_pct: Number(o.discount_pct || 0),
     days: o.days,
     amount: Number(o.amount),
     currency: o.currency,
@@ -82,7 +162,10 @@ const publicOffer = (o, chargePreview = null) => ({
         },
     } : {}),
 });
-const activeOffers = (db) => db.all('SELECT * FROM learn_offers WHERE active ORDER BY sort, amount');
+const activeOffers = async (db) => {
+    await ensurePlanSchema(db);
+    return db.all('SELECT * FROM learn_offers WHERE active ORDER BY sort, amount');
+};
 
 async function enrichOffersWithCharge(offers) {
     if (!offers.length) return [];
@@ -91,6 +174,212 @@ async function enrichOffersWithCharge(offers) {
         const conv = await fxRate.convertOfferForCharge(o, merchantCurrencies).catch(() => null);
         return publicOffer(o, conv);
     }));
+}
+
+/** Reads the structured 3-tier x 3-period plan catalog from learn_settings + learn_offers (with sensible defaults). */
+async function getPlanCatalog(db, { includeInactive = false, withCharge = false } = {}) {
+    const schemaOk = await ensurePlanSchema(db);
+    const settingsMap = {};
+    try {
+        const sRows = await db.all('SELECT key, value FROM learn_settings WHERE key = ANY($1::text[])', [PLAN_SETTINGS_KEYS]);
+        for (const r of sRows) settingsMap[r.key] = r.value;
+    } catch { /* learn_settings not created yet */ }
+
+    const rawCurrency = String(settingsMap.plan_currency || DEFAULT_PLAN_CONFIG.currency).toUpperCase();
+    const defaultCurrency = CURRENCIES.includes(rawCurrency) ? rawCurrency : DEFAULT_PLAN_CONFIG.currency;
+    const parseClamp = (v, fallback, min, max) => {
+        const n = Number(v);
+        return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+    };
+    const discounts = {
+        quarterly: parseClamp(settingsMap.plan_quarterly_discount, DEFAULT_PLAN_CONFIG.discounts.quarterly, 0, 80),
+        yearly: parseClamp(settingsMap.plan_yearly_discount, DEFAULT_PLAN_CONFIG.discounts.yearly, 0, 80),
+    };
+    const premium_ai_credits = parseClamp(settingsMap.plan_premium_ai_credits, DEFAULT_PLAN_CONFIG.premium_ai_credits, 0, 9999);
+
+    let rows = [];
+    if (schemaOk) {
+        rows = await db.all('SELECT * FROM learn_offers WHERE code = ANY($1::text[]) ORDER BY sort, id', [CANONICAL_PLAN_CODES]).catch(() => []);
+    }
+    const byCode = new Map(rows.map(r => [r.code, r]));
+    const configured = rows.length > 0;
+    const merchantCurrencies = withCharge ? await paystack.supportedCurrencies().catch(() => []) : [];
+
+    const buildTier = async (tier) => {
+        const tierRows = BILLING_PERIODS.map(p => byCode.get(`${tier}-${p}`)).filter(Boolean);
+        const tierActive = tierRows.length > 0 ? tierRows.some(r => r.active) : true;
+        const periods = {};
+        for (const period of BILLING_PERIODS) {
+            const code = `${tier}-${period}`;
+            const row = byCode.get(code);
+            const fallbackAmount = DEFAULT_PLAN_CONFIG[tier][period];
+            const discountFallback = period === 'monthly' ? 0 : discounts[period];
+            const offerObj = {
+                amount: row ? Number(row.amount) : fallbackAmount,
+                currency: row ? String(row.currency).toUpperCase() : defaultCurrency,
+                days: row ? Number(row.days) : PERIOD_DAYS[period],
+                recurring: row ? !!row.recurring : false,
+            };
+            let charge = null;
+            if (withCharge && (row ? row.active : tierActive)) {
+                const conv = await fxRate.convertOfferForCharge(offerObj, merchantCurrencies).catch(() => null);
+                if (conv?.converted) {
+                    charge = { amount: conv.chargeAmount, currency: conv.chargeCurrency, fx_rate: conv.fxRate };
+                }
+            }
+            periods[period] = {
+                code,
+                amount: offerObj.amount,
+                currency: offerObj.currency,
+                days: offerObj.days,
+                discount_pct: row ? Number(row.discount_pct ?? discountFallback) : discountFallback,
+                recurring: offerObj.recurring,
+                active: row ? !!row.active : tierActive,
+                configured: !!row,
+                ...(charge ? { charge } : {}),
+                ...(includeInactive ? { paystack_plan_code: row?.paystack_plan_code || null } : {}),
+            };
+        }
+        return { active: tierActive, periods };
+    };
+
+    const [standard, premium] = await Promise.all([buildTier('standard'), buildTier('premium')]);
+    return {
+        configured,
+        currency: standard.periods.monthly.currency || defaultCurrency,
+        discounts,
+        premium_ai_credits,
+        tiers: {
+            free: { active: true },
+            standard,
+            premium,
+        },
+    };
+}
+
+/** Validates and saves the 3-tier x 3-period plan catalog into learn_settings & learn_offers. */
+async function savePlanCatalog(db, body, actorId) {
+    const schemaOk = await ensurePlanSchema(db);
+    if (!schemaOk) throw new BillingError(503, 'NOT_READY', 'Run backend/database/run-payments-migration.js first.');
+
+    const currency = String(body?.currency || DEFAULT_PLAN_CONFIG.currency).trim().toUpperCase();
+    if (!CURRENCIES.includes(currency)) {
+        throw new BillingError(400, 'BAD_CURRENCY', `Currency: one of ${CURRENCIES.join(', ')}.`);
+    }
+
+    const qDisc = Number(body?.discounts?.quarterly ?? DEFAULT_PLAN_CONFIG.discounts.quarterly);
+    const yDisc = Number(body?.discounts?.yearly ?? DEFAULT_PLAN_CONFIG.discounts.yearly);
+    if (!Number.isInteger(qDisc) || qDisc < 0 || qDisc > 80) {
+        throw new BillingError(400, 'BAD_DISCOUNT', 'Quarterly discount must be a whole number from 0% to 80%.');
+    }
+    if (!Number.isInteger(yDisc) || yDisc < 0 || yDisc > 80) {
+        throw new BillingError(400, 'BAD_DISCOUNT', 'Yearly discount must be a whole number from 0% to 80%.');
+    }
+
+    const aiCredits = Number(body?.premium_ai_credits ?? DEFAULT_PLAN_CONFIG.premium_ai_credits);
+    if (!Number.isInteger(aiCredits) || aiCredits < 0 || aiCredits > 9999) {
+        throw new BillingError(400, 'BAD_CREDITS', 'Monthly Premium AI credits must be an integer between 0 and 9999.');
+    }
+
+    const discounts = { quarterly: qDisc, yearly: yDisc };
+    const validatedOffers = [];
+    for (const tier of PLAN_TIERS) {
+        const tierIn = body?.tiers?.[tier] || body?.[tier] || {};
+        const tierActive = tierIn.active === true;
+        const periodsIn = tierIn.periods || tierIn;
+        BILLING_PERIODS.forEach((period, pIdx) => {
+            const pIn = periodsIn?.[period] || {};
+            const amount = Number(pIn.amount);
+            if (!Number.isSafeInteger(amount) || amount < 1 || amount > 1e12) {
+                throw new BillingError(400, 'BAD_AMOUNT', `${tier} (${period}) price must be a positive whole subunit amount.`);
+            }
+            const days = Number(pIn.days ?? PERIOD_DAYS[period]);
+            if (!Number.isInteger(days) || days < 1 || days > 3660) {
+                throw new BillingError(400, 'BAD_DAYS', `${tier} (${period}) duration must be between 1 and 3660 days.`);
+            }
+            const discount_pct = period === 'monthly'
+                ? 0
+                : Number.isInteger(Number(pIn.discount_pct)) && Number(pIn.discount_pct) >= 0 && Number(pIn.discount_pct) <= 95
+                    ? Number(pIn.discount_pct)
+                    : discounts[period];
+            const recurring = pIn.recurring === true;
+            const rawPlan = String(pIn.paystack_plan_code || '').trim();
+            if (rawPlan && !/^PLN_[A-Za-z0-9]+$/.test(rawPlan)) {
+                throw new BillingError(400, 'BAD_PLAN', `${tier} (${period}) Paystack plan code must look like PLN_...`);
+            }
+            if (recurring && !rawPlan) {
+                throw new BillingError(400, 'PLAN_REQUIRED', `${tier} (${period}) needs a Paystack plan code (PLN_...) when recurring is enabled.`);
+            }
+            const copy = CANONICAL_COPY[tier];
+            validatedOffers.push({
+                code: `${tier}-${period}`,
+                name_en: copy.en.name[period],
+                name_fr: copy.fr.name[period],
+                description_en: copy.en.desc,
+                description_fr: copy.fr.desc,
+                plan_tier: tier,
+                billing_period: period,
+                discount_pct,
+                days,
+                amount,
+                currency,
+                recurring,
+                paystack_plan_code: rawPlan || null,
+                active: tierActive,
+                sort: copy.sortBase + (pIdx + 1) * 10,
+            });
+        });
+    }
+
+    const settingsPairs = [
+        ['plan_currency', currency],
+        ['plan_quarterly_discount', String(qDisc)],
+        ['plan_yearly_discount', String(yDisc)],
+        ['plan_premium_ai_credits', String(aiCredits)],
+    ];
+    for (const [k, v] of settingsPairs) {
+        await db.run(
+            `INSERT INTO learn_settings (key, value, updated_by) VALUES ($1, $2, $3)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), updated_by = EXCLUDED.updated_by`,
+            [k, v, actorId]);
+    }
+
+    for (const o of validatedOffers) {
+        await db.run(
+            `INSERT INTO learn_offers (code, name_en, name_fr, description_en, description_fr, days, amount, currency, recurring, paystack_plan_code, active, sort, plan_tier, billing_period, discount_pct)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             ON CONFLICT (code) DO UPDATE SET
+                 name_en = EXCLUDED.name_en,
+                 name_fr = EXCLUDED.name_fr,
+                 description_en = EXCLUDED.description_en,
+                 description_fr = EXCLUDED.description_fr,
+                 days = EXCLUDED.days,
+                 amount = EXCLUDED.amount,
+                 currency = EXCLUDED.currency,
+                 recurring = EXCLUDED.recurring,
+                 paystack_plan_code = EXCLUDED.paystack_plan_code,
+                 active = EXCLUDED.active,
+                 sort = EXCLUDED.sort,
+                 plan_tier = EXCLUDED.plan_tier,
+                 billing_period = EXCLUDED.billing_period,
+                 discount_pct = EXCLUDED.discount_pct,
+                 updated_at = now()`,
+            [o.code, o.name_en, o.name_fr, o.description_en, o.description_fr, o.days, o.amount, o.currency, o.recurring, o.paystack_plan_code, o.active, o.sort, o.plan_tier, o.billing_period, o.discount_pct]);
+    }
+
+    await access.logAccess(db, {
+        actorId,
+        action: 'plans_updated',
+        detail: {
+            currency,
+            discounts,
+            premium_ai_credits: aiCredits,
+            standard_active: validatedOffers.find(x => x.code === 'standard-monthly')?.active ?? false,
+            premium_active: validatedOffers.find(x => x.code === 'premium-monthly')?.active ?? false,
+        },
+    });
+    require('./learnEvents').broadcastMode(await require('./learnMode').getMode(db, { fresh: true }));
+    return getPlanCatalog(db, { includeInactive: true, withCharge: true });
 }
 
 /** Checks an offer sent by the administrator. Returns the clean values or throws. */
@@ -109,6 +398,21 @@ function cleanOffer(b, { partial = false } = {}) {
         }
     }
     for (const k of ['description_en', 'description_fr']) if (!partial || b[k] !== undefined) out[k] = text(b[k], 300) || null;
+    if (!partial || b.plan_tier !== undefined) {
+        const pt = String(b.plan_tier || 'premium').toLowerCase();
+        if (!PLAN_TIERS.includes(pt)) throw new BillingError(400, 'BAD_TIER', 'Plan tier must be standard or premium.');
+        out.plan_tier = pt;
+    }
+    if (!partial || b.billing_period !== undefined) {
+        const bp = b.billing_period === null || b.billing_period === '' ? null : String(b.billing_period).toLowerCase();
+        if (bp !== null && !BILLING_PERIODS.includes(bp)) throw new BillingError(400, 'BAD_PERIOD', 'Billing period must be monthly, quarterly, or yearly.');
+        out.billing_period = bp;
+    }
+    if (!partial || b.discount_pct !== undefined) {
+        const dp = Number(b.discount_pct ?? 0);
+        if (!Number.isInteger(dp) || dp < 0 || dp > 95) throw new BillingError(400, 'BAD_DISCOUNT', 'Discount % must be an integer between 0 and 95.');
+        out.discount_pct = dp;
+    }
     if (!partial || b.days !== undefined) {
         const d = Number(b.days);
         if (!Number.isInteger(d) || d < 1 || d > 3660) throw new BillingError(400, 'BAD_DAYS', 'Premium period: 1 to 3660 days.');
@@ -254,20 +558,23 @@ async function fulfil(db, reference, { via = 'verify' } = {}) {
     }
 
     return withUserLock(payment.user_id, async () => {
-        // Premium starts now, or when the person's current paid period ends.
+        await ensurePlanSchema(db);
+        const offer = payment.offer_id ? await db.get('SELECT name_en, plan_tier FROM learn_offers WHERE id = $1', [payment.offer_id]) : null;
+        const grantTier = offer?.plan_tier === 'standard' ? 'standard' : 'premium';
+        // Stack only within the same plan tier so upgrading from Standard to Premium takes effect immediately.
         const last = await db.get(
-            'SELECT max(ends_at) AS end FROM learn_licenses WHERE user_id = $1 AND revoked_at IS NULL AND ends_at > now()', [payment.user_id]);
+            'SELECT max(ends_at) AS end FROM learn_licenses WHERE user_id = $1 AND tier = $2 AND revoked_at IS NULL AND ends_at > now()',
+            [payment.user_id, grantTier]);
         const start = last?.end && new Date(last.end) > new Date() ? new Date(last.end) : new Date();
         const end = new Date(start.getTime() + payment.days * 864e5);
-        const offer = payment.offer_id ? await db.get('SELECT name_en FROM learn_offers WHERE id = $1', [payment.offer_id]) : null;
         let license = await db.get(
-            `INSERT INTO learn_licenses (user_id, source, starts_at, ends_at, reason, external_ref)
-             VALUES ($1, 'paystack', $2, $3, $4, $5)
+            `INSERT INTO learn_licenses (user_id, tier, source, starts_at, ends_at, reason, external_ref)
+             VALUES ($1, $2, 'paystack', $3, $4, $5, $6)
              ON CONFLICT (source, external_ref) WHERE external_ref IS NOT NULL DO NOTHING
-             RETURNING id, starts_at, ends_at`,
-            [payment.user_id, start.toISOString(), end.toISOString(), `Paid online: ${offer?.name_en || 'Premium'}`.slice(0, 200), reference]);
+             RETURNING id, tier, starts_at, ends_at`,
+            [payment.user_id, grantTier, start.toISOString(), end.toISOString(), `Paid online: ${offer?.name_en || (grantTier === 'standard' ? 'Standard' : 'Premium')}`.slice(0, 200), reference]);
         const fresh = !!license;
-        if (!license) license = await db.get("SELECT id, starts_at, ends_at FROM learn_licenses WHERE source = 'paystack' AND external_ref = $1", [reference]);
+        if (!license) license = await db.get("SELECT id, tier, starts_at, ends_at FROM learn_licenses WHERE source = 'paystack' AND external_ref = $1", [reference]);
         const paidAt = tx.paid_at || tx.paidAt || new Date().toISOString();
         const invoiceNumber = payment.invoice_number || invoicePdf.formatInvoiceNumber(payment.id, paidAt);
         await db.run(
@@ -278,7 +585,7 @@ async function fulfil(db, reference, { via = 'verify' } = {}) {
             [payment.id, paidAt, Number(tx.id) || null,
                 tx.customer?.customer_code || null, String(tx.channel || '').slice(0, 30) || null, license.id, invoiceNumber]);
         if (fresh) {
-            await access.logAccess(db, { userId: payment.user_id, action: 'premium_paid', detail: { payment: payment.id, reference, amount: Number(payment.amount), currency: payment.currency, display_amount: Number(payment.display_amount ?? payment.amount), display_currency: payment.display_currency || payment.currency, invoice_number: invoiceNumber, ends_at: license.ends_at, via } });
+            await access.logAccess(db, { userId: payment.user_id, action: 'premium_paid', detail: { payment: payment.id, reference, tier: grantTier, amount: Number(payment.amount), currency: payment.currency, display_amount: Number(payment.display_amount ?? payment.amount), display_currency: payment.display_currency || payment.currency, invoice_number: invoiceNumber, ends_at: license.ends_at, via } });
             await db.run("UPDATE learn_premium_requests SET status = 'done', handled_at = now() WHERE user_id = $1 AND status = 'open'", [payment.user_id]);
             require('./learnEvents').notifyUser(payment.user_id, 'premium_paid');
         }
@@ -550,7 +857,8 @@ async function sendInvoiceEmail(db, paymentId) {
 }
 
 module.exports = {
-    CURRENCIES, BillingError, enabled, publicOffer, activeOffers, enrichOffersWithCharge,
-    cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook,
+    CURRENCIES, PLAN_TIERS, BILLING_PERIODS, PERIOD_DAYS, CANONICAL_PLAN_CODES, DEFAULT_PLAN_CONFIG,
+    BillingError, ensurePlanSchema, enabled, publicOffer, activeOffers, enrichOffersWithCharge,
+    getPlanCatalog, savePlanCatalog, cleanOffer, startCheckout, fulfil, reversePayment, handleWebhook,
     accountUrl, subscriptionUrl, buildInvoicePdfForPayment, sendInvoiceEmail,
 };

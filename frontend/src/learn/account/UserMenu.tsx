@@ -63,7 +63,13 @@ export function UserMenu({ lang, variant = 'header' }: { lang: Lang; variant?: '
 
   const t = LABEL[lang];
   const isHeader = variant === 'header';
-  const subTag = identity.variant === 'premium' ? t.premium : identity.variant === 'free' ? t.free : identity.badge;
+  const subTag = identity.variant === 'premium'
+    ? t.premium
+    : identity.variant === 'standard'
+      ? 'Standard'
+      : identity.variant === 'free'
+        ? t.free
+        : identity.badge;
   const triggerClass = isHeader
     ? `lp-user-pill is-${identity.variant}${open ? ' is-open' : ''}`
     : `ax-acct-btn is-in is-${identity.variant}${open ? ' is-open' : ''}`;

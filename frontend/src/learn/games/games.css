@@ -215,7 +215,8 @@
 .gx-episode h3 { font-size: 18px; letter-spacing: -0.02em; }
 .gx-episode p { margin: 3px 0 6px; font-size: 14.5px; color: var(--muted); }
 .gx-episodes li.is-locked .gx-episode { background: var(--paper); cursor: not-allowed; }
-.gx-episodes li.is-locked img, .gx-episodes li.is-locked h3 { opacity: 0.5; filter: grayscale(0.6); }
+.gx-episodes li.is-locked img { opacity: 1; filter: none; }
+.gx-episodes li.is-locked h3 { opacity: 0.72; }
 .gx-how { margin-bottom: 8px; }
 .gx-skills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .gx-skills li { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 14px; font-weight: 600; color: var(--ink); }

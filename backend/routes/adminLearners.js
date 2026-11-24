@@ -55,10 +55,22 @@ function endDate(v) {
     return { ok: true, value: d.toISOString() };
 }
 
+const SORT_SQL = {
+    recent: 'r.created_at DESC NULLS LAST, u.created_at DESC',
+    seen_desc: 'last_seen_at DESC NULLS LAST, u.created_at DESC',
+    joined_desc: 'u.created_at DESC, u.id DESC',
+    joined_asc: 'u.created_at ASC, u.id ASC',
+    name_asc: 'lower(u.first_name) ASC, lower(u.last_name) ASC, u.id ASC',
+};
+
 // ── The list ──
 router.get('/', async (req, res) => {
     try {
         const filter = ['learners', 'portal', 'premium', 'requests'].includes(req.query.filter) ? req.query.filter : 'all';
+        const level = ['beginner', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'none'].includes(req.query.level) ? req.query.level : '';
+        const tier = ['premium', 'standard', 'free', 'off'].includes(req.query.tier) ? req.query.tier : '';
+        const source = ['google', 'email', 'portal'].includes(req.query.source) ? req.query.source : '';
+        const sort = Object.prototype.hasOwnProperty.call(SORT_SQL, req.query.sort) ? req.query.sort : 'recent';
         const page = Math.max(1, intParam(req.query.page) || 1);
         const limit = Math.min(100, intParam(req.query.limit) || 25);
         const q = String(req.query.q || '').trim().slice(0, 100);
@@ -68,6 +80,15 @@ router.get('/', async (req, res) => {
         if (filter === 'portal') where.push("u.role <> 'learner'");
         if (filter === 'premium') where.push('l.id IS NOT NULL');
         if (filter === 'requests') where.push('r.id IS NOT NULL');
+        if (level === 'none') where.push('u.french_level IS NULL');
+        else if (level) { params.push(level); where.push(`u.french_level = $${params.length}`); }
+        if (tier === 'premium') where.push("l.id IS NOT NULL AND COALESCE(l.tier, 'premium') = 'premium'");
+        if (tier === 'standard') where.push("l.id IS NOT NULL AND l.tier = 'standard'");
+        if (tier === 'free') where.push("l.id IS NULL AND (u.role = 'learner' OR u.learn_access = 'free' OR o.learn_access = 'free')");
+        if (tier === 'off') where.push("l.id IS NULL AND u.role <> 'learner' AND u.learn_access <> 'free' AND COALESCE(o.learn_access, 'off') <> 'free'");
+        if (source === 'google') where.push("(u.signup_source = 'google' OR u.google_sub IS NOT NULL)");
+        if (source === 'email') where.push("(u.role = 'learner' AND u.signup_source = 'email' AND u.google_sub IS NULL)");
+        if (source === 'portal') where.push("u.role <> 'learner'");
         if (q) {
             params.push(`%${q.toLowerCase().replace(/[%_\\]/g, '\\$&')}%`);
             const i = params.length;
@@ -77,9 +98,9 @@ router.get('/', async (req, res) => {
             FROM users u
             LEFT JOIN organizations o ON o.id = u.organization_id
             LEFT JOIN LATERAL (
-                SELECT id, ends_at, source, user_id FROM learn_licenses
+                SELECT id, tier, ends_at, source, user_id FROM learn_licenses
                  WHERE ${ACTIVE} AND (user_id = u.id OR (u.organization_id IS NOT NULL AND organization_id = u.organization_id))
-                 ORDER BY (user_id IS NOT NULL) DESC, ends_at DESC NULLS FIRST LIMIT 1) l ON true
+                 ORDER BY (tier = 'premium') DESC, (user_id IS NOT NULL) DESC, ends_at DESC NULLS FIRST LIMIT 1) l ON true
             LEFT JOIN learn_premium_requests r ON r.user_id = u.id AND r.status = 'open'
             WHERE ${where.join(' AND ')}`;
         const total = await req.db.get(`SELECT COUNT(*)::int AS n ${from}`, params);
@@ -89,18 +110,24 @@ router.get('/', async (req, res) => {
                     u.email_verified_at IS NOT NULL AS email_verified, u.learn_access, u.country, u.whatsapp, u.french_level,
                     u.google_sub IS NOT NULL AS google_linked,
                     o.id AS organization_id, o.name AS organization, o.learn_access AS organization_access,
-                    l.id IS NOT NULL AS premium, l.ends_at AS premium_until, l.source AS premium_source,
+                    l.id IS NOT NULL AS premium, l.tier AS premium_tier, l.ends_at AS premium_until, l.source AS premium_source,
                     (l.user_id IS NULL AND l.id IS NOT NULL) AS premium_via_company,
                     r.id AS request_id, r.created_at AS requested_at, r.message AS request_message,
                     (SELECT max(s.last_seen_at) FROM user_sessions s WHERE s.user_id = u.id AND s.door = 'website') AS last_seen_at
              ${from}
-             ORDER BY r.created_at DESC NULLS LAST, u.created_at DESC
+             ORDER BY ${SORT_SQL[sort]}
              LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
         const stats = await req.db.get(
             `SELECT (SELECT COUNT(*) FROM users WHERE role = 'learner')::int AS learners,
+                    (SELECT COUNT(*) FROM users WHERE role = ANY($1::text[]))::int AS total_people,
+                    (SELECT COUNT(*) FROM users WHERE role = ANY($1::text[]) AND role <> 'learner')::int AS portal_people,
                     (SELECT COUNT(*) FROM users WHERE role = 'learner' AND created_at > now() - INTERVAL '7 days')::int AS new_week,
                     (SELECT COUNT(DISTINCT user_id) FROM learn_licenses WHERE user_id IS NOT NULL AND ${ACTIVE})::int AS premium_people,
-                    (SELECT COUNT(*) FROM learn_premium_requests WHERE status = 'open')::int AS open_requests`);
+                    (SELECT COUNT(DISTINCT user_id) FROM learn_licenses WHERE user_id IS NOT NULL AND tier = 'standard' AND ${ACTIVE})::int AS standard_people,
+                    (SELECT COUNT(DISTINCT user_id) FROM learn_licenses WHERE user_id IS NOT NULL AND COALESCE(tier, 'premium') = 'premium' AND ${ACTIVE})::int AS premium_tier_people,
+                    (SELECT COUNT(DISTINCT user_id) FROM user_sessions WHERE door = 'website' AND last_seen_at > now() - INTERVAL '7 days')::int AS active_7d,
+                    (SELECT COUNT(*) FROM learn_premium_requests WHERE status = 'open')::int AS open_requests`,
+            [WEBSITE_ROLES]);
         res.json({ rows, total: total.n, page, limit, stats });
     } catch (err) {
         console.error('[admin-learners] list failed:', err.message);
@@ -114,10 +141,10 @@ router.get('/organizations', async (req, res) => {
         const rows = await req.db.all(
             `SELECT o.id, o.name, o.status, o.learn_access,
                     (SELECT COUNT(*) FROM users u WHERE u.organization_id = o.id)::int AS accounts,
-                    l.id IS NOT NULL AS premium, l.ends_at AS premium_until
+                    l.id IS NOT NULL AS premium, l.tier AS premium_tier, l.ends_at AS premium_until
                FROM organizations o
-               LEFT JOIN LATERAL (SELECT id, ends_at FROM learn_licenses WHERE organization_id = o.id AND ${ACTIVE}
-                                   ORDER BY ends_at DESC NULLS FIRST LIMIT 1) l ON true
+               LEFT JOIN LATERAL (SELECT id, tier, ends_at FROM learn_licenses WHERE organization_id = o.id AND ${ACTIVE}
+                                   ORDER BY (tier = 'premium') DESC, ends_at DESC NULLS FIRST LIMIT 1) l ON true
               ORDER BY lower(o.name)`);
         res.json({ rows });
     } catch (err) {
@@ -142,7 +169,9 @@ router.post('/organizations/:id/premium', async (req, res) => {
     const end = endDate(req.body?.ends_at);
     if (!id || !end.ok) return res.status(400).json({ error: 'Choose an end date in the future, or no end date.' });
     if (!(await req.db.get('SELECT 1 AS x FROM organizations WHERE id = $1', [id]))) return notFound(res);
-    const row = await access.grantPremium(req.db, { organizationId: id, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    const tier = req.body?.tier === 'standard' ? 'standard' : 'premium';
+    if (tier === 'standard') await billing.ensurePlanSchema(req.db);
+    const row = await access.grantPremium(req.db, { organizationId: id, tier, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
     learnEvents.notifyOrg(id, 'org_premium_granted');
     res.json({ ok: true, license: row });
 });
@@ -186,9 +215,12 @@ async function billingReady(req, res) {
 router.get('/billing', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
+        await billing.ensurePlanSchema(req.db);
         const api = String(process.env.API_PUBLIC_URL || '').replace(/\/+$/, '').replace(/\/api$/, '');
-        const [offers, stats, merchantCurrencies, fx] = await Promise.all([
+        const [offers, catalog, currentMode, stats, merchantCurrencies, fx] = await Promise.all([
             req.db.all('SELECT * FROM learn_offers ORDER BY sort, amount'),
+            billing.getPlanCatalog(req.db, { includeInactive: true, withCharge: true }),
+            learnMode.getMode(req.db, { fresh: true }),
             req.db.get(`SELECT (SELECT COUNT(*) FROM learn_payments WHERE status = 'success')::int AS paid,
                                (SELECT COUNT(*) FROM learn_payments WHERE status = 'review')::int AS review,
                                (SELECT COUNT(*) FROM learn_subscriptions WHERE status IN ('active', 'attention'))::int AS subscriptions,
@@ -198,12 +230,14 @@ router.get('/billing', async (req, res) => {
         ]);
         res.json({
             mode: paystack.config().mode,
+            learn_mode: currentMode,
             callback_url: api ? `${api}/api/learn/billing/callback` : null,
             webhook_url: api ? `${api}/api/learn/billing/webhook/paystack` : null,
             currencies: billing.CURRENCIES,
             merchant_currencies: merchantCurrencies,
             fx_usd_xof: fx ? { rate: Number(fx.rate.toFixed(2)), source: fx.source } : null,
-            offers: offers.map(o => ({ ...o, amount: Number(o.amount) })),
+            catalog,
+            offers: offers.map(o => ({ ...o, amount: Number(o.amount), discount_pct: Number(o.discount_pct || 0) })),
             stats,
         });
     } catch (err) {
@@ -212,14 +246,28 @@ router.get('/billing', async (req, res) => {
     }
 });
 
+router.put('/billing/plans', async (req, res) => {
+    try {
+        if (!(await billingReady(req, res))) return;
+        const catalog = await billing.savePlanCatalog(req.db, req.body || {}, req.user.id);
+        const offers = await req.db.all('SELECT * FROM learn_offers ORDER BY sort, amount');
+        res.json({ ok: true, catalog, offers: offers.map(o => ({ ...o, amount: Number(o.amount), discount_pct: Number(o.discount_pct || 0) })) });
+    } catch (err) {
+        if (err instanceof billing.BillingError) return res.status(err.status).json({ error: err.message, code: err.code });
+        console.error('[admin-learners] plans save failed:', err.message);
+        res.status(500).json({ error: 'Could not save subscription plans.' });
+    }
+});
+
 router.post('/billing/offers', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
+        await billing.ensurePlanSchema(req.db);
         const o = billing.cleanOffer(req.body || {});
         const row = await req.db.get(
-            `INSERT INTO learn_offers (code, name_en, name_fr, description_en, description_fr, days, amount, currency, recurring, paystack_plan_code, active, sort)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id`,
-            [o.code, o.name_en, o.name_fr, o.description_en, o.description_fr, o.days, o.amount, o.currency, o.recurring, o.paystack_plan_code, o.active, o.sort]);
+            `INSERT INTO learn_offers (code, name_en, name_fr, description_en, description_fr, days, amount, currency, recurring, paystack_plan_code, active, sort, plan_tier, billing_period, discount_pct)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
+            [o.code, o.name_en, o.name_fr, o.description_en, o.description_fr, o.days, o.amount, o.currency, o.recurring, o.paystack_plan_code, o.active, o.sort, o.plan_tier, o.billing_period, o.discount_pct]);
         await access.logAccess(req.db, { actorId: req.user.id, action: 'offer_created', detail: { offer: row.id, ...o } });
         res.json({ ok: true, id: row.id });
     } catch (err) {
@@ -233,14 +281,15 @@ router.post('/billing/offers', async (req, res) => {
 router.put('/billing/offers/:id', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
+        await billing.ensurePlanSchema(req.db);
         const id = intParam(req.params.id);
         const current = id && await req.db.get('SELECT * FROM learn_offers WHERE id = $1', [id]);
         if (!current) return notFound(res);
         const o = billing.cleanOffer({ ...current, amount: Number(current.amount), ...req.body });
         await req.db.run(
             `UPDATE learn_offers SET code = $2, name_en = $3, name_fr = $4, description_en = $5, description_fr = $6, days = $7, amount = $8,
-                    currency = $9, recurring = $10, paystack_plan_code = $11, active = $12, sort = $13, updated_at = now() WHERE id = $1`,
-            [id, o.code, o.name_en, o.name_fr, o.description_en, o.description_fr, o.days, o.amount, o.currency, o.recurring, o.paystack_plan_code, o.active, o.sort]);
+                    currency = $9, recurring = $10, paystack_plan_code = $11, active = $12, sort = $13, plan_tier = $14, billing_period = $15, discount_pct = $16, updated_at = now() WHERE id = $1`,
+            [id, o.code, o.name_en, o.name_fr, o.description_en, o.description_fr, o.days, o.amount, o.currency, o.recurring, o.paystack_plan_code, o.active, o.sort, o.plan_tier, o.billing_period, o.discount_pct]);
         await access.logAccess(req.db, { actorId: req.user.id, action: 'offer_updated', detail: { offer: id, ...o } });
         res.json({ ok: true });
     } catch (err) {
@@ -257,21 +306,46 @@ router.get('/billing/payments', async (req, res) => {
     try {
         if (!(await billingReady(req, res))) return;
         const page = Math.max(1, intParam(req.query.page) || 1);
+        const limit = Math.min(100, intParam(req.query.limit) || 25);
         const params = [];
         // Checkouts never finished are hidden after two hours.
-        const where = ["(p.status <> 'initialized' OR p.created_at > now() - INTERVAL '2 hours')"];
+        const baseVisible = "(p.status <> 'initialized' OR p.created_at > now() - INTERVAL '2 hours')";
+        const where = [baseVisible];
         if (PAYMENT_STATUSES.includes(req.query.status)) { params.push(req.query.status); where.push(`p.status = $${params.length}`); }
-        const q = String(req.query.q || '').trim().toLowerCase().slice(0, 100).replace(/[%_\\]/g, '');
-        if (q) { params.push(`%${q}%`); where.push(`(lower(u.email) LIKE $${params.length} OR lower(p.reference) LIKE $${params.length})`); }
-        params.push(50, (page - 1) * 50);
-        const rows = await req.db.all(
-            `SELECT p.id, p.reference, p.amount, p.currency, p.display_amount, p.display_currency, p.fx_rate, p.invoice_number,
-                    p.days, p.status, p.status_detail, p.created_at, p.paid_at, p.channel, p.renewal,
-                    u.id AS user_id, u.first_name, u.last_name, u.email, o.name_en AS offer, l.ends_at AS premium_until
-               FROM learn_payments p JOIN users u ON u.id = p.user_id
-               LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
-              WHERE ${where.join(' AND ')}
-              ORDER BY p.created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
+        const q = String(req.query.q || '').trim().toLowerCase().slice(0, 100).replace(/[%_\\]/g, '\\$&');
+        if (q) {
+            params.push(`%${q}%`);
+            const i = params.length;
+            where.push(`(lower(u.email) LIKE $${i} OR lower(u.first_name || ' ' || u.last_name) LIKE $${i} OR lower(p.reference) LIKE $${i} OR lower(COALESCE(p.invoice_number, '')) LIKE $${i})`);
+        }
+        const fromSql = `
+            FROM learn_payments p JOIN users u ON u.id = p.user_id
+            LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
+           WHERE ${where.join(' AND ')}`;
+        const countRow = await req.db.get(`SELECT COUNT(*)::int AS n ${fromSql}`, params);
+        const listParams = [...params, limit, (page - 1) * limit];
+        const [rows, countsRow, revenueRows] = await Promise.all([
+            req.db.all(
+                `SELECT p.id, p.reference, p.amount, p.currency, p.display_amount, p.display_currency, p.fx_rate, p.invoice_number,
+                        p.days, p.status, p.status_detail, p.created_at, p.paid_at, p.channel, p.renewal,
+                        u.id AS user_id, u.first_name, u.last_name, u.email, o.name_en AS offer, l.ends_at AS premium_until
+                 ${fromSql}
+                 ORDER BY p.created_at DESC LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`, listParams),
+            req.db.get(
+                `SELECT COUNT(*)::int AS all,
+                        COUNT(*) FILTER (WHERE p.status = 'success')::int AS success,
+                        COUNT(*) FILTER (WHERE p.status = 'review')::int AS review,
+                        COUNT(*) FILTER (WHERE p.status = 'failed')::int AS failed,
+                        COUNT(*) FILTER (WHERE p.status = 'refunded')::int AS refunded,
+                        COUNT(*) FILTER (WHERE p.status = 'initialized')::int AS initialized
+                   FROM learn_payments p WHERE ${baseVisible}`),
+            req.db.all(
+                `SELECT COALESCE(display_currency, currency) AS currency,
+                        SUM(COALESCE(display_amount, amount))::bigint AS amount
+                   FROM learn_payments WHERE status = 'success'
+                  GROUP BY COALESCE(display_currency, currency)
+                  ORDER BY amount DESC`),
+        ]);
         res.json({
             rows: rows.map(r => ({
                 ...r,
@@ -281,7 +355,18 @@ router.get('/billing/payments', async (req, res) => {
                 fx_rate: r.fx_rate ? Number(r.fx_rate) : null,
                 invoice_number: r.invoice_number || null,
             })),
+            total: countRow?.n || 0,
             page,
+            limit,
+            summary: {
+                all: countsRow?.all || 0,
+                success: countsRow?.success || 0,
+                review: countsRow?.review || 0,
+                failed: countsRow?.failed || 0,
+                refunded: countsRow?.refunded || 0,
+                initialized: countsRow?.initialized || 0,
+                revenue: (revenueRows || []).map(r => ({ currency: r.currency, amount: Number(r.amount) })),
+            },
         });
     } catch (err) {
         console.error('[admin-learners] payments failed:', err.message);
@@ -346,7 +431,7 @@ router.get('/:id', async (req, res) => {
         if (!u) return notFound(res);
         const [licenses, history, requests, devices, contentCount] = await Promise.all([
             req.db.all(
-                `SELECT l.id, l.source, l.starts_at, l.ends_at, l.reason, l.created_at, l.revoked_at, l.revoke_reason,
+                `SELECT l.id, l.tier, l.source, l.starts_at, l.ends_at, l.reason, l.created_at, l.revoked_at, l.revoke_reason,
                         l.organization_id IS NOT NULL AS via_company, ${ACTIVE.replace(/(revoked_at|starts_at|ends_at)/g, 'l.$1')} AS active,
                         c.first_name || ' ' || c.last_name AS created_by_name
                    FROM learn_licenses l LEFT JOIN users c ON c.id = l.created_by
@@ -387,7 +472,9 @@ router.post('/:id/premium', async (req, res) => {
     if (!u) return notFound(res);
     const end = endDate(req.body?.ends_at);
     if (!end.ok) return res.status(400).json({ error: 'Choose an end date in the future, or no end date.' });
-    const row = await access.grantPremium(req.db, { userId: u.id, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
+    const tier = req.body?.tier === 'standard' ? 'standard' : 'premium';
+    if (tier === 'standard') await billing.ensurePlanSchema(req.db);
+    const row = await access.grantPremium(req.db, { userId: u.id, tier, endsAt: end.value, reason: cleanReason(req.body?.reason), actorId: req.user.id });
     learnEvents.notifyUser(u.id, 'premium_granted');
     res.json({ ok: true, license: row });
 });

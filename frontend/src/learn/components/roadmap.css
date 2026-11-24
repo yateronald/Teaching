@@ -53,11 +53,27 @@
 .sp-step-thumb-ico { display: grid; place-items: center; width: 100%; height: 100%; font-size: 22px; }
 .sp-step.is-next .sp-step-thumb { box-shadow: 0 0 0 2px var(--blue); }
 .sp-step.is-done .sp-step-thumb::after { content: ''; position: absolute; inset: 0; background: linear-gradient(0deg, rgba(15, 138, 95, 0.45), rgba(15, 138, 95, 0.1)); }
-.sp-mod-thumbs.is-locked img, .sp-mod-thumbs.is-locked span { filter: blur(3px) saturate(0.75); opacity: 0.72; }
-.sp-step.is-locked .sp-step-link { opacity: 0.88; }
+.sp-mod-thumbs.is-locked img, .sp-mod-thumbs.is-locked span { filter: none; opacity: 1; }
+.sp-step.is-locked .sp-step-link { opacity: 1; }
 .sp-step.is-locked .sp-step-link:hover .sp-step-thumb img { transform: scale(1.06); }
 .sp-step.is-locked .sp-step-check.is-locked { border-color: #d6a234; background: #fff4d6; color: #8a5a00; font-size: 11px; }
-.sp-step-veil { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(11, 23, 51, 0.48); backdrop-filter: blur(2px); color: #fff; font-size: 15px; }
+.sp-step-lock-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--ink);
+  font-size: 11px;
+  box-shadow: 0 2px 8px rgba(11, 23, 51, 0.28);
+  pointer-events: none;
+}
+.sp-step-lock-badge.is-premium { color: #b7791f; }
 .sp-step-lock-note { color: #8a5a00; font-weight: 650; }
 .sp-workspace .sp-step-copy .sp-skill-tag { align-self: flex-start; height: 20px; margin-bottom: 4px; padding: 0 7px; border-radius: 6px; font-size: 10.5px; }
 .sp-workspace .sp-step-copy strong { font-size: 15px; }
@@ -65,7 +81,10 @@
 /* Side cards with a picture */
 .sp-workspace .sp-side-card { overflow: hidden; transition: transform 0.25s, box-shadow 0.25s; }
 .sp-workspace .sp-side-card:hover { transform: translateY(-2px); box-shadow: 0 16px 32px -22px rgba(11, 23, 51, 0.4); }
+.sp-side-media { position: relative; width: calc(100% + 40px); margin: -18px -20px 14px; overflow: hidden; }
 .sp-side-photo { display: block; width: calc(100% + 40px); max-width: none; margin: -18px -20px 14px; aspect-ratio: 16 / 7; object-fit: cover; }
+.sp-side-media .sp-side-photo { width: 100%; margin: 0; }
+.sp-side-media .sp-step-lock-badge { top: 10px; right: 10px; width: 26px; height: 26px; font-size: 12px; }
 
 @media (max-width: 760px) {
   .sp-mod-thumbs { display: none; }

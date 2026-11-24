@@ -15,6 +15,7 @@ const express = require('express');
 const site = require('../services/siteSession');
 const paystack = require('../services/paystack');
 const billing = require('../services/billing');
+const learnMode = require('../services/learnMode');
 
 const router = express.Router();
 const noStore = (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); };
@@ -27,38 +28,51 @@ const fail = (res, err) => {
     return res.status(500).json({ error: 'Something went wrong. Please try again.', code: 'FAILED' });
 };
 
-// ── Prices ──
+// ── Prices & Plan Catalog ──
 router.get('/offers', noStore, async (req, res) => {
     try {
-        if (!(await billing.enabled(req.db))) return res.json({ enabled: false, offers: [] });
-        res.json({ enabled: true, offers: await billing.enrichOffersWithCharge(await billing.activeOffers(req.db)) });
+        const mode = await learnMode.getMode(req.db, { fresh: true });
+        if (mode === 'free') return res.json({ enabled: false, mode: 'free', offers: [], catalog: null });
+        const checkoutEnabled = await billing.enabled(req.db);
+        const [rawOffers, catalog] = await Promise.all([
+            checkoutEnabled ? billing.activeOffers(req.db) : Promise.resolve([]),
+            billing.getPlanCatalog(req.db, { includeInactive: false, withCharge: checkoutEnabled }),
+        ]);
+        const offers = checkoutEnabled ? await billing.enrichOffersWithCharge(rawOffers) : [];
+        res.json({ enabled: checkoutEnabled, mode, offers, catalog });
     } catch (err) { fail(res, err); }
 });
 
 // ── My payments ──
 router.get('/me', noStore, site.siteAuth({ required: true }), async (req, res) => {
     try {
-        if (!(await billing.enabled(req.db))) return res.json({ enabled: false, offers: [], payments: [], subscription: null });
+        await billing.ensurePlanSchema(req.db);
+        const mode = await learnMode.getMode(req.db, { fresh: true });
+        const checkoutEnabled = await billing.enabled(req.db);
         const uid = req.siteUser.id;
-        const [offers, payments, sub] = await Promise.all([
-            billing.activeOffers(req.db),
+        const canPay = !['candidate', 'org_admin', 'admin', 'teacher'].includes(req.siteUser.role);
+        const [rawOffers, catalog, payments, sub] = await Promise.all([
+            checkoutEnabled ? billing.activeOffers(req.db) : Promise.resolve([]),
+            mode === 'premium' ? billing.getPlanCatalog(req.db, { includeInactive: false, withCharge: checkoutEnabled }) : Promise.resolve(null),
             req.db.all(
                 `SELECT p.reference, p.amount, p.currency, p.display_amount, p.display_currency, p.fx_rate, p.invoice_number,
                         p.days, p.status, p.created_at, p.paid_at, p.renewal,
-                        o.name_en, o.name_fr, l.ends_at AS premium_until
+                        o.name_en, o.name_fr, o.plan_tier, o.billing_period, l.ends_at AS premium_until
                    FROM learn_payments p LEFT JOIN learn_offers o ON o.id = p.offer_id LEFT JOIN learn_licenses l ON l.id = p.license_id
                   WHERE p.user_id = $1
                     AND p.status <> 'initialized'
                     AND NOT (p.status = 'failed' AND p.provider_transaction_id IS NULL AND p.status_detail LIKE 'Paystack:%')
-                  ORDER BY p.created_at DESC LIMIT 30`, [uid]),
+                  ORDER BY p.created_at DESC LIMIT 30`, [uid]).catch(() => []),
             req.db.get(
-                `SELECT s.status, s.next_payment_date, s.plan_code, o.name_en, o.name_fr
+                `SELECT s.status, s.next_payment_date, s.plan_code, o.name_en, o.name_fr, o.plan_tier, o.billing_period
                    FROM learn_subscriptions s LEFT JOIN learn_offers o ON o.id = s.offer_id
-                  WHERE s.user_id = $1 AND s.status IN ('active', 'non-renewing', 'attention') ORDER BY s.updated_at DESC LIMIT 1`, [uid]),
+                  WHERE s.user_id = $1 AND s.status IN ('active', 'non-renewing', 'attention') ORDER BY s.updated_at DESC LIMIT 1`, [uid]).catch(() => null),
         ]);
-        const enrichedOffers = await billing.enrichOffersWithCharge(offers);
+        const enrichedOffers = checkoutEnabled ? await billing.enrichOffersWithCharge(rawOffers) : [];
         res.json({
-            enabled: true,
+            enabled: checkoutEnabled,
+            mode,
+            catalog,
             offers: enrichedOffers,
             payments: payments.map(p => ({
                 reference: p.reference,
@@ -74,11 +88,19 @@ router.get('/me', noStore, site.siteAuth({ required: true }), async (req, res) =
                 created_at: p.created_at,
                 paid_at: p.paid_at,
                 renewal: p.renewal,
+                plan_tier: p.plan_tier || 'premium',
+                billing_period: p.billing_period || null,
                 name: { en: p.name_en, fr: p.name_fr },
                 premium_until: p.premium_until,
             })),
-            subscription: sub ? { status: sub.status, next_payment_date: sub.next_payment_date, name: { en: sub.name_en, fr: sub.name_fr } } : null,
-            can_pay: !['candidate', 'org_admin', 'admin', 'teacher'].includes(req.siteUser.role),
+            subscription: sub ? {
+                status: sub.status,
+                next_payment_date: sub.next_payment_date,
+                plan_tier: sub.plan_tier || 'premium',
+                billing_period: sub.billing_period || null,
+                name: { en: sub.name_en, fr: sub.name_fr },
+            } : null,
+            can_pay: canPay,
         });
     } catch (err) { fail(res, err); }
 });

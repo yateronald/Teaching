@@ -11,7 +11,7 @@ export interface UserBadgeInfo {
   badge: string;
   href: string;
   accountHref: string;
-  variant: 'staff' | 'portal' | 'premium' | 'free';
+  variant: 'staff' | 'portal' | 'premium' | 'standard' | 'free';
   external: boolean;
 }
 
@@ -66,15 +66,17 @@ export function resolveUserBadge(account: AccountState, lang: Lang): UserBadgeIn
       external: true,
     };
   }
-  const premium = account.access.level === 'premium';
+  const hasPaid = account.access.level === 'premium';
+  const isStandard = hasPaid && (account.access.plan === 'standard' || account.access.premium?.tier === 'standard');
+  const variant = isStandard ? 'standard' : hasPaid ? 'premium' : 'free';
   return {
     name,
     fullName,
     initial,
-    badge: premium ? 'Premium' : (fr ? 'Gratuit' : 'Free'),
+    badge: isStandard ? 'Standard' : hasPaid ? 'Premium' : (fr ? 'Gratuit' : 'Free'),
     href: acct,
     accountHref: acct,
-    variant: premium ? 'premium' : 'free',
+    variant,
     external: false,
   };
 }

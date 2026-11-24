@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, AudioOutlined, BarsOutlined,
-  CloseOutlined, CommentOutlined, CrownFilled, CustomerServiceOutlined, DownOutlined,
-  LockOutlined, SearchOutlined, SoundOutlined, UpOutlined,
+  CloseOutlined, CommentOutlined, CustomerServiceOutlined, DownOutlined,
+  SearchOutlined, SoundOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { itemTier } from '../../access';
 import { openPremiumModal } from '../../account/premiumModal';
@@ -256,14 +256,6 @@ export default function ListeningLibraryPage({ lang }: { lang: Lang }) {
                     >
                       <div className={`rxl-card-img${locked ? ' ax-locked-media' : ''}`}>
                         <ListeningCover exercise={e} sizes="(min-width: 1120px) 275px, (min-width: 860px) 32vw, (min-width: 560px) 46vw, calc(100vw - 36px)" />
-                        {locked && (
-                          <div className="ax-locked-veil" aria-hidden>
-                            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-                              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-                              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
-                            </span>
-                          </div>
-                        )}
                         <LevelChip level={e.level} size="sm" />
                         <span className="rxl-card-format-pill"><SoundOutlined aria-hidden /> {tx(e.format, lang)}</span>
                       </div>

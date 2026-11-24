@@ -5,8 +5,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   AppstoreOutlined, ArrowRightOutlined, BarsOutlined, CheckOutlined,
-  ClockCircleOutlined, CloseOutlined, CompassOutlined, CrownFilled, CustomerServiceOutlined,
-  DownOutlined, FileTextOutlined, LockOutlined, ReadOutlined, SearchOutlined,
+  ClockCircleOutlined, CloseOutlined, CompassOutlined, CustomerServiceOutlined,
+  DownOutlined, FileTextOutlined, ReadOutlined, SearchOutlined,
   SoundOutlined, UpOutlined,
 } from '@ant-design/icons';
 import { itemTier } from '../../access';
@@ -314,14 +314,6 @@ export default function ReadingLibraryPage({ lang }: { lang: Lang }) {
                           loading="lazy"
                           decoding="async"
                         />
-                        {locked && (
-                          <div className="ax-locked-veil" aria-hidden>
-                            <span className={`ax-locked-veil-badge${tier === 'premium' ? ' is-premium' : ''}`}>
-                              {tier === 'premium' ? <CrownFilled /> : <LockOutlined />}
-                              {tier === 'premium' ? (lang === 'fr' ? 'Compte Premium requis' : 'Premium required') : (lang === 'fr' ? 'Compte gratuit requis' : 'Free account')}
-                            </span>
-                          </div>
-                        )}
                         <LevelChip level={m.level} size="sm" />
                         <span className="rxm-tags-pill">
                           <ClockCircleOutlined aria-hidden /> {lang === 'fr' ? `${docCount} étapes` : `${docCount} steps`} · {m.minutes} min

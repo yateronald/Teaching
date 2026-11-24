@@ -2,10 +2,16 @@
 import type { Lang } from '../types';
 import { apiUrl, siteApi } from './api';
 
+export type PaidPlanTier = 'standard' | 'premium';
+export type BillingPeriod = 'monthly' | 'quarterly' | 'yearly';
+
 export interface Offer {
   code: string;
   name: { en: string; fr: string };
   description: { en: string; fr: string };
+  plan_tier?: PaidPlanTier;
+  billing_period?: BillingPeriod | null;
+  discount_pct?: number;
   days: number;
   amount: number;
   currency: string;
@@ -13,12 +19,71 @@ export interface Offer {
   charge?: { amount: number; currency: string; fx_rate: number } | null;
 }
 
+export interface PlanPeriodOffer {
+  code: string;
+  amount: number;
+  currency: string;
+  days: number;
+  discount_pct: number;
+  recurring: boolean;
+  active: boolean;
+  configured?: boolean;
+  charge?: { amount: number; currency: string; fx_rate: number } | null;
+}
+
+export interface PlanCatalog {
+  configured: boolean;
+  currency: string;
+  discounts: { quarterly: number; yearly: number };
+  premium_ai_credits: number;
+  tiers: {
+    free: { active: boolean };
+    standard: { active: boolean; periods: Record<BillingPeriod, PlanPeriodOffer> };
+    premium: { active: boolean; periods: Record<BillingPeriod, PlanPeriodOffer> };
+  };
+}
+
+export const DEFAULT_PLAN_CATALOG: PlanCatalog = {
+  configured: false,
+  currency: 'USD',
+  discounts: { quarterly: 10, yearly: 20 },
+  premium_ai_credits: 30,
+  tiers: {
+    free: { active: true },
+    standard: {
+      active: true,
+      periods: {
+        monthly: { code: 'standard-monthly', amount: 999, currency: 'USD', days: 30, discount_pct: 0, recurring: false, active: true },
+        quarterly: { code: 'standard-quarterly', amount: 2697, currency: 'USD', days: 90, discount_pct: 10, recurring: false, active: true },
+        yearly: { code: 'standard-yearly', amount: 9590, currency: 'USD', days: 365, discount_pct: 20, recurring: false, active: true },
+      },
+    },
+    premium: {
+      active: true,
+      periods: {
+        monthly: { code: 'premium-monthly', amount: 1499, currency: 'USD', days: 30, discount_pct: 0, recurring: false, active: true },
+        quarterly: { code: 'premium-quarterly', amount: 4047, currency: 'USD', days: 90, discount_pct: 10, recurring: false, active: true },
+        yearly: { code: 'premium-yearly', amount: 14390, currency: 'USD', days: 365, discount_pct: 20, recurring: false, active: true },
+      },
+    },
+  },
+};
+
 /** A price as Paystack counts it (the currency's smallest unit), for display. */
 export const formatPrice = (amount: number, currency: string, lang: Lang) => {
+  const cur = currency.toUpperCase();
+  const locale = cur === 'USD' ? (lang === 'fr' ? 'fr-CA' : 'en-US') : (lang === 'fr' ? 'fr-CA' : 'en-CA');
+  const digits = amount % 100 === 0 ? 0 : 2;
   try {
-    return new Intl.NumberFormat(lang === 'fr' ? 'fr-CA' : 'en-CA', { style: 'currency', currency, maximumFractionDigits: amount % 100 === 0 ? 0 : 2 }).format(amount / 100);
+    const out = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: cur,
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    }).format(amount / 100);
+    return cur === 'USD' && lang === 'fr' ? out.replace(/\s*US\b/, '') : out;
   } catch {
-    return `${(amount / 100).toFixed(2)} ${currency}`;
+    return `${(amount / 100).toFixed(digits)} ${cur}`;
   }
 };
 
