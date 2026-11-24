@@ -34,7 +34,7 @@ const en = {
 
   hub: {
     metaTitle: `Free French Courses Online: ${N_COURSES} Interactive Courses from A1 to C2 | Learn French with Natives`,
-    metaDescription: `Learn French with ${N_COURSES} interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. Start free: the first module of every path is free.`,
+    metaDescription: `Learn French with ${N_COURSES} interactive courses: beginner French, grammar, spelling, listening, reading, pronunciation, conversation, expressions & idioms, TCF Canada, TEF, DELF and business French. Quizzes, native audio, speaking practice. Start free: the first module of every path is free.`,
     eyebrow: 'Free French courses',
     title: ['Learn French by doing,', 'one lesson at a time.'],
     sub: `${N_COURSES} interactive courses designed by our teaching team, from your very first words to C2 level in TCF and TEF Canada. You listen to French voices, speak, build sentences and get instant feedback. Free, with no account.`,
@@ -44,7 +44,7 @@ const en = {
     continueTitle: 'Pick up where you left off',
     continueCta: 'Resume',
     pathsEyebrow: 'Learning paths',
-    pathsTitle: 'Eleven paths, one goal: speaking French with confidence',
+    pathsTitle: 'Fourteen paths, one goal: speaking French with confidence',
     pathsSub: 'Choose a path, or filter by level below. Every course is short (about 40 minutes), interactive and free.',
     explore: 'Explore',
     tryEyebrow: 'Try it now',
@@ -431,7 +431,7 @@ const fr: UiCopy = {
 
   hub: {
     metaTitle: `Cours de français gratuits en ligne : ${N_COURSES} cours interactifs du A1 au C2 | Learn French with Natives`,
-    metaDescription: `Apprenez le français avec ${N_COURSES} cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Commencez gratuitement : le premier module de chaque parcours est gratuit.`,
+    metaDescription: `Apprenez le français avec ${N_COURSES} cours interactifs : débutant, grammaire, orthographe, compréhension orale, compréhension écrite, prononciation, conversation, expressions françaises, TCF Canada, TEF, DELF et français professionnel. Quiz, audio natif, pratique de l’oral. Commencez gratuitement : le premier module de chaque parcours est gratuit.`,
     eyebrow: 'Cours de français gratuits',
     title: ['Apprenez le français en pratiquant,', 'une leçon à la fois.'],
     sub: `${N_COURSES} cours interactifs conçus par notre équipe pédagogique, de vos tout premiers mots jusqu’au niveau C2 du TCF et du TEF Canada. Vous écoutez des voix françaises, parlez, construisez des phrases et recevez une correction immédiate. Gratuit, sans compte.`,
@@ -441,7 +441,7 @@ const fr: UiCopy = {
     continueTitle: 'Reprenez là où vous en étiez',
     continueCta: 'Reprendre',
     pathsEyebrow: 'Parcours',
-    pathsTitle: 'Onze parcours, un objectif : parler français avec assurance',
+    pathsTitle: 'Quatorze parcours, un objectif : parler français avec assurance',
     pathsSub: 'Choisissez un parcours, ou filtrez par niveau plus bas. Chaque cours est court (environ 40 minutes), interactif et gratuit.',
     explore: 'Explorer',
     tryEyebrow: 'Essayez maintenant',

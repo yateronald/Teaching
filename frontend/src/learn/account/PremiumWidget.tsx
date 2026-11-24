@@ -27,13 +27,13 @@ interface HighlightMetric {
 
 const HIGHLIGHTS: Record<Lang, HighlightMetric[]> = {
   en: [
-    { value: '464+', label: 'Guided courses (A1 → C2)', detail: '1,500+ interactive lessons with native audio & progress sync' },
+    { value: '494+', label: 'Guided courses (A1 → C2)', detail: '1,600+ interactive lessons with native audio & progress sync' },
     { value: '400+', label: 'Practice & listening labs', detail: 'Everyday dialogues, ear training & reading missions' },
     { value: '186', label: 'Studio dictations /20', detail: 'Recorded in two native voices (Claire & Thomas)' },
     { value: 'Exams', label: 'TCF, TEF & DELF/DALF', detail: 'Exam preparation tracks & verified completion certificates' },
   ],
   fr: [
-    { value: '464+', label: 'Cours guidés (A1 → C2)', detail: 'Plus de 1 500 leçons interactives avec voix natives' },
+    { value: '494+', label: 'Cours guidés (A1 → C2)', detail: 'Plus de 1 600 leçons interactives avec voix natives' },
     { value: '400+', label: 'Ateliers de pratique', detail: 'Dialogues quotidiens, entraînement de l’oreille et lectures' },
     { value: '186', label: 'Dictées studio notées /20', detail: 'Enregistrées à deux voix natives (Claire et Thomas)' },
     { value: 'Examens', label: 'TCF, TEF & DELF/DALF', detail: 'Préparation structurée et certificats de réussite' },
@@ -75,7 +75,7 @@ const COPY = {
     upgradeNow: 'Upgrade to Premium',
     previewSyllabus: 'Preview syllabus',
     bannerBadge: 'Premium access',
-    bannerTitle: 'Open all 464+ French courses, 186 dictations & TCF/TEF prep',
+    bannerTitle: 'Open all 494+ French courses, 186 dictations & TCF/TEF prep',
     bannerFreeSub: 'A1 Module 1 is open to everyone. Create a free account for all 24 Module 1 tracks, or upgrade for full access.',
     bannerAccountSub: 'Your free account opens every Module 1. Upgrade to Premium to continue seamlessly from A1 to C2.',
     bannerCta: 'Explore Premium',
@@ -103,7 +103,7 @@ const COPY = {
     upgradeNow: 'Passer à Premium',
     previewSyllabus: 'Aperçu du programme',
     bannerBadge: 'Accès Premium',
-    bannerTitle: 'Accédez aux 464+ cours, 186 dictées studio et parcours TCF/TEF',
+    bannerTitle: 'Accédez aux 494+ cours, 186 dictées studio et parcours TCF/TEF',
     bannerFreeSub: 'Le module 1 A1 est ouvert à tous. Créez un compte gratuit pour les 24 modules 1, ou passez à Premium.',
     bannerAccountSub: 'Votre compte gratuit ouvre chaque Module 1. Passez à Premium pour débloquer tout le programme A1 à C2.',
     bannerCta: 'Découvrir Premium',

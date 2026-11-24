@@ -125,6 +125,19 @@ export const CATEGORIES: CategoryMeta[] = [
     topic: 'online',
   },
   {
+    id: 'expressions',
+    slug: { en: 'french-expressions', fr: 'expressions-francaises' },
+    name: b('Expressions & Idioms', 'Expressions françaises'),
+    tag: b('Sound truly native', 'Parlez comme un natif'),
+    tagline: b('Everyday idioms, figurative phrases, colloquial speech and proverbs from A1 to C2.', 'Expressions imagées, locutions du quotidien, français familier et proverbes du A1 au C2.'),
+    description: b(
+      'Go beyond textbook French and speak the way native speakers actually talk. From essential A1–A2 expressions for hunger, fatigue, time and the body to B1–B2 idioms on food, animals, emotions, work and Québec French, up to C1–C2 media rhetoric, proverbs and literary expressions. Every lesson pairs clear explanations with native voices, dialogues and interactive exercises.',
+      'Allez au-delà du français scolaire et parlez comme les francophones parlent vraiment. Des expressions essentielles A1–A2 sur la faim, la fatigue, le temps et le corps aux tournures B1–B2 sur la cuisine, les animaux, les émotions, le travail et le Québec, jusqu’aux locutions politiques, proverbes et expressions littéraires C1–C2. Chaque leçon mêle explications claires, voix natives, dialogues et exercices interactifs.',
+    ),
+    image: 'cat-expressions',
+    topic: 'online',
+  },
+  {
     id: 'tcf',
     slug: { en: 'tcf-canada', fr: 'tcf-canada' },
     name: b('TCF Canada', 'TCF Canada'),

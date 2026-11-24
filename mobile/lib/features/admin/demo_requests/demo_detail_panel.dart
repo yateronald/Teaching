@@ -157,22 +157,65 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
         const SizedBox(height: 14),
         _Progress(d: d),
         const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: AdminButton('E-mail', icon: Icons.mail_outline, primary: false, onPressed: () => _launch(Uri(scheme: 'mailto', path: J.s(d['email'])))),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: AdminButton(
-                fr ? 'Appeler' : 'Call',
-                icon: Icons.phone_outlined,
-                primary: false,
-                onPressed: J.s(d['phone']).isEmpty ? null : () => _launch(Uri(scheme: 'tel', path: J.s(d['phone']).replaceAll(' ', ''))),
-              ),
-            ),
-          ],
-        ),
+        Builder(builder: (context) {
+          final rawPhone = J.s(d['phone']);
+          final waDigits = rawPhone.replaceAll(RegExp(r'\D'), '');
+          final mailBtn = AdminButton(
+            'E-mail',
+            icon: Icons.mail_outline,
+            primary: false,
+            onPressed: () => _launch(Uri(scheme: 'mailto', path: J.s(d['email']))),
+          );
+          final callBtn = AdminButton(
+            fr ? 'Appeler' : 'Call',
+            icon: Icons.phone_outlined,
+            primary: false,
+            onPressed: rawPhone.isEmpty ? null : () => _launch(Uri(scheme: 'tel', path: rawPhone.replaceAll(' ', ''))),
+          );
+          final waBtn = waDigits.length >= 7
+              ? OutlinedButton.icon(
+                  onPressed: () => _launch(Uri.parse('https://wa.me/$waDigits')),
+                  icon: const Icon(Icons.chat_outlined, size: 18),
+                  label: const Text('WhatsApp'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF15803D),
+                    backgroundColor: const Color(0xFFF0FDF4),
+                    side: const BorderSide(color: Color(0xFFBBF7D0)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700),
+                    minimumSize: const Size(0, 44),
+                  ),
+                )
+              : null;
+          if (waBtn == null) {
+            return Row(
+              children: [
+                Expanded(child: mailBtn),
+                const SizedBox(width: 10),
+                Expanded(child: callBtn),
+              ],
+            );
+          }
+          return LayoutBuilder(builder: (context, c) {
+            if (c.maxWidth >= 340) {
+              return Row(
+                children: [
+                  Expanded(child: mailBtn),
+                  const SizedBox(width: 8),
+                  Expanded(child: waBtn),
+                  const SizedBox(width: 8),
+                  Expanded(child: callBtn),
+                ],
+              );
+            }
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [mailBtn, waBtn, callBtn],
+            );
+          });
+        }),
         if (scheduled != null) ...[
           PanelSection(fr ? 'Démo' : 'Demo'),
           AdminCard(
@@ -240,7 +283,7 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
           child: Column(
             children: [
               InfoRow(icon: Icons.mail_outline, label: 'E-mail', value: J.s(d['email'])),
-              InfoRow(icon: Icons.phone_outlined, label: fr ? 'Téléphone' : 'Phone', value: J.s(d['phone'])),
+              InfoRow(icon: Icons.chat_outlined, label: 'WhatsApp', value: J.s(d['phone'])),
               InfoRow(icon: Icons.public, label: fr ? 'Pays' : 'Country', value: J.s(d['country'])),
               InfoRow(icon: Icons.schedule, label: fr ? 'Fuseau horaire' : 'Timezone', value: J.s(d['timezone'])),
             ],

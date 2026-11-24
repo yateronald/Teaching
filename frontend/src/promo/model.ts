@@ -234,7 +234,7 @@ export function audienceOfCategory(category: string | undefined, courseId?: stri
     case 'delf-dalf': return 'delf';
     case 'business': return 'business';
     case 'beginner': return 'beginner';
-    case 'conversation': case 'pronunciation': case 'listening': return 'conversation';
+    case 'conversation': case 'expressions': case 'pronunciation': case 'listening': return 'conversation';
     default: return 'general';
   }
 }

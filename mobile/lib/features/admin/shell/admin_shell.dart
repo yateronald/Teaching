@@ -17,6 +17,7 @@ import '../emails/emails_screen.dart';
 import '../exam_prep/exam_prep_screen.dart';
 import '../marketing/marketing_screen.dart';
 import '../monitoring/monitoring_screen.dart';
+import '../online_courses/online_courses_screen.dart';
 import '../resources/admin_resources_screen.dart';
 import '../settings/admin_settings_screen.dart';
 import '../timetable/timetable_screen.dart';
@@ -46,6 +47,12 @@ class _AdminShellState extends ConsumerState<AdminShell> {
     SpaceNavItem(section: 'management', icon: Icons.grid_view_outlined, label: _t('Tableau de bord', 'Dashboard')),
     SpaceNavItem(section: 'management', icon: Icons.people_alt_outlined, label: _t('Utilisateurs', 'Users')),
     SpaceNavItem(section: 'management', icon: Icons.apartment_outlined, label: _t('Entreprises', 'Companies')),
+    SpaceNavItem(
+      section: 'management',
+      icon: Icons.workspace_premium_outlined,
+      label: _t('Cours en ligne', 'Online courses'),
+      badge: (ref) => ref.watch(openOnlineRequestsProvider),
+    ),
     SpaceNavItem(section: 'management', icon: Icons.groups_outlined, label: _t('Promotions', 'Batches')),
     SpaceNavItem(
       section: 'management',
@@ -83,6 +90,7 @@ class _AdminShellState extends ConsumerState<AdminShell> {
       if (!mounted) return;
       refreshDemoBadge(ref);
       refreshMarketingBadge(ref);
+      refreshOnlineRequestsBadge(ref);
     });
   }
 
@@ -101,18 +109,19 @@ class _AdminShellState extends ConsumerState<AdminShell> {
         AdminDashboardScreen(onNavigate: navigate), // 0
         const UsersScreen(), // 1
         const CompaniesScreen(), // 2
-        const BatchesScreen(), // 3
-        const DemoRequestsScreen(), // 4
-        const MarketingScreen(), // 5
-        const EmailsScreen(), // 6
-        const TimetableScreen(), // 7
-        const AttendanceScreen(), // 8
-        const AdminResourcesScreen(), // 9
-        const AdminExamPrepScreen(), // 10
-        const MonitoringScreen(), // 11, only reachable with the monitoring key
-        const AiEngineScreen(), // 12
-        const AdminSettingsScreen(), // 13
-        const ProfileSettingsScreen(), // 14
+        const OnlineCoursesScreen(), // 3
+        const BatchesScreen(), // 4
+        const DemoRequestsScreen(), // 5
+        const MarketingScreen(), // 6
+        const EmailsScreen(), // 7
+        const TimetableScreen(), // 8
+        const AttendanceScreen(), // 9
+        const AdminResourcesScreen(), // 10
+        const AdminExamPrepScreen(), // 11
+        const MonitoringScreen(), // 12, only reachable with the monitoring key
+        const AiEngineScreen(), // 13
+        const AdminSettingsScreen(), // 14
+        const ProfileSettingsScreen(), // 15
       ],
     );
   }

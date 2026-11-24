@@ -31,3 +31,17 @@ Future<void> refreshMarketingBadge(WidgetRef ref) async {
     // A convenience only: keeps its last value.
   }
 }
+
+/// Open Premium / Online course requests waiting for an administrator's review.
+final openOnlineRequestsProvider = StateProvider<int>((ref) => 0);
+
+/// Refreshes the open Online courses request count for the AdminShell badge.
+Future<void> refreshOnlineRequestsBadge(WidgetRef ref) async {
+  try {
+    final res = await ref.read(apiClientProvider).get('/admin/learners', queryParameters: {'limit': 1});
+    final stats = J.map(J.map(res.data)['stats']);
+    ref.read(openOnlineRequestsProvider.notifier).state = J.i(stats['open_requests']);
+  } catch (_) {
+    // Keeps its last value when offline or before migration runs.
+  }
+}

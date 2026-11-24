@@ -434,6 +434,76 @@ const GRAMMAR_MODULES: Record<Level, ModuleBlueprints[]> = {
   ],
 };
 
+/** Expressions & Idioms modules woven into Complete French by CEFR complexity, right after Grammar. */
+const EXPRESSIONS_MODULES: Record<Level, ModuleBlueprints[]> = {
+  A1: [
+    {
+      title: b('Expressions Lab · Daily Essentials & Table Talk', 'Atelier expressions · Essentiels et table'),
+      theme: b('Use natural A1 formulas with avoir and faire, talk about hunger and thirst, and react smoothly.', 'Employer les tournures clés avec avoir et faire, dire sa faim ou sa soif et réagir avec naturel.'),
+      courseId: 'exp-avoir-essentials', practiceId: 'exp-faire-daily',
+      moreIds: ['exp-hunger-thirst-table', 'exp-reactions-politeness'],
+    },
+  ],
+  A2: [
+    {
+      title: b('Expressions Lab · Mornings, Time & Weather', 'Atelier expressions · Matins, temps et météo'),
+      theme: b('Describe fatigue and rough mornings, hurry or take your time, and talk about weather with images.', 'Décrire la fatigue et le réveil, gérer la hâte et employer les images de la météo.'),
+      courseId: 'exp-fatigue-sleep-morning', practiceId: 'exp-time-waiting-hurry',
+      moreIds: ['exp-weather-nature'],
+    },
+    {
+      title: b('Expressions Lab · Body Language & Money', 'Atelier expressions · Corps humain et argent'),
+      theme: b('Keep a cool head, lend a hand and talk naturally about spending and tight budgets.', 'Garder la tête froide, donner un coup de main et parler d’argent et de budget avec naturel.'),
+      courseId: 'exp-body-head-eyes', practiceId: 'exp-body-hands-feet',
+      moreIds: ['exp-money-shopping-value'],
+    },
+  ],
+  B1: [
+    {
+      title: b('Expressions Lab · Food, Animals & Emotions', 'Atelier expressions · Cuisine, animaux et émotions'),
+      theme: b('Taste colourful kitchen and animal idioms and express strong feelings like a native.', 'Découvrir les métaphores gourmandes et animalières et nuancer joie, colère et surprise.'),
+      courseId: 'exp-food-cooking-idioms', practiceId: 'exp-animals-wild-farm',
+      moreIds: ['exp-emotions-anger-joy'],
+    },
+    {
+      title: b('Expressions Lab · Relationships, Work & Truth', 'Atelier expressions · Relations, travail et parole'),
+      theme: b('Talk about friendship, effort and perseverance, and navigate truth, secrets and tact.', 'Parler d’amitié, d’efforts et de réussite, puis de vérité, de secrets et de franchise.'),
+      courseId: 'exp-love-friendship-social', practiceId: 'exp-work-effort-success',
+      moreIds: ['exp-speaking-truth-secrets'],
+    },
+  ],
+  B2: [
+    {
+      title: b('Expressions Lab · Colours, Numbers & Street French', 'Atelier expressions · Couleurs, chiffres et oral vif'),
+      theme: b('Decode colour nuances, figurative numbers and everyday colloquial French with register control.', 'Décoder nuances de couleurs, chiffres figurés et français familier en gardant le bon registre.'),
+      courseId: 'exp-colours-symbolism', practiceId: 'exp-numbers-measures',
+      moreIds: ['exp-colloquial-spoken'],
+    },
+    {
+      title: b('Expressions Lab · Conflicts, Francophonie & Office', 'Atelier expressions · Conflits, francophonie et bureau'),
+      theme: b('Handle dilemmas, discover Québec and Francophone idioms and shine in workplace negotiation.', 'Gérer les conflits, découvrir le français du Québec et de la francophonie, et négocier au bureau.'),
+      courseId: 'exp-conflicts-decisions-risk', practiceId: 'exp-quebec-francophonie',
+      moreIds: ['exp-business-workplace-idioms'],
+    },
+  ],
+  C1: [
+    {
+      title: b('Expressions Lab · Debate, Irony & Proverbs', 'Atelier expressions · Débat, ironie et proverbes'),
+      theme: b('Spot doublespeak and irony in press debates, refine judgement idioms and wield French proverbs.', 'Décoder la langue de bois et la litote, affiner son jugement et placer les proverbes à propos.'),
+      courseId: 'exp-politics-media-debate', practiceId: 'exp-irony-understatement',
+      moreIds: ['exp-mind-judgement-character', 'exp-proverbs-everyday-wisdom'],
+    },
+  ],
+  C2: [
+    {
+      title: b('Expressions Lab · History, Classics & High Rhetoric (C2)', 'Atelier expressions · Histoire, classiques et rhétorique (C2)'),
+      theme: b('Master mythological allusions, La Fontaine and Molière idioms, formal locutions and rare C2 gems.', 'Maîtriser allusions mythologiques, héritage littéraire, locutions soutenues et perles rares C2.'),
+      courseId: 'exp-history-mythology', practiceId: 'exp-literary-moliere-lafontaine',
+      moreIds: ['exp-formal-rhetoric-locutions', 'exp-rare-vivid-idioms-c2'],
+    },
+  ],
+};
+
 /** The conjugation course of the Diploma goal's grammar module, per level. */
 const DIPLOMA_CONJUGATION: Record<Level, string> = {
   A1: 'cj-present', A2: 'cj-passe-compose', B1: 'cj-conditionnel', B2: 'cj-subjonctif', C1: 'cj-bilan', C2: 'cj-subjonctif-imparfait',
@@ -750,7 +820,19 @@ function buildCompleteModules(level: Level, lang: Lang, pool: LevelPool): StudyM
     ],
     lang,
   ));
-  modules.splice(afterConjugation, 0, ...verbModules, ...grammarModules);
+  const expressionModules = EXPRESSIONS_MODULES[level].map((spec, idx) => makeModule(
+    0,
+    `expressions-${level}-${idx + 1}`,
+    spec.title,
+    spec.theme,
+    [
+      spec.courseId ? pool.courseStep(spec.courseId) : null,
+      spec.practiceId ? pool.courseStep(spec.practiceId) : null,
+      ...(spec.moreIds ?? []).map(id => pool.courseStep(id)),
+    ],
+    lang,
+  ));
+  modules.splice(afterConjugation, 0, ...verbModules, ...grammarModules, ...expressionModules);
   return modules.map((module, index) => ({ ...module, index: index + 1 }));
 }
 
@@ -903,7 +985,7 @@ function buildFluencyModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
       theme: b('Decode real French conversations, complete a practical mission and master tricky sounds.', 'Décodez des échanges concrets, réussissez une mission et déjouez les homophones.'),
       preferMission: true,
       dictMethod: 'homophones',
-      cats: ['conversation', 'beginner', 'reading'],
+      cats: ['conversation', 'expressions', 'beginner', 'reading'],
     },
     {
       title: b('Sharpen Your Ear & Verbs in Action', 'Affûter son oreille & verbes en action'),
@@ -916,13 +998,13 @@ function buildFluencyModules(level: Level, lang: Lang, pool: LevelPool): StudyMo
       theme: b('Immerse yourself in longer audio passages, rich texts and authentic storytelling.', 'Immergez-vous dans des audios plus riches, des textes vivants et la dictée récit.'),
       preferMission: true,
       dictMethod: 'story',
-      cats: ['reading', 'beginner', 'conversation'],
+      cats: ['expressions', 'reading', 'beginner', 'conversation'],
     },
     {
       title: b('Full 4-Skill Fluency Sprint', 'Sprint aisance 4 compétences'),
       theme: b('Blend real conversation, ear training, reading and a timed exam-style dictation.', 'Enchaînez conversation, oreille, lecture et dictée défi chronométrée.'),
       dictMethod: 'exam',
-      cats: ['conversation', 'listening', 'reading', 'pronunciation'],
+      cats: ['expressions', 'conversation', 'listening', 'reading', 'pronunciation'],
     },
   ];
   return specs.map((s, i) => {

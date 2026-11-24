@@ -483,6 +483,7 @@ export default function HubPage({ lang }: { lang: Lang }) {
     { label: fr ? 'Lecture' : 'Reading', icon: <ReadOutlined aria-hidden />, to: readingPath(lang) },
     { label: fr ? 'Dictée' : 'Spelling', icon: <EditOutlined aria-hidden />, to: dictationPath(lang) },
     { label: fr ? 'Conversation' : 'Speaking', icon: <AudioOutlined aria-hidden />, to: catLink('conversation') },
+    { label: fr ? 'Expressions' : 'Expressions & Idioms', icon: <SoundOutlined aria-hidden />, to: catLink('expressions') },
     { label: fr ? 'Prépa TEF / TCF' : 'Exam Prep (TEF/TCF)', icon: <TrophyOutlined aria-hidden />, to: catLink('tcf') },
   ];
 

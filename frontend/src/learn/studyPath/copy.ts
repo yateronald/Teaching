@@ -70,7 +70,7 @@ export const COURSE_TRACKS: CourseTrackGroup[] = [
     id: 'foundations',
     title: b('Foundations & Conversation', 'Bases & Conversation'),
     subtitle: b('Start from scratch, pronounce clearly and speak naturally.', 'Partir de zéro, bien prononcer et parler naturellement.'),
-    categories: ['beginner', 'pronunciation', 'conversation'],
+    categories: ['beginner', 'pronunciation', 'conversation', 'expressions'],
   },
   {
     id: 'grammar',

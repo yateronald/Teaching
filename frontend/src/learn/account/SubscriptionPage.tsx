@@ -81,7 +81,7 @@ const COPY = {
     currentPlanLabel: 'Your current plan',
     planNames: { visitor: 'Visitor', free: 'Free account', standard: 'Standard', premium: 'Premium', staff: 'Team access' },
     freeForAllTitle: 'Every course is open for free right now',
-    freeForAllDesc: 'All 464+ guided courses, practice labs, dictations and certificates are currently open to everyone without a paid subscription.',
+    freeForAllDesc: 'All 494+ guided courses, practice labs, dictations and certificates are currently open to everyone without a paid subscription.',
     goToCourses: 'Go to courses',
     myProfile: 'My profile',
     until: (d: string) => `Active until ${d}`,
@@ -116,7 +116,7 @@ const COPY = {
         title: 'Standard',
         subtitle: 'Learn at your pace with full course access.',
         features: [
-          'All 464+ courses from A1 to C2',
+          'All 494+ courses from A1 to C2',
           'Complete practice & listening labs (400+)',
           '186 studio dictations & native audio',
           'Official completion certificates',
@@ -150,7 +150,7 @@ const COPY = {
     colPremium: 'Premium',
     compareRows: (credits: number): CompareRow[] => [
       { id: 'levels', label: 'Course levels', icon: 'levels', free: 'A1 (Starter)', standard: 'A1 – C2', premium: 'A1 – C2' },
-      { id: 'courses', label: 'Number of courses', icon: 'courses', free: '24', standard: '464+', premium: '464+' },
+      { id: 'courses', label: 'Number of courses', icon: 'courses', free: '24', standard: '494+', premium: '494+' },
       { id: 'labs', label: 'Practice & listening labs', icon: 'labs', free: 'Limited', standard: true, premium: true },
       { id: 'dictations', label: 'Studio dictations (graded /20)', icon: 'dictation', free: false, standard: true, premium: true },
       { id: 'sim', label: 'Exam Simulator (TCF / TEF)', icon: 'sim', free: false, standard: false, premium: true },
@@ -205,7 +205,7 @@ const COPY = {
     currentPlanLabel: 'Votre formule actuelle',
     planNames: { visitor: 'Visiteur', free: 'Compte gratuit', standard: 'Standard', premium: 'Premium', staff: 'Accès équipe' },
     freeForAllTitle: 'Tous les cours sont gratuits pour le moment',
-    freeForAllDesc: 'Les 464+ cours guidés, ateliers d’écoute, dictées et certificats sont actuellement ouverts à tous sans abonnement payant.',
+    freeForAllDesc: 'Les 494+ cours guidés, ateliers d’écoute, dictées et certificats sont actuellement ouverts à tous sans abonnement payant.',
     goToCourses: 'Aller aux cours',
     myProfile: 'Mon profil',
     until: (d: string) => `Actif jusqu’au ${d}`,
@@ -240,7 +240,7 @@ const COPY = {
         title: 'Standard',
         subtitle: 'Apprenez à votre rythme avec tous les cours.',
         features: [
-          'Tous les 464+ cours de A1 à C2',
+          'Tous les 494+ cours de A1 à C2',
           'Ateliers pratiques et d’écoute complets (400+)',
           '186 dictées studio et voix natives',
           'Certificats de réussite officiels',
@@ -274,7 +274,7 @@ const COPY = {
     colPremium: 'Premium',
     compareRows: (credits: number): CompareRow[] => [
       { id: 'levels', label: 'Niveaux de cours', icon: 'levels', free: 'A1 (Débutant)', standard: 'A1 – C2', premium: 'A1 – C2' },
-      { id: 'courses', label: 'Nombre de cours', icon: 'courses', free: '24', standard: '464+', premium: '464+' },
+      { id: 'courses', label: 'Nombre de cours', icon: 'courses', free: '24', standard: '494+', premium: '494+' },
       { id: 'labs', label: 'Ateliers pratiques & écoute', icon: 'labs', free: 'Limité', standard: true, premium: true },
       { id: 'dictations', label: 'Dictées studio (notées /20)', icon: 'dictation', free: false, standard: true, premium: true },
       { id: 'sim', label: 'Simulateur d’examen (TCF / TEF)', icon: 'sim', free: false, standard: false, premium: true },

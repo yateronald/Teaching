@@ -20,7 +20,7 @@ export type Gloss = string | { en: string; fr: string };
 export type Level = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
 export const LEVELS: Level[] = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
-export type CategoryId = 'beginner' | 'grammar' | 'conjugation' | 'verbs' | 'spelling' | 'listening' | 'reading' | 'pronunciation' | 'conversation' | 'tcf' | 'tef-quebec' | 'delf-dalf' | 'business';
+export type CategoryId = 'beginner' | 'grammar' | 'conjugation' | 'verbs' | 'spelling' | 'listening' | 'reading' | 'pronunciation' | 'conversation' | 'expressions' | 'tcf' | 'tef-quebec' | 'delf-dalf' | 'business';
 
 /** A voice for generated audio: two women, two men. */
 export type Voice = 'f' | 'm' | 'f2' | 'm2';

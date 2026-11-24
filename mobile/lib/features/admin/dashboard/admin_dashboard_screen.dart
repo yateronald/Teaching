@@ -28,6 +28,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   List<Map<String, dynamic>>? _users, _batches, _quizzes, _schedules, _meetings;
   List<Map<String, dynamic>>? _demos;
   Map<String, dynamic>? _demoStats;
+  Map<String, dynamic>? _onlineStats;
   Map<String, dynamic>? _attendance;
   DateTime _updated = DateTime.now();
   int _months = 6;
@@ -57,11 +58,16 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       get('/meetings', (d) => J.list(d, ['meetings'])),
       get('/demo-requests', (d) => J.map(d), {'limit': 5}),
       get('/attendance/reports/overview', (d) => J.map(J.map(d)['overview'] ?? d)),
+      get('/admin/learners', (d) => J.map(J.map(d)['stats']), {'limit': 1}),
     ]);
     if (!mounted) return;
     final demos = results[5] as Map<String, dynamic>?;
     if (demos != null) {
       ref.read(newDemoRequestsProvider.notifier).state = J.i(J.map(demos['statistics'])['new_requests']);
+    }
+    final onlineStats = results[7] as Map<String, dynamic>?;
+    if (onlineStats != null) {
+      ref.read(openOnlineRequestsProvider.notifier).state = J.i(onlineStats['open_requests']);
     }
     setState(() {
       _users = results[0] as List<Map<String, dynamic>>?;
@@ -71,6 +77,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       _meetings = results[4] as List<Map<String, dynamic>>?;
       _demos = demos == null ? null : J.list(demos['data']);
       _demoStats = demos == null ? null : J.map(demos['statistics']);
+      _onlineStats = onlineStats;
       _attendance = results[6] as Map<String, dynamic>?;
       _updated = DateTime.now();
       _loading = false;
@@ -132,10 +139,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final liveMeetings = (_meetings ?? const []).where((m) => m['status'] == 'active').toList();
 
     final demoNew = J.i(_demoStats?['new_requests']);
+    final onlineReq = J.i(_onlineStats?['open_requests']);
     final rate = _attendance == null ? null : J.n(_attendance!['overall_attendance_rate']);
 
     String plural(int n, String one, String many) => '$n ${n == 1 ? one : many}';
     final attention = <_Alert>[
+      if (onlineReq > 0)
+        _Alert(Icons.workspace_premium_outlined, const Color(0xFF4F46E5),
+            fr ? plural(onlineReq, 'demande cours en ligne', 'demandes cours en ligne') : plural(onlineReq, 'open online course request', 'open online course requests'),
+            fr ? 'En attente de validation' : 'Waiting for review', fr ? 'Voir' : 'Review', AdminTab.onlineCourses),
       if (demoNew > 0)
         _Alert(Icons.support_agent, AppColors.warn, fr ? plural(demoNew, 'nouvelle demande de démo', 'nouvelles demandes de démo') : plural(demoNew, 'new demo request', 'new demo requests'),
             fr ? 'En attente de contact' : 'Waiting to be contacted', fr ? 'Voir' : 'Review', AdminTab.demoRequests),
