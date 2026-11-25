@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { App as AntApp, Button, DatePicker, Drawer, Dropdown, Input, InputNumber, Modal, Segmented, Skeleton, Tabs } from 'antd';
+import { App as AntApp, Button, DatePicker, Dropdown, Input, Modal, Segmented, Skeleton, Tabs } from 'antd';
 import {
   ArrowLeftOutlined, BankOutlined, CalendarOutlined, CheckCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined,
   MailOutlined, MinusOutlined, MoreOutlined, PlusOutlined, SaveOutlined, StopOutlined, TeamOutlined, ThunderboltOutlined,
@@ -15,6 +15,7 @@ import {
 } from '../../Org/orgModel';
 import type { Company, ContentRef, CreditMove, CreditType, Learner, Person } from '../../Org/orgModel';
 import ContentTreePicker from '../../Org/ContentTreePicker';
+import CompanyCreate from './CompanyCreate';
 import CompanyHistory from './CompanyHistory';
 import { AmountBoxes, CreditReceipt, KindPicker } from '../../Org/CreditControls';
 import type { Amounts, ReceiptLine } from '../../Org/CreditControls';
@@ -86,6 +87,7 @@ const CompanyDetail: React.FC = () => {
         </div>
         <div className="og-actions">
           <Button type="primary" icon={<CalendarOutlined />} onClick={() => setExtendOpen(true)}>Extend access</Button>
+          <Button icon={<EditOutlined />} onClick={() => setEditOpen(true)}>Edit</Button>
           <Button icon={<ThunderboltOutlined />} onClick={() => setCreditsOpen(true)}>Credits</Button>
           <Dropdown trigger={['click']} menu={{ items: [
             { key: 'edit', icon: <EditOutlined />, label: 'Edit details', onClick: () => setEditOpen(true) },
@@ -115,7 +117,7 @@ const CompanyDetail: React.FC = () => {
 
       <ExtendModal open={extendOpen} c={c} onClose={() => setExtendOpen(false)} onDone={() => { setExtendOpen(false); load(); }} />
       <CreditsModal open={creditsOpen} c={c} onClose={() => setCreditsOpen(false)} onDone={() => { setCreditsOpen(false); load(); }} />
-      <EditDrawer open={editOpen} c={c} onClose={() => setEditOpen(false)} onDone={() => { setEditOpen(false); load(); }} />
+      <CompanyCreate open={editOpen} editCompanyId={c.id} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); load(); }} />
     </div>
   );
 };
@@ -428,55 +430,6 @@ const CreditsModal: React.FC<{ open: boolean; c: Detail; onClose: () => void; on
         </div>
       </div>
     </Modal>
-  );
-};
-
-/* ── Edit details ── */
-const EditDrawer: React.FC<{ open: boolean; c: Detail; onClose: () => void; onDone: () => void }> = ({ open, c, onClose, onDone }) => {
-  const { apiCall } = useAuth();
-  const { message } = AntApp.useApp();
-  const [name, setName] = useState(c.name);
-  const [displayName, setDisplayName] = useState(c.display_name || '');
-  const [language, setLanguage] = useState(c.default_language);
-  const [starts, setStarts] = useState<Dayjs | null>(dayjs(c.access_starts_at));
-  const [ends, setEnds] = useState<Dayjs | null>(dayjs(c.access_ends_at));
-  const [seats, setSeats] = useState<number | null>(c.seat_limit);
-  const tooLow = !!seats && seats < c.seats_used;
-  const [notes, setNotes] = useState(c.notes || '');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    setName(c.name); setDisplayName(c.display_name || ''); setLanguage(c.default_language);
-    setStarts(dayjs(c.access_starts_at)); setEnds(dayjs(c.access_ends_at)); setSeats(c.seat_limit); setNotes(c.notes || '');
-  }, [open, c]);
-  const save = async () => {
-    setBusy(true);
-    try {
-      await call(apiCall, `/admin/organizations/${c.id}`, 'PUT', {
-        name, display_name: displayName.trim() || null, default_language: language,
-        access_starts_at: starts?.toISOString(), access_ends_at: ends?.toISOString(), seat_limit: seats, notes,
-      });
-      message.success('Saved');
-      onDone();
-    } catch (e) { message.error(errorText(e, en)); } finally { setBusy(false); }
-  };
-  return (
-    <Drawer open={open} onClose={onClose} width="min(520px, 100vw)" rootClassName="og-drawer" title="Edit company"
-      footer={<div className="og-foot"><Button onClick={onClose}>Cancel</Button><Button type="primary" onClick={save} loading={busy} disabled={!name.trim() || !ends || !seats}>Save</Button></div>}>
-      <div className="og-form">
-        <div className="og-field"><label>Official name</label><Input value={name} onChange={e => setName(e.target.value)} maxLength={160} /></div>
-        <div className="og-field"><label>Name shown to learners</label><Input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={160} placeholder={name} /></div>
-        <div className="og-field"><label>Language</label><Segmented value={language} onChange={v => setLanguage(v as 'fr' | 'en')} options={[{ value: 'fr', label: 'Français' }, { value: 'en', label: 'English' }]} /></div>
-        <div className="og-two">
-          <div className="og-field"><label>From</label><DatePicker value={starts} onChange={setStarts} format="DD/MM/YYYY" style={{ width: '100%' }} /></div>
-          <div className="og-field"><label>Until</label><DatePicker value={ends} onChange={v => setEnds(v ? v.endOf('day') : null)} format="DD/MM/YYYY" style={{ width: '100%' }} /></div>
-        </div>
-        <div className="og-field"><label>Package — learner accounts</label><InputNumber min={1} max={100000} value={seats} onChange={v => setSeats(v)} style={{ width: 200 }} addonAfter="accounts" status={!seats ? 'error' : undefined} />
-          <small>The company has created {c.seats_used} learner account(s). Every account counts, active or deactivated.</small>
-          {tooLow && <small className="is-error">Below the {c.seats_used} accounts already created: they are all kept, but the company cannot add anyone until you raise it again.</small>}</div>
-        <div className="og-field"><label>Private notes</label><Input.TextArea value={notes} onChange={e => setNotes(e.target.value)} maxLength={2000} autoSize={{ minRows: 3, maxRows: 8 }} /></div>
-      </div>
-    </Drawer>
   );
 };
 

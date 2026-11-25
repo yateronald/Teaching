@@ -90,6 +90,11 @@ class _CompaniesScreenState extends ConsumerState<CompaniesScreen> {
     if (mounted) _load();
   }
 
+  Future<void> _edit(Company c) async {
+    final saved = await showAdminPanel<bool>(context, builder: (_) => CompanyEditorPanel(company: c));
+    if (saved == true && mounted) await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final fr = context.isFrench;
@@ -161,7 +166,7 @@ class _CompaniesScreenState extends ConsumerState<CompaniesScreen> {
           )
         else
           AdminGrid(minTileWidth: 300, maxColumns: 3, spacing: 12, children: [
-            for (final c in list) _CompanyCard(company: c, onTap: () => _open(c.id)),
+            for (final c in list) _CompanyCard(company: c, onTap: () => _open(c.id), onEdit: () => _edit(c)),
           ]),
       ],
     );
@@ -171,7 +176,8 @@ class _CompaniesScreenState extends ConsumerState<CompaniesScreen> {
 class _CompanyCard extends StatelessWidget {
   final Company company;
   final VoidCallback onTap;
-  const _CompanyCard({required this.company, required this.onTap});
+  final VoidCallback onEdit;
+  const _CompanyCard({required this.company, required this.onTap, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -202,6 +208,16 @@ class _CompanyCard extends StatelessWidget {
                 ]),
               ),
               Pill(c.stateLabel(fr), color: c.stateColor),
+              const SizedBox(width: 2),
+              IconButton(
+                key: Key('company-edit-${c.id}'),
+                tooltip: fr ? 'Modifier l’entreprise' : 'Edit company',
+                icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.textMuted),
+                onPressed: onEdit,
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
             ]),
             const SizedBox(height: 12),
             Row(children: [

@@ -238,4 +238,48 @@ void main() {
     expect(pb['primary_color'], '#312E81');
     expect(pb['login_layout'], 'minimal');
   });
+
+  testWidgets('CompanyEditorPanel pre-fills all company and branding fields when editing', (tester) async {
+    final existing = Company.fromJson({
+      ..._FakePortalApi.org(),
+      'notes': 'Priority enterprise client',
+      'brand': {
+        'name': 'Data Tech',
+        'logo_url': null,
+        'cover_url': null,
+        'branding': const PortalBranding(
+          primaryColor: '#065F46',
+          secondaryColor: '#0EA5E9',
+          loginLayout: 'centered',
+          tagline: 'Executive French',
+        ).toJson(),
+      },
+    });
+    final api = await _mount(tester, CompanyEditorPanel(company: existing), size: const Size(1024, 2400));
+
+    expect(find.widgetWithText(TextFormField, 'Data Tech SAS'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Data Tech'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'data-tech'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Executive French'), findsOneWidget);
+    expect(find.text('Compréhension Orale'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Company name'), 'Data Tech Global');
+    await tester.enterText(find.widgetWithText(TextField, 'data-tech'), 'data-tech-global');
+    final bordeaux = find.widgetWithText(ChoiceChip, 'Bordeaux Editorial');
+    await tester.ensureVisible(bordeaux);
+    await tester.pumpAndSettle();
+    await tester.tap(bordeaux);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('company-save')));
+    await tester.pumpAndSettle();
+
+    final sent = api.sent['/admin/organizations/4'] as Map<String, dynamic>;
+    expect(sent['name'], 'Data Tech Global');
+    expect(sent['slug'], 'data-tech-global');
+    final pb = sent['portal_branding'] as Map<String, dynamic>;
+    expect(pb['primary_color'], '#7F1D1D');
+    expect(pb['tagline'], 'Executive French');
+  });
 }

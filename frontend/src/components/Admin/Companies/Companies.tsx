@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Input, Segmented, Skeleton, Tooltip } from 'antd';
-import { BankOutlined, PlusOutlined, ReloadOutlined, RightOutlined, SearchOutlined, TeamOutlined, ThunderboltOutlined, WarningOutlined } from '@ant-design/icons';
+import { BankOutlined, EditOutlined, PlusOutlined, ReloadOutlined, RightOutlined, SearchOutlined, TeamOutlined, ThunderboltOutlined, WarningOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { call, errorText, fmtDate } from '../../Org/orgModel';
@@ -19,6 +19,7 @@ const Companies: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'active' | 'soon' | 'ended'>('all');
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -85,14 +86,26 @@ const Companies: React.FC = () => {
                 <span className="og-hide-sm og-cell-main"><strong style={{ fontWeight: 500 }}>{fmtDate(c.access_ends_at, 'en-GB')}</strong><em>from {fmtDate(c.access_starts_at, 'en-GB')}</em></span>
                 <span className="og-hide-sm og-num" title={`${c.active_learners} active`}>{c.seats_used}<span className="og-muted"> / {c.seat_limit}</span></span>
                 <span className="og-hide-sm og-credits"><span className="is-ee"><ThunderboltOutlined />EE {c.credits.ee.reserve}</span><span className="is-eo"><ThunderboltOutlined />EO {c.credits.eo.reserve}</span></span>
-                <span className="og-muted"><RightOutlined /></span>
+                <span className="og-row-actions" style={{ alignItems: 'center' }}>
+                  <Tooltip title="Edit company">
+                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Edit ${c.brand.name}`}
+                      onClick={e => { e.stopPropagation(); setEditingId(c.id); }} />
+                  </Tooltip>
+                  <span className="og-muted"><RightOutlined /></span>
+                </span>
               </div>
             ))}
           </div>
         )}
       </section>
 
-      <CompanyCreate open={creating} onClose={() => setCreating(false)} onCreated={id => { setCreating(false); navigate(`/app/companies/${id}`); }} />
+      <CompanyCreate
+        open={creating || editingId !== null}
+        editCompanyId={editingId}
+        onClose={() => { setCreating(false); setEditingId(null); }}
+        onCreated={id => { setCreating(false); navigate(`/app/companies/${id}`); }}
+        onSaved={() => { setEditingId(null); load(); }}
+      />
     </div>
   );
 };
