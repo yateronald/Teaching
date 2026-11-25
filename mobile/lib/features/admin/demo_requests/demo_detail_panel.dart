@@ -11,6 +11,94 @@ import '../../teacher/meetings/screens/pre_join_screen.dart';
 import '../common/admin_kit.dart';
 import 'demo_model.dart';
 
+const _brandNavy = Color(0xFF183961);
+const _brandSoft = Color(0xFFEDF2F8);
+const _brandBorder = Color(0xFFCBD8E8);
+const _brandCardHead = Color(0xFFF8FAFD);
+const _brandInk = Color(0xFF0B1733);
+const _brandMuted = Color(0xFF5D687D);
+const _brandSubtle = Color(0xFF8390A5);
+const _brandCrimson = Color(0xFFC81E32);
+const _brandCrimsonBorder = Color(0xFFF2CFD4);
+const _waGreen = Color(0xFF16A34A);
+
+const Map<String, String> _countryFlags = {
+  'algeria': '🇩🇿',
+  'argentina': '🇦🇷',
+  'australia': '🇦🇺',
+  'bangladesh': '🇧🇩',
+  'belgium': '🇧🇪',
+  'benin': '🇧🇯',
+  'brazil': '🇧🇷',
+  'burkina faso': '🇧🇫',
+  'cameroon': '🇨🇲',
+  'canada': '🇨🇦',
+  'china': '🇨🇳',
+  'colombia': '🇨🇴',
+  'congo': '🇨🇬',
+  "cote d'ivoire": '🇨🇮',
+  "côte d'ivoire": '🇨🇮',
+  'croatia': '🇭🇷',
+  'dr congo': '🇨🇩',
+  'drc': '🇨🇩',
+  'egypt': '🇪🇬',
+  'france': '🇫🇷',
+  'gabon': '🇬🇦',
+  'germany': '🇩🇪',
+  'guinea': '🇬🇳',
+  'haiti': '🇭🇹',
+  'india': '🇮🇳',
+  'italy': '🇮🇹',
+  'ivory coast': '🇨🇮',
+  'japan': '🇯🇵',
+  'kenya': '🇰🇪',
+  'lebanon': '🇱🇧',
+  'madagascar': '🇲🇬',
+  'mali': '🇲🇱',
+  'mauritania': '🇲🇷',
+  'mexico': '🇲🇽',
+  'morocco': '🇲🇦',
+  'netherlands': '🇳🇱',
+  'niger': '🇳🇪',
+  'nigeria': '🇳🇬',
+  'pakistan': '🇵🇰',
+  'philippines': '🇵🇭',
+  'poland': '🇵🇱',
+  'portugal': '🇵🇹',
+  'qatar': '🇶🇦',
+  'romania': '🇷🇴',
+  'rwanda': '🇷🇼',
+  'saudi arabia': '🇸🇦',
+  'senegal': '🇸🇳',
+  'south africa': '🇿🇦',
+  'south korea': '🇰🇷',
+  'spain': '🇪🇸',
+  'switzerland': '🇨🇭',
+  'togo': '🇹🇬',
+  'tunisia': '🇹🇳',
+  'turkey': '🇹🇷',
+  'uae': '🇦🇪',
+  'united arab emirates': '🇦🇪',
+  'uk': '🇬🇧',
+  'united kingdom': '🇬🇧',
+  'usa': '🇺🇸',
+  'united states': '🇺🇸',
+  'vietnam': '🇻🇳',
+};
+
+String _countryFlag(String country) => _countryFlags[country.trim().toLowerCase()] ?? '';
+
+String _capitalizeFirst(String raw) {
+  final s = raw.trim();
+  if (s.isEmpty) return '-';
+  return s[0].toUpperCase() + s.substring(1);
+}
+
+bool _isLongText(String raw, [int limit = 32]) {
+  final s = raw.trim();
+  return s.length > limit || s.contains('\n');
+}
+
 /// One demo request: where it stands, what the visitor answered, and the
 /// actions that move it forward (contact, schedule, complete, cancel).
 class DemoDetailPanel extends ConsumerStatefulWidget {
@@ -26,11 +114,25 @@ class DemoDetailPanel extends ConsumerStatefulWidget {
 class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
   late Map<String, dynamic> _d = Map.of(widget.request);
   late final _notes = TextEditingController(text: J.s(widget.request['notes']));
+  final Map<String, bool> _collapsed = {};
   bool _busy = false;
   bool _notesDirty = false;
 
   int get _id => J.i(_d['id']);
   String get _status => J.s(_d['status']);
+
+  void _toggleSection(String key) => setState(() => _collapsed[key] = !(_collapsed[key] ?? false));
+
+  @override
+  void didUpdateWidget(covariant DemoDetailPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.request['id'] != oldWidget.request['id']) {
+      _d = Map.of(widget.request);
+      _notes.text = J.s(widget.request['notes']);
+      _notesDirty = false;
+      _collapsed.clear();
+    }
+  }
 
   @override
   void initState() {
@@ -138,6 +240,56 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
     }
   }
 
+  Future<void> _openStatusSheet() async {
+    final fr = context.isFrench;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.pureWhite,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                fr ? 'Mettre à jour le statut' : 'Update request status',
+                style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.w800, color: _brandInk),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final s in Demo.statuses)
+                    ChoiceChip(
+                      label: Text(Demo.statusLabel(s, fr)),
+                      selected: _status == s,
+                      selectedColor: Demo.statusColor(s).withValues(alpha: 0.14),
+                      side: BorderSide(color: _status == s ? Demo.statusColor(s) : AppColors.border),
+                      labelStyle: AppTypography.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: _status == s ? Demo.statusColor(s) : AppColors.text,
+                      ),
+                      showCheckmark: false,
+                      onSelected: (_) => Navigator.of(ctx).pop(s),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || picked == null || picked == _status) return;
+    if (picked == 'demo_scheduled') {
+      await _schedule();
+    } else {
+      await _setStatus(picked);
+    }
+  }
+
   /// The one action that moves the request forward, as on the web.
   (String, IconData, VoidCallback)? _nextAction(bool fr) {
     final av = _d['latest_availability'];
@@ -146,9 +298,9 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
     }
     switch (_status) {
       case 'new':
-        return (fr ? 'Demander dispos' : 'Ask availability', Icons.schedule_send_outlined, _askAvailability);
+        return (fr ? 'Demander dispos' : 'Ask availability', Icons.send_outlined, _askAvailability);
       case 'contacted':
-        return (fr ? 'Planifier la démo' : 'Schedule demo', Icons.event, () => _schedule());
+        return (fr ? 'Planifier' : 'Schedule demo', Icons.event, () => _schedule());
       case 'demo_scheduled':
         if (Demo.passed(_d)) return (fr ? 'Marquer terminée' : 'Mark completed', Icons.check_circle, () => _setStatus('completed'));
         if (_d['linked_meeting'] is Map) {
@@ -167,380 +319,1129 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
     final d = _d;
     final next = _nextAction(fr);
     final scheduled = J.date(d['demo_scheduled_at']);
+    final created = J.date(d['created_at']);
     final teacher = J.name(d, first: 'teacher_first_name', last: 'teacher_last_name');
     final isExam = J.s(d['interest']) == 'exam';
+    final email = J.s(d['email']);
+    final rawPhone = J.s(d['phone']);
+    final waDigits = rawPhone.replaceAll(RegExp(r'\D'), '');
+    final country = J.s(d['country']);
+    final tzName = J.s(d['timezone']);
+    final levelFrom = J.s(d['current_level']);
+    final levelTo = J.s(d['interested_level']);
+    final levelText = levelTo.isNotEmpty
+        ? '${levelFrom.isEmpty ? '-' : levelFrom} → ${fr ? 'vise' : 'wants'} $levelTo'
+        : (levelFrom.isEmpty ? '-' : levelFrom);
+    final studyMethod = J.s(d['previous_study_method']);
+    final wantsStart = J.s(d['expected_start_time']);
+    final availabilityPref = J.s(d['preferred_schedule']);
+    final goals = J.s(d['learning_goals']);
+    final expectations = J.s(d['expectations']);
 
-    return AdminPanel(
-      title: J.s(d['full_name']),
-      subtitle: '${fr ? 'Reçue' : 'Received'} ${AdminFmt.dateTime(context, J.date(d['created_at']))}',
-      leading: InitialsAvatar(J.s(d['full_name']), size: 44),
-      actions: [
-        if (next != null) AdminButton(next.$1, icon: next.$2, busy: _busy, onPressed: next.$3),
-      ],
-      children: [
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: [
-            Pill(Demo.statusLabel(_status, fr), color: Demo.statusColor(_status), icon: Demo.statusIcon(_status)),
-            if (Demo.interestLabel(J.s(d['interest']), fr).isNotEmpty)
-              Pill(Demo.interestLabel(J.s(d['interest']), fr), color: isExam ? const Color(0xFFD97706) : AppColors.adminAccent),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _Progress(d: d),
-        const SizedBox(height: 14),
-        Builder(builder: (context) {
-          final rawPhone = J.s(d['phone']);
-          final waDigits = rawPhone.replaceAll(RegExp(r'\D'), '');
-          final mailBtn = AdminButton(
-            'E-mail',
-            icon: Icons.mail_outline,
-            primary: false,
-            onPressed: () => _launch(Uri(scheme: 'mailto', path: J.s(d['email']))),
-          );
-          final callBtn = AdminButton(
-            fr ? 'Appeler' : 'Call',
-            icon: Icons.phone_outlined,
-            primary: false,
-            onPressed: rawPhone.isEmpty ? null : () => _launch(Uri(scheme: 'tel', path: rawPhone.replaceAll(' ', ''))),
-          );
-          final waBtn = waDigits.length >= 7
-              ? OutlinedButton.icon(
-                  onPressed: () => _launch(Uri.parse('https://wa.me/$waDigits')),
-                  icon: const Icon(Icons.chat_outlined, size: 18),
-                  label: const Text('WhatsApp'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF15803D),
-                    backgroundColor: const Color(0xFFF0FDF4),
-                    side: const BorderSide(color: Color(0xFFBBF7D0)),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700),
-                    minimumSize: const Size(0, 44),
+    final showSecondarySchedule = _status != 'completed' && _status != 'cancelled' && next?.$2 != Icons.event;
+
+    return ColoredBox(
+      color: AppColors.pureWhite,
+      child: Column(
+        children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.only(bottom: 24),
+              children: [
+                // ── Centered hero header ──
+                Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFF3F7FC), AppColors.pureWhite],
+                      stops: [0.0, 0.9],
+                    ),
+                    border: Border(bottom: BorderSide(color: Color(0xFFF1F4F9))),
                   ),
-                )
-              : null;
-          if (waBtn == null) {
-            return Row(
-              children: [
-                Expanded(child: mailBtn),
-                const SizedBox(width: 10),
-                Expanded(child: callBtn),
-              ],
-            );
-          }
-          return LayoutBuilder(builder: (context, c) {
-            if (c.maxWidth >= 340) {
-              return Row(
-                children: [
-                  Expanded(child: mailBtn),
-                  const SizedBox(width: 8),
-                  Expanded(child: waBtn),
-                  const SizedBox(width: 8),
-                  Expanded(child: callBtn),
-                ],
-              );
-            }
-            return Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [mailBtn, waBtn, callBtn],
-            );
-          });
-        }),
-        if (scheduled != null) ...[
-          PanelSection(fr ? 'Démo' : 'Demo'),
-          AdminCard(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 52,
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      decoration: BoxDecoration(color: AppColors.adminAccentBg, borderRadius: BorderRadius.circular(10)),
-                      child: Column(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 14, 18),
+                  child: Column(
+                    children: [
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Tooltip(
+                          message: MaterialLocalizations.of(context).closeButtonTooltip,
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).maybePop(),
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: AppColors.pureWhite,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.border),
+                                boxShadow: [
+                                  BoxShadow(color: _brandInk.withValues(alpha: 0.05), blurRadius: 4, offset: const Offset(0, 1)),
+                                ],
+                              ),
+                              child: const Icon(Icons.close, size: 17, color: _brandMuted),
+                            ),
+                          ),
+                        ),
+                      ),
+                      Container(
+                        width: 66,
+                        height: 66,
+                        decoration: BoxDecoration(
+                          color: _brandSoft,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: _brandBorder, width: 2),
+                          boxShadow: [
+                            BoxShadow(color: _brandNavy.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 3)),
+                          ],
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          J.initials(J.s(d['full_name'])),
+                          style: AppTypography.titleLarge.copyWith(color: _brandNavy, fontWeight: FontWeight.w800, fontSize: 22),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        J.s(d['full_name']),
+                        textAlign: TextAlign.center,
+                        style: AppTypography.titleMedium.copyWith(color: _brandInk, fontWeight: FontWeight.w800, fontSize: 19, height: 1.25),
+                      ),
+                      const SizedBox(height: 5),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(AdminFmt.dayShort(context, scheduled).split(' ').last.toUpperCase(), style: AppTypography.caption.copyWith(color: AppColors.adminAccent, fontWeight: FontWeight.w800, fontSize: 10)),
-                          Text('${scheduled.day}', style: AppTypography.titleLarge.copyWith(color: AppColors.adminAccent, fontWeight: FontWeight.w800)),
+                          const Icon(Icons.calendar_today_outlined, size: 13, color: _brandSubtle),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              '${fr ? 'Reçue' : 'Received'} ${AdminFmt.dateTime(context, created)}${created != null ? ' · ${AdminFmt.relative(context, created)}' : ''}',
+                              textAlign: TextAlign.center,
+                              style: AppTypography.bodySmall.copyWith(color: _brandMuted, fontSize: 12.5),
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
+                      const SizedBox(height: 14),
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _QuickActionChip(
+                            icon: Icons.mail_outline,
+                            label: fr ? 'E-mail' : 'Email',
+                            onTap: email.isEmpty ? null : () => _launch(Uri(scheme: 'mailto', path: email)),
+                          ),
+                          if (rawPhone.isNotEmpty)
+                            _QuickActionChip(
+                              icon: Icons.phone_outlined,
+                              label: fr ? 'Appeler' : 'Call',
+                              onTap: () => _launch(Uri(scheme: 'tel', path: rawPhone.replaceAll(' ', ''))),
+                            ),
+                          if (waDigits.length >= 7)
+                            _QuickActionChip(
+                              icon: Icons.chat_outlined,
+                              iconColor: _waGreen,
+                              label: 'WhatsApp',
+                              onTap: () => _launch(Uri.parse('https://wa.me/$waDigits')),
+                            ),
+                          _QuickActionChip(
+                            icon: Icons.copy_outlined,
+                            label: fr ? 'Copier' : 'Copy email',
+                            onTap: email.isEmpty
+                                ? null
+                                : () {
+                                    Clipboard.setData(ClipboardData(text: email));
+                                    adminToast(context, fr ? 'E-mail copié' : 'Email copied');
+                                  },
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _Progress(d: d),
+                ),
+
+                if (scheduled != null) ...[
+                  const SizedBox(height: 14),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Container(
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF3F7FC), AppColors.pureWhite],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _brandBorder),
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${AdminFmt.weekdayDay(context, scheduled)} · ${AdminFmt.time(context, scheduled)}', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700)),
-                          if (teacher.isNotEmpty) Text(fr ? 'avec $teacher' : 'with $teacher', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
-                          if (J.s(d['timezone']).isNotEmpty)
-                            Text(fr ? 'Fuseau du visiteur : ${J.s(d['timezone'])}' : 'Their timezone: ${J.s(d['timezone'])}', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                          Row(
+                            children: [
+                              Container(
+                                width: 50,
+                                padding: const EdgeInsets.symmetric(vertical: 7),
+                                decoration: BoxDecoration(
+                                  color: Demo.passed(d) ? AppColors.textSubtle : _brandNavy,
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      AdminFmt.dayShort(context, scheduled).split(' ').last.toUpperCase(),
+                                      style: AppTypography.caption.copyWith(color: Colors.white.withValues(alpha: 0.85), fontWeight: FontWeight.w700, fontSize: 10),
+                                    ),
+                                    Text(
+                                      '${scheduled.day}',
+                                      style: AppTypography.titleLarge.copyWith(color: AppColors.pureWhite, fontWeight: FontWeight.w800),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      (Demo.passed(d) ? (fr ? 'DÉMO EFFECTUÉE' : 'DEMO HELD') : (fr ? 'DÉMO PLANIFIÉE' : 'DEMO SCHEDULED')),
+                                      style: AppTypography.caption.copyWith(color: _brandNavy, fontWeight: FontWeight.w800, letterSpacing: 0.6, fontSize: 10.5),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text('${AdminFmt.weekdayDay(context, scheduled)} · ${AdminFmt.time(context, scheduled)}',
+                                        style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: _brandInk)),
+                                    if (teacher.isNotEmpty)
+                                      Text(fr ? 'avec $teacher' : 'with $teacher', style: AppTypography.caption.copyWith(color: _brandMuted)),
+                                    if (tzName.isNotEmpty)
+                                      Text(fr ? 'Fuseau : $tzName' : 'Their timezone: $tzName', style: AppTypography.caption.copyWith(color: _brandMuted)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (J.s(d['meeting_link']).isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(J.s(d['meeting_link']),
+                                      style: AppTypography.caption.copyWith(color: _brandNavy, fontWeight: FontWeight.w600),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis),
+                                ),
+                                IconButton(
+                                  tooltip: fr ? 'Copier' : 'Copy',
+                                  icon: const Icon(Icons.copy, size: 17, color: _brandNavy),
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: J.s(d['meeting_link'])));
+                                    adminToast(context, fr ? 'Lien copié' : 'Link copied');
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: fr ? 'Ouvrir' : 'Open',
+                                  icon: const Icon(Icons.open_in_new, size: 17, color: _brandNavy),
+                                  onPressed: () {
+                                    if (d['linked_meeting'] is Map) {
+                                      _openLinkedRoom(J.map(d['linked_meeting']));
+                                    } else {
+                                      _launch(Uri.parse(J.s(d['meeting_link'])));
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                          if (d['linked_meeting'] is Map) ...[
+                            const SizedBox(height: 6),
+                            Builder(builder: (context) {
+                              final lm = J.map(d['linked_meeting']);
+                              return Wrap(
+                                spacing: 8,
+                                runSpacing: 6,
+                                children: [
+                                  if (J.s(lm['code']).isNotEmpty) Pill('ID: ${J.s(lm['code'])}', color: _brandNavy),
+                                  if (J.s(lm['passcode']).isNotEmpty) Pill('Pass: ${J.s(lm['passcode'])}', color: AppColors.good),
+                                ],
+                              );
+                            }),
+                          ],
                         ],
                       ),
                     ),
-                  ],
-                ),
-                if (J.s(d['meeting_link']).isNotEmpty) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(J.s(d['meeting_link']), style: AppTypography.caption.copyWith(color: AppColors.adminAccent), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
-                      IconButton(
-                        tooltip: fr ? 'Copier' : 'Copy',
-                        icon: const Icon(Icons.copy, size: 18),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: J.s(d['meeting_link'])));
-                          adminToast(context, fr ? 'Lien copié' : 'Link copied');
-                        },
-                      ),
-                      IconButton(
-                        tooltip: fr ? 'Ouvrir' : 'Open',
-                        icon: const Icon(Icons.open_in_new, size: 18),
-                        onPressed: () {
-                          if (d['linked_meeting'] is Map) {
-                            _openLinkedRoom(J.map(d['linked_meeting']));
-                          } else {
-                            _launch(Uri.parse(J.s(d['meeting_link'])));
-                          }
-                        },
-                      ),
-                    ],
                   ),
                 ],
-                if (d['linked_meeting'] is Map) ...[
-                  const SizedBox(height: 6),
-                  Builder(builder: (context) {
-                    final lm = J.map(d['linked_meeting']);
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      children: [
-                        if (J.s(lm['code']).isNotEmpty) Pill('ID: ${J.s(lm['code'])}', color: AppColors.adminAccent),
-                        if (J.s(lm['passcode']).isNotEmpty) Pill('Pass: ${J.s(lm['passcode'])}', color: AppColors.good),
-                      ],
+
+                // ── Availability Workflow highlight card ──
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Builder(builder: (context) {
+                    final avRaw = d['latest_availability'];
+                    final hasAv = avRaw is Map;
+                    final av = hasAv ? J.map(avRaw) : <String, dynamic>{};
+                    final avStatus = hasAv ? J.s(av['status']) : '';
+                    final subText = !hasAv
+                        ? (fr ? 'Aucun lien envoyé.' : 'No availability link sent yet.')
+                        : avStatus == 'submitted'
+                            ? (fr ? 'Créneaux proposés reçus.' : 'Prospect submitted preferred times.')
+                            : avStatus == 'pending'
+                                ? (fr ? 'En attente de réponse.' : 'Waiting for prospect response.')
+                                : Demo.availabilityLabel(avStatus, fr);
+                    final canAsk = _status != 'completed' && _status != 'cancelled';
+                    final askBtn = canAsk
+                        ? OutlinedButton.icon(
+                            onPressed: _busy ? null : _askAvailability,
+                            icon: const Icon(Icons.send_outlined, size: 15),
+                            label: Text(hasAv ? (fr ? 'Nouveau lien' : 'Send new link') : (fr ? 'Demander dispos' : 'Ask for availability')),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _brandNavy,
+                              backgroundColor: AppColors.pureWhite,
+                              side: const BorderSide(color: _brandBorder),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              minimumSize: const Size(0, 34),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                              textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, fontSize: 12.5),
+                            ),
+                          )
+                        : null;
+
+                    return Container(
+                      padding: const EdgeInsets.all(13),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F7FB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFDCE5F0)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          LayoutBuilder(builder: (context, c) {
+                            final lead = Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFE5EDF7),
+                                    borderRadius: BorderRadius.circular(11),
+                                    border: Border.all(color: const Color(0xFFD0DEEE)),
+                                  ),
+                                  child: const Icon(Icons.event_available_outlined, size: 19, color: _brandNavy),
+                                ),
+                                const SizedBox(width: 11),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        fr ? 'Disponibilités' : 'Availability Workflow',
+                                        style: AppTypography.titleSmall.copyWith(fontSize: 13.5, fontWeight: FontWeight.w800, color: _brandInk),
+                                      ),
+                                      const SizedBox(height: 1),
+                                      Text(
+                                        subText,
+                                        style: AppTypography.caption.copyWith(color: _brandMuted, fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                            if (askBtn == null) return lead;
+                            if (c.maxWidth < 360) {
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [lead, const SizedBox(height: 10), askBtn],
+                              );
+                            }
+                            return Row(
+                              children: [
+                                Expanded(child: lead),
+                                const SizedBox(width: 10),
+                                askBtn,
+                              ],
+                            );
+                          }),
+                          if (hasAv && avStatus == 'submitted') ...[
+                            const SizedBox(height: 11),
+                            Builder(builder: (context) {
+                              final slots = av['submitted_slots'] is List
+                                  ? (av['submitted_slots'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+                                  : <Map<String, dynamic>>[];
+                              return Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.goodBg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: AppColors.goodBorder),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Pill(Demo.availabilityLabel(avStatus, fr), color: AppColors.good, icon: Icons.check_circle_outline),
+                                        if (J.s(av['submitted_timezone']).isNotEmpty)
+                                          Text(J.s(av['submitted_timezone']), style: AppTypography.caption.copyWith(color: const Color(0xFF065F46))),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    for (final sl in slots)
+                                      Container(
+                                        margin: const EdgeInsets.only(bottom: 6),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.pureWhite,
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(color: const Color(0xFFD1FAE5)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                Demo.formatSlot(sl, fr: fr),
+                                                style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: _brandInk),
+                                              ),
+                                            ),
+                                            if (canAsk)
+                                              FilledButton(
+                                                onPressed: () => _schedule(sl),
+                                                style: FilledButton.styleFrom(
+                                                  backgroundColor: _brandNavy,
+                                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                  minimumSize: const Size(0, 30),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(7)),
+                                                  textStyle: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: Colors.white),
+                                                ),
+                                                child: Text(fr ? 'Planifier' : 'Schedule'),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (J.s(av['submitted_note']).isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          '${fr ? 'Note' : 'Prospect note'}: ${J.s(av['submitted_note'])}',
+                                          style: AppTypography.bodySmall.copyWith(color: const Color(0xFF065F46), height: 1.45),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ] else if (hasAv) ...[
+                            const SizedBox(height: 11),
+                            Builder(builder: (context) {
+                              final proposed = Demo.proposedSlots(av);
+                              return Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.pureWhite,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFFDBE4F0)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        Pill(Demo.availabilityLabel(avStatus, fr), color: _brandNavy),
+                                        if (J.s(av['proposed_timezone']).isNotEmpty)
+                                          Text(J.s(av['proposed_timezone']), style: AppTypography.caption.copyWith(color: _brandMuted)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    if (proposed.isNotEmpty)
+                                      for (final sl in proposed)
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            Demo.formatSlot(sl, fr: fr),
+                                            style: AppTypography.bodySmall.copyWith(color: _brandInk, fontWeight: FontWeight.w600),
+                                          ),
+                                        )
+                                    else
+                                      Text(
+                                        '${J.s(av['proposed_start_date'])} to ${J.s(av['proposed_end_date'])} · ${J.s(av['proposed_time_start'])} - ${J.s(av['proposed_time_end'])}',
+                                        style: AppTypography.bodySmall.copyWith(color: _brandInk, fontWeight: FontWeight.w600),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ],
+                      ),
                     );
                   }),
+                ),
+
+                // ── Contact collapsible card ──
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SectionCard(
+                    title: 'Contact',
+                    icon: Icons.person_outline,
+                    collapsed: _collapsed['contact'] ?? false,
+                    onToggle: () => _toggleSection('contact'),
+                    child: Column(
+                      children: [
+                        _KvRow(
+                          icon: Icons.mail_outline,
+                          label: fr ? 'E-mail' : 'Email',
+                          valueText: email.isEmpty ? '-' : email,
+                          stacked: _isLongText(email, 34),
+                        ),
+                        _KvRow(
+                          icon: Icons.chat_outlined,
+                          iconColor: _waGreen,
+                          label: 'WhatsApp',
+                          valueText: rawPhone.isEmpty ? '-' : rawPhone,
+                        ),
+                        _KvRow(
+                          icon: Icons.location_on_outlined,
+                          label: fr ? 'Pays' : 'Country',
+                          valueWidget: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_countryFlag(country).isNotEmpty) ...[
+                                Text(_countryFlag(country), style: const TextStyle(fontSize: 15)),
+                                const SizedBox(width: 6),
+                              ],
+                              Flexible(
+                                child: Text(
+                                  country.isEmpty ? '-' : country,
+                                  style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: _brandInk, fontSize: 13),
+                                  textAlign: TextAlign.right,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _KvRow(
+                          icon: Icons.public,
+                          label: fr ? 'Fuseau horaire' : 'Timezone',
+                          valueText: tzName.isEmpty ? '-' : tzName.replaceAll('_', ' '),
+                          stacked: _isLongText(tzName, 30),
+                          isLast: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Exam preparation collapsible card (if exam only) ──
+                if (isExam) ...[
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _SectionCard(
+                      title: fr ? "Préparation d'examen" : 'Exam Preparation',
+                      icon: Icons.emoji_events_outlined,
+                      collapsed: _collapsed['exam'] ?? false,
+                      onToggle: () => _toggleSection('exam'),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _KvRow(
+                              icon: Icons.emoji_events_outlined,
+                              label: fr ? 'Examen' : 'Exam',
+                              inset: false,
+                              valueWidget: _ProfilePill(text: J.s(d['target_exam']).isEmpty ? '-' : J.s(d['target_exam'])),
+                            ),
+                            _KvRow(
+                              icon: Icons.event_outlined,
+                              label: fr ? "Date d'examen" : 'Exam date',
+                              inset: false,
+                              valueText: J.s(d['exam_date']).isEmpty ? (fr ? 'Pas encore réservée' : 'Not booked yet') : AdminFmt.day(context, J.date(d['exam_date'])),
+                            ),
+                            _KvRow(
+                              icon: Icons.flag_outlined,
+                              label: fr ? 'Score visé' : 'Score needed',
+                              inset: false,
+                              valueWidget: _ProfilePill(text: J.s(d['target_score']).isEmpty ? '-' : J.s(d['target_score'])),
+                            ),
+                            _KvRow(
+                              icon: Icons.star_outline,
+                              label: fr ? 'Déjà passé' : 'Sat it before',
+                              inset: false,
+                              isLast: Demo.skillsLabel(J.s(d['skills']), fr).isEmpty,
+                              valueText: Demo.hadExperience(d['has_previous_experience']) ? (fr ? 'Oui' : 'Yes') : (fr ? 'Pas encore' : 'Not yet'),
+                            ),
+                            if (Demo.skillsLabel(J.s(d['skills']), fr).isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: [
+                                  for (final p in Demo.skillsLabel(J.s(d['skills']), fr).split(' · '))
+                                    _ProfilePill(text: p),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
+
+                // ── Learning Profile collapsible card ──
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SectionCard(
+                    title: fr ? 'Profil d’apprentissage' : 'Learning Profile',
+                    icon: Icons.school_outlined,
+                    collapsed: _collapsed['profile'] ?? false,
+                    onToggle: () => _toggleSection('profile'),
+                    child: Column(
+                      children: [
+                        _KvRow(
+                          icon: Icons.track_changes_outlined,
+                          label: fr ? 'Recherche' : 'Looking for',
+                          valueWidget: _ProfilePill(
+                            icon: isExam ? Icons.emoji_events_outlined : Icons.videocam_outlined,
+                            text: Demo.interestLabel(J.s(d['interest']), fr).isEmpty
+                                ? (fr ? 'Cours en direct' : 'Live classes')
+                                : Demo.interestLabel(J.s(d['interest']), fr),
+                          ),
+                        ),
+                        _KvRow(
+                          icon: Icons.bar_chart,
+                          label: fr ? 'Niveau' : 'Level',
+                          stacked: _isLongText(levelText, 26),
+                          valueWidget: _ProfilePill(icon: Icons.bar_chart, text: levelText),
+                        ),
+                        _KvRow(
+                          icon: Icons.star_outline,
+                          label: fr ? 'Expérience' : 'Experience',
+                          stacked: _isLongText(
+                            Demo.hadExperience(d['has_previous_experience'])
+                                ? (fr ? 'A déjà étudié le français' : 'Has studied French before')
+                                : (fr ? 'Première fois' : 'First time learning'),
+                            28,
+                          ),
+                          isLast: studyMethod.isEmpty && wantsStart.isEmpty && availabilityPref.isEmpty,
+                          valueWidget: _ProfilePill(
+                            icon: Icons.star,
+                            text: Demo.hadExperience(d['has_previous_experience'])
+                                ? (fr ? 'A déjà étudié le français' : 'Has studied French before')
+                                : (fr ? 'Première fois' : 'First time learning'),
+                          ),
+                        ),
+                        if (studyMethod.isNotEmpty)
+                          _KvRow(
+                            icon: Icons.account_balance_outlined,
+                            label: fr ? 'A étudié avec' : 'Studied with',
+                            stacked: _isLongText(studyMethod, 26),
+                            isLast: wantsStart.isEmpty && availabilityPref.isEmpty,
+                            valueWidget: _isLongText(studyMethod, 26)
+                                ? _LongTextBlock(text: studyMethod)
+                                : _ProfilePill(icon: Icons.account_balance_outlined, text: _capitalizeFirst(studyMethod)),
+                          ),
+                        if (wantsStart.isNotEmpty)
+                          _KvRow(
+                            icon: Icons.schedule,
+                            label: fr ? 'Veut commencer' : 'Wants to start',
+                            stacked: _isLongText(wantsStart, 26),
+                            isLast: availabilityPref.isEmpty,
+                            valueWidget: _isLongText(wantsStart, 26)
+                                ? _LongTextBlock(text: wantsStart)
+                                : _ProfilePill(text: _capitalizeFirst(wantsStart)),
+                          ),
+                        if (availabilityPref.isNotEmpty)
+                          _KvRow(
+                            icon: Icons.calendar_today_outlined,
+                            label: fr ? 'Disponibilités' : 'Availability',
+                            stacked: _isLongText(availabilityPref, 26),
+                            isLast: true,
+                            valueWidget: _isLongText(availabilityPref, 26)
+                                ? _LongTextBlock(text: availabilityPref)
+                                : _ProfilePill(text: _capitalizeFirst(availabilityPref)),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── Goals & Expectations collapsible card ──
+                if (goals.isNotEmpty || expectations.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _SectionCard(
+                      title: fr ? 'Objectifs et attentes' : 'Goals & Expectations',
+                      icon: Icons.track_changes_outlined,
+                      collapsed: _collapsed['goals'] ?? false,
+                      onToggle: () => _toggleSection('goals'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (goals.isNotEmpty) _EditorialQuote(label: fr ? 'Objectifs' : 'Goals', text: goals),
+                            if (goals.isNotEmpty && expectations.isNotEmpty) const SizedBox(height: 10),
+                            if (expectations.isNotEmpty) _EditorialQuote(label: fr ? 'Attentes' : 'Expectations', text: expectations),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+
+                // ── Internal Notes collapsible card ──
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _SectionCard(
+                    title: fr ? 'Notes internes' : 'Internal Notes',
+                    icon: Icons.sticky_note_2_outlined,
+                    collapsed: _collapsed['notes'] ?? false,
+                    onToggle: () => _toggleSection('notes'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          TextField(
+                            controller: _notes,
+                            maxLines: 5,
+                            minLines: 3,
+                            style: AppTypography.bodyMedium.copyWith(height: 1.5, color: _brandInk),
+                            decoration: adminInputDecoration(fr ? 'Notes visibles des admins seulement' : 'Only admins see these notes'),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                _notesDirty
+                                    ? (fr ? 'Modifications non enregistrées' : 'Unsaved changes')
+                                    : (J.s(d['notes']).isNotEmpty ? (fr ? 'Enregistré' : 'Saved') : ''),
+                                style: AppTypography.caption.copyWith(color: _brandSubtle),
+                              ),
+                              FilledButton(
+                                onPressed: _busy || !_notesDirty ? null : () => _setStatus(_status, notes: _notes.text),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: _brandNavy,
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                  minimumSize: const Size(0, 34),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  textStyle: AppTypography.caption.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                child: Text(fr ? 'Enregistrer' : 'Save notes'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ],
+            ),
+          ),
+
+          // ── Sticky Bottom Footer Action Bar ──
+          Container(
+            decoration: const BoxDecoration(
+              color: AppColors.pureWhite,
+              border: Border(top: BorderSide(color: Color(0xFFE4E8F0))),
+            ),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+            child: SafeArea(
+              top: false,
+              child: LayoutBuilder(builder: (context, c) {
+                final primaryBtn = next != null
+                    ? FilledButton.icon(
+                        onPressed: _busy ? null : next.$3,
+                        icon: _busy
+                            ? const SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            : Icon(next.$2, size: 17),
+                        label: Text(next.$1, overflow: TextOverflow.ellipsis, maxLines: 1),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _brandNavy,
+                          foregroundColor: AppColors.pureWhite,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          minimumSize: const Size(0, 42),
+                          textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, fontSize: 13.5),
+                        ),
+                      )
+                    : null;
+
+                final scheduleBtn = showSecondarySchedule
+                    ? OutlinedButton.icon(
+                        onPressed: _busy ? null : () => _schedule(),
+                        icon: const Icon(Icons.calendar_today_outlined, size: 16),
+                        label: Text(scheduled != null ? (fr ? 'Replanifier' : 'Reschedule') : (fr ? 'Planifier' : 'Schedule')),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: _brandInk,
+                          side: const BorderSide(color: Color(0xFFDCE2EA)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          minimumSize: const Size(0, 42),
+                          textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                      )
+                    : null;
+
+                final statusBtn = OutlinedButton.icon(
+                  onPressed: _busy ? null : _openStatusSheet,
+                  icon: const Icon(Icons.edit_outlined, size: 16),
+                  label: Text(fr ? 'Statut' : 'Status'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: _brandInk,
+                    side: const BorderSide(color: Color(0xFFDCE2EA)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    minimumSize: const Size(0, 42),
+                    textStyle: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                );
+
+                final deleteBtn = Tooltip(
+                  message: fr ? 'Supprimer la demande' : 'Delete request',
+                  child: InkWell(
+                    onTap: _busy ? null : _delete,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: AppColors.pureWhite,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _brandCrimsonBorder),
+                      ),
+                      child: const Icon(Icons.delete_outline, size: 19, color: _brandCrimson),
+                    ),
+                  ),
+                );
+
+                if (c.maxWidth >= 420) {
+                  return Row(
+                    children: [
+                      if (primaryBtn != null) ...[
+                        Expanded(child: primaryBtn),
+                        const SizedBox(width: 8),
+                      ],
+                      if (scheduleBtn != null) ...[
+                        scheduleBtn,
+                        const SizedBox(width: 8),
+                      ],
+                      if (primaryBtn == null && scheduleBtn == null)
+                        Expanded(child: statusBtn)
+                      else
+                        statusBtn,
+                      const SizedBox(width: 8),
+                      deleteBtn,
+                    ],
+                  );
+                }
+
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        if (primaryBtn != null)
+                          Expanded(child: primaryBtn)
+                        else
+                          Expanded(child: statusBtn),
+                        const SizedBox(width: 8),
+                        if (primaryBtn != null && scheduleBtn == null) ...[
+                          statusBtn,
+                          const SizedBox(width: 8),
+                        ],
+                        deleteBtn,
+                      ],
+                    ),
+                    if (primaryBtn != null && scheduleBtn != null) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(child: scheduleBtn),
+                          const SizedBox(width: 8),
+                          Expanded(child: statusBtn),
+                        ],
+                      ),
+                    ],
+                  ],
+                );
+              }),
             ),
           ),
         ],
-        PanelSection(
-          fr ? 'Disponibilités' : 'Availability workflow',
-          trailing: (_status != 'completed' && _status != 'cancelled')
-              ? TextButton.icon(
-                  onPressed: _busy ? null : _askAvailability,
-                  icon: const Icon(Icons.schedule_send_outlined, size: 16),
-                  label: Text(d['latest_availability'] != null ? (fr ? 'Nouveau lien' : 'New link') : (fr ? 'Demander' : 'Ask')),
-                )
-              : null,
-        ),
-        Builder(builder: (context) {
-          final avRaw = d['latest_availability'];
-          if (avRaw is! Map) {
-            return AdminCard(
-              padding: const EdgeInsets.all(14),
-              child: Text(
-                fr
-                    ? 'Aucun lien envoyé. Appuyez sur « Demander » pour envoyer un lien à usage unique.'
-                    : 'No availability link sent yet. Tap Ask to email a single-use scheduling link.',
-                style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
-              ),
-            );
-          }
-          final av = J.map(avRaw);
-          final avStatus = J.s(av['status']);
-          if (avStatus == 'submitted') {
-            final slots = av['submitted_slots'] is List
-                ? (av['submitted_slots'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-                : <Map<String, dynamic>>[];
-            return AdminCard(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Pill(Demo.availabilityLabel(avStatus, fr), color: AppColors.good, icon: Icons.check_circle_outline),
-                      Text(J.s(av['submitted_timezone']), style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  for (final sl in slots)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              Demo.formatSlot(sl, fr: fr),
-                              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                          if (_status != 'completed' && _status != 'cancelled')
-                            TextButton(
-                              onPressed: () => _schedule(sl),
-                              child: Text(fr ? 'Planifier' : 'Schedule'),
-                            ),
-                        ],
-                      ),
-                    ),
-                  if (J.s(av['submitted_note']).isNotEmpty)
-                    Text(
-                      '${fr ? 'Note' : 'Note'}: ${J.s(av['submitted_note'])}',
-                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-                    ),
-                ],
-              ),
-            );
-          }
-          final proposed = Demo.proposedSlots(av);
-          return AdminCard(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Pill(Demo.availabilityLabel(avStatus, fr), color: Demo.availabilityColor(avStatus)),
-                    Text(J.s(av['proposed_timezone']), style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (proposed.isNotEmpty)
-                  for (final sl in proposed)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        Demo.formatSlot(sl, fr: fr),
-                        style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
-                      ),
-                    )
-                else
-                  Text(
-                    '${J.s(av['proposed_start_date'])} to ${J.s(av['proposed_end_date'])} · ${J.s(av['proposed_time_start'])} - ${J.s(av['proposed_time_end'])}',
-                    style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
-                  ),
-              ],
-            ),
-          );
-        }),
-        PanelSection(fr ? 'Contact' : 'Contact'),
-        AdminCard(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          child: Column(
-            children: [
-              InfoRow(icon: Icons.mail_outline, label: 'E-mail', value: J.s(d['email'])),
-              InfoRow(icon: Icons.chat_outlined, label: 'WhatsApp', value: J.s(d['phone'])),
-              InfoRow(icon: Icons.public, label: fr ? 'Pays' : 'Country', value: J.s(d['country'])),
-              InfoRow(icon: Icons.schedule, label: fr ? 'Fuseau horaire' : 'Timezone', value: J.s(d['timezone'])),
-            ],
-          ),
-        ),
-        PanelSection(fr ? 'Ses réponses' : 'Their answers'),
-        AdminCard(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          child: Column(
-            children: [
-              if (isExam) ...[
-                InfoRow(icon: Icons.school_outlined, label: fr ? 'Examen' : 'Exam', value: J.s(d['target_exam'])),
-                InfoRow(icon: Icons.event_outlined, label: fr ? "Date d'examen" : 'Exam date', value: J.s(d['exam_date']).isEmpty ? (fr ? 'Pas encore réservée' : 'Not booked yet') : AdminFmt.day(context, J.date(d['exam_date']))),
-                InfoRow(icon: Icons.flag_outlined, label: fr ? 'Score visé' : 'Score needed', value: J.s(d['target_score'])),
-                InfoRow(icon: Icons.checklist, label: fr ? 'Épreuves' : 'Papers', value: Demo.skillsLabel(J.s(d['skills']), fr)),
-              ],
-              InfoRow(icon: Icons.signal_cellular_alt, label: fr ? 'Niveau actuel' : 'Current level', value: J.s(d['current_level'])),
-              if (!isExam) InfoRow(icon: Icons.trending_up, label: fr ? 'Niveau visé' : 'Level wanted', value: J.s(d['interested_level'])),
-              InfoRow(
-                icon: Icons.history_edu_outlined,
-                label: fr ? 'Expérience' : 'Experience',
-                value: Demo.hadExperience(d['has_previous_experience'])
-                    ? (fr ? 'A déjà étudié le français' : 'Has studied French before')
-                    : (fr ? 'Première fois' : 'First time learning'),
-              ),
-              InfoRow(icon: Icons.menu_book_outlined, label: fr ? 'A étudié avec' : 'Studied with', value: J.s(d['previous_study_method'])),
-              InfoRow(icon: Icons.track_changes_outlined, label: fr ? 'Objectifs' : 'Goals', value: J.s(d['learning_goals'])),
-              InfoRow(icon: Icons.lightbulb_outline, label: fr ? 'Attentes' : 'Expectations', value: J.s(d['expectations'])),
-              InfoRow(icon: Icons.play_circle_outline, label: fr ? 'Veut commencer' : 'Wants to start', value: J.s(d['expected_start_time'])),
-              InfoRow(icon: Icons.calendar_month_outlined, label: fr ? 'Disponibilités' : 'Availability', value: J.s(d['preferred_schedule'])),
-            ],
-          ),
-        ),
-        PanelSection(
-          fr ? 'Notes internes' : 'Internal notes',
-          trailing: _notesDirty
-              ? TextButton(
-                  onPressed: _busy ? null : () => _setStatus(_status, notes: _notes.text),
-                  child: Text(fr ? 'Enregistrer' : 'Save'),
-                )
-              : null,
-        ),
-        TextField(
-          controller: _notes,
-          maxLines: 4,
-          minLines: 3,
-          style: AppTypography.bodyMedium,
-          decoration: adminInputDecoration(fr ? 'Visible des admins seulement' : 'Only admins see these notes'),
-        ),
-        PanelSection(fr ? 'Statut' : 'Status'),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final s in Demo.statuses)
-              ChoiceChip(
-                label: Text(Demo.statusLabel(s, fr)),
-                selected: _status == s,
-                selectedColor: Demo.statusColor(s).withValues(alpha: 0.15),
-                side: BorderSide(color: _status == s ? Demo.statusColor(s) : AppColors.border),
-                labelStyle: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: _status == s ? Demo.statusColor(s) : AppColors.text),
-                showCheckmark: false,
-                onSelected: _busy || _status == s
-                    ? null
-                    : (_) {
-                        if (s == 'demo_scheduled') {
-                          _schedule();
-                        } else {
-                          _setStatus(s);
-                        }
-                      },
-              ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            if (_status != 'completed' && _status != 'cancelled')
-              AdminButton(
-                fr ? 'Demander dispos' : 'Ask availability',
-                icon: Icons.schedule_send_outlined,
-                primary: false,
-                onPressed: _busy ? null : _askAvailability,
-              ),
-            if (_status != 'completed' && _status != 'cancelled')
-              AdminButton(
-                scheduled != null ? (fr ? 'Replanifier' : 'Reschedule') : (fr ? 'Planifier' : 'Schedule'),
-                icon: Icons.event,
-                primary: false,
-                onPressed: _busy ? null : () => _schedule(),
-              ),
-            AdminButton(fr ? 'Supprimer' : 'Delete', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _delete),
-          ],
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// New → contacted → scheduled → completed, with the date of each step.
+class _QuickActionChip extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _QuickActionChip({required this.icon, this.iconColor, required this.label, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.pureWhite,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFDCE3EC)),
+            boxShadow: [
+              BoxShadow(color: _brandInk.withValues(alpha: 0.04), blurRadius: 3, offset: const Offset(0, 1)),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: iconColor ?? _brandMuted),
+              const SizedBox(width: 6),
+              Text(label, style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: _brandInk, fontSize: 12.5)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final bool collapsed;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  const _SectionCard({
+    required this.title,
+    required this.icon,
+    required this.collapsed,
+    required this.onToggle,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.pureWhite,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: onToggle,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
+              decoration: BoxDecoration(
+                color: _brandCardHead,
+                border: collapsed ? null : const Border(bottom: BorderSide(color: Color(0xFFEEF2F6))),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 17, color: _brandNavy),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(title, style: AppTypography.titleSmall.copyWith(fontSize: 13.5, fontWeight: FontWeight.w800, color: _brandInk)),
+                  ),
+                  Icon(collapsed ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up, size: 20, color: _brandMuted),
+                ],
+              ),
+            ),
+          ),
+          if (!collapsed) child,
+        ],
+      ),
+    );
+  }
+}
+
+class _KvRow extends StatelessWidget {
+  final IconData icon;
+  final Color? iconColor;
+  final String label;
+  final String? valueText;
+  final Widget? valueWidget;
+  final bool stacked;
+  final bool isLast;
+  final bool inset;
+
+  const _KvRow({
+    required this.icon,
+    this.iconColor,
+    required this.label,
+    this.valueText,
+    this.valueWidget,
+    this.stacked = false,
+    this.isLast = false,
+    this.inset = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: iconColor ?? _brandSubtle),
+        const SizedBox(width: 9),
+        Text(label, style: AppTypography.bodySmall.copyWith(color: _brandMuted, fontSize: 12.5)),
+      ],
+    );
+    final valueChild = valueWidget ??
+        Text(
+          valueText ?? '-',
+          textAlign: stacked ? TextAlign.left : TextAlign.right,
+          style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700, color: _brandInk, fontSize: 13),
+        );
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: inset ? 15 : 0, vertical: 11),
+      decoration: BoxDecoration(
+        border: isLast ? null : const Border(bottom: BorderSide(color: Color(0xFFF1F4F9))),
+      ),
+      child: stacked
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                labelRow,
+                const SizedBox(height: 7),
+                Align(alignment: Alignment.centerLeft, child: valueChild),
+              ],
+            )
+          : Row(
+              children: [
+                labelRow,
+                const SizedBox(width: 12),
+                Expanded(child: Align(alignment: Alignment.centerRight, child: valueChild)),
+              ],
+            ),
+    );
+  }
+}
+
+class _ProfilePill extends StatelessWidget {
+  final IconData? icon;
+  final String text;
+
+  const _ProfilePill({this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: _brandSoft,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFD5E2F1)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: _brandNavy),
+            const SizedBox(width: 6),
+          ],
+          Flexible(
+            child: Text(
+              text,
+              style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700, color: _brandNavy, fontSize: 12.5),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LongTextBlock extends StatelessWidget {
+  final String text;
+  const _LongTextBlock({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFAF9F6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE7E4DC)),
+      ),
+      child: Text(
+        text,
+        style: AppTypography.bodyMedium.copyWith(fontSize: 13, fontWeight: FontWeight.w500, height: 1.55, color: _brandInk),
+      ),
+    );
+  }
+}
+
+class _EditorialQuote extends StatelessWidget {
+  final String label;
+  final String text;
+  const _EditorialQuote({required this.label, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: const BoxDecoration(
+        color: Color(0xFFFAF9F6),
+        border: Border(left: BorderSide(color: _brandNavy, width: 3)),
+        borderRadius: BorderRadius.only(topRight: Radius.circular(10), bottomRight: Radius.circular(10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: AppTypography.caption.copyWith(color: _brandNavy, fontWeight: FontWeight.w800, letterSpacing: 0.6, fontSize: 11),
+          ),
+          const SizedBox(height: 4),
+          Text(text, style: AppTypography.bodyMedium.copyWith(fontSize: 13, height: 1.55, color: _brandInk)),
+        ],
+      ),
+    );
+  }
+}
+
+/// New -> contacted -> scheduled -> completed, with step numbers and dates.
 class _Progress extends StatelessWidget {
   final Map<String, dynamic> d;
   const _Progress({required this.d});
@@ -550,7 +1451,11 @@ class _Progress extends StatelessWidget {
     final fr = context.isFrench;
     final status = J.s(d['status']);
     if (status == 'cancelled') {
-      return Text(fr ? 'Cette demande a été annulée.' : 'This request was cancelled.', style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted));
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(12)),
+        child: Text(fr ? 'Cette demande a été annulée.' : 'This request was cancelled.', style: AppTypography.bodySmall.copyWith(color: _brandMuted)),
+      );
     }
     const steps = ['new', 'contacted', 'demo_scheduled', 'completed'];
     final at = steps.indexOf(status);
@@ -568,25 +1473,41 @@ class _Progress extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Expanded(child: Container(height: 3, color: i == 0 ? Colors.transparent : (i <= at ? AppColors.adminAccent : AppColors.border))),
+                    Expanded(child: Container(height: 2, color: i == 0 ? Colors.transparent : (i <= at ? _brandNavy.withValues(alpha: 0.45) : const Color(0xFFE5EBF3)))),
                     Container(
-                      width: 22,
-                      height: 22,
+                      width: 26,
+                      height: 26,
                       decoration: BoxDecoration(
-                        color: i <= at ? AppColors.adminAccent : AppColors.pureWhite,
+                        color: i == at ? _brandNavy : (i < at ? const Color(0xFFE6EEF8) : const Color(0xFFEEF2F6)),
                         shape: BoxShape.circle,
-                        border: Border.all(color: i <= at ? AppColors.adminAccent : AppColors.border, width: 2),
+                        boxShadow: i == at
+                            ? [const BoxShadow(color: Color(0xFFE6EEF8), spreadRadius: 4, blurRadius: 0)]
+                            : null,
                       ),
-                      child: i <= at ? const Icon(Icons.check, size: 13, color: AppColors.pureWhite) : null,
+                      alignment: Alignment.center,
+                      child: i < at
+                          ? const Icon(Icons.check, size: 14, color: _brandNavy)
+                          : Text(
+                              '${i + 1}',
+                              style: AppTypography.caption.copyWith(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 11.5,
+                                color: i == at ? AppColors.pureWhite : _brandMuted,
+                              ),
+                            ),
                     ),
-                    Expanded(child: Container(height: 3, color: i == steps.length - 1 ? Colors.transparent : (i < at ? AppColors.adminAccent : AppColors.border))),
+                    Expanded(child: Container(height: 2, color: i == steps.length - 1 ? Colors.transparent : (i < at ? _brandNavy.withValues(alpha: 0.45) : const Color(0xFFE5EBF3)))),
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(Demo.statusLabel(steps[i], fr), textAlign: TextAlign.center, style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, fontSize: 11, color: i <= at ? AppColors.ink : AppColors.textMuted)),
+                Text(
+                  Demo.statusLabel(steps[i], fr),
+                  textAlign: TextAlign.center,
+                  style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, fontSize: 11.5, color: i <= at ? _brandInk : _brandSubtle),
+                ),
                 Text(
                   i <= at && dates[steps[i]] != null ? AdminFmt.dayShort(context, dates[steps[i]]) : '-',
-                  style: AppTypography.caption.copyWith(fontSize: 10.5, color: AppColors.textMuted),
+                  style: AppTypography.caption.copyWith(fontSize: 10.5, color: _brandSubtle),
                 ),
               ],
             ),
@@ -612,6 +1533,7 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   final _form = GlobalKey<FormState>();
   bool _platformMode = true;
   late DateTime? _at;
+  int? _selectedSlotIdx;
   int _durationMin = 30;
   bool _requireApproval = true;
   int? _hostId;
@@ -624,21 +1546,36 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   bool _saving = false;
   String? _error;
 
+  List<Map<String, dynamic>> _submittedSlots() {
+    final av = widget.request['latest_availability'];
+    if (av is Map && J.s(av['status']) == 'submitted' && av['submitted_slots'] is List) {
+      return (av['submitted_slots'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return const [];
+  }
+
   @override
   void initState() {
     super.initState();
-    _at = _initialDateTime();
+    final submitted = _submittedSlots();
+    if (widget.prefillSlot != null) {
+      final idx = submitted.indexWhere(
+        (s) =>
+            J.s(s['date']) == J.s(widget.prefillSlot!['date']) &&
+            J.s(s['start']) == J.s(widget.prefillSlot!['start']) &&
+            J.s(s['end']) == J.s(widget.prefillSlot!['end']),
+      );
+      _selectedSlotIdx = idx >= 0 ? idx : null;
+    } else if (submitted.isNotEmpty) {
+      _selectedSlotIdx = 0;
+    }
+    _at = _initialDateTime(submitted);
     _hostId = ref.read(authNotifierProvider).user?.id;
     _loadHosts();
   }
 
-  DateTime? _initialDateTime() {
-    final slot = widget.prefillSlot ??
-        (widget.request['latest_availability'] is Map &&
-                widget.request['latest_availability']['submitted_slots'] is List &&
-                (widget.request['latest_availability']['submitted_slots'] as List).isNotEmpty
-            ? Map<String, dynamic>.from((widget.request['latest_availability']['submitted_slots'] as List).first as Map)
-            : null);
+  DateTime? _initialDateTime(List<Map<String, dynamic>> submitted) {
+    final slot = widget.prefillSlot ?? (submitted.isNotEmpty ? submitted.first : null);
     if (slot != null) {
       final d = J.s(slot['date']);
       final s = J.s(slot['start']);
@@ -689,7 +1626,10 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
     if (day == null || !mounted) return;
     final time = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
     if (time == null) return;
-    setState(() => _at = DateTime(day.year, day.month, day.day, time.hour, time.minute));
+    setState(() {
+      _selectedSlotIdx = null;
+      _at = DateTime(day.year, day.month, day.day, time.hour, time.minute);
+    });
   }
 
   Future<void> _save() async {
@@ -753,6 +1693,53 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
         ],
         children: [
           const SizedBox(height: 8),
+          Builder(builder: (context) {
+            final submitted = _submittedSlots();
+            if (submitted.isEmpty) return const SizedBox.shrink();
+            final avTz = J.s(r['latest_availability'] is Map ? r['latest_availability']['submitted_timezone'] : null);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: AdminCard(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      fr
+                          ? 'Créneaux proposés${avTz.isNotEmpty ? ' ($avTz)' : ''}'
+                          : 'Submitted availability${avTz.isNotEmpty ? ' ($avTz)' : ''}',
+                      style: AppTypography.caption.copyWith(fontWeight: FontWeight.w700, color: AppColors.ink),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (var i = 0; i < submitted.length; i++)
+                          ChoiceChip(
+                            label: Text(Demo.formatSlot(submitted[i], fr: fr)),
+                            selected: _selectedSlotIdx == i,
+                            selectedColor: AppColors.adminAccentBg,
+                            side: BorderSide(color: _selectedSlotIdx == i ? AppColors.adminAccent : AppColors.border),
+                            labelStyle: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: _selectedSlotIdx == i ? AppColors.adminAccent : AppColors.text,
+                            ),
+                            onSelected: (_) {
+                              final parsed = DateTime.tryParse('${J.s(submitted[i]['date'])}T${J.s(submitted[i]['start'])}:00');
+                              setState(() {
+                                _selectedSlotIdx = i;
+                                if (parsed != null) _at = parsed;
+                              });
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
           SegmentedButton<bool>(
             segments: [
               ButtonSegment(value: true, label: Text(fr ? 'Réunion directe' : 'Live meeting')),

@@ -4,10 +4,11 @@ import { Button, ConfigProvider, DatePicker, Drawer, Dropdown, Form, Input, Inpu
 import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
-  CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined,
-  DownloadOutlined, EditOutlined, EnvironmentOutlined, ExclamationCircleFilled, LinkOutlined, MailOutlined, MoreOutlined,
-  PhoneOutlined, PlusOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
-  VideoCameraOutlined, WhatsAppOutlined,
+  AimOutlined, BankOutlined, BarChartOutlined, CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined,
+  CloseOutlined, CopyOutlined, DeleteOutlined, DownOutlined, DownloadOutlined, EditOutlined, EnvironmentOutlined,
+  ExclamationCircleFilled, FileTextOutlined, GlobalOutlined, LinkOutlined, MailOutlined, MoreOutlined, PhoneOutlined,
+  PlusOutlined, ReadOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, StarFilled, StarOutlined,
+  StopOutlined, TeamOutlined, TrophyOutlined, UpOutlined, UserOutlined, VideoCameraOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -171,6 +172,34 @@ const validTz = (tz?: string | null) => {
 const inTz = (d: Date | string, tz: string, opts: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-US', { ...opts, timeZone: tz }).format(new Date(d));
 const n = (v: unknown) => Number(v) || 0;
 
+const COUNTRY_FLAGS: Record<string, string> = {
+  algeria: '🇩🇿', argentina: '🇦🇷', australia: '🇦🇺', bangladesh: '🇧🇩', belgium: '🇧🇪', benin: '🇧🇯', brazil: '🇧🇷',
+  'burkina faso': '🇧🇫', cameroon: '🇨🇲', canada: '🇨🇦', china: '🇨🇳', colombia: '🇨🇴', congo: '🇨🇬', 'cote d\'ivoire': '🇨🇮',
+  'côte d\'ivoire': '🇨🇮', croatia: '🇭🇷', 'dr congo': '🇨🇩', drc: '🇨🇩', egypt: '🇪🇬', france: '🇫🇷', gabon: '🇬🇦',
+  germany: '🇩🇪', guinea: '🇬🇳', haiti: '🇭🇹', india: '🇮🇳', italy: '🇮🇹', 'ivory coast': '🇨🇮', japan: '🇯🇵',
+  kenya: '🇰🇪', lebanon: '🇱🇧', madagascar: '🇲🇬', mali: '🇲🇱', mauritania: '🇲🇷', mexico: '🇲🇽', morocco: '🇲🇦',
+  netherlands: '🇳🇱', niger: '🇳🇪', nigeria: '🇳🇬', pakistan: '🇵🇰', philippines: '🇵🇭', poland: '🇵🇱', portugal: '🇵🇹',
+  qatar: '🇶🇦', romania: '🇷🇴', rwanda: '🇷🇼', 'saudi arabia': '🇸🇦', senegal: '🇸🇳', 'south africa': '🇿🇦',
+  'south korea': '🇰🇷', spain: '🇪🇸', switzerland: '🇨🇭', togo: '🇹🇬', tunisia: '🇹🇳', turkey: '🇹🇷', uae: '🇦🇪',
+  'united arab emirates': '🇦🇪', uk: '🇬🇧', 'united kingdom': '🇬🇧', usa: '🇺🇸', 'united states': '🇺🇸', vietnam: '🇻🇳',
+};
+
+const countryFlag = (country?: string | null): string => {
+  const key = (country || '').trim().toLowerCase();
+  return key ? (COUNTRY_FLAGS[key] || '') : '';
+};
+
+const formatPillValue = (raw?: string | null): string => {
+  const s = (raw || '').trim();
+  if (!s) return '-';
+  return s[0].toUpperCase() + s.slice(1);
+};
+
+const isLongText = (raw?: string | null, limit = 34): boolean => {
+  const s = (raw || '').trim();
+  return s.length > limit || s.includes('\n');
+};
+
 const DemoRequests: React.FC = () => {
   const { apiCall, user } = useAuth();
   const navigate = useNavigate();
@@ -201,9 +230,12 @@ const DemoRequests: React.FC = () => {
   const [hosts, setHosts] = useState<Teacher[]>([]);
 
   const [drawer, setDrawer] = useState<DemoRequest | null>(null);
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggleSection = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [scheduleFor, setScheduleFor] = useState<DemoRequest | null>(null);
+  const [selectedSubmittedIdx, setSelectedSubmittedIdx] = useState<number | null>(null);
   const [scheduleMode, setScheduleMode] = useState<'platform' | 'external'>('platform');
   const [scheduling, setScheduling] = useState(false);
   const [availFor, setAvailFor] = useState<DemoRequest | null>(null);
@@ -287,6 +319,7 @@ const DemoRequests: React.FC = () => {
     }).catch(() => {});
   }, [apiCall, user]);
   useEffect(() => { setNotesDraft(drawer?.notes || ''); }, [drawer?.id, drawer?.notes]);
+  useEffect(() => { setCollapsed({}); }, [drawer?.id]);
 
   /* ═══════════ ACTIONS ═══════════ */
   const merge = (updated: Partial<DemoRequest> & { id: number }) => {
@@ -324,6 +357,7 @@ const DemoRequests: React.FC = () => {
   };
 
   const openAskAvailability = (req: DemoRequest) => {
+    setDrawer(null);
     setAvailFor(req);
     setAvailError(null);
     availForm.resetFields();
@@ -487,10 +521,24 @@ const DemoRequests: React.FC = () => {
   };
 
   const openSchedule = (req: DemoRequest, prefillSlot?: AvailabilitySlot) => {
+    setDrawer(null);
     setScheduleFor(req);
     setScheduleMode('platform');
     scheduleForm.resetFields();
-    const firstSlot = prefillSlot || req.latest_availability?.submitted_slots?.[0];
+    const submitted = req.latest_availability?.status === 'submitted'
+      ? (req.latest_availability.submitted_slots || [])
+      : [];
+    let matchedIdx: number | null = null;
+    if (prefillSlot) {
+      const idx = submitted.findIndex(
+        s => s.date === prefillSlot.date && s.start === prefillSlot.start && s.end === prefillSlot.end
+      );
+      matchedIdx = idx >= 0 ? idx : null;
+    } else if (submitted.length > 0) {
+      matchedIdx = 0;
+    }
+    setSelectedSubmittedIdx(matchedIdx);
+    const firstSlot = prefillSlot || submitted[0];
     const slotDt = firstSlot
       ? slotToLocalDayjs(firstSlot, req.latest_availability?.submitted_timezone || req.timezone)
       : null;
@@ -573,7 +621,7 @@ const DemoRequests: React.FC = () => {
     }
   };
 
-  const openStatus = (req: DemoRequest) => { setStatusFor(req); setStatusChoice(req.status); setStatusNotes(req.notes || ''); };
+  const openStatus = (req: DemoRequest) => { setDrawer(null); setStatusFor(req); setStatusChoice(req.status); setStatusNotes(req.notes || ''); };
   const submitStatus = async () => {
     if (!statusFor) return;
     setSavingStatus(true);
@@ -791,7 +839,7 @@ const DemoRequests: React.FC = () => {
     new: d.created_at, contacted: d.contacted_at, demo_scheduled: d.demo_scheduled_at, completed: d.status === 'completed' ? d.updated_at : null, cancelled: null,
   } : { new: null, contacted: null, demo_scheduled: null, completed: null, cancelled: null };
   const dNext = d ? nextAction(d) : null;
-  const sTz = validTz(scheduleFor?.timezone);
+  const sTz = validTz(scheduleFor?.latest_availability?.submitted_timezone || scheduleFor?.timezone);
 
   return (
     <ConfigProvider theme={{ token: { colorPrimary: '#4f46e5', fontSize: 13, borderRadius: 8 } }}>
@@ -936,20 +984,17 @@ const DemoRequests: React.FC = () => {
         </section>
 
         {/* ── Details drawer ── */}
-        <Drawer open={!!d} onClose={() => setDrawer(null)} width={r.isMobile ? '100%' : 480} closable={false} title={null} className="dr-drawer"
+        <Drawer open={!!d} onClose={() => setDrawer(null)} width={r.isMobile ? '100%' : 500} closable={false} title={null} className="dr-drawer" zIndex={990}
           footer={d && (
-            <div className="dr-dfoot" style={{ flexWrap: 'wrap' }}>
-              {dNext && <Button type="primary" icon={dNext.icon} loading={busyId === d.id} onClick={dNext.run}>{dNext.label}</Button>}
-              {d.status !== 'completed' && d.status !== 'cancelled' && (
-                <Button icon={<SendOutlined />} onClick={() => openAskAvailability(d)}>
-                  {d.latest_availability?.status === 'pending' ? 'Resend availability' : 'Ask availability'}
-                </Button>
-              )}
-              {d.status !== 'completed' && d.status !== 'cancelled' && (
+            <div className="dr-dfoot">
+              {dNext && <Button type="primary" className="dr-foot-primary" icon={dNext.icon} loading={busyId === d.id} onClick={dNext.run}>{dNext.label}</Button>}
+              {d.status !== 'completed' && d.status !== 'cancelled' && dNext?.label !== 'Schedule' && dNext?.label !== 'Schedule demo' && (
                 <Button icon={<CalendarOutlined />} onClick={() => openSchedule(d)}>{d.demo_scheduled_at ? 'Reschedule' : 'Schedule'}</Button>
               )}
               <Button icon={<EditOutlined />} onClick={() => openStatus(d)}>Status</Button>
-              <Tooltip title="Delete request"><Button danger type="text" icon={<DeleteOutlined />} onClick={() => confirmDelete(d)} aria-label="Delete request" /></Tooltip>
+              <Tooltip title="Delete request">
+                <Button danger className="dr-foot-del" icon={<DeleteOutlined />} onClick={() => confirmDelete(d)} aria-label="Delete request" />
+              </Tooltip>
             </div>
           )}>
           {d && (
@@ -958,12 +1003,15 @@ const DemoRequests: React.FC = () => {
                 <button type="button" className="dr-dclose" onClick={() => setDrawer(null)} aria-label="Close"><CloseOutlined /></button>
                 <span className="dr-av is-lg">{initialsOf(d.full_name)}</span>
                 <h3>{d.full_name}</h3>
-                <p>Received {fmtDate(d.created_at, true)} · {agoText(d.created_at)}</p>
+                <p className="dr-dh-when">
+                  <CalendarOutlined aria-hidden="true" />
+                  <span>Received {fmtDate(d.created_at, true)} · {agoText(d.created_at)}</span>
+                </p>
                 <div className="dr-dh-actions">
                   <a className="dr-chip-btn" href={`mailto:${d.email}`}><MailOutlined /> Email</a>
                   {d.phone && <a className="dr-chip-btn" href={`tel:${d.phone.replace(/[^\d+]/g, '')}`}><PhoneOutlined /> Call</a>}
                   {d.phone && d.phone.replace(/[^\d]/g, '').length >= 7 && (
-                    <a className="dr-chip-btn" href={`https://wa.me/${d.phone.replace(/[^\d]/g, '')}`} target="_blank" rel="noopener noreferrer"><WhatsAppOutlined /> WhatsApp</a>
+                    <a className="dr-chip-btn is-wa" href={`https://wa.me/${d.phone.replace(/[^\d]/g, '')}`} target="_blank" rel="noopener noreferrer"><WhatsAppOutlined /> WhatsApp</a>
                   )}
                   <button type="button" className="dr-chip-btn" onClick={() => copy(d.email, 'Email')}><CopyOutlined /> Copy email</button>
                 </div>
@@ -975,7 +1023,7 @@ const DemoRequests: React.FC = () => {
                 <ol className="dr-steps">
                   {PIPELINE.map((k, i) => (
                     <li key={k} className={i < stepIndex ? 'is-done' : i === stepIndex ? 'is-current' : ''}>
-                      <span className="dr-step-dot">{i < stepIndex ? <CheckOutlined /> : i + 1}</span>
+                      <span className="dr-step-dot">{i === stepIndex ? i + 1 : i < stepIndex ? <CheckOutlined /> : i + 1}</span>
                       <span className="dr-step-text"><strong>{STATUS[k].label}</strong><em>{stepDates[k] && i <= stepIndex ? fmtDate(stepDates[k]) : '-'}</em></span>
                     </li>
                   ))}
@@ -1001,7 +1049,7 @@ const DemoRequests: React.FC = () => {
                     )}
                   </div>
                   {(d.meeting_link || d.linked_meeting) && (
-                    <div className="dr-demo-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div className="dr-demo-actions">
                       {d.linked_meeting?.code && (
                         <Button size="small" type="primary" icon={<VideoCameraOutlined />} onClick={() => navigate(`/app/meeting/${d.linked_meeting!.code}`)}>
                           Open room
@@ -1015,37 +1063,46 @@ const DemoRequests: React.FC = () => {
                 </div>
               )}
 
-              {/* ── Availability request / submitted slots ── */}
-              <section className="dr-sec">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <h4 style={{ margin: 0 }}>Availability workflow</h4>
+              {/* ── Availability Workflow highlight card ── */}
+              <div className="dr-avail-card">
+                <div className="dr-avail-top">
+                  <div className="dr-avail-lead">
+                    <span className="dr-avail-ic"><CalendarOutlined /></span>
+                    <div className="dr-avail-titlewrap">
+                      <h4>Availability Workflow</h4>
+                      <p>
+                        {!d.latest_availability
+                          ? 'No availability link sent yet.'
+                          : d.latest_availability.status === 'submitted'
+                            ? 'Prospect submitted preferred times.'
+                            : d.latest_availability.status === 'pending'
+                              ? 'Waiting for prospect response.'
+                              : `Request ${d.latest_availability.status}.`}
+                      </p>
+                    </div>
+                  </div>
                   {d.status !== 'completed' && d.status !== 'cancelled' && (
-                    <Button size="small" icon={<SendOutlined />} onClick={() => openAskAvailability(d)}>
+                    <Button className="dr-avail-btn" icon={<SendOutlined />} onClick={() => openAskAvailability(d)}>
                       {d.latest_availability ? 'Send new link' : 'Ask for availability'}
                     </Button>
                   )}
                 </div>
-                {!d.latest_availability ? (
-                  <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
-                    No availability link sent yet. Click <strong>Ask for availability</strong> to send a one-time scheduling link.
-                  </p>
-                ) : d.latest_availability.status === 'submitted' ? (
-                  <div style={{ padding: 12, borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+
+                {d.latest_availability && d.latest_availability.status === 'submitted' && (
+                  <div className="dr-avail-sub is-submitted">
+                    <div className="dr-avail-meta">
                       <Tag color="green" style={{ margin: 0 }}>Availability received</Tag>
-                      <span style={{ fontSize: 11.5, color: '#065f46' }}>
-                        {d.latest_availability.submitted_timezone}
-                      </span>
+                      <span>{d.latest_availability.submitted_timezone}</span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="dr-avail-rows">
                       {(d.latest_availability.submitted_slots || []).map((sl, i) => {
                         const localDt = slotToLocalDayjs(sl, d.latest_availability?.submitted_timezone);
                         return (
-                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: '#ffffff', padding: '6px 10px', borderRadius: 8, border: '1px solid #d1fae5' }}>
-                            <div style={{ fontSize: 12.5 }}>
+                          <div key={i} className="dr-avail-slotrow">
+                            <div className="dr-avail-slotinfo">
                               <strong>{dayjs(sl.date).format('ddd, MMM D, YYYY')}</strong> · {sl.start} - {sl.end} ({d.latest_availability?.submitted_timezone})
                               {localDt && (
-                                <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                                <div className="dr-avail-local">
                                   Your time: {localDt.format('ddd, MMM D · HH:mm')} ({timezoneLabel(tz)})
                                 </div>
                               )}
@@ -1060,18 +1117,20 @@ const DemoRequests: React.FC = () => {
                       })}
                     </div>
                     {d.latest_availability.submitted_note && (
-                      <div style={{ marginTop: 8, fontSize: 12.5, color: '#065f46' }}>
+                      <div className="dr-avail-note">
                         <strong>Prospect note:</strong> {d.latest_availability.submitted_note}
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12.5 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                )}
+
+                {d.latest_availability && d.latest_availability.status !== 'submitted' && (
+                  <div className="dr-avail-sub is-pending">
+                    <div className="dr-avail-meta">
                       <Tag color={d.latest_availability.status === 'pending' ? 'geekblue' : 'orange'} style={{ margin: 0 }}>
                         {d.latest_availability.status === 'pending' ? 'Waiting for prospect response' : d.latest_availability.status}
                       </Tag>
-                      <span style={{ fontSize: 11.5, color: '#64748b' }}>{d.latest_availability.proposed_timezone}</span>
+                      <span>{d.latest_availability.proposed_timezone}</span>
                     </div>
                     {d.latest_availability.proposed_slots && d.latest_availability.proposed_slots.length > 0 ? (
                       <div className="dr-proposed-list">
@@ -1087,72 +1146,220 @@ const DemoRequests: React.FC = () => {
                         ))}
                       </div>
                     ) : (
-                      <div style={{ marginTop: 6, color: '#334155' }}>
+                      <div className="dr-avail-fallback">
                         Proposed: <strong>{d.latest_availability.proposed_start_date} to {d.latest_availability.proposed_end_date}</strong> · {d.latest_availability.proposed_time_start} - {d.latest_availability.proposed_time_end}
                       </div>
                     )}
                   </div>
                 )}
-              </section>
+              </div>
 
-              <section className="dr-sec">
-                <h4>Contact</h4>
-                <dl className="dr-facts">
-                  <div><dt>Email</dt><dd>{d.email}</dd></div>
-                  <div><dt>WhatsApp</dt><dd>{d.phone || '-'}</dd></div>
-                  <div><dt>Country</dt><dd>{d.country || '-'}</dd></div>
-                  <div><dt>Timezone</dt><dd>{d.timezone ? <>{d.timezone.replace(/_/g, ' ')}{dTz && <small> · now {inTz(new Date(), dTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</small>}</> : '-'}</dd></div>
-                </dl>
-              </section>
-
-              {interestOf(d) === 'exam' && (
-                <section className="dr-sec dr-exam">
-                  <h4><TrophyOutlined /> Exam preparation only</h4>
-                  <p className="dr-exam-note">No classes asked for: this person wants mock exams and corrections.</p>
-                  <dl className="dr-facts">
-                    <div><dt>Exam</dt><dd>{d.target_exam ? EXAM_LABELS[d.target_exam] || d.target_exam : '-'}</dd></div>
-                    <div><dt>Exam date</dt><dd>{d.exam_date ? `${examDay(d.exam_date)}${daysTo(d.exam_date)}` : 'Not booked yet'}</dd></div>
-                    <div><dt>Score needed</dt><dd>{d.target_score || '-'}</dd></div>
-                    <div><dt>Sat it before</dt><dd>{hasExperience(d.has_previous_experience) ? 'Yes' : 'Not yet'}</dd></div>
+              {/* ── Contact card ── */}
+              <section className="dr-card-box">
+                <button type="button" className="dr-card-head" onClick={() => toggleSection('contact')} aria-expanded={!collapsed.contact}>
+                  <span className="dr-card-title">
+                    <UserOutlined className="dr-card-ic" />
+                    <span>Contact</span>
+                  </span>
+                  {collapsed.contact ? <DownOutlined className="dr-card-chev" /> : <UpOutlined className="dr-card-chev" />}
+                </button>
+                {!collapsed.contact && (
+                  <dl className="dr-kv-list">
+                    <div className={`dr-kv-row${isLongText(d.email, 36) ? ' is-stacked' : ''}`}>
+                      <dt className="dr-kv-label"><MailOutlined /><span>Email</span></dt>
+                      <dd className="dr-kv-val is-break">{d.email}</dd>
+                    </div>
+                    <div className="dr-kv-row">
+                      <dt className="dr-kv-label"><WhatsAppOutlined className="is-wa" /><span>WhatsApp</span></dt>
+                      <dd className="dr-kv-val">{d.phone || '-'}</dd>
+                    </div>
+                    <div className="dr-kv-row">
+                      <dt className="dr-kv-label"><EnvironmentOutlined /><span>Country</span></dt>
+                      <dd className="dr-kv-val">
+                        {countryFlag(d.country) && <span className="dr-flag" aria-hidden="true">{countryFlag(d.country)}</span>}
+                        <span>{d.country || '-'}</span>
+                      </dd>
+                    </div>
+                    <div className={`dr-kv-row${isLongText(d.timezone, 32) ? ' is-stacked' : ''}`}>
+                      <dt className="dr-kv-label"><GlobalOutlined /><span>Timezone</span></dt>
+                      <dd className="dr-kv-val">
+                        {d.timezone ? (
+                          <>
+                            <span>{d.timezone.replace(/_/g, ' ')}</span>
+                            {dTz && <small className="dr-tz-now"> · now {inTz(new Date(), dTz, { hour: 'numeric', minute: '2-digit', hour12: true })}</small>}
+                          </>
+                        ) : '-'}
+                      </dd>
+                    </div>
                   </dl>
-                  {d.skills && (
-                    <div className="dr-exam-skills">
-                      {d.skills.split(',').filter(Boolean).map(skill => (
-                        <span key={skill}>{SKILL_LABELS[skill] || skill}</span>
-                      ))}
+                )}
+              </section>
+
+              {/* ── Exam Preparation card (when exam only) ── */}
+              {interestOf(d) === 'exam' && (
+                <section className="dr-card-box">
+                  <button type="button" className="dr-card-head" onClick={() => toggleSection('exam')} aria-expanded={!collapsed.exam}>
+                    <span className="dr-card-title">
+                      <TrophyOutlined className="dr-card-ic" />
+                      <span>Exam Preparation</span>
+                    </span>
+                    {collapsed.exam ? <DownOutlined className="dr-card-chev" /> : <UpOutlined className="dr-card-chev" />}
+                  </button>
+                  {!collapsed.exam && (
+                    <div className="dr-card-pad">
+                      <p className="dr-exam-note">Mock exams and corrections only (no live classes requested).</p>
+                      <dl className="dr-kv-list is-inset">
+                        <div className="dr-kv-row">
+                          <dt className="dr-kv-label"><TrophyOutlined /><span>Exam</span></dt>
+                          <dd className="dr-kv-val"><span className="dr-profile-pill">{d.target_exam ? (EXAM_LABELS[d.target_exam] || d.target_exam) : '-'}</span></dd>
+                        </div>
+                        <div className="dr-kv-row">
+                          <dt className="dr-kv-label"><CalendarOutlined /><span>Exam date</span></dt>
+                          <dd className="dr-kv-val">{d.exam_date ? `${examDay(d.exam_date)}${daysTo(d.exam_date)}` : 'Not booked yet'}</dd>
+                        </div>
+                        <div className="dr-kv-row">
+                          <dt className="dr-kv-label"><BarChartOutlined /><span>Score needed</span></dt>
+                          <dd className="dr-kv-val"><span className="dr-profile-pill">{d.target_score || '-'}</span></dd>
+                        </div>
+                        <div className="dr-kv-row">
+                          <dt className="dr-kv-label"><StarOutlined /><span>Sat it before</span></dt>
+                          <dd className="dr-kv-val">{hasExperience(d.has_previous_experience) ? 'Yes' : 'Not yet'}</dd>
+                        </div>
+                      </dl>
+                      {d.skills && (
+                        <div className="dr-exam-skills">
+                          {d.skills.split(',').filter(Boolean).map(skill => (
+                            <span key={skill}>{SKILL_LABELS[skill] || skill}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </section>
               )}
 
-              <section className="dr-sec">
-                <h4>Learning profile</h4>
-                <dl className="dr-facts">
-                  <div><dt>Looking for</dt><dd>{INTEREST[interestOf(d)].label}</dd></div>
-                  <div><dt>Level</dt><dd>{d.current_level || '-'}{d.interested_level && ` → wants ${d.interested_level}`}</dd></div>
-                  <div><dt>Experience</dt><dd>{hasExperience(d.has_previous_experience) ? 'Has studied French before' : 'First time learning'}</dd></div>
-                  {d.previous_study_method && <div><dt>Studied with</dt><dd>{d.previous_study_method}</dd></div>}
-                  <div><dt>Wants to start</dt><dd>{d.expected_start_time || '-'}</dd></div>
-                  {interestOf(d) === 'classes' && <div><dt>Availability</dt><dd>{d.preferred_schedule || '-'}</dd></div>}
-                </dl>
+              {/* ── Learning Profile card ── */}
+              <section className="dr-card-box">
+                <button type="button" className="dr-card-head" onClick={() => toggleSection('profile')} aria-expanded={!collapsed.profile}>
+                  <span className="dr-card-title">
+                    <ReadOutlined className="dr-card-ic" />
+                    <span>Learning Profile</span>
+                  </span>
+                  {collapsed.profile ? <DownOutlined className="dr-card-chev" /> : <UpOutlined className="dr-card-chev" />}
+                </button>
+                {!collapsed.profile && (() => {
+                  const levelValue = `${d.current_level || '-'}${d.interested_level ? ` → wants ${d.interested_level}` : ''}`;
+                  const expValue = hasExperience(d.has_previous_experience) ? 'Has studied French before' : 'First time learning';
+                  const methodLong = isLongText(d.previous_study_method, 28);
+                  const startLong = isLongText(d.expected_start_time, 28);
+                  const schedLong = isLongText(d.preferred_schedule, 28);
+                  return (
+                    <dl className="dr-kv-list">
+                      <div className="dr-kv-row">
+                        <dt className="dr-kv-label"><AimOutlined /><span>Looking for</span></dt>
+                        <dd className="dr-kv-val">
+                          <span className="dr-profile-pill">
+                            {interestOf(d) === 'exam' ? <TrophyOutlined /> : <VideoCameraOutlined />}
+                            <span>{INTEREST[interestOf(d)].label}</span>
+                          </span>
+                        </dd>
+                      </div>
+                      <div className={`dr-kv-row${isLongText(levelValue, 28) ? ' is-stacked' : ''}`}>
+                        <dt className="dr-kv-label"><BarChartOutlined /><span>Level</span></dt>
+                        <dd className="dr-kv-val">
+                          <span className="dr-profile-pill">
+                            <BarChartOutlined />
+                            <span>{levelValue}</span>
+                          </span>
+                        </dd>
+                      </div>
+                      <div className="dr-kv-row">
+                        <dt className="dr-kv-label"><StarOutlined /><span>Experience</span></dt>
+                        <dd className="dr-kv-val">
+                          <span className="dr-profile-pill">
+                            <StarFilled />
+                            <span>{expValue}</span>
+                          </span>
+                        </dd>
+                      </div>
+                      {d.previous_study_method && (
+                        <div className={`dr-kv-row${methodLong ? ' is-stacked' : ''}`}>
+                          <dt className="dr-kv-label"><BankOutlined /><span>Studied with</span></dt>
+                          <dd className="dr-kv-val">
+                            {methodLong
+                              ? <div className="dr-kv-block">{d.previous_study_method}</div>
+                              : (
+                                <span className="dr-profile-pill">
+                                  <BankOutlined />
+                                  <span>{formatPillValue(d.previous_study_method)}</span>
+                                </span>
+                              )}
+                          </dd>
+                        </div>
+                      )}
+                      {d.expected_start_time && (
+                        <div className={`dr-kv-row${startLong ? ' is-stacked' : ''}`}>
+                          <dt className="dr-kv-label"><ClockCircleOutlined /><span>Wants to start</span></dt>
+                          <dd className="dr-kv-val">
+                            {startLong
+                              ? <div className="dr-kv-block">{d.expected_start_time}</div>
+                              : <span className="dr-profile-pill">{formatPillValue(d.expected_start_time)}</span>}
+                          </dd>
+                        </div>
+                      )}
+                      {interestOf(d) === 'classes' && d.preferred_schedule && (
+                        <div className={`dr-kv-row${schedLong ? ' is-stacked' : ''}`}>
+                          <dt className="dr-kv-label"><CalendarOutlined /><span>Availability</span></dt>
+                          <dd className="dr-kv-val">
+                            {schedLong
+                              ? <div className="dr-kv-block">{d.preferred_schedule}</div>
+                              : <span className="dr-profile-pill">{formatPillValue(d.preferred_schedule)}</span>}
+                          </dd>
+                        </div>
+                      )}
+                    </dl>
+                  );
+                })()}
               </section>
 
+              {/* ── Goals & Expectations card ── */}
               {(d.learning_goals || d.expectations) && (
-                <section className="dr-sec">
-                  <h4>Goals & expectations</h4>
-                  {d.learning_goals && <blockquote className="dr-quote"><span>Goals</span>{d.learning_goals}</blockquote>}
-                  {d.expectations && <blockquote className="dr-quote"><span>Expectations</span>{d.expectations}</blockquote>}
+                <section className="dr-card-box">
+                  <button type="button" className="dr-card-head" onClick={() => toggleSection('goals')} aria-expanded={!collapsed.goals}>
+                    <span className="dr-card-title">
+                      <AimOutlined className="dr-card-ic" />
+                      <span>Goals & Expectations</span>
+                    </span>
+                    {collapsed.goals ? <DownOutlined className="dr-card-chev" /> : <UpOutlined className="dr-card-chev" />}
+                  </button>
+                  {!collapsed.goals && (
+                    <div className="dr-card-pad">
+                      {d.learning_goals && <blockquote className="dr-quote"><span>Goals</span>{d.learning_goals}</blockquote>}
+                      {d.expectations && <blockquote className="dr-quote"><span>Expectations</span>{d.expectations}</blockquote>}
+                    </div>
+                  )}
                 </section>
               )}
 
-              <section className="dr-sec">
-                <h4>Internal notes</h4>
-                <Input.TextArea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} autoSize={{ minRows: 3, maxRows: 8 }}
-                  placeholder="Call summary, availability, follow-up… (only admins see this)" maxLength={2000} />
-                <div className="dr-notes-actions">
-                  <span>{notesDraft !== (d.notes || '') ? 'Unsaved changes' : d.notes ? 'Saved' : ''}</span>
-                  <Button size="small" type="primary" onClick={saveNotes} loading={savingNotes} disabled={notesDraft === (d.notes || '')}>Save notes</Button>
-                </div>
+              {/* ── Internal Notes card ── */}
+              <section className="dr-card-box">
+                <button type="button" className="dr-card-head" onClick={() => toggleSection('notes')} aria-expanded={!collapsed.notes}>
+                  <span className="dr-card-title">
+                    <FileTextOutlined className="dr-card-ic" />
+                    <span>Internal Notes</span>
+                  </span>
+                  {collapsed.notes ? <DownOutlined className="dr-card-chev" /> : <UpOutlined className="dr-card-chev" />}
+                </button>
+                {!collapsed.notes && (
+                  <div className="dr-card-pad">
+                    <Input.TextArea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} autoSize={{ minRows: 3, maxRows: 8 }}
+                      placeholder="Call summary, availability, follow-up... (only admins see this)" maxLength={2000} />
+                    <div className="dr-notes-actions">
+                      <span>{notesDraft !== (d.notes || '') ? 'Unsaved changes' : d.notes ? 'Saved' : ''}</span>
+                      <Button size="small" type="primary" className="dr-notes-save" onClick={saveNotes} loading={savingNotes} disabled={notesDraft === (d.notes || '')}>Save notes</Button>
+                    </div>
+                  </div>
+                )}
               </section>
             </div>
           )}
@@ -1165,6 +1372,7 @@ const DemoRequests: React.FC = () => {
           footer={null}
           width={640}
           centered
+          zIndex={1010}
           className="dr-modal"
           maskClosable={!sendingAvail}
           closable={!sendingAvail}
@@ -1335,7 +1543,7 @@ const DemoRequests: React.FC = () => {
         </Modal>
 
         {/* ── Schedule demo ── */}
-        <Modal open={!!scheduleFor} onCancel={() => !scheduling && setScheduleFor(null)} footer={null} width={560} centered className="dr-modal"
+        <Modal open={!!scheduleFor} onCancel={() => { if (!scheduling) { setScheduleFor(null); setSelectedSubmittedIdx(null); } }} footer={null} width={560} centered zIndex={1010} className="dr-modal"
           maskClosable={!scheduling} closable={!scheduling} forceRender>
           <div className="dr-md">
             <header className="dr-md-head">
@@ -1349,18 +1557,25 @@ const DemoRequests: React.FC = () => {
               <div className="dr-md-pref" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
                 <span><strong>Submitted availability</strong> ({scheduleFor.latest_availability.submitted_timezone}). Click a slot to pre-fill:</span>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {scheduleFor.latest_availability.submitted_slots!.map((sl, i) => (
-                    <Button
-                      key={i}
-                      size="small"
-                      onClick={() => {
-                        const dt = slotToLocalDayjs(sl, scheduleFor.latest_availability?.submitted_timezone);
-                        if (dt) scheduleForm.setFieldValue('demo_scheduled_at', dt);
-                      }}
-                    >
-                      {sl.date} {sl.start}–{sl.end}
-                    </Button>
-                  ))}
+                  {scheduleFor.latest_availability.submitted_slots!.map((sl, i) => {
+                    const isSelected = selectedSubmittedIdx === i;
+                    return (
+                      <Button
+                        key={i}
+                        size="small"
+                        type={isSelected ? 'primary' : 'default'}
+                        icon={isSelected ? <CheckOutlined /> : undefined}
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          setSelectedSubmittedIdx(i);
+                          const dt = slotToLocalDayjs(sl, scheduleFor.latest_availability?.submitted_timezone);
+                          if (dt) scheduleForm.setFieldValue('demo_scheduled_at', dt);
+                        }}
+                      >
+                        {dayjs(sl.date).format('ddd, MMM D')} · {sl.start} - {sl.end}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1382,6 +1597,7 @@ const DemoRequests: React.FC = () => {
               <Form.Item name="demo_scheduled_at" label="Date and time" rules={[{ required: true, message: 'Pick the date and time' }]}
                 extra={pickedDate && sTz && sTz !== tz ? `Their local time: ${inTz(pickedDate.toDate(), sTz, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}` : `Your time (${timezoneLabel(tz)})`}>
                 <DatePicker showTime={{ format: 'HH:mm', minuteStep: 15 }} format="ddd, MMM D YYYY · HH:mm" style={{ width: '100%' }}
+                  onChange={() => setSelectedSubmittedIdx(null)}
                   disabledDate={dt => dt.isBefore(dayjs().startOf('day'))} />
               </Form.Item>
               {scheduleMode === 'platform' ? (
@@ -1428,7 +1644,7 @@ const DemoRequests: React.FC = () => {
               </p>
             </Form>
             <footer className="dr-md-foot">
-              <Button onClick={() => setScheduleFor(null)} disabled={scheduling}>Cancel</Button>
+              <Button onClick={() => { setScheduleFor(null); setSelectedSubmittedIdx(null); }} disabled={scheduling}>Cancel</Button>
               <Button type="primary" icon={<CalendarOutlined />} loading={scheduling} onClick={() => scheduleForm.submit()}>
                 {scheduleMode === 'platform' ? 'Schedule & email link' : (scheduleFor?.demo_scheduled_at ? 'Save & notify' : 'Schedule & notify')}
               </Button>
@@ -1437,7 +1653,7 @@ const DemoRequests: React.FC = () => {
         </Modal>
 
         {/* ── Change status ── */}
-        <Modal open={!!statusFor} onCancel={() => !savingStatus && setStatusFor(null)} footer={null} width={460} centered className="dr-modal">
+        <Modal open={!!statusFor} onCancel={() => !savingStatus && setStatusFor(null)} footer={null} width={460} centered zIndex={1010} className="dr-modal">
           {statusFor && (
             <div className="dr-md">
               <header className="dr-md-head">

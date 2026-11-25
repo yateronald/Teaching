@@ -49,16 +49,21 @@
       The home page file is also served for the signed-in app; there, the
       pre-rendered page stays hidden until React takes over.
     -->
-    <script>
-      (function () {
-        var page = document.documentElement.getAttribute('data-page');
-        if (page && page !== '*' && location.pathname.replace(/\/?$/, '/') !== page) document.documentElement.classList.add('app-route');
-      })();
-    </script>
     <style>
       .app-route #root > .lp { display: none; }
     </style>
     <!--app-head-->
+    <script>
+      (function () {
+        var page = document.documentElement.getAttribute('data-page');
+        var path = location.pathname;
+        var isKnownSpa = /^\/(app|login|force-change-password|meeting|demo-availability|dashboard|teacher-dashboard|student-dashboard|profile|batches|my-quizzes|my-results|my-marksheet|my-resources|my-schedule|student-quizzes|student-resources|student-schedule|teacher-batches|quiz-management|resources|schedules)(\/|$)|^\/o\/[a-z0-9-]{1,80}\/?$|^\/learn\/(sign-in|sign-up|forgot-password|account|subscription|complete-account|my-progress)\/?$|^\/fr\/apprendre\/(connexion|inscription|mot-de-passe-oublie|compte|abonnement|finaliser-compte|ma-progression)\/?$|^\/(learn\/practice\/reading|fr\/apprendre\/pratique\/lecture)\/mission\/[a-z0-9_-]+\/?$|^\/(learn|fr\/apprendre)\/[^/]+\/[^/]+\/(final-assessment|evaluation-finale)\/?$/i.test(path);
+        if ((page && page !== '*' && path.replace(/\/?$/, '/') !== page) || (page === '*' && isKnownSpa)) {
+          document.documentElement.classList.add('app-route');
+          document.title = 'Learn French with Natives';
+        }
+      })();
+    </script>
   </head>
   <body>
     <noscript>

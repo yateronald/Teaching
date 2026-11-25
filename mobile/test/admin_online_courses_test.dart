@@ -458,6 +458,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('DemoDetailPanel handles long text fields gracefully at 360px', (tester) async {
+    await _show(
+      tester,
+      DemoDetailPanel(
+        request: {
+          'id': 6,
+          'full_name': 'Jean-Baptiste Emmanuel de la Fontaine-Montmorency',
+          'email': 'jean.baptiste.very.long.email.address@international-french-organization.example.com',
+          'phone': '+212 6 36 80 06 82',
+          'country': 'Morocco',
+          'timezone': 'Africa/Casablanca',
+          'status': 'new',
+          'interest': 'classes',
+          'current_level': 'A1',
+          'interested_level': 'C1',
+          'has_previous_experience': true,
+          'previous_study_method': 'University evening courses combined with Alliance Francaise workshops and conversation clubs over two years.',
+          'expected_start_time': 'Immediately after completing my relocation paperwork next month',
+          'preferred_schedule': 'Weekday evenings after 7 PM local time or Saturday mornings before noon.',
+          'learning_goals': 'Reach C1 level for TEF Canada immigration and lead client meetings fluently in French without hesitation.',
+          'expectations': 'Structured speaking practice, written feedback after every session, and realistic mock interviews.',
+          'created_at': '2026-11-24T09:00:00Z',
+        },
+        onChanged: () async {},
+      ),
+      size: const Size(360, 780),
+    );
+    expect(find.text('Contact'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Learning Profile'), 250, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Learning Profile'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Goals & Expectations'), 250, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Goals & Expectations'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   test('OnlineFmt helpers calculate rounded prices and discounts accurately', () {
     expect(OnlineFmt.discountedPrice(9.99, 3, 10, 'USD'), 26.97);
     expect(OnlineFmt.discountedPrice(14.99, 12, 20, 'USD'), 143.90);

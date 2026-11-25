@@ -11,6 +11,9 @@ Disallow: /force-change-password
 Disallow: /dashboard
 Disallow: /student-dashboard
 Disallow: /teacher-dashboard
+Disallow: /meeting
+Disallow: /demo-availability/
+Disallow: /o/
 Disallow: /api/
 
 Sitemap: https://www.learnfrenchwithnatives.com/sitemap.xml

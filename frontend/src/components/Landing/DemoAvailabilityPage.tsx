@@ -377,7 +377,16 @@ const DemoAvailabilityPage: React.FC = () => {
   };
 
   const removeCustomSlot = (id: number) => {
-    if (customSlots.length <= 1) return;
+    setError(null);
+    if (customSlots.length <= 1) {
+      if (hasProposedOptions) {
+        setShowCustomSlots(false);
+        setCustomSlots([
+          { id: Date.now(), date: null, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
+        ]);
+      }
+      return;
+    }
     setCustomSlots(prev => prev.filter(s => s.id !== id));
   };
 
@@ -655,11 +664,30 @@ const DemoAvailabilityPage: React.FC = () => {
                   <div className="dap-custom-panel">
                     <div className="dap-sec-head" style={{ marginBottom: 10 }}>
                       <span>{hasProposedOptions ? 'Suggest your own preferred times' : 'Your preferred date & time windows *'}</span>
-                      {customSlots.length < 5 && (
-                        <Button type="link" size="small" icon={<PlusOutlined />} onClick={addCustomSlot} style={{ paddingInline: 0 }}>
-                          Add another option
-                        </Button>
-                      )}
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        {customSlots.length < 5 && (
+                          <Button type="link" size="small" icon={<PlusOutlined />} onClick={addCustomSlot} style={{ paddingInline: 0 }}>
+                            Add another option
+                          </Button>
+                        )}
+                        {hasProposedOptions && (
+                          <Button
+                            type="link"
+                            danger
+                            size="small"
+                            onClick={() => {
+                              setError(null);
+                              setShowCustomSlots(false);
+                              setCustomSlots([
+                                { id: Date.now(), date: null, start: dayjs('10:00', 'HH:mm'), end: dayjs('11:00', 'HH:mm') },
+                              ]);
+                            }}
+                            style={{ paddingInline: 0 }}
+                          >
+                            Cancel
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     {customSlots.map((s, idx) => (
@@ -700,9 +728,9 @@ const DemoAvailabilityPage: React.FC = () => {
                           danger
                           type="text"
                           icon={<DeleteOutlined />}
-                          disabled={customSlots.length <= 1}
+                          disabled={!hasProposedOptions && customSlots.length <= 1}
                           onClick={() => removeCustomSlot(s.id)}
-                          aria-label="Remove slot"
+                          aria-label={hasProposedOptions && customSlots.length <= 1 ? 'Cancel custom time suggestion' : 'Remove slot'}
                         />
                       </div>
                     ))}
