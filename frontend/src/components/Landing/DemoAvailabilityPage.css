@@ -1,0 +1,211 @@
+/* Public single-use demo availability submission page (/demo-availability/:token) */
+.dap-page {
+  min-height: 100dvh;
+  background: radial-gradient(circle at 10% 10%, rgba(79, 70, 229, 0.08), transparent 44%),
+    radial-gradient(circle at 90% 15%, rgba(16, 185, 129, 0.07), transparent 45%),
+    #f8fafc;
+  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+}
+
+.dap-topbar {
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 20px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dap-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.dap-brand img {
+  height: 34px;
+  width: auto;
+}
+
+.dap-wrap {
+  flex: 1;
+  max-width: 720px;
+  width: 100%;
+  margin: 12px auto 48px;
+  padding: 0 18px;
+}
+
+.dap-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.06);
+  padding: 32px;
+}
+
+.dap-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: #4f46e5;
+  margin-bottom: 6px;
+}
+
+.dap-title {
+  margin: 0 0 8px;
+  font-size: clamp(22px, 3vw, 28px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.dap-sub {
+  margin: 0 0 22px;
+  font-size: 14.5px;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.dap-window {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 22px;
+}
+
+.dap-window-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: #4f46e5;
+  margin-bottom: 10px;
+}
+
+.dap-window-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.dap-window-item span {
+  display: block;
+  font-size: 11.5px;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+
+.dap-window-item strong {
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.dap-admin-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 13.5px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.dap-slot {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.dap-slot-field label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 4px;
+}
+
+.dap-once {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.dap-state {
+  text-align: center;
+  padding: 18px 8px;
+}
+
+.dap-state-ic {
+  width: 60px;
+  height: 60px;
+  border-radius: 18px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+
+.dap-state-ic.is-ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.dap-state-ic.is-warn {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.dap-state h2 {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dap-state p {
+  margin: 0 auto 16px;
+  max-width: 500px;
+  font-size: 14.5px;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.dap-reschedule-box {
+  margin: 18px auto 0;
+  max-width: 500px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 13.5px;
+  color: #334155;
+  line-height: 1.55;
+}
+
+@media (max-width: 680px) {
+  .dap-card {
+    padding: 22px 16px;
+  }
+  .dap-slot {
+    grid-template-columns: 1fr;
+  }
+}

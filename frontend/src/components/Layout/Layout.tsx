@@ -102,6 +102,8 @@ const NAV: Record<Role, NavGroup[]> = {
                 { key: '/app/online-courses', icon: <CrownOutlined />, label: 'Online courses' },
                 { key: '/app/batches', icon: <TeamOutlined />, label: 'Batches' },
                 { key: '/app/demo-requests', icon: <PhoneOutlined />, label: 'Demo Requests', counter: 'demoRequests' },
+                { key: '/app/meetings', icon: <VideoCameraOutlined />, label: 'Live meetings' },
+                { key: '/app/admin-calendar', icon: <ScheduleOutlined />, label: 'Admin calendar' },
                 { key: '/app/marketing', icon: <NotificationOutlined />, label: 'Marketing', counter: 'registrations' },
                 { key: '/app/emails', icon: <MailOutlined />, label: 'Email campaigns' },
                 { key: '/app/timetable', icon: <CalendarOutlined />, label: 'Teacher Timetable' },

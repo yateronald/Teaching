@@ -1,0 +1,230 @@
+/* Admin Calendar (/app/admin-calendar) — dedicated schedule of demos, external meetings & classes */
+.ac-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ac-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.ac-overline {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #4f46e5;
+  margin-bottom: 4px;
+}
+
+.ac-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.ac-subtitle {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: #64748b;
+}
+
+.ac-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ac-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px 16px;
+}
+
+.ac-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ac-month-label {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+  min-width: 150px;
+  text-align: center;
+}
+
+.ac-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.ac-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.ac-weekday {
+  padding: 10px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #64748b;
+  text-align: center;
+}
+
+.ac-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.ac-cell {
+  min-height: 112px;
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #ffffff;
+}
+
+.ac-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.ac-cell.is-out {
+  background: #f8fafc;
+  color: #94a3b8;
+}
+
+.ac-cell.is-today {
+  background: #eef2ff55;
+}
+
+.ac-day-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.ac-cell.is-today .ac-day-num {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+.ac-event {
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 6px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.ac-event:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+}
+
+.ac-event.is-demo {
+  background: #f5f3ff;
+  color: #5b21b6;
+  border-left: 3px solid #7c3aed;
+}
+
+.ac-event.is-public,
+.ac-event.is-admin {
+  background: #ecfdf5;
+  color: #065f46;
+  border-left: 3px solid #059669;
+}
+
+.ac-event.is-class {
+  background: #eff6ff;
+  color: #1e40af;
+  border-left: 3px solid #2563eb;
+}
+
+.ac-event strong {
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ac-event span {
+  font-size: 10.5px;
+  opacity: 0.85;
+}
+
+.ac-agenda {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ac-agenda-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  cursor: pointer;
+  background: #ffffff;
+}
+
+.ac-agenda-row:hover {
+  border-color: #c7d2fe;
+  background: #fafaff;
+}
+
+.ac-cred-box {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (max-width: 780px) {
+  .ac-weekdays, .ac-grid {
+    display: none;
+  }
+}

@@ -251,6 +251,19 @@ class _DemoCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(meta, style: AppTypography.caption.copyWith(color: AppColors.text, fontWeight: FontWeight.w600)),
               ],
+              if (d['latest_availability'] is Map && status != 'demo_scheduled' && status != 'completed' && status != 'cancelled') ...[
+                const SizedBox(height: 8),
+                Builder(builder: (context) {
+                  final av = J.map(d['latest_availability']);
+                  final avStatus = J.s(av['status']);
+                  if (avStatus.isEmpty) return const SizedBox.shrink();
+                  return Pill(
+                    Demo.availabilityLabel(avStatus, fr),
+                    color: Demo.availabilityColor(avStatus),
+                    icon: avStatus == 'submitted' ? Icons.event_available : Icons.schedule_send_outlined,
+                  );
+                }),
+              ],
               const SizedBox(height: 8),
               Row(
                 children: [

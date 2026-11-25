@@ -73,6 +73,18 @@ async function endMeeting(db, io, meeting) {
          WHERE meeting_id = $1 AND first_join IS NOT NULL`,
         [meeting.id]
     );
+    await db.run(
+        `UPDATE meeting_guests
+         SET left_at = COALESCE(left_at, CURRENT_TIMESTAMP),
+             duration_minutes = CASE
+               WHEN joined_at IS NOT NULL AND left_at IS NULL
+               THEN GREATEST(duration_minutes, ROUND(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - joined_at)) / 60.0)::int)
+               ELSE duration_minutes
+             END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE meeting_id = $1 AND joined_at IS NOT NULL AND left_at IS NULL`,
+        [meeting.id]
+    ).catch(() => {});
     markAbsentStudents(db, meeting.id).catch(() => {});
 
     access.lobbyClear(meeting.id);

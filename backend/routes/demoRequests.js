@@ -1,9 +1,16 @@
+const crypto = require('crypto');
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { authenticateToken, authorizeRoles } = require('../middleware/auth');
-const { sendDemoScheduleNotificationToStudent, sendDemoScheduleNotificationToTeacher } = require('../emails/emailService');
+const {
+    sendDemoScheduleNotificationToStudent,
+    sendDemoScheduleNotificationToTeacher,
+    sendDemoAvailabilityRequest,
+    sendPublicMeetingInvite,
+} = require('../emails/emailService');
 const { createBulkNotifications } = require('../services/notificationService');
 const { hasColumn } = require('../services/schemaFeatures');
+const access = require('../services/meetingAccess');
 
 const router = express.Router();
 const adminOnlyMw = authorizeRoles('admin');
@@ -279,7 +286,7 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
 
         const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-        // Get filtered demo requests with teacher information
+        // Get filtered demo requests with teacher, latest availability, and linked meeting info
         const demoRequestsQuery = `
             SELECT 
                 dr.id, dr.full_name, dr.email, dr.phone, dr.country, dr.has_previous_experience,
@@ -287,10 +294,48 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
                 dr.learning_goals, dr.expectations, dr.expected_start_time,
                 dr.preferred_schedule, dr.timezone, dr.status, dr.notes,
                 dr.contacted_at, dr.demo_scheduled_at, dr.created_at, dr.updated_at,
-                dr.teacher_id, dr.meeting_link${interestColumns},
-                u.first_name as teacher_first_name, u.last_name as teacher_last_name, u.email as teacher_email
+                dr.teacher_id, dr.meeting_link, dr.meeting_id${interestColumns},
+                u.first_name as teacher_first_name, u.last_name as teacher_last_name, u.email as teacher_email,
+                CASE WHEN dar.id IS NOT NULL THEN json_build_object(
+                    'id', dar.id,
+                    'status', CASE
+                      WHEN dar.status = 'pending' AND dar.expires_at <= CURRENT_TIMESTAMP THEN 'expired'
+                      ELSE dar.status
+                    END,
+                    'proposed_timezone', dar.proposed_timezone,
+                    'proposed_start_date', dar.proposed_start_date::text,
+                    'proposed_end_date', dar.proposed_end_date::text,
+                    'proposed_time_start', dar.proposed_time_start,
+                    'proposed_time_end', dar.proposed_time_end,
+                    'proposed_days', dar.proposed_days,
+                    'admin_note', dar.admin_note,
+                    'expires_at', dar.expires_at,
+                    'submitted_at', dar.submitted_at,
+                    'submitted_timezone', dar.submitted_timezone,
+                    'submitted_slots', dar.submitted_slots,
+                    'submitted_note', dar.submitted_note,
+                    'created_at', dar.created_at
+                ) ELSE NULL END AS latest_availability,
+                CASE WHEN m.id IS NOT NULL THEN json_build_object(
+                    'id', m.id,
+                    'code', m.room_name,
+                    'title', m.title,
+                    'status', m.status,
+                    'scheduled_start', m.scheduled_start,
+                    'scheduled_end', m.scheduled_end,
+                    'is_public', m.is_public,
+                    'require_approval', m.require_approval,
+                    'encrypted_passcode', m.password
+                ) ELSE NULL END AS linked_meeting_raw
             FROM demo_requests dr
-            LEFT JOIN users u ON dr.teacher_id = u.id AND u.role = 'teacher'
+            LEFT JOIN users u ON dr.teacher_id = u.id
+            LEFT JOIN meetings m ON dr.meeting_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT * FROM demo_availability_requests dar2
+                WHERE dar2.demo_request_id = dr.id
+                ORDER BY dar2.created_at DESC
+                LIMIT 1
+            ) dar ON TRUE
             ${whereClause}
             ORDER BY dr.created_at DESC
             LIMIT $${paramIndex++} OFFSET $${paramIndex++}
@@ -300,7 +345,22 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
         queryParams.push(limitNum, offset);
 
         // Use unified PostgreSQL adapter
-        const demoRequestsResult = await req.db.all(demoRequestsQuery, queryParams);
+        const rawRows = await req.db.all(demoRequestsQuery, queryParams);
+        const demoRequestsResult = rawRows.map(row => {
+            const lm = row.linked_meeting_raw;
+            const { linked_meeting_raw, ...rest } = row;
+            let linked_meeting = null;
+            if (lm) {
+                const { encrypted_passcode, ...lmSafe } = lm;
+                const pass = encrypted_passcode ? access.openPasscode(encrypted_passcode) : null;
+                linked_meeting = {
+                    ...lmSafe,
+                    passcode: pass,
+                    public_link: lm.is_public ? access.publicMeetingUrl(lm.code, pass) : null,
+                };
+            }
+            return { ...rest, linked_meeting };
+        });
 
         // Get total count for pagination
         const countQuery = `SELECT COUNT(*) as total FROM demo_requests dr ${whereClause}`;
@@ -316,7 +376,11 @@ router.get('/', authenticateToken, adminOnlyMw, async (req, res) => {
                 COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
                 COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
                 COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '7 days' THEN 1 END) as this_week,
-                COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as this_month
+                COUNT(CASE WHEN created_at >= CURRENT_DATE - INTERVAL '30 days' THEN 1 END) as this_month,
+                (SELECT COUNT(DISTINCT dr2.id)
+                 FROM demo_requests dr2
+                 JOIN demo_availability_requests dar2 ON dar2.demo_request_id = dr2.id
+                 WHERE dar2.status = 'submitted' AND dr2.status IN ('new', 'contacted')) as availability_received
                 ${withInterest ? `,
                 COUNT(CASE WHEN interest = 'exam' THEN 1 END) as exam_requests,
                 COUNT(CASE WHEN interest <> 'exam' THEN 1 END) as class_requests,
@@ -654,6 +718,316 @@ router.patch('/:id/schedule', authenticateToken, adminOnlyMw, [
     }
 });
 
+// Ask prospect for their availability via a single-use expiring link
+router.post('/:id/request-availability', authenticateToken, adminOnlyMw, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            proposed_start_date,
+            proposed_end_date,
+            proposed_time_start,
+            proposed_time_end,
+            proposed_timezone,
+            proposed_days,
+            admin_note,
+            expires_in_days,
+        } = req.body || {};
+
+        const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+        const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+        if (!DATE_RE.test(String(proposed_start_date || '')) || !DATE_RE.test(String(proposed_end_date || ''))) {
+            return res.status(400).json({ success: false, message: 'Valid start and end dates (YYYY-MM-DD) are required' });
+        }
+        if (proposed_end_date < proposed_start_date) {
+            return res.status(400).json({ success: false, message: 'End date must be on or after start date' });
+        }
+        const daySpan = (Date.parse(proposed_end_date) - Date.parse(proposed_start_date)) / 86400000;
+        if (daySpan > 60) {
+            return res.status(400).json({ success: false, message: 'Date range cannot exceed 60 days' });
+        }
+        if (!TIME_RE.test(String(proposed_time_start || '')) || !TIME_RE.test(String(proposed_time_end || ''))) {
+            return res.status(400).json({ success: false, message: 'Valid start and end times (HH:MM) are required' });
+        }
+        if (proposed_time_end <= proposed_time_start) {
+            return res.status(400).json({ success: false, message: 'End time must be after start time' });
+        }
+        const tz = String(proposed_timezone || req.user.timezone || 'UTC').trim().slice(0, 80);
+        try {
+            new Intl.DateTimeFormat('en-US', { timeZone: tz }).format();
+        } catch {
+            return res.status(400).json({ success: false, message: 'Invalid timezone selected' });
+        }
+
+        const demo = await req.db.get('SELECT * FROM demo_requests WHERE id = $1', [id]);
+        if (!demo) {
+            return res.status(404).json({ success: false, message: 'Demo request not found' });
+        }
+
+        const days = Array.isArray(proposed_days)
+            ? proposed_days.map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6)
+            : null;
+        const cleanNote = typeof admin_note === 'string' && admin_note.trim() ? admin_note.trim().slice(0, 1000) : null;
+        const expDays = Math.min(Math.max(parseInt(expires_in_days, 10) || 14, 1), 30);
+        const expiresAt = new Date(Date.now() + expDays * 86400000).toISOString();
+
+        // Mark prior pending availability links as superseded so old links cannot be used
+        await req.db.run(
+            `UPDATE demo_availability_requests
+             SET status = 'superseded', updated_at = CURRENT_TIMESTAMP
+             WHERE demo_request_id = $1 AND status = 'pending'`,
+            [demo.id]
+        );
+
+        const rawToken = crypto.randomBytes(32).toString('base64url');
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+
+        const inserted = await req.db.run(
+            `INSERT INTO demo_availability_requests (
+                demo_request_id, token_hash, created_by, proposed_timezone,
+                proposed_start_date, proposed_end_date, proposed_time_start, proposed_time_end,
+                proposed_days, admin_note, status, expires_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, 'pending', $11)
+             RETURNING id, demo_request_id, created_by, proposed_timezone,
+                       proposed_start_date::text AS proposed_start_date,
+                       proposed_end_date::text AS proposed_end_date,
+                       proposed_time_start, proposed_time_end, proposed_days, admin_note,
+                       status, expires_at, created_at`,
+            [
+                demo.id,
+                tokenHash,
+                req.user.id,
+                tz,
+                proposed_start_date,
+                proposed_end_date,
+                proposed_time_start,
+                proposed_time_end,
+                days ? JSON.stringify(days) : null,
+                cleanNote,
+                expiresAt,
+            ]
+        );
+
+        if (demo.status === 'new') {
+            await req.db.run(
+                `UPDATE demo_requests
+                 SET status = 'contacted', contacted_at = COALESCE(contacted_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+                 WHERE id = $1`,
+                [demo.id]
+            );
+            announceWaitingChanged(req).catch(() => {});
+        }
+
+        const availabilityUrl = `${access.frontendBase()}/demo-availability/${rawToken}`;
+        const adminName = `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() || 'Our coordinator';
+        let emailSent = true;
+        try {
+            await sendDemoAvailabilityRequest({
+                to: demo.email,
+                recipientName: demo.full_name,
+                adminName,
+                proposedStartDate: proposed_start_date,
+                proposedEndDate: proposed_end_date,
+                proposedTimeStart: proposed_time_start,
+                proposedTimeEnd: proposed_time_end,
+                proposedTimezone: tz,
+                adminNote: cleanNote,
+                availabilityUrl,
+                expiresAt,
+            });
+        } catch (emailErr) {
+            emailSent = false;
+            console.error('❌ Failed to send availability request email:', emailErr.message);
+        }
+
+        return res.status(201).json({
+            success: true,
+            email_sent: emailSent,
+            availability_request: inserted.rows[0],
+        });
+    } catch (error) {
+        console.error('POST /demo-requests/:id/request-availability error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to send availability request' });
+    }
+});
+
+// Create a public live demo meeting directly, add to Admin Calendar, link demo request, and email prospect
+router.post('/:id/schedule-meeting', authenticateToken, adminOnlyMw, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            scheduled_start,
+            scheduled_end,
+            title,
+            host_id,
+            teacher_id,
+            require_approval = true,
+            notes,
+            host_timezone,
+        } = req.body || {};
+
+        if (!scheduled_start || Number.isNaN(Date.parse(scheduled_start))) {
+            return res.status(400).json({ success: false, message: 'A valid scheduled_start timestamp is required' });
+        }
+        const startDate = new Date(scheduled_start);
+        const endDate = scheduled_end && !Number.isNaN(Date.parse(scheduled_end))
+            ? new Date(scheduled_end)
+            : new Date(startDate.getTime() + 30 * 60000);
+        if (endDate <= startDate) {
+            return res.status(400).json({ success: false, message: 'End time must be after start time' });
+        }
+
+        const demo = await req.db.get('SELECT * FROM demo_requests WHERE id = $1', [id]);
+        if (!demo) {
+            return res.status(404).json({ success: false, message: 'Demo request not found' });
+        }
+
+        const targetHostId = Number(host_id || teacher_id) || req.user.id;
+        const host = await req.db.get(
+            "SELECT id, first_name, last_name, email, role, timezone FROM users WHERE id = $1 AND role IN ('admin', 'teacher') AND is_active = TRUE",
+            [targetHostId]
+        );
+        if (!host) {
+            return res.status(400).json({ success: false, message: 'Selected host must be an active admin or teacher' });
+        }
+
+        const cleanTitle = (typeof title === 'string' && title.trim()
+            ? title.trim()
+            : `French Demo — ${demo.full_name}`).slice(0, 300);
+        const cleanNotes = typeof notes === 'string' && notes.trim() ? notes.trim().slice(0, 2000) : null;
+        const tz = (typeof host_timezone === 'string' && host_timezone.trim())
+            ? host_timezone.trim().slice(0, 80)
+            : (host.timezone || req.user.timezone || 'UTC');
+
+        const code = await access.uniqueMeetingCode(req.db);
+        const passcode = access.generatePasscode();
+        const sealedPass = access.sealPasscode(passcode);
+        const reqApproval = Boolean(require_approval);
+
+        const created = await req.db.run(
+            `INSERT INTO meetings (
+                room_name, title, description, teacher_id, batch_id, status,
+                scheduled_start, scheduled_end, password, trusted_user_ids, max_participants,
+                is_public, require_approval, meeting_kind, demo_request_id, host_timezone
+             ) VALUES ($1, $2, $3, $4, NULL, 'scheduled', $5, $6, $7, '{}', 15, TRUE, $8, 'demo', $9, $10)
+             RETURNING *`,
+            [
+                code,
+                cleanTitle,
+                cleanNotes,
+                host.id,
+                startDate.toISOString(),
+                endDate.toISOString(),
+                sealedPass,
+                reqApproval,
+                demo.id,
+                tz,
+            ]
+        );
+        const meeting = created.rows[0];
+        const publicLink = access.publicMeetingUrl(code, passcode);
+
+        const prospectEmail = String(demo.email).trim().toLowerCase();
+        await req.db.run(
+            `INSERT INTO meeting_invitees (meeting_id, email, name, invited_by, notified_at)
+             VALUES ($1, $2, $3, $4, NULL)
+             ON CONFLICT (meeting_id, email) DO NOTHING`,
+            [meeting.id, prospectEmail, demo.full_name, req.user.id]
+        );
+
+        const updatedDemoRes = await req.db.run(
+            `UPDATE demo_requests
+             SET status = 'demo_scheduled',
+                 demo_scheduled_at = $2,
+                 teacher_id = $3,
+                 meeting_id = $4,
+                 meeting_link = $5,
+                 notes = COALESCE($6, notes),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1
+             RETURNING *`,
+            [demo.id, startDate.toISOString(), host.id, meeting.id, publicLink, cleanNotes]
+        );
+
+        // Determine the best timezone for the prospect's email
+        const latestAvail = await req.db.get(
+            `SELECT submitted_timezone FROM demo_availability_requests
+             WHERE demo_request_id = $1 AND status = 'submitted'
+             ORDER BY submitted_at DESC LIMIT 1`,
+            [demo.id]
+        ).catch(() => null);
+        const prospectTz = latestAvail?.submitted_timezone || demo.timezone || tz || 'UTC';
+        const hostName = `${host.first_name || ''} ${host.last_name || ''}`.trim() || 'Your host';
+
+        let emailSent = true;
+        try {
+            await sendPublicMeetingInvite({
+                to: demo.email,
+                recipientName: demo.full_name,
+                title: cleanTitle,
+                description: cleanNotes,
+                hostName,
+                scheduledStart: startDate.toISOString(),
+                scheduledEnd: endDate.toISOString(),
+                recipientTimezone: prospectTz,
+                meetingUrl: publicLink,
+                meetingCode: code,
+                passcode,
+                requireApproval: reqApproval,
+                isDemo: true,
+                notes: cleanNotes,
+            });
+            await req.db.run(
+                'UPDATE meeting_invitees SET notified_at = CURRENT_TIMESTAMP WHERE meeting_id = $1 AND email = $2',
+                [meeting.id, prospectEmail]
+            ).catch(() => {});
+            if (host.id !== req.user.id && host.email) {
+                await sendDemoScheduleNotificationToTeacher({
+                    to: host.email,
+                    teacherName: hostName,
+                    studentName: demo.full_name,
+                    studentEmail: demo.email,
+                    studentLevel: demo.current_level,
+                    studentGoals: demo.learning_goals,
+                    studentExpectations: demo.expectations,
+                    demoDate: startDate.toISOString(),
+                    meetingLink: `${access.frontendBase()}/app/meeting/${code}`,
+                    notes: cleanNotes || undefined,
+                    recipientTimezone: host.timezone || tz,
+                });
+            }
+        } catch (emailErr) {
+            emailSent = false;
+            console.error('❌ Failed to send demo meeting invite email:', emailErr.message);
+        }
+
+        if (req.io) {
+            req.io.emit('meeting:created', { meetingId: meeting.id });
+        }
+        announceWaitingChanged(req).catch(() => {});
+
+        return res.status(201).json({
+            success: true,
+            email_sent: emailSent,
+            data: updatedDemoRes.rows[0],
+            meeting: {
+                id: meeting.id,
+                code,
+                title: meeting.title,
+                status: meeting.status,
+                scheduled_start: meeting.scheduled_start,
+                scheduled_end: meeting.scheduled_end,
+                is_public: true,
+                require_approval: reqApproval,
+                passcode,
+                public_link: publicLink,
+            },
+        });
+    } catch (error) {
+        console.error('POST /demo-requests/:id/schedule-meeting error:', error);
+        return res.status(500).json({ success: false, message: 'Failed to schedule demo meeting' });
+    }
+});
+
 // Get demo request by ID
 router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
     try {
@@ -664,9 +1038,47 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
                 dr.*, 
                 u.first_name as teacher_first_name, 
                 u.last_name as teacher_last_name, 
-                u.email as teacher_email
+                u.email as teacher_email,
+                CASE WHEN dar.id IS NOT NULL THEN json_build_object(
+                    'id', dar.id,
+                    'status', CASE
+                      WHEN dar.status = 'pending' AND dar.expires_at <= CURRENT_TIMESTAMP THEN 'expired'
+                      ELSE dar.status
+                    END,
+                    'proposed_timezone', dar.proposed_timezone,
+                    'proposed_start_date', dar.proposed_start_date::text,
+                    'proposed_end_date', dar.proposed_end_date::text,
+                    'proposed_time_start', dar.proposed_time_start,
+                    'proposed_time_end', dar.proposed_time_end,
+                    'proposed_days', dar.proposed_days,
+                    'admin_note', dar.admin_note,
+                    'expires_at', dar.expires_at,
+                    'submitted_at', dar.submitted_at,
+                    'submitted_timezone', dar.submitted_timezone,
+                    'submitted_slots', dar.submitted_slots,
+                    'submitted_note', dar.submitted_note,
+                    'created_at', dar.created_at
+                ) ELSE NULL END AS latest_availability,
+                CASE WHEN m.id IS NOT NULL THEN json_build_object(
+                    'id', m.id,
+                    'code', m.room_name,
+                    'title', m.title,
+                    'status', m.status,
+                    'scheduled_start', m.scheduled_start,
+                    'scheduled_end', m.scheduled_end,
+                    'is_public', m.is_public,
+                    'require_approval', m.require_approval,
+                    'encrypted_passcode', m.password
+                ) ELSE NULL END AS linked_meeting_raw
             FROM demo_requests dr
-            LEFT JOIN users u ON dr.teacher_id = u.id AND u.role = 'teacher'
+            LEFT JOIN users u ON dr.teacher_id = u.id
+            LEFT JOIN meetings m ON dr.meeting_id = m.id
+            LEFT JOIN LATERAL (
+                SELECT * FROM demo_availability_requests dar2
+                WHERE dar2.demo_request_id = dr.id
+                ORDER BY dar2.created_at DESC
+                LIMIT 1
+            ) dar ON TRUE
             WHERE dr.id = $1
         `, [id]);
 
@@ -677,9 +1089,21 @@ router.get('/:id', authenticateToken, adminOnlyMw, async (req, res) => {
             });
         }
 
+        const { linked_meeting_raw, ...clean } = result;
+        let linked_meeting = null;
+        if (linked_meeting_raw) {
+            const { encrypted_passcode, ...lmSafe } = linked_meeting_raw;
+            const pass = encrypted_passcode ? access.openPasscode(encrypted_passcode) : null;
+            linked_meeting = {
+                ...lmSafe,
+                passcode: pass,
+                public_link: lmSafe.is_public ? access.publicMeetingUrl(lmSafe.code, pass) : null,
+            };
+        }
+
         res.json({
             success: true,
-            data: result
+            data: { ...clean, linked_meeting }
         });
 
     } catch (error) {

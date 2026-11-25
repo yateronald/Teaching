@@ -8,13 +8,24 @@ import { playNotificationSound } from './meetingSounds';
 import './MeetingAccess.css';
 
 /**
- * Hosts are told when someone knocks, wherever they are in the app — not only
- * inside the class. Inside the class the room's own lobby list takes over.
+ * Hosts and admins are told when someone knocks, wherever they are in the app —
+ * including external public guests on `/meeting/:code`.
  */
-interface LobbyRequest { userId: number; userName: string; role?: string }
+interface LobbyRequest {
+  key?: string;
+  userId?: number | null;
+  guestId?: string | null;
+  isGuest?: boolean;
+  userName: string;
+  email?: string | null;
+  role?: string;
+}
 interface RequestEvent { meetingId: number; code: string; title: string; request: LobbyRequest }
 
-const ROLE_LABEL: Record<string, string> = { student: 'Student', teacher: 'Teacher', admin: 'Admin' };
+const ROLE_LABEL: Record<string, string> = { student: 'Student', teacher: 'Teacher', admin: 'Admin', guest: 'External guest' };
+
+const keyForRequest = (r: LobbyRequest): string =>
+  r.key || (r.guestId ? `guest:${r.guestId}` : String(r.userId ?? ''));
 
 const MeetingLobbyWatcher: React.FC = () => {
   const { user, apiCall, isTeacher, isAdmin } = useAuth();
@@ -25,34 +36,44 @@ const MeetingLobbyWatcher: React.FC = () => {
   pathRef.current = location.pathname;
   const apiRef = useRef(apiCall);
   apiRef.current = apiCall;
-  const open = useRef(new Map<string, { meetingId: number; userId: number; code: string }>());
+  const open = useRef(new Map<string, { meetingId: number; participantKey: string; code: string }>());
   const canHost = !!user?.id && (isTeacher || isAdmin);
 
   useEffect(() => {
     if (!canHost) return;
     const socket = acquireSocket();
-    const keyOf = (meetingId: number, userId: number) => `lobby-${meetingId}-${userId}`;
-    const close = (key: string) => { notification.destroy(key); open.current.delete(key); };
+    const notifKeyOf = (meetingId: number, pKey: string) => `lobby-${meetingId}-${pKey}`;
+    const close = (nKey: string) => { notification.destroy(nKey); open.current.delete(nKey); };
 
     const answer = async (e: RequestEvent, how: 'admit' | 'decline') => {
-      close(keyOf(e.meetingId, e.request.userId));
+      const pKey = keyForRequest(e.request);
+      close(notifKeyOf(e.meetingId, pKey));
       try {
-        const resp = await apiRef.current(`/meetings/${e.meetingId}/${how}`, { method: 'POST', body: JSON.stringify({ user_id: e.request.userId }) });
+        const body = e.request.guestId
+          ? { guest_id: e.request.guestId, participant_key: pKey }
+          : { user_id: e.request.userId, participant_key: pKey };
+        const resp = await apiRef.current(`/meetings/${e.meetingId}/${how}`, {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
         if (resp.ok) message.success(how === 'admit' ? `${e.request.userName} is joining “${e.title}”` : `Request from ${e.request.userName} declined`);
         else message.info(`${e.request.userName} is no longer waiting`);
       } catch {
-        message.error('No connection — try again from the class.');
+        message.error('No connection — try again from the meeting.');
       }
     };
 
     const onRequest = (e: RequestEvent) => {
       const here = pathRef.current;
       if (here === `/app/meeting/${e.code}` || here === `/app/meeting/${e.meetingId}`) return;
-      const key = keyOf(e.meetingId, e.request.userId);
-      open.current.set(key, { meetingId: e.meetingId, userId: e.request.userId, code: e.code });
+      const pKey = keyForRequest(e.request);
+      if (!pKey) return;
+      const nKey = notifKeyOf(e.meetingId, pKey);
+      open.current.set(nKey, { meetingId: e.meetingId, participantKey: pKey, code: e.code });
       playNotificationSound();
+      const badge = e.request.isGuest ? 'External guest' : ROLE_LABEL[e.request.role || ''];
       notification.open({
-        key,
+        key: nKey,
         className: 'mlw',
         placement: 'bottomRight',
         duration: 0,
@@ -60,25 +81,24 @@ const MeetingLobbyWatcher: React.FC = () => {
         message: (
           <>
             <b>{e.request.userName}</b> is waiting to join
-            {e.request.role && ROLE_LABEL[e.request.role] && <span className="mlw-role">{ROLE_LABEL[e.request.role]}</span>}
+            {badge && <span className="mlw-role">{badge}</span>}
           </>
         ),
-        description: `“${e.title}” · not in this class’s batch`,
+        description: `“${e.title}” · ${e.request.email || (e.request.isGuest ? 'Joined via public link' : 'not in this class’s batch')}`,
         actions: (
           <>
-            <Button size="small" type="text" onClick={() => { close(key); navigate(`/app/meeting/${e.code}`); }}>Open class</Button>
+            <Button size="small" type="text" onClick={() => { close(nKey); navigate(`/app/meeting/${e.code}`); }}>Open meeting</Button>
             <Button size="small" onClick={() => answer(e, 'decline')}>Deny</Button>
             <Button size="small" type="primary" onClick={() => answer(e, 'admit')}>Admit</Button>
           </>
         ),
-        onClose: () => open.current.delete(key),
+        onClose: () => open.current.delete(nKey),
       });
     };
 
-    // Someone was answered elsewhere (in the class, another tab) or stopped waiting.
     const onUpdated = (d: { meetingId: number; pending: LobbyRequest[] }) => {
-      const still = new Set(d.pending.map(p => p.userId));
-      for (const [key, v] of open.current) if (v.meetingId === d.meetingId && !still.has(v.userId)) close(key);
+      const still = new Set(d.pending.map(keyForRequest));
+      for (const [nKey, v] of open.current) if (v.meetingId === d.meetingId && !still.has(v.participantKey)) close(nKey);
     };
 
     socket.on('meeting:lobby-request', onRequest);
@@ -90,12 +110,11 @@ const MeetingLobbyWatcher: React.FC = () => {
     };
   }, [canHost, notification, message, navigate]);
 
-  // Walking into that class: its own lobby list replaces these cards.
   useEffect(() => {
-    for (const [key, v] of open.current) {
+    for (const [nKey, v] of open.current) {
       if (location.pathname === `/app/meeting/${v.code}` || location.pathname === `/app/meeting/${v.meetingId}`) {
-        notification.destroy(key);
-        open.current.delete(key);
+        notification.destroy(nKey);
+        open.current.delete(nKey);
       }
     }
   }, [location.pathname, notification]);

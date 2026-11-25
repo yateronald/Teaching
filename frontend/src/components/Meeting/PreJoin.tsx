@@ -49,7 +49,7 @@ const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in
 
 export type PreJoinStatus = 'idle' | 'joining' | 'waiting' | 'lobby' | 'not_ready';
 
-/** Someone outside the class's batch: passcode, then the lobby. */
+/** Someone outside the class's batch (or a public guest): passcode, optional name, then the lobby or direct join. */
 export interface GuestJoin {
     /** The passcode has not been accepted yet. */
     needsPasscode: boolean;
@@ -58,6 +58,16 @@ export interface GuestJoin {
     error?: string | null;
     /** When the knock was sent (lobby timer). */
     since?: number | null;
+    /** Public guest mode: editable display name & optional email on PreJoin. */
+    displayName?: string;
+    onDisplayNameChange?: (value: string) => void;
+    email?: string;
+    onEmailChange?: (value: string) => void;
+    /** Custom waiting / not-started copy (e.g. "Admin has not yet started the meeting"). */
+    customStatusTitle?: string;
+    customStatusText?: string;
+    /** Primary action override for public guests (e.g. "Join meeting" vs "Ask to join"). */
+    primaryActionLabel?: string;
 }
 
 const PASS_LEN = 6;
@@ -89,9 +99,10 @@ export interface PreJoinProps {
     guest?: GuestJoin | null;
     /** Leaves the lobby (the host's request list is updated). */
     onStopWaiting?: () => void;
+    cancelLabel?: string;
 }
 
-const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName, isHost, live, status, onJoin, onCancel, onChoicesChange, meetingCode, guest, onStopWaiting }) => {
+const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName, isHost, live, status, onJoin, onCancel, onChoicesChange, meetingCode, guest, onStopWaiting, cancelLabel }) => {
     const [choices, setChoices] = useState<MediaChoices>(loadMediaChoices);
     const [devices, setDevices] = useState<Record<Kind, MediaDeviceInfo[]>>({ audioinput: [], videoinput: [], audiooutput: [] });
     const [active, setActive] = useState({ audio: '', video: '' });
@@ -297,16 +308,19 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
     const primaryLabel = isHost
         ? (live ? 'Rejoin class' : 'Start class')
         : status === 'not_ready' ? 'Check again'
-            : status === 'waiting' ? 'Waiting for the teacher…'
+            : status === 'waiting' ? 'Waiting for host to start…'
                 : status === 'lobby' ? 'Waiting to be let in…'
-                    : guest ? 'Ask to join'
+                    : guest ? (guest.primaryActionLabel || 'Ask to join')
                         : 'Join now';
     const passMissing = !!guest?.needsPasscode && cleanPass(guest.passcode).length < PASS_LEN;
+    const nameMissing = !!guest?.onDisplayNameChange && (guest.displayName || '').trim().length < 2;
 
     const note = guest && !isHost
-        ? status === 'lobby' ? { tone: 'wait', title: 'You’re in the lobby', text: `${host} has been notified and will let you in shortly. Keep this page open.` }
-            : status === 'waiting' || status === 'not_ready' ? { tone: 'wait', title: `Waiting for ${host} to start`, text: 'You will be placed in the lobby automatically as soon as the class starts.' }
-                : { tone: 'info', title: 'Ask to join', text: `You are not in this class’s batch. ${guest.needsPasscode ? 'Enter the passcode from your invitation, then ' : ''}${host} decides whether to let you in.` }
+        ? guest.customStatusTitle
+            ? { tone: 'wait', title: guest.customStatusTitle, text: guest.customStatusText || '' }
+            : status === 'lobby' ? { tone: 'wait', title: 'You’re in the lobby', text: `${host} has been notified and will let you in shortly. Keep this page open.` }
+                : status === 'waiting' || status === 'not_ready' ? { tone: 'wait', title: `${host} has not yet started the meeting`, text: 'You will enter automatically as soon as the host starts the meeting.' }
+                    : { tone: 'info', title: guest.primaryActionLabel || 'Ask to join', text: `${guest.needsPasscode ? 'Enter the passcode from your invitation, then ' : ''}${guest.primaryActionLabel === 'Join meeting' ? 'click Join meeting to enter once live.' : `${host} will let you in.`}` }
         : isHost
         ? (live
             ? { tone: 'live', title: 'Your class is running', text: 'Rejoin to continue teaching.' }
@@ -410,6 +424,31 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
                         </div>
                     </div>
 
+                    {guest?.onDisplayNameChange && !isHost && !waiting && (
+                        <div className="pj-pass" style={{ marginBottom: guest?.needsPasscode ? 12 : 16 }}>
+                            <label className="pj-pass-label" htmlFor="pj-guest-name">{Ic.user} Your name</label>
+                            <Input
+                                id="pj-guest-name"
+                                size="large"
+                                maxLength={80}
+                                placeholder="Enter your full name"
+                                value={guest.displayName || ''}
+                                onChange={e => guest.onDisplayNameChange?.(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter' && !passMissing && !nameMissing) { e.preventDefault(); onJoin(effective); } }}
+                            />
+                            {guest.onEmailChange && (
+                                <Input
+                                    size="middle"
+                                    type="email"
+                                    style={{ marginTop: 8 }}
+                                    placeholder="Email (optional)"
+                                    value={guest.email || ''}
+                                    onChange={e => guest.onEmailChange?.(e.target.value)}
+                                />
+                            )}
+                        </div>
+                    )}
+
                     {guest?.needsPasscode && !isHost && !waiting && (
                         <div className="pj-pass">
                             <label className="pj-pass-label" id="pj-pass-label">{Ic.key} Passcode</label>
@@ -440,12 +479,12 @@ const PreJoin: React.FC<PreJoinProps> = ({ title, hostName, batchName, userName,
                     </ul>
 
                     <div className="pj-actions">
-                        <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting || passMissing}
+                        <Button type="primary" size="large" block loading={status === 'joining'} disabled={waiting || passMissing || nameMissing}
                             icon={waiting ? undefined : guest && !isHost ? Ic.door : Ic.cam} onClick={() => onJoin(effective)}>
                             {primaryLabel}
                         </Button>
                         <Button size="large" block onClick={status === 'lobby' && onStopWaiting ? onStopWaiting : onCancel}>
-                            {status === 'lobby' ? 'Stop waiting' : waiting ? 'Leave' : 'Back to meetings'}
+                            {status === 'lobby' ? 'Stop waiting' : waiting ? 'Leave' : (cancelLabel || 'Back to meetings')}
                         </Button>
                     </div>
                     <p className="pj-tip">In the call: <kbd>Ctrl</kbd> + <kbd>D</kbd> microphone · <kbd>Ctrl</kbd> + <kbd>E</kbd> camera</p>

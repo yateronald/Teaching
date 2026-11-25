@@ -131,3 +131,33 @@ export function detectBrowserTimezone(): string {
 
 export interface TimezoneOption { value: string; label: string }
 export interface TimezoneGroup { label: string; zones: TimezoneOption[] }
+
+export const COMMON_TIMEZONES: TimezoneOption[] = [
+    { value: 'UTC', label: 'UTC (GMT+0)' },
+    { value: 'America/Toronto', label: 'Eastern Time — Toronto / Montreal (America/Toronto)' },
+    { value: 'America/New_York', label: 'Eastern Time — New York (America/New_York)' },
+    { value: 'America/Chicago', label: 'Central Time — Chicago / Winnipeg (America/Chicago)' },
+    { value: 'America/Denver', label: 'Mountain Time — Denver / Calgary (America/Denver)' },
+    { value: 'America/Vancouver', label: 'Pacific Time — Vancouver (America/Vancouver)' },
+    { value: 'America/Los_Angeles', label: 'Pacific Time — Los Angeles (America/Los_Angeles)' },
+    { value: 'America/Sao_Paulo', label: 'Brazil — São Paulo (America/Sao_Paulo)' },
+    { value: 'Europe/London', label: 'UK — London (Europe/London)' },
+    { value: 'Europe/Paris', label: 'France — Paris (Europe/Paris)' },
+    { value: 'Europe/Brussels', label: 'Belgium — Brussels (Europe/Brussels)' },
+    { value: 'Europe/Zurich', label: 'Switzerland — Zurich (Europe/Zurich)' },
+    { value: 'Europe/Berlin', label: 'Germany — Berlin (Europe/Berlin)' },
+    { value: 'Africa/Casablanca', label: 'Morocco — Casablanca (Africa/Casablanca)' },
+    { value: 'Africa/Algiers', label: 'Algeria — Algiers (Africa/Algiers)' },
+    { value: 'Africa/Tunis', label: 'Tunisia — Tunis (Africa/Tunis)' },
+    { value: 'Africa/Abidjan', label: 'Côte d’Ivoire — Abidjan (Africa/Abidjan)' },
+    { value: 'Africa/Dakar', label: 'Senegal — Dakar (Africa/Dakar)' },
+    { value: 'Africa/Douala', label: 'Cameroon — Douala (Africa/Douala)' },
+    { value: 'Africa/Kinshasa', label: 'DR Congo — Kinshasa (Africa/Kinshasa)' },
+    { value: 'Africa/Lagos', label: 'Nigeria — Lagos (Africa/Lagos)' },
+    { value: 'Africa/Johannesburg', label: 'South Africa — Johannesburg (Africa/Johannesburg)' },
+    { value: 'Asia/Dubai', label: 'UAE — Dubai (Asia/Dubai)' },
+    { value: 'Asia/Kolkata', label: 'India — Kolkata (Asia/Kolkata)' },
+    { value: 'Asia/Singapore', label: 'Singapore (Asia/Singapore)' },
+    { value: 'Asia/Tokyo', label: 'Japan — Tokyo (Asia/Tokyo)' },
+    { value: 'Australia/Sydney', label: 'Australia — Sydney (Australia/Sydney)' },
+];

@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/auth/auth_notifier.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_typography.dart';
 import '../../../core/localization/translations.dart';
+import '../../teacher/meetings/screens/pre_join_screen.dart';
 import '../common/admin_kit.dart';
 import 'demo_model.dart';
 
@@ -78,9 +80,32 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
     }
   }
 
-  Future<void> _schedule() async {
-    final done = await showAdminPanel<bool>(context, builder: (_) => _ScheduleForm(request: _d));
+  Future<void> _schedule([Map<String, dynamic>? prefillSlot]) async {
+    final done = await showAdminPanel<bool>(
+      context,
+      builder: (_) => _ScheduleForm(request: _d, prefillSlot: prefillSlot),
+    );
     if (done == true) await _reload();
+  }
+
+  Future<void> _askAvailability() async {
+    final done = await showAdminPanel<bool>(
+      context,
+      builder: (_) => _AskAvailabilityForm(request: _d),
+    );
+    if (done == true) await _reload();
+  }
+
+  Future<void> _openLinkedRoom(Map<String, dynamic> lm) async {
+    final m = Map<String, dynamic>.from(lm);
+    if (J.s(m['status']) == 'scheduled') {
+      try {
+        await ref.read(apiClientProvider).post('/meetings/${m['id']}/prepare');
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => PreJoinScreen(meeting: m)));
+    await _reload();
   }
 
   Future<void> _delete() async {
@@ -115,13 +140,21 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
 
   /// The one action that moves the request forward, as on the web.
   (String, IconData, VoidCallback)? _nextAction(bool fr) {
+    final av = _d['latest_availability'];
+    if (av is Map && J.s(av['status']) == 'submitted' && (_status == 'new' || _status == 'contacted')) {
+      return (fr ? 'Planifier' : 'Schedule', Icons.event, () => _schedule());
+    }
     switch (_status) {
       case 'new':
-        return (fr ? 'Marquer contactée' : 'Mark contacted', Icons.check, () => _setStatus('contacted'));
+        return (fr ? 'Demander dispos' : 'Ask availability', Icons.schedule_send_outlined, _askAvailability);
       case 'contacted':
-        return (fr ? 'Planifier la démo' : 'Schedule demo', Icons.event, _schedule);
+        return (fr ? 'Planifier la démo' : 'Schedule demo', Icons.event, () => _schedule());
       case 'demo_scheduled':
         if (Demo.passed(_d)) return (fr ? 'Marquer terminée' : 'Mark completed', Icons.check_circle, () => _setStatus('completed'));
+        if (_d['linked_meeting'] is Map) {
+          final lm = J.map(_d['linked_meeting']);
+          return (fr ? 'Ouvrir la salle' : 'Open room', Icons.videocam, () => _openLinkedRoom(lm));
+        }
         final link = J.s(_d['meeting_link']);
         if (link.isNotEmpty) return (fr ? 'Ouvrir le lien' : 'Open link', Icons.link, () => _launch(Uri.parse(link)));
     }
@@ -268,15 +301,120 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
                       IconButton(
                         tooltip: fr ? 'Ouvrir' : 'Open',
                         icon: const Icon(Icons.open_in_new, size: 18),
-                        onPressed: () => _launch(Uri.parse(J.s(d['meeting_link']))),
+                        onPressed: () {
+                          if (d['linked_meeting'] is Map) {
+                            _openLinkedRoom(J.map(d['linked_meeting']));
+                          } else {
+                            _launch(Uri.parse(J.s(d['meeting_link'])));
+                          }
+                        },
                       ),
                     ],
                   ),
+                ],
+                if (d['linked_meeting'] is Map) ...[
+                  const SizedBox(height: 6),
+                  Builder(builder: (context) {
+                    final lm = J.map(d['linked_meeting']);
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        if (J.s(lm['code']).isNotEmpty) Pill('ID: ${J.s(lm['code'])}', color: AppColors.adminAccent),
+                        if (J.s(lm['passcode']).isNotEmpty) Pill('Pass: ${J.s(lm['passcode'])}', color: AppColors.good),
+                      ],
+                    );
+                  }),
                 ],
               ],
             ),
           ),
         ],
+        PanelSection(
+          fr ? 'Disponibilités' : 'Availability workflow',
+          trailing: (_status != 'completed' && _status != 'cancelled')
+              ? TextButton.icon(
+                  onPressed: _busy ? null : _askAvailability,
+                  icon: const Icon(Icons.schedule_send_outlined, size: 16),
+                  label: Text(d['latest_availability'] != null ? (fr ? 'Nouveau lien' : 'New link') : (fr ? 'Demander' : 'Ask')),
+                )
+              : null,
+        ),
+        Builder(builder: (context) {
+          final avRaw = d['latest_availability'];
+          if (avRaw is! Map) {
+            return AdminCard(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                fr
+                    ? 'Aucun lien envoyé. Appuyez sur « Demander » pour envoyer un lien à usage unique.'
+                    : 'No availability link sent yet. Tap Ask to email a single-use scheduling link.',
+                style: AppTypography.bodySmall.copyWith(color: AppColors.textMuted),
+              ),
+            );
+          }
+          final av = J.map(avRaw);
+          final avStatus = J.s(av['status']);
+          if (avStatus == 'submitted') {
+            final slots = av['submitted_slots'] is List
+                ? (av['submitted_slots'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+                : <Map<String, dynamic>>[];
+            return AdminCard(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Pill(Demo.availabilityLabel(avStatus, fr), color: AppColors.good, icon: Icons.check_circle_outline),
+                      Text(J.s(av['submitted_timezone']), style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  for (final sl in slots)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              Demo.formatSlot(sl),
+                              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          if (_status != 'completed' && _status != 'cancelled')
+                            TextButton(
+                              onPressed: () => _schedule(sl),
+                              child: Text(fr ? 'Planifier' : 'Schedule'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (J.s(av['submitted_note']).isNotEmpty)
+                    Text(
+                      '${fr ? 'Note' : 'Note'}: ${J.s(av['submitted_note'])}',
+                      style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                    ),
+                ],
+              ),
+            );
+          }
+          return AdminCard(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Pill(Demo.availabilityLabel(avStatus, fr), color: Demo.availabilityColor(avStatus)),
+                const SizedBox(height: 8),
+                Text(
+                  '${J.s(av['proposed_start_date'])} → ${J.s(av['proposed_end_date'])} · ${J.s(av['proposed_time_start'])}–${J.s(av['proposed_time_end'])} (${J.s(av['proposed_timezone'])})',
+                  style: AppTypography.bodySmall.copyWith(color: AppColors.ink, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          );
+        }),
         PanelSection(fr ? 'Contact' : 'Contact'),
         AdminCard(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -359,21 +497,25 @@ class _DemoDetailPanelState extends ConsumerState<DemoDetailPanel> {
           ],
         ),
         const SizedBox(height: 14),
-        Row(
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
           children: [
             if (_status != 'completed' && _status != 'cancelled')
-              Expanded(
-                child: AdminButton(
-                  scheduled != null ? (fr ? 'Replanifier' : 'Reschedule') : (fr ? 'Planifier' : 'Schedule'),
-                  icon: Icons.event,
-                  primary: false,
-                  onPressed: _busy ? null : _schedule,
-                ),
+              AdminButton(
+                fr ? 'Demander dispos' : 'Ask availability',
+                icon: Icons.schedule_send_outlined,
+                primary: false,
+                onPressed: _busy ? null : _askAvailability,
               ),
-            if (_status != 'completed' && _status != 'cancelled') const SizedBox(width: 10),
-            Expanded(
-              child: AdminButton(fr ? 'Supprimer' : 'Delete', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _delete),
-            ),
+            if (_status != 'completed' && _status != 'cancelled')
+              AdminButton(
+                scheduled != null ? (fr ? 'Replanifier' : 'Reschedule') : (fr ? 'Planifier' : 'Schedule'),
+                icon: Icons.event,
+                primary: false,
+                onPressed: _busy ? null : () => _schedule(),
+              ),
+            AdminButton(fr ? 'Supprimer' : 'Delete', icon: Icons.delete_outline, primary: false, danger: true, onPressed: _busy ? null : _delete),
           ],
         ),
       ],
@@ -438,11 +580,12 @@ class _Progress extends StatelessWidget {
   }
 }
 
-/// Date, time, teacher and meeting link of the demo. The visitor and the
-/// teacher are e-mailed by the server once saved.
+/// Date, time, host and access policy of the demo. Creates a live public meeting
+/// on the platform (or saves a manual link) and emails the prospect.
 class _ScheduleForm extends ConsumerStatefulWidget {
   final Map<String, dynamic> request;
-  const _ScheduleForm({required this.request});
+  final Map<String, dynamic>? prefillSlot;
+  const _ScheduleForm({required this.request, this.prefillSlot});
 
   @override
   ConsumerState<_ScheduleForm> createState() => _ScheduleFormState();
@@ -450,31 +593,75 @@ class _ScheduleForm extends ConsumerStatefulWidget {
 
 class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
   final _form = GlobalKey<FormState>();
-  late DateTime? _at = J.date(widget.request['demo_scheduled_at']);
+  bool _platformMode = true;
+  late DateTime? _at;
+  int _durationMin = 30;
+  bool _requireApproval = true;
+  int? _hostId;
   late int? _teacher = widget.request['teacher_id'] == null ? null : J.i(widget.request['teacher_id']);
+  late final _title = TextEditingController(text: 'French Demo — ${J.s(widget.request['full_name'])}');
   late final _link = TextEditingController(text: J.s(widget.request['meeting_link']));
   final _notes = TextEditingController();
   List<Map<String, dynamic>> _teachers = [];
+  List<Map<String, dynamic>> _hosts = [];
   bool _saving = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadTeachers();
+    _at = _initialDateTime();
+    _hostId = ref.read(authNotifierProvider).user?.id;
+    _loadHosts();
+  }
+
+  DateTime? _initialDateTime() {
+    final slot = widget.prefillSlot ??
+        (widget.request['latest_availability'] is Map &&
+                widget.request['latest_availability']['submitted_slots'] is List &&
+                (widget.request['latest_availability']['submitted_slots'] as List).isNotEmpty
+            ? Map<String, dynamic>.from((widget.request['latest_availability']['submitted_slots'] as List).first as Map)
+            : null);
+    if (slot != null) {
+      final d = J.s(slot['date']);
+      final s = J.s(slot['start']);
+      final parsed = DateTime.tryParse('${d}T$s:00');
+      if (parsed != null) return parsed;
+    }
+    return J.date(widget.request['demo_scheduled_at']);
   }
 
   @override
   void dispose() {
+    _title.dispose();
     _link.dispose();
     _notes.dispose();
     super.dispose();
   }
 
-  Future<void> _loadTeachers() async {
+  Future<void> _loadHosts() async {
     try {
-      final res = await ref.read(apiClientProvider).get('/users/role/teachers');
-      if (mounted) setState(() => _teachers = J.list(res.data, ['teachers', 'users']));
+      final client = ref.read(apiClientProvider);
+      final results = await Future.wait([
+        client.get('/users/role/teachers'),
+        client.get('/users', queryParameters: {'limit': 100}),
+      ]);
+      final tList = J.list(results[0].data, ['teachers', 'users']);
+      final allUsers = J.list(results[1].data, ['users']);
+      final hostMap = <int, Map<String, dynamic>>{};
+      for (final u in [...tList, ...allUsers]) {
+        final role = J.s(u['role']);
+        if (role == 'admin' || role == 'teacher') {
+          hostMap[J.i(u['id'])] = u;
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _teachers = tList;
+          _hosts = hostMap.values.toList();
+          if (_hostId == null && _hosts.isNotEmpty) _hostId = J.i(_hosts.first['id']);
+        });
+      }
     } catch (_) {}
   }
 
@@ -494,20 +681,35 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
       setState(() => _error = fr ? 'Choisissez la date et l’heure.' : 'Pick the date and time.');
       return;
     }
-    if (!(_form.currentState?.validate() ?? false)) return;
+    if (!_platformMode && !(_form.currentState?.validate() ?? false)) return;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await ref.read(apiClientProvider).patch('/demo-requests/${J.i(widget.request['id'])}/schedule', data: {
-        'demo_scheduled_at': _at!.toUtc().toIso8601String(),
-        'teacher_id': _teacher,
-        'meeting_link': _link.text.trim(),
-        if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
-      });
-      if (!mounted) return;
-      adminToast(context, fr ? 'Démo planifiée : le visiteur et le professeur ont reçu un e-mail' : 'Demo scheduled: the visitor and the teacher were emailed');
+      final client = ref.read(apiClientProvider);
+      if (_platformMode) {
+        final end = _at!.add(Duration(minutes: _durationMin));
+        await client.post('/demo-requests/${J.i(widget.request['id'])}/schedule-meeting', data: {
+          'scheduled_start': _at!.toUtc().toIso8601String(),
+          'scheduled_end': end.toUtc().toIso8601String(),
+          'title': _title.text.trim(),
+          'host_id': _hostId,
+          'require_approval': _requireApproval,
+          if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
+        });
+        if (!mounted) return;
+        adminToast(context, fr ? 'Réunion créée et lien envoyé au prospect' : 'Meeting scheduled and link emailed');
+      } else {
+        await client.patch('/demo-requests/${J.i(widget.request['id'])}/schedule', data: {
+          'demo_scheduled_at': _at!.toUtc().toIso8601String(),
+          'teacher_id': _teacher,
+          'meeting_link': _link.text.trim(),
+          if (_notes.text.trim().isNotEmpty) 'notes': _notes.text.trim(),
+        });
+        if (!mounted) return;
+        adminToast(context, fr ? 'Démo planifiée : e-mails envoyés' : 'Demo scheduled and emailed');
+      }
       Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
@@ -530,44 +732,79 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
         subtitle: [J.s(r['full_name']), J.s(r['current_level']), J.s(r['country'])].where((s) => s.isNotEmpty).join(' · '),
         actions: [
           AdminButton(fr ? 'Annuler' : 'Cancel', primary: false, onPressed: _saving ? null : () => Navigator.of(context).pop(false)),
-          AdminButton(fr ? 'Planifier et envoyer' : 'Schedule and email', icon: Icons.send, busy: _saving, onPressed: _save),
+          AdminButton(fr ? 'Planifier et envoyer' : 'Schedule & email', icon: Icons.send, busy: _saving, onPressed: _save),
         ],
         children: [
           const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            segments: [
+              ButtonSegment(value: true, label: Text(fr ? 'Réunion directe' : 'Live meeting')),
+              ButtonSegment(value: false, label: Text(fr ? 'Lien externe' : 'External link')),
+            ],
+            selected: {_platformMode},
+            onSelectionChanged: (s) => setState(() => _platformMode = s.first),
+          ),
+          const SizedBox(height: 14),
           InkWell(
             onTap: _pick,
             borderRadius: BorderRadius.circular(10),
             child: InputDecorator(
-              decoration: adminInputDecoration(fr ? 'Date et heure (votre fuseau)' : 'Date and time (your timezone)', suffix: const Icon(Icons.event, color: AppColors.textMuted)),
+              decoration: adminInputDecoration(fr ? 'Date et heure' : 'Date and time', suffix: const Icon(Icons.event, color: AppColors.textMuted)),
               child: Text(_at == null ? (fr ? 'Choisir' : 'Pick') : AdminFmt.dateTime(context, _at), style: AppTypography.bodyMedium),
             ),
           ),
-          if (J.s(r['preferred_schedule']).isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6, bottom: 4),
-              child: Text(
-                '${fr ? 'Ses disponibilités' : 'Their availability'} : ${J.s(r['preferred_schedule'])}${J.s(r['timezone']).isNotEmpty ? ' (${J.s(r['timezone'])})' : ''}',
+          const SizedBox(height: 14),
+          if (_platformMode) ...[
+            AdminField(label: fr ? 'Titre' : 'Title', controller: _title),
+            AdminSelect<int>(
+              label: fr ? 'Durée' : 'Duration',
+              value: _durationMin,
+              options: const [
+                FilterOption(15, '15 min'),
+                FilterOption(30, '30 min'),
+                FilterOption(45, '45 min'),
+                FilterOption(60, '60 min'),
+              ],
+              onChanged: (v) => setState(() => _durationMin = v ?? 30),
+            ),
+            if (_hosts.isNotEmpty)
+              AdminSelect<int?>(
+                label: fr ? 'Hôte' : 'Host',
+                value: _hostId,
+                options: [for (final h in _hosts) FilterOption<int?>(J.i(h['id']), '${J.name(h)} (${J.s(h['role'])})')],
+                onChanged: (v) => setState(() => _hostId = v),
+              ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              title: Text(fr ? 'Approuver avant l’entrée' : 'Require host approval', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                _requireApproval
+                    ? (fr ? 'Le prospect attend en salle d’attente.' : 'Guest waits in lobby until admitted.')
+                    : (fr ? 'Accès direct avec le lien.' : 'Direct entry with the link.'),
                 style: AppTypography.caption.copyWith(color: AppColors.textMuted),
               ),
+              value: _requireApproval,
+              onChanged: (v) => setState(() => _requireApproval = v),
             ),
-          const SizedBox(height: 14),
-          AdminSelect<int?>(
-            label: fr ? 'Professeur' : 'Teacher',
-            value: _teacher,
-            options: [for (final t in _teachers) FilterOption<int?>(J.i(t['id']), J.name(t).isEmpty ? J.s(t['email']) : J.name(t))],
-            validator: (v) => v == null ? (fr ? 'Choisissez un professeur' : 'Choose a teacher') : null,
-            onChanged: (v) => setState(() => _teacher = v),
-          ),
-          AdminField(
-            label: fr ? 'Lien de la réunion' : 'Meeting link',
-            hint: 'https://…',
-            controller: _link,
-            keyboardType: TextInputType.url,
-            validator: (v) {
-              final uri = Uri.tryParse((v ?? '').trim());
-              return uri != null && uri.hasScheme && uri.host.isNotEmpty ? null : (fr ? 'Lien valide requis (https://…)' : 'A valid link is required (https://…)');
-            },
-          ),
+          ] else ...[
+            AdminSelect<int?>(
+              label: fr ? 'Professeur' : 'Teacher',
+              value: _teacher,
+              options: [for (final t in _teachers) FilterOption<int?>(J.i(t['id']), J.name(t).isEmpty ? J.s(t['email']) : J.name(t))],
+              validator: (v) => v == null ? (fr ? 'Choisissez un professeur' : 'Choose a teacher') : null,
+              onChanged: (v) => setState(() => _teacher = v),
+            ),
+            AdminField(
+              label: fr ? 'Lien de la réunion' : 'Meeting link',
+              hint: 'https://…',
+              controller: _link,
+              keyboardType: TextInputType.url,
+              validator: (v) {
+                final uri = Uri.tryParse((v ?? '').trim());
+                return uri != null && uri.hasScheme && uri.host.isNotEmpty ? null : (fr ? 'Lien valide requis (https://…)' : 'A valid link is required (https://…)');
+              },
+            ),
+          ],
           AdminField(label: fr ? 'Note (facultatif)' : 'Note (optional)', controller: _notes, maxLines: 3),
           if (_error != null)
             Container(
@@ -577,6 +814,152 @@ class _ScheduleFormState extends ConsumerState<_ScheduleForm> {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Asks the prospect for their availability by sending a single-use expiring link.
+class _AskAvailabilityForm extends ConsumerStatefulWidget {
+  final Map<String, dynamic> request;
+  const _AskAvailabilityForm({required this.request});
+
+  @override
+  ConsumerState<_AskAvailabilityForm> createState() => _AskAvailabilityFormState();
+}
+
+class _AskAvailabilityFormState extends ConsumerState<_AskAvailabilityForm> {
+  late DateTime _startDate = DateTime.now().add(const Duration(days: 1));
+  late DateTime _endDate = DateTime.now().add(const Duration(days: 7));
+  TimeOfDay _startTime = const TimeOfDay(hour: 9, minute: 0);
+  TimeOfDay _endTime = const TimeOfDay(hour: 18, minute: 0);
+  late String _tz = J.s(ref.read(authNotifierProvider).user?.timezone).isNotEmpty
+      ? J.s(ref.read(authNotifierProvider).user?.timezone)
+      : 'UTC';
+  final _note = TextEditingController();
+  bool _sending = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  String _isoDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  String _hm(TimeOfDay t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _send() async {
+    final fr = context.isFrench;
+    if (_endDate.isBefore(_startDate)) {
+      setState(() => _error = fr ? 'La date de fin doit suivre le début.' : 'End date must be on or after start date.');
+      return;
+    }
+    if (_hm(_endTime).compareTo(_hm(_startTime)) <= 0) {
+      setState(() => _error = fr ? 'L’heure de fin doit suivre le début.' : 'End time must be after start time.');
+      return;
+    }
+    setState(() { _sending = true; _error = null; });
+    try {
+      await ref.read(apiClientProvider).post('/demo-requests/${J.i(widget.request['id'])}/request-availability', data: {
+        'proposed_start_date': _isoDate(_startDate),
+        'proposed_end_date': _isoDate(_endDate),
+        'proposed_time_start': _hm(_startTime),
+        'proposed_time_end': _hm(_endTime),
+        'proposed_timezone': _tz,
+        if (_note.text.trim().isNotEmpty) 'admin_note': _note.text.trim(),
+      });
+      if (!mounted) return;
+      adminToast(context, fr ? 'Lien de disponibilité envoyé par e-mail' : 'Availability link emailed to prospect');
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) setState(() { _error = apiErrorText(context, e); _sending = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fr = context.isFrench;
+    const zones = ['UTC', 'America/Toronto', 'America/New_York', 'Europe/Paris', 'Europe/London', 'Africa/Casablanca', 'Africa/Abidjan', 'Africa/Dakar', 'Asia/Dubai'];
+    final tzList = zones.contains(_tz) ? zones : [_tz, ...zones];
+    return AdminPanel(
+      title: fr ? 'Demander les disponibilités' : 'Ask for availability',
+      subtitle: '${J.s(widget.request['full_name'])} · ${J.s(widget.request['email'])}',
+      actions: [
+        AdminButton(fr ? 'Annuler' : 'Cancel', primary: false, onPressed: _sending ? null : () => Navigator.of(context).pop(false)),
+        AdminButton(fr ? 'Envoyer le lien' : 'Send link', icon: Icons.send, busy: _sending, onPressed: _send),
+      ],
+      children: [
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(context: context, initialDate: _startDate, firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 90)));
+                  if (d != null) setState(() { _startDate = d; if (_endDate.isBefore(d)) _endDate = d; });
+                },
+                child: InputDecorator(
+                  decoration: adminInputDecoration(fr ? 'Date début' : 'From date'),
+                  child: Text(_isoDate(_startDate)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(context: context, initialDate: _endDate, firstDate: _startDate, lastDate: DateTime.now().add(const Duration(days: 90)));
+                  if (d != null) setState(() => _endDate = d);
+                },
+                child: InputDecorator(
+                  decoration: adminInputDecoration(fr ? 'Date fin' : 'To date'),
+                  child: Text(_isoDate(_endDate)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: InkWell(
+                onTap: () async {
+                  final t = await showTimePicker(context: context, initialTime: _startTime);
+                  if (t != null) setState(() => _startTime = t);
+                },
+                child: InputDecorator(
+                  decoration: adminInputDecoration(fr ? 'Heure début' : 'From hour'),
+                  child: Text(_hm(_startTime)),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: InkWell(
+                onTap: () async {
+                  final t = await showTimePicker(context: context, initialTime: _endTime);
+                  if (t != null) setState(() => _endTime = t);
+                },
+                child: InputDecorator(
+                  decoration: adminInputDecoration(fr ? 'Heure fin' : 'To hour'),
+                  child: Text(_hm(_endTime)),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        AdminSelect<String>(
+          label: fr ? 'Fuseau horaire' : 'Timezone',
+          value: _tz,
+          options: [for (final z in tzList) FilterOption<String>(z, z)],
+          onChanged: (v) => setState(() => _tz = v ?? _tz),
+        ),
+        AdminField(label: fr ? 'Note (facultatif)' : 'Note (optional)', controller: _note, maxLines: 3),
+        if (_error != null)
+          Text(_error!, style: AppTypography.bodySmall.copyWith(color: AppColors.bad)),
+      ],
     );
   }
 }

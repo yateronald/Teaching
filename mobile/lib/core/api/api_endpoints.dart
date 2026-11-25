@@ -54,14 +54,18 @@ class ApiEndpoints {
 
   // ── Live Meetings ──
   static const String meetings = '/meetings';
+  static const String adminCalendar = '/meetings/admin-calendar';
   static String meetingById(int id) => '/meetings/$id';
   static String joinMeeting(int id) => '/meetings/$id/join';
   static String meetingToken(int id) => '/meetings/$id/token';
+  static String meetingSettings(int id) => '/meetings/$id/settings';
   static const String joinByCode = '/meetings/join-by-code';
 
   // ── Demo Inquiries ──
   static const String myDemos = '/demo-requests/my-demos';
   static String demoById(int id) => '/demo-requests/$id';
+  static String requestDemoAvailability(int id) => '/demo-requests/$id/request-availability';
+  static String scheduleDemoMeeting(int id) => '/demo-requests/$id/schedule-meeting';
 
   // ── Users & Students ──
   static String teacherStudents(int teacherId) => '/users/students/teacher/$teacherId';

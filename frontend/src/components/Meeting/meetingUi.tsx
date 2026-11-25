@@ -97,22 +97,35 @@ export const formatMeetingIdInput = (raw: string) => {
 export const passcodeFromLink = (raw: string) => raw.match(/[#&?]pwd=([A-Za-z0-9]{4,12})/)?.[1]?.toUpperCase() || '';
 
 /** The passcode travels in the URL fragment: browsers never send it to any server. */
-export const meetingLink = (code: string, passcode?: string | null) =>
-    `${window.location.origin}/app/meeting/${code}${passcode ? `#pwd=${passcode}` : ''}`;
+export const meetingLink = (code: string, passcode?: string | null, isPublic = false) =>
+    `${window.location.origin}${isPublic ? '' : '/app'}/meeting/${code}${passcode ? `#pwd=${passcode}` : ''}`;
 
-export const invitationText = (o: { title: string; code: string; passcode?: string | null; hostName?: string; when?: string; batchName?: string | null }) => [
-    `${o.hostName ? `${o.hostName} invites you` : 'You are invited'} to a live class on Learn French with Natives.`,
+export const invitationText = (o: {
+    title: string;
+    code: string;
+    passcode?: string | null;
+    hostName?: string;
+    when?: string;
+    batchName?: string | null;
+    isPublic?: boolean;
+    requireApproval?: boolean;
+}) => [
+    `${o.hostName ? `${o.hostName} invites you` : 'You are invited'} to a meeting on Learn French with Natives.`,
     '',
     o.title,
     ...(o.when ? [o.when] : []),
     '',
-    `Join: ${meetingLink(o.code, o.passcode)}`,
+    `Join: ${meetingLink(o.code, o.passcode, !!o.isPublic)}`,
     `Meeting ID: ${o.code}`,
     ...(o.passcode ? [`Passcode: ${o.passcode}`] : []),
     '',
-    o.batchName
-        ? `Students of ${o.batchName} join directly. Everyone else signs in, enters the passcode and waits in the lobby until the host lets them in.`
-        : 'Sign in, enter the passcode and wait in the lobby until the host lets you in.',
+    o.isPublic
+        ? (o.requireApproval === false
+            ? 'Anyone with the link or Meeting ID & passcode can join once the host starts the meeting.'
+            : 'Open the link (or go to the meeting page with the Meeting ID and passcode) and wait briefly until the host lets you in.')
+        : o.batchName
+            ? `Students of ${o.batchName} join directly. Everyone else signs in, enters the passcode and waits in the lobby until the host lets them in.`
+            : 'Sign in, enter the passcode and wait in the lobby until the host lets you in.',
 ].join('\n');
 
 export async function copyText(text: string): Promise<boolean> {

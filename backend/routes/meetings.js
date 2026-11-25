@@ -4,6 +4,63 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 const access = require('../services/meetingAccess');
 const { createClassMeeting } = require('../services/classMeetings');
 const { endMeeting } = require('../services/meetingLifecycle');
+const { sendPublicMeetingInvite } = require('../emails/emailService');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+function parseInvitees(raw) {
+  let items = [];
+  if (Array.isArray(raw)) {
+    items = raw;
+  } else if (typeof raw === 'string') {
+    items = raw.split(/[\s,;]+/);
+  }
+  const seen = new Set();
+  const out = [];
+  for (const entry of items) {
+    const emailRaw = typeof entry === 'string' ? entry : entry?.email;
+    const email = String(emailRaw || '').trim().toLowerCase().slice(0, 255);
+    if (!email || !EMAIL_RE.test(email) || seen.has(email)) continue;
+    seen.add(email);
+    const nameRaw = typeof entry === 'object' && entry?.name ? String(entry.name).trim().slice(0, 255) : null;
+    out.push({ email, name: nameRaw });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+async function dispatchPublicInvites(db, meeting, passcode, hostUser, invitees) {
+  if (!invitees || invitees.length === 0) return;
+  const hostName = `${hostUser?.first_name || ''} ${hostUser?.last_name || ''}`.trim() || 'Your host';
+  const meetingUrl = access.publicMeetingUrl(meeting.room_name, passcode);
+  const tz = meeting.host_timezone || hostUser?.timezone || 'UTC';
+  for (const inv of invitees) {
+    try {
+      await sendPublicMeetingInvite({
+        to: inv.email,
+        recipientName: inv.name || inv.email.split('@')[0],
+        title: meeting.title,
+        description: meeting.description,
+        hostName,
+        scheduledStart: meeting.scheduled_start,
+        scheduledEnd: meeting.scheduled_end,
+        recipientTimezone: tz,
+        meetingUrl,
+        meetingCode: meeting.room_name,
+        passcode,
+        requireApproval: meeting.require_approval !== false,
+        isDemo: meeting.meeting_kind === 'demo',
+        notes: meeting.description || null,
+      });
+      await db.run(
+        'UPDATE meeting_invitees SET notified_at = CURRENT_TIMESTAMP WHERE meeting_id = $1 AND email = $2',
+        [meeting.id, inv.email]
+      );
+    } catch (e) {
+      console.error(`[meetings] failed to email invitee ${inv.email}:`, e.message);
+    }
+  }
+}
 
 // ════════════════════════════════════════════════════════════════════════
 // Live classes.
@@ -172,37 +229,143 @@ const announce = (io, event, meeting) => io && io.emit(event, { meetingId: meeti
 // MEETING CRUD
 // ============================================================
 
-// POST /meetings — create a new meeting (teacher/admin only)
+// POST /meetings — create a new meeting (teacher/admin; admin may also create standalone/public/multi-email meetings)
 router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
   try {
-    const { title, description, batch_id, scheduled_start, scheduled_end, max_participants } = req.body || {};
+    const {
+      title,
+      description,
+      batch_id,
+      scheduled_start,
+      scheduled_end,
+      max_participants,
+      is_public,
+      require_approval,
+      meeting_kind,
+      invitee_emails,
+      host_id,
+      teacher_id,
+      host_timezone,
+      demo_request_id,
+    } = req.body || {};
+
     const cleanTitle = typeof title === 'string' ? title.trim().slice(0, 300) : '';
     if (!cleanTitle) return res.status(400).json({ error: 'Title is required' });
-    if (!batch_id) return res.status(400).json({ error: 'Batch is required' });
     if (!scheduled_start || !scheduled_end) return res.status(400).json({ error: 'Schedule start and end times are required' });
     const startMs = Date.parse(scheduled_start);
     const endMs = Date.parse(scheduled_end);
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
       return res.status(400).json({ error: 'The end time must be after the start time' });
     }
-    const batch = await req.db.get('SELECT id, name FROM batches WHERE id = $1', [batch_id]);
-    if (!batch) return res.status(400).json({ error: 'Batch not found' });
+
+    const isAdminUser = req.user.role === 'admin';
+    const invitees = isAdminUser ? parseInvitees(invitee_emails) : [];
+    const requestedPublic = isAdminUser && (is_public === true || invitees.length > 0 || !batch_id);
+    const standaloneAllowed = isAdminUser && !batch_id;
+
+    if (!batch_id && !standaloneAllowed) {
+      return res.status(400).json({ error: 'Batch is required' });
+    }
 
     const cleanDescription = typeof description === 'string' && description.trim() ? description.trim().slice(0, 2000) : null;
+    const reqApproval = require_approval !== undefined ? Boolean(require_approval) : true;
+    const validKind = ['class', 'demo', 'admin', 'public'].includes(meeting_kind)
+      ? meeting_kind
+      : (batch_id ? 'class' : 'admin');
+    const cleanHostTz = typeof host_timezone === 'string' && host_timezone.trim()
+      ? host_timezone.trim().slice(0, 80)
+      : (req.user.timezone || null);
 
-    // Same code path as a built-in class booked from the Schedule.
-    const { meetingId, passcode } = await createClassMeeting(req, {
-      title: cleanTitle,
-      description: cleanDescription,
-      batch,
-      start: scheduled_start,
-      end: scheduled_end,
-      maxParticipants: max_participants,
-      scheduleType: 'meeting',
-    });
+    let hostUser = req.user;
+    const targetHostId = Number(host_id || teacher_id || 0);
+    if (isAdminUser && targetHostId > 0 && targetHostId !== Number(req.user.id)) {
+      const candidate = await req.db.get(
+        "SELECT id, first_name, last_name, email, role, timezone FROM users WHERE id = $1 AND role IN ('admin', 'teacher') AND is_active = TRUE",
+        [targetHostId]
+      );
+      if (!candidate) return res.status(400).json({ error: 'Invalid host selected' });
+      hostUser = candidate;
+    }
+
+    let meetingId;
+    let passcode;
+
+    if (batch_id) {
+      const batch = await req.db.get('SELECT id, name FROM batches WHERE id = $1', [batch_id]);
+      if (!batch) return res.status(400).json({ error: 'Batch not found' });
+
+      const out = await createClassMeeting(req, {
+        title: cleanTitle,
+        description: cleanDescription,
+        batch,
+        start: scheduled_start,
+        end: scheduled_end,
+        maxParticipants: max_participants,
+        hostId: hostUser.id,
+        scheduleType: 'meeting',
+      });
+      meetingId = out.meetingId;
+      passcode = out.passcode;
+
+      if (isAdminUser && (requestedPublic || require_approval !== undefined || meeting_kind || cleanHostTz)) {
+        await req.db.run(
+          `UPDATE meetings
+           SET is_public = $1, require_approval = $2, meeting_kind = $3, host_timezone = COALESCE($4, host_timezone)
+           WHERE id = $5`,
+          [requestedPublic, reqApproval, validKind, cleanHostTz, meetingId]
+        );
+      }
+    } else {
+      const code = await access.uniqueMeetingCode(req.db);
+      passcode = access.generatePasscode();
+      const limit = Math.min(Math.max(parseInt(max_participants, 10) || 50, 2), 300);
+      const result = await req.db.run(
+        `INSERT INTO meetings (
+           room_name, title, description, teacher_id, batch_id, status,
+           scheduled_start, scheduled_end, password, trusted_user_ids, max_participants,
+           is_public, require_approval, meeting_kind, demo_request_id, host_timezone
+         ) VALUES ($1, $2, $3, $4, NULL, 'scheduled', $5, $6, $7, '{}', $8, $9, $10, $11, $12, $13)
+         RETURNING id`,
+        [
+          code,
+          cleanTitle,
+          cleanDescription,
+          hostUser.id,
+          scheduled_start,
+          scheduled_end,
+          access.sealPasscode(passcode),
+          limit,
+          requestedPublic,
+          reqApproval,
+          validKind,
+          demo_request_id ? Number(demo_request_id) : null,
+          cleanHostTz,
+        ]
+      );
+      meetingId = result.id || result.rows?.[0]?.id;
+      if (req.io) req.io.emit('meeting:created', { meetingId });
+    }
 
     const created = await access.findMeeting(req.db, meetingId);
-    res.status(201).json(access.meetingView(created, { role: 'host', direct: true }, { passcode }));
+
+    if (invitees.length > 0 && created) {
+      for (const inv of invitees) {
+        await req.db.run(
+          `INSERT INTO meeting_invitees (meeting_id, email, name, invited_by)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (meeting_id, email) DO NOTHING`,
+          [created.id, inv.email, inv.name, req.user.id]
+        );
+      }
+      dispatchPublicInvites(req.db, created, passcode, hostUser, invitees).catch(() => {});
+    }
+
+    const view = access.meetingView(created, { role: 'host', direct: true }, {
+      passcode,
+      ...(created.is_public ? { public_link: access.publicMeetingUrl(created.room_name, passcode) } : {}),
+      invitees,
+    });
+    res.status(201).json(view);
   } catch (error) {
     console.error('POST /meetings error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -212,7 +375,7 @@ router.post('/', authorizeRoles('teacher', 'admin'), async (req, res) => {
 // GET /meetings — the meetings the caller belongs to (host, batch, admitted guest, or all for admins)
 router.get('/', async (req, res) => {
   try {
-    const { status, batch_id } = req.query;
+    const { status, batch_id, kind } = req.query;
     const params = [req.user.id];
     let where;
     if (req.user.role === 'admin') {
@@ -224,17 +387,26 @@ router.get('/', async (req, res) => {
     }
     if (status) { params.push(status); where += ` AND m.status = $${params.length}`; }
     if (batch_id) { params.push(batch_id); where += ` AND m.batch_id = $${params.length}`; }
+    if (kind && ['class', 'demo', 'admin', 'public'].includes(kind)) {
+      params.push(kind);
+      where += ` AND m.meeting_kind = $${params.length}`;
+    }
 
     const rows = await req.db.all(
       `SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, b.name AS batch_name,
+              dr.full_name AS demo_requester_name, dr.email AS demo_requester_email,
               (b.teacher_id = $1) AS is_batch_teacher,
               EXISTS (SELECT 1 FROM batch_students bs WHERE bs.batch_id = m.batch_id AND bs.student_id = $1) AS is_member,
-              (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) AS participant_count,
+              (SELECT COUNT(DISTINCT user_id) FROM meeting_attendance ma WHERE ma.meeting_id = m.id AND ma.user_id != m.teacher_id) AS portal_participant_count,
+              (SELECT COUNT(*) FROM meeting_guests mg WHERE mg.meeting_id = m.id AND mg.joined_at IS NOT NULL)::int AS guest_participant_count,
+              (SELECT COALESCE(json_agg(json_build_object('email', mi.email, 'name', mi.name, 'notified_at', mi.notified_at) ORDER BY mi.id), '[]'::json)
+               FROM meeting_invitees mi WHERE mi.meeting_id = m.id) AS invitees_json,
               EXTRACT(EPOCH FROM (m.scheduled_start - NOW()))::bigint AS seconds_until_start,
               EXTRACT(EPOCH FROM (m.scheduled_end   - NOW()))::bigint AS seconds_until_end
        FROM meetings m
        LEFT JOIN users u ON m.teacher_id = u.id
        LEFT JOIN batches b ON m.batch_id = b.id
+       LEFT JOIN demo_requests dr ON dr.id = m.demo_request_id
        ${where}
        ORDER BY m.created_at DESC`,
       params
@@ -243,18 +415,102 @@ router.get('/', async (req, res) => {
     const uid = Number(req.user.id);
     const out = [];
     for (const m of rows) {
+      const isAdminPublic = req.user.role === 'admin' && (m.is_public || (m.meeting_kind && m.meeting_kind !== 'class'));
       const role = Number(m.teacher_id) === uid ? 'host'
+        : isAdminPublic ? 'host'
         : req.user.role === 'admin' ? 'admin'
         : m.is_batch_teacher ? 'teacher'
         : m.is_member ? 'member'
         : 'guest';
-      const passcode = role === 'host' && m.status !== 'ended' ? await access.ensurePasscode(req.db, m) : undefined;
-      const { password, trusted_user_ids, kicked_user_ids, is_member, is_batch_teacher, ...safe } = m;
-      out.push({ ...safe, code: m.room_name, my_role: role, ...(passcode ? { passcode } : {}) });
+      const canSeeCreds = (role === 'host' || req.user.role === 'admin') && m.status !== 'ended';
+      const passcode = canSeeCreds ? await access.ensurePasscode(req.db, m) : undefined;
+      const participantCount = (Number(m.portal_participant_count) || 0) + (Number(m.guest_participant_count) || 0);
+      const {
+        password,
+        trusted_user_ids,
+        kicked_user_ids,
+        is_member,
+        is_batch_teacher,
+        portal_participant_count,
+        guest_participant_count,
+        invitees_json,
+        ...safe
+      } = m;
+      const canSeeInvitees = role === 'host' || req.user.role === 'admin';
+      out.push({
+        ...safe,
+        code: m.room_name,
+        is_public: !!m.is_public,
+        require_approval: m.require_approval !== false,
+        meeting_kind: m.meeting_kind || 'class',
+        participant_count: participantCount,
+        my_role: role,
+        ...(passcode ? { passcode } : {}),
+        ...(passcode && m.is_public ? { public_link: access.publicMeetingUrl(m.room_name, passcode) } : {}),
+        ...(canSeeInvitees ? { invitees: Array.isArray(invitees_json) ? invitees_json : [] } : {}),
+      });
     }
     res.json(out);
   } catch (error) {
     console.error('GET /meetings error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /meetings/admin-calendar — Admin calendar feed across demos, public/external, and batch meetings (MUST be before /:id)
+router.get('/admin-calendar', authorizeRoles('admin'), async (req, res) => {
+  try {
+    const { from, to, kind } = req.query;
+    const params = [];
+    const conds = ['1=1'];
+    if (from) {
+      params.push(from);
+      conds.push(`COALESCE(m.scheduled_start, m.started_at, m.created_at) >= $${params.length}::timestamptz`);
+    }
+    if (to) {
+      params.push(to);
+      conds.push(`COALESCE(m.scheduled_start, m.started_at, m.created_at) <= $${params.length}::timestamptz`);
+    }
+    if (kind && ['demo', 'admin', 'public', 'class'].includes(kind)) {
+      params.push(kind);
+      conds.push(`m.meeting_kind = $${params.length}`);
+    }
+
+    const rows = await req.db.all(
+      `SELECT m.*,
+              u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, u.email AS teacher_email,
+              b.name AS batch_name,
+              dr.id AS dr_id, dr.full_name AS demo_full_name, dr.email AS demo_email,
+              dr.country AS demo_country, dr.status AS demo_status,
+              (SELECT COALESCE(json_agg(json_build_object('email', mi.email, 'name', mi.name, 'notified_at', mi.notified_at) ORDER BY mi.id), '[]'::json)
+               FROM meeting_invitees mi WHERE mi.meeting_id = m.id) AS invitees_json
+       FROM meetings m
+       LEFT JOIN users u ON u.id = m.teacher_id
+       LEFT JOIN batches b ON b.id = m.batch_id
+       LEFT JOIN demo_requests dr ON dr.id = m.demo_request_id
+       WHERE ${conds.join(' AND ')}
+       ORDER BY COALESCE(m.scheduled_start, m.started_at, m.created_at) ASC`,
+      params
+    );
+
+    const events = rows.map(r => {
+      const passcode = access.openPasscode(r.password);
+      const { password, trusted_user_ids, kicked_user_ids, invitees_json, ...safe } = r;
+      return {
+        ...safe,
+        code: r.room_name,
+        is_public: !!r.is_public,
+        require_approval: r.require_approval !== false,
+        meeting_kind: r.meeting_kind || 'class',
+        passcode,
+        public_link: r.is_public ? access.publicMeetingUrl(r.room_name, passcode) : null,
+        invitees: Array.isArray(invitees_json) ? invitees_json : [],
+      };
+    });
+
+    res.json({ success: true, events });
+  } catch (error) {
+    console.error('GET /meetings/admin-calendar error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -386,7 +642,14 @@ router.get('/:id', async (req, res) => {
       return fail(res, 404, 'NOT_FOUND', 'Meeting not found');
     }
     const extra = {};
-    if (who.role === 'host') extra.passcode = meeting.status === 'ended' ? access.openPasscode(meeting.password) : await access.ensurePasscode(req.db, meeting);
+    if (who.role === 'host' || req.user.role === 'admin') {
+      extra.passcode = meeting.status === 'ended' ? access.openPasscode(meeting.password) : await access.ensurePasscode(req.db, meeting);
+      if (meeting.is_public && extra.passcode) extra.public_link = access.publicMeetingUrl(meeting.room_name, extra.passcode);
+      extra.invitees = await req.db.all(
+        'SELECT email, name, notified_at FROM meeting_invitees WHERE meeting_id = $1 ORDER BY id ASC',
+        [meeting.id]
+      );
+    }
     if (!who.direct) {
       extra.waiting = access.lobbyHas(meeting.id, req.user.id);
       extra.verified = access.isVerified(meeting.id, req.user.id);
@@ -394,6 +657,70 @@ router.get('/:id', async (req, res) => {
     res.json(access.meetingView(meeting, who, extra));
   } catch (error) {
     console.error('GET /meetings/:id error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PATCH /meetings/:id/settings — toggle approval / public access or add email invitees
+router.patch('/:id/settings', async (req, res) => {
+  try {
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
+    if (!ctx) return;
+    const { meeting } = ctx;
+    const { require_approval, is_public, invitee_emails } = req.body || {};
+    const addedInvitees = req.user.role === 'admin' ? parseInvitees(invitee_emails) : [];
+
+    const updates = [];
+    const params = [];
+    if (require_approval !== undefined) {
+      params.push(Boolean(require_approval));
+      updates.push(`require_approval = $${params.length}`);
+    }
+    if (is_public !== undefined && req.user.role === 'admin') {
+      params.push(Boolean(is_public));
+      updates.push(`is_public = $${params.length}`);
+    } else if (addedInvitees.length > 0 && !meeting.is_public) {
+      params.push(true);
+      updates.push(`is_public = $${params.length}`);
+    }
+    if (updates.length > 0) {
+      params.push(meeting.id);
+      await req.db.run(
+        `UPDATE meetings SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${params.length}`,
+        params
+      );
+    }
+
+    const updated = await access.findMeeting(req.db, meeting.id);
+    const passcode = await access.ensurePasscode(req.db, updated);
+    const newlyAdded = [];
+    for (const inv of addedInvitees) {
+      const ins = await req.db.run(
+        `INSERT INTO meeting_invitees (meeting_id, email, name, invited_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (meeting_id, email) DO NOTHING
+         RETURNING email, name`,
+        [updated.id, inv.email, inv.name, req.user.id]
+      );
+      if (ins.rows && ins.rows.length > 0) newlyAdded.push(inv);
+    }
+    if (newlyAdded.length > 0) {
+      dispatchPublicInvites(req.db, updated, passcode, req.user, newlyAdded).catch(() => {});
+    }
+
+    const invitees = await req.db.all(
+      'SELECT email, name, notified_at FROM meeting_invitees WHERE meeting_id = $1 ORDER BY id ASC',
+      [updated.id]
+    );
+    res.json({
+      id: updated.id,
+      is_public: !!updated.is_public,
+      require_approval: updated.require_approval !== false,
+      invitees,
+      newly_invited: newlyAdded.length,
+    });
+  } catch (error) {
+    console.error('PATCH /meetings/:id/settings error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -444,7 +771,7 @@ router.put('/:id', async (req, res) => {
              WHERE meeting_id = $7`,
             [current.title, current.description, current.scheduled_start, endTime, current.batch_id || null, `/app/meeting/${current.id}`, meeting.id]
           );
-        } else {
+        } else if (current.batch_id) {
           await req.db.run(
             `INSERT INTO schedules (
                title, description, batch_id, teacher_id, start_time, end_time,
@@ -568,7 +895,7 @@ router.delete('/:id', async (req, res) => {
 // POST /meetings/:id/passcode — host issues a new passcode (the old one stops working)
 router.post('/:id/passcode', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const passcode = access.generatePasscode();
     await req.db.run('UPDATE meetings SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [access.sealPasscode(passcode), ctx.meeting.id]);
@@ -583,10 +910,10 @@ router.post('/:id/passcode', async (req, res) => {
 // MEETING LIFECYCLE
 // ============================================================
 
-// POST /meetings/:id/start — teacher starts the meeting (waiting → active)
+// POST /meetings/:id/start — teacher/admin starts the meeting (waiting → active)
 router.post('/:id/start', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const { meeting } = ctx;
     if (meeting.status === 'ended') return fail(res, 409, 'ENDED', 'This meeting has already ended');
@@ -598,8 +925,14 @@ router.post('/:id/start', async (req, res) => {
     const wasActive = meeting.status === 'active';
     meeting.status = 'active';
 
-    const token = await access.liveKitToken(meeting, req.user, ctx.who);
+    const hostCtx = { ...ctx.who, role: 'host', direct: true };
+    const token = await access.liveKitToken(meeting, req.user, hostCtx);
     announce(req.io, 'meeting:started', meeting);
+    req.io?.to(access.rooms.lobby(meeting.id)).emit('meeting:started', {
+      meetingId: meeting.id,
+      status: 'active',
+      host_name: personName(req.user),
+    });
 
     // Tell the batch the class is live (first start only)
     if (meeting.batch_id && !wasActive) {
@@ -630,10 +963,10 @@ router.post('/:id/start', async (req, res) => {
   }
 });
 
-// POST /meetings/:id/prepare — teacher enters pre-start screen (scheduled → waiting)
+// POST /meetings/:id/prepare — teacher/admin enters pre-start screen (scheduled → waiting)
 router.post('/:id/prepare', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const { meeting } = ctx;
     if (meeting.status !== 'scheduled') return res.json({ message: 'Meeting already opened', status: meeting.status });
@@ -677,7 +1010,7 @@ router.post('/:id/end', async (req, res) => {
 // POST /meetings/:id/lock — toggle meeting lock (no one new can join)
 router.post('/:id/lock', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const { meeting } = ctx;
 
@@ -698,7 +1031,7 @@ router.post('/:id/lock', async (req, res) => {
 // ============================================================
 // JOIN FLOW
 //   insiders (host, admins, batch students & teacher, admitted guests) → straight in
-//   everyone else → passcode → lobby → the host admits or denies
+//   everyone else → passcode → lobby (unless public & require_approval=false) → host admits/denies
 // ============================================================
 
 // POST /meetings/:id/join   body: { passcode? }
@@ -708,9 +1041,10 @@ router.post('/:id/join', async (req, res) => {
     if (!ctx) return;
     const { meeting, who } = ctx;
     const uid = req.user.id;
+    const hostName = `${meeting.teacher_first_name || ''} ${meeting.teacher_last_name || ''}`.trim() || 'the host';
 
-    if (meeting.status === 'ended') return res.json({ action: 'ended' });
-    if (who.role === 'kicked') return res.json({ action: 'kicked' });
+    if (meeting.status === 'ended') return res.json({ action: 'ended', host_name: hostName });
+    if (who.role === 'kicked') return res.json({ action: 'kicked', host_name: hostName });
 
     if (!who.direct) {
       // ── Guests: passcode first ──
@@ -731,30 +1065,40 @@ router.post('/:id/join', async (req, res) => {
       if (denied === null) return res.json({ action: 'declined', final: true });
       if (denied > 0) return res.json({ action: 'declined', retryAfter: denied });
 
-      if (meeting.status === 'scheduled') return res.json({ action: 'not_ready' });
-      if (meeting.status === 'waiting') return res.json({ action: 'waiting' });
-      if (meeting.is_locked) return res.json({ action: 'locked' });
+      if (meeting.status === 'scheduled') return res.json({ action: 'not_ready', host_name: hostName });
+      if (meeting.status === 'waiting') return res.json({ action: 'waiting', host_name: hostName });
+      if (meeting.is_locked) return res.json({ action: 'locked', host_name: hostName });
+
+      if (meeting.is_public && meeting.require_approval === false) {
+        const guestAccess = { role: 'guest', direct: true };
+        const token = await access.liveKitToken(meeting, req.user, guestAccess);
+        await recordJoin(req.db, meeting.id, uid);
+        return res.json({ action: 'join', token, livekitUrl: access.liveKitUrl(), roomName: meeting.room_name, role: 'guest' });
+      }
 
       // ── Knock: the host sees it live, and in the notification bell ──
-      const { isNew } = access.lobbyAdd(meeting.id, req.user, 'passcode');
+      const { request, isNew } = access.lobbyAdd(meeting.id, req.user, 'passcode');
       access.publishLobby(req.io, meeting);
       if (isNew) {
-        const request = { userId: uid, userName: personName(req.user), role: req.user.role };
-        req.io?.to(access.rooms.user(meeting.teacher_id)).emit('meeting:lobby-request', {
+        let target = req.io?.to(access.rooms.user(meeting.teacher_id));
+        if (meeting.is_public || (meeting.meeting_kind && meeting.meeting_kind !== 'class')) {
+          target = target?.to(access.rooms.role('admin'));
+        }
+        target?.emit('meeting:lobby-request', {
           meetingId: meeting.id, code: meeting.room_name, title: meeting.title, request,
         });
         access.notifyJoinRequest(req.db, meeting, req.user);
       }
-      return res.json({ action: 'lobby' });
+      return res.json({ action: 'lobby', host_name: hostName });
     }
 
     // ── Insiders ──
     if (who.role === 'host' && meeting.status !== 'active') return res.json({ action: 'start' });
-    if (meeting.status === 'scheduled') return res.json({ action: 'not_ready' });
-    if (meeting.status === 'waiting') return res.json({ action: 'waiting' });
+    if (meeting.status === 'scheduled') return res.json({ action: 'not_ready', host_name: hostName });
+    if (meeting.status === 'waiting') return res.json({ action: 'waiting', host_name: hostName });
     // A locked class keeps out newcomers; people who were already in can come back.
     if (meeting.is_locked && !['host', 'admin'].includes(who.role) && !(await hasJoinedBefore(req.db, meeting.id, uid))) {
-      return res.json({ action: 'locked' });
+      return res.json({ action: 'locked', host_name: hostName });
     }
 
     const token = await access.liveKitToken(meeting, req.user, who);
@@ -769,7 +1113,7 @@ router.post('/:id/join', async (req, res) => {
 // GET /meetings/:id/lobby — host: who is waiting
 router.get('/:id/lobby', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     res.json({ pending: access.lobbyList(ctx.meeting.id) });
   } catch (error) {
@@ -794,34 +1138,62 @@ router.delete('/:id/lobby', async (req, res) => {
   }
 });
 
-/** Admits people who are waiting: they become guests of this meeting (rejoin without asking again). */
-async function admit(req, meeting, userIds) {
-  const waiting = userIds.map(Number).filter(id => access.lobbyHas(meeting.id, id));
-  if (waiting.length === 0) return [];
-  await req.db.run(
-    `UPDATE meetings
-     SET trusted_user_ids = ARRAY(SELECT DISTINCT unnest(COALESCE(trusted_user_ids, '{}') || $1::int[])),
-         updated_at = CURRENT_TIMESTAMP
-     WHERE id = $2`,
-    [waiting, meeting.id]
-  );
-  for (const id of waiting) {
-    access.lobbyRemove(meeting.id, id);
-    access.clearDenials(meeting.id, id);
-    // No token travels over the socket: the guest's app calls /join again and is now let in.
-    req.io?.to(access.rooms.user(id)).emit('meeting:admitted', { meetingId: meeting.id });
+/** Admits people who are waiting (both portal users and external public guests). */
+async function admit(req, meeting, targetKeys) {
+  const waitingPortalIds = [];
+  const waitingGuestIds = [];
+  for (const raw of targetKeys) {
+    if (!raw && raw !== 0) continue;
+    const key = access.lobbyKeyFor(raw);
+    if (!access.lobbyHas(meeting.id, key)) continue;
+    if (access.isGuestKey(key)) waitingGuestIds.push(access.guestIdFromKey(key));
+    else {
+      const uid = Number(key);
+      if (Number.isInteger(uid) && uid > 0) waitingPortalIds.push(uid);
+    }
   }
-  await access.settleJoinRequests(req.db, meeting, waiting);
+  if (waitingPortalIds.length === 0 && waitingGuestIds.length === 0) return [];
+
+  if (waitingPortalIds.length > 0) {
+    await req.db.run(
+      `UPDATE meetings
+       SET trusted_user_ids = ARRAY(SELECT DISTINCT unnest(COALESCE(trusted_user_ids, '{}') || $1::int[])),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [waitingPortalIds, meeting.id]
+    );
+    for (const id of waitingPortalIds) {
+      access.lobbyRemove(meeting.id, id);
+      access.clearDenials(meeting.id, id);
+      req.io?.to(access.rooms.user(id)).emit('meeting:admitted', { meetingId: meeting.id });
+    }
+    await access.settleJoinRequests(req.db, meeting, waitingPortalIds);
+  }
+
+  if (waitingGuestIds.length > 0) {
+    await req.db.run(
+      `UPDATE meeting_guests
+       SET status = 'admitted', updated_at = CURRENT_TIMESTAMP
+       WHERE meeting_id = $1 AND id = ANY($2::varchar[])`,
+      [meeting.id, waitingGuestIds]
+    );
+    for (const gid of waitingGuestIds) {
+      access.lobbyRemove(meeting.id, `guest:${gid}`);
+      req.io?.to(access.rooms.guest(gid)).emit('meeting:admitted', { meetingId: meeting.id });
+    }
+  }
+
   access.publishLobby(req.io, meeting);
-  return waiting;
+  return [...waitingPortalIds, ...waitingGuestIds.map(g => `guest:${g}`)];
 }
 
-// POST /meetings/:id/admit   body: { user_id }
+// POST /meetings/:id/admit   body: { user_id?, guest_id?, participant_key? }
 router.post('/:id/admit', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
-    const done = await admit(req, ctx.meeting, [req.body?.user_id]);
+    const target = req.body?.participant_key || (req.body?.guest_id ? `guest:${req.body.guest_id}` : req.body?.user_id);
+    const done = await admit(req, ctx.meeting, [target]);
     if (done.length === 0) return fail(res, 404, 'NOT_WAITING', 'This person is no longer waiting');
     res.json({ admitted: done });
   } catch (error) {
@@ -833,9 +1205,10 @@ router.post('/:id/admit', async (req, res) => {
 // POST /meetings/:id/admit-all
 router.post('/:id/admit-all', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
-    const done = await admit(req, ctx.meeting, access.lobbyList(ctx.meeting.id).map(r => r.userId));
+    const keys = access.lobbyList(ctx.meeting.id).map(r => r.key || (r.guestId ? `guest:${r.guestId}` : r.userId));
+    const done = await admit(req, ctx.meeting, keys);
     res.json({ admitted: done });
   } catch (error) {
     console.error('POST /meetings/:id/admit-all error:', error);
@@ -843,17 +1216,35 @@ router.post('/:id/admit-all', async (req, res) => {
   }
 });
 
-// POST /meetings/:id/decline   body: { user_id }
+// POST /meetings/:id/decline   body: { user_id?, guest_id?, participant_key? }
 router.post('/:id/decline', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const { meeting } = ctx;
-    const userId = Number(req.body?.user_id);
-    if (!access.lobbyRemove(meeting.id, userId)) return fail(res, 404, 'NOT_WAITING', 'This person is no longer waiting');
-    access.recordDenial(meeting.id, userId);
-    req.io?.to(access.rooms.user(userId)).emit('meeting:declined', { meetingId: meeting.id });
-    await access.settleJoinRequests(req.db, meeting, [userId]);
+    const target = req.body?.participant_key || (req.body?.guest_id ? `guest:${req.body.guest_id}` : req.body?.user_id);
+    const key = access.lobbyKeyFor(target);
+    if (!access.lobbyRemove(meeting.id, key)) return fail(res, 404, 'NOT_WAITING', 'This person is no longer waiting');
+
+    if (access.isGuestKey(key)) {
+      const gid = access.guestIdFromKey(key);
+      await req.db.run(
+        `UPDATE meeting_guests
+         SET status = 'declined',
+             decline_count = decline_count + 1,
+             declined_until = CURRENT_TIMESTAMP + INTERVAL '120 seconds',
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND meeting_id = $2`,
+        [gid, meeting.id]
+      );
+      req.io?.to(access.rooms.guest(gid)).emit('meeting:declined', { meetingId: meeting.id });
+    } else {
+      const userId = Number(key);
+      access.recordDenial(meeting.id, userId);
+      req.io?.to(access.rooms.user(userId)).emit('meeting:declined', { meetingId: meeting.id });
+      await access.settleJoinRequests(req.db, meeting, [userId]);
+    }
+
     access.publishLobby(req.io, meeting);
     res.json({ message: 'Request declined' });
   } catch (error) {
@@ -862,13 +1253,35 @@ router.post('/:id/decline', async (req, res) => {
   }
 });
 
-// POST /meetings/:id/kick — host removes someone (disconnected server-side, cannot rejoin)
+// POST /meetings/:id/kick — host removes someone (portal user OR external guest; disconnected server-side)
 router.post('/:id/kick', async (req, res) => {
   try {
-    const ctx = await loadAsHost(req, res);
+    const ctx = await loadAsHost(req, res, { allowAdmin: true });
     if (!ctx) return;
     const { meeting } = ctx;
-    const userId = Number(req.body?.user_id);
+    const rawTarget = req.body?.participant_key || (req.body?.guest_id ? `guest:${req.body.guest_id}` : req.body?.user_id);
+
+    if (typeof rawTarget === 'string' && (rawTarget.startsWith('guest:') || rawTarget.startsWith('g_'))) {
+      const gid = rawTarget.startsWith('guest:') ? rawTarget.slice('guest:'.length) : rawTarget;
+      const lkIdentity = `guest:${gid}`;
+      await req.db.run(
+        `UPDATE meeting_guests
+         SET status = 'kicked',
+             left_at = COALESCE(left_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 AND meeting_id = $2`,
+        [gid, meeting.id]
+      );
+      if (access.lobbyRemove(meeting.id, lkIdentity)) access.publishLobby(req.io, meeting);
+      await access.removeFromLiveKit(meeting, lkIdentity);
+      if (req.io) {
+        req.io.to(access.rooms.guest(gid)).emit('meeting:kicked', { meetingId: meeting.id });
+        req.io.in(access.rooms.guest(gid)).socketsLeave([access.rooms.participants(meeting.id), access.rooms.lobby(meeting.id)]);
+      }
+      return res.json({ message: 'Guest removed' });
+    }
+
+    const userId = Number(rawTarget);
     if (!userId || userId === Number(meeting.teacher_id)) return fail(res, 400, 'BAD_TARGET', 'This participant cannot be removed');
 
     await req.db.run(
@@ -957,9 +1370,18 @@ router.get('/:id/attendance', async (req, res) => {
       [meeting.id, meeting.teacher_id || 0]
     );
 
+    const guests = await req.db.all(
+      `SELECT id, display_name, email, status, joined_at, left_at, duration_minutes
+       FROM meeting_guests
+       WHERE meeting_id = $1 AND joined_at IS NOT NULL
+       ORDER BY joined_at ASC`,
+      [meeting.id]
+    ).catch(() => []);
+
     res.json({
       summary,
       sessions,
+      guests,
       teacher: teacherInfo ? {
         name: `${teacherInfo.first_name} ${teacherInfo.last_name}`,
         first_join: teacherInfo.first_join,
@@ -967,9 +1389,10 @@ router.get('/:id/attendance', async (req, res) => {
         duration: teacherInfo.total_duration_minutes,
       } : null,
       stats: {
-        total: summary.length,
-        present: presentCount,
+        total: summary.length + guests.length,
+        present: presentCount + guests.length,
         absent: absentCount,
+        guestCount: guests.length,
         meetingDuration,
         meetingTitle: meeting.title,
       }

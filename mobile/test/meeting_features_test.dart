@@ -100,8 +100,8 @@ void main() {
   testWidgets('MeetingParticipantsSheet displays waiting room admissions', (
     WidgetTester tester,
   ) async {
-    int? admittedId;
-    int? declinedId;
+    String? admittedId;
+    String? declinedId;
 
     final admissions = [
       {'userId': 42, 'userName': 'Sophie Martin', 'role': 'student'},
@@ -135,11 +135,11 @@ void main() {
 
     // Tap Admettre
     await tester.tap(find.text('Admettre'));
-    expect(admittedId, 42);
+    expect(admittedId, '42');
 
     // Tap Refuser
     await tester.tap(find.text('Refuser'));
-    expect(declinedId, 42);
+    expect(declinedId, '42');
   });
 
   testWidgets('MeetingShareSheet displays meeting ID and full invitation', (

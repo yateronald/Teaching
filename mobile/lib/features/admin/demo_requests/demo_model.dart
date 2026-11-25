@@ -82,4 +82,40 @@ class Demo {
   }
 
   static bool hadExperience(dynamic v) => v == true || v == 1 || v == '1' || v == 'true' || v == 'yes';
+
+  static String availabilityLabel(String s, bool fr) {
+    switch (s) {
+      case 'submitted':
+        return fr ? 'Disponibilités reçues' : 'Availability received';
+      case 'pending':
+        return fr ? 'En attente de créneaux' : 'Availability requested';
+      case 'expired':
+        return fr ? 'Lien expiré' : 'Link expired';
+      case 'superseded':
+        return fr ? 'Lien remplacé' : 'Link superseded';
+      default:
+        return s;
+    }
+  }
+
+  static Color availabilityColor(String s) {
+    switch (s) {
+      case 'submitted':
+        return AppColors.good;
+      case 'pending':
+        return const Color(0xFF4F46E5);
+      case 'expired':
+      case 'superseded':
+        return AppColors.warn;
+      default:
+        return AppColors.textMuted;
+    }
+  }
+
+  static String formatSlot(Map<String, dynamic> slot) {
+    final d = J.s(slot['date']);
+    final s = J.s(slot['start']);
+    final e = J.s(slot['end']);
+    return '$d · $s – $e';
+  }
 }

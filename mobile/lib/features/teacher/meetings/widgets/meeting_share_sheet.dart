@@ -121,17 +121,19 @@ class _MeetingShareSheetState extends ConsumerState<MeetingShareSheet> {
 
   String _buildFullInvitation() {
     final title = widget.meeting['title'] ?? 'Classe Virtuelle';
-    final batchName = widget.meeting['batch_name'] ?? 'Toutes promotions';
-    final link = 'https://learnfrenchwithnatives.com/app/meeting/$_roomCode${_passcode != null ? '#pwd=$_passcode' : ''}';
+    final isPublic = widget.meeting['is_public'] == true;
+    final reqApproval = widget.meeting['require_approval'] != false;
+    final batchName = widget.meeting['batch_name'] ?? (isPublic ? 'Réunion publique' : 'Toutes promotions');
+    final link = 'https://www.learnfrenchwithnatives.com${isPublic ? '' : '/app'}/meeting/$_roomCode${_passcode != null ? '#pwd=$_passcode' : ''}';
 
-    return '''🎓 Cours de Français : $title
-Cohorte : $batchName
+    return '''🎓 ${isPublic ? 'Réunion' : 'Cours de Français'} : $title
+${isPublic ? 'Accès' : 'Cohorte'} : $batchName
 
 👉 Lien direct : $link
 🔑 ID de réunion : $_roomCode
 ${_passcode != null ? '🔒 Code secret : $_passcode' : ''}
 
-Note : Les étudiants inscrits rejoignent directement. Les invités attendent dans la salle d'attente l'approbation du professeur.''';
+Note : ${isPublic ? (reqApproval ? 'Les invités attendent dans la salle d\'attente l\'approbation de l\'hôte.' : 'Toute personne disposant du lien ou de l\'ID et du code peut rejoindre directement une fois la réunion démarrée.') : 'Les étudiants inscrits rejoignent directement. Les invités attendent dans la salle d\'attente l\'approbation du professeur.'}''';
   }
 
   void _copyToClipboard(String text, String label) {

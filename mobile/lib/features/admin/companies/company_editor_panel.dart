@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/api_client.dart';
@@ -19,6 +24,9 @@ class CompanyEditorPanel extends ConsumerStatefulWidget {
 }
 
 class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
+  static const _maxLogoBytes = 1024 * 1024;
+  static const _logoExtensions = ['png', 'jpg', 'jpeg', 'webp'];
+
   final _form = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.company?.name ?? '');
   late final _displayName = TextEditingController(text: widget.company?.displayName ?? '');
@@ -34,6 +42,9 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
   late DateTime _starts = widget.company?.startsAt ?? DateTime.now();
   late DateTime? _ends = widget.company?.endsAt ?? endOfDay(addMonths(DateTime.now(), 3));
   List<Map<String, dynamic>> _content = [];
+  ({String name, Uint8List bytes})? _logo;
+  bool _pickingLogo = false;
+  String? _logoError;
   bool _saving = false;
   String? _error;
 
@@ -80,7 +91,47 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
     if (picked != null && mounted) setState(() => _content = picked);
   }
 
+  Future<void> _pickLogo() async {
+    if (_pickingLogo || _saving) return;
+    final fr = context.isFrench;
+    final tooLarge = fr ? 'Le logo doit faire 1 Mo au plus.' : 'The logo must be 1 MB or less.';
+    final unreadable = fr ? 'Impossible de lire ce logo. Choisissez une autre image.' : 'Could not read this logo. Choose another image.';
+    setState(() {
+      _pickingLogo = true;
+      _logoError = null;
+    });
+    try {
+      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: _logoExtensions);
+      final file = result?.files.single;
+      if (file == null || !mounted) return;
+      if (!_logoExtensions.contains(file.extension?.toLowerCase())) {
+        setState(() => _logoError = fr ? 'Choisissez une image PNG, JPEG ou WebP.' : 'Choose a PNG, JPEG or WebP image.');
+        return;
+      }
+      if (file.size > _maxLogoBytes) {
+        setState(() => _logoError = tooLarge);
+        return;
+      }
+      final bytes = file.bytes ?? await file.xFile.readAsBytes();
+      if (!mounted) return;
+      setState(() {
+        if (bytes.length > _maxLogoBytes) {
+          _logoError = tooLarge;
+        } else if (bytes.isEmpty) {
+          _logoError = unreadable;
+        } else {
+          _logo = (name: file.name, bytes: bytes);
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _logoError = unreadable);
+    } finally {
+      if (mounted) setState(() => _pickingLogo = false);
+    }
+  }
+
   Future<void> _save() async {
+    if (_saving || _pickingLogo) return;
     final fr = context.isFrench;
     setState(() => _error = null);
     if (!(_form.currentState?.validate() ?? false)) return;
@@ -114,13 +165,20 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
         adminToast(context, fr ? 'Entreprise mise à jour' : 'Company updated');
         Navigator.of(context).pop(true);
       } else {
-        final res = await api.post('/admin/organizations', data: {
+        final payload = {
           ...body,
           'content': [for (final c in _content) {'content_type': c['content_type'], 'content_id': c['content_id']}],
           'ee_credits': int.tryParse(_ee.text.trim()) ?? 0,
           'eo_credits': int.tryParse(_eo.text.trim()) ?? 0,
           'manager': {'first_name': _first.text.trim(), 'last_name': _last.text.trim(), 'email': _email.text.trim()},
-        });
+        };
+        final logo = _logo;
+        final res = await api.post('/admin/organizations', data: logo == null
+            ? payload
+            : FormData.fromMap({
+                'payload': jsonEncode(payload),
+                'logo': MultipartFile.fromBytes(logo.bytes, filename: logo.name),
+              }));
         if (!mounted) return;
         final d = J.map(res.data);
         final sent = J.map(d['manager'])['invitation_sent'] == true;
@@ -142,6 +200,66 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
     }
   }
 
+  Widget _logoField(bool fr) {
+    final logo = _logo;
+    const placeholder = Icon(Icons.image_outlined, color: AppColors.adminAccent);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.pureWhite,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 52,
+              height: 52,
+              alignment: Alignment.center,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(color: AppColors.frenchPaper, borderRadius: BorderRadius.circular(10)),
+              child: logo == null
+                  ? placeholder
+                  : Image.memory(logo.bytes, fit: BoxFit.contain, cacheWidth: 156, errorBuilder: (_, _, _) => placeholder),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(fr ? 'Logo de l’entreprise (facultatif)' : 'Company logo (optional)', style: AppTypography.bodySmall.copyWith(fontWeight: FontWeight.w700)),
+                  _Hint(logo?.name ?? (fr ? 'PNG, JPEG ou WebP · 1 Mo max.' : 'PNG, JPEG or WebP · 1 MB max.')),
+                ],
+              ),
+            ),
+          ]),
+          if (_logoError != null) _ErrorBanner(_logoError!),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 6, children: [
+            AdminButton(
+              logo == null ? (fr ? 'Ajouter un logo' : 'Add a logo') : (fr ? 'Changer le logo' : 'Change logo'),
+              icon: Icons.upload_file_outlined,
+              primary: false,
+              busy: _pickingLogo,
+              onPressed: _saving ? null : _pickLogo,
+            ),
+            if (logo != null)
+              AdminButton(
+                fr ? 'Retirer le logo' : 'Remove logo',
+                primary: false,
+                onPressed: _saving || _pickingLogo ? null : () => setState(() {
+                  _logo = null;
+                  _logoError = null;
+                }),
+              ),
+          ]),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final fr = context.isFrench;
@@ -151,6 +269,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
 
     return Form(
       key: _form,
+      canPop: !_saving,
       child: AdminPanel(
         title: _editing ? (fr ? 'Modifier l’entreprise' : 'Edit the company') : (fr ? 'Nouvelle entreprise' : 'New company'),
         subtitle: _editing
@@ -163,7 +282,7 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
             key: const Key('company-save'),
             icon: _editing ? Icons.check : Icons.add_business_outlined,
             busy: _saving,
-            onPressed: _save,
+            onPressed: _pickingLogo ? null : _save,
           ),
         ],
         children: [
@@ -175,6 +294,10 @@ class _CompanyEditorPanelState extends ConsumerState<CompanyEditorPanel> {
             hint: fr ? 'Ce que voient ses apprenants' : 'What its learners see',
             controller: _displayName,
           ),
+          if (!_editing) ...[
+            _logoField(fr),
+            const SizedBox(height: 12),
+          ],
           AdminSelect<String>(
             label: fr ? 'Langue par défaut' : 'Default language',
             value: _language,

@@ -19,6 +19,8 @@ const { buildMeetingCancellationTemplate } = require('./templates/meetingCancell
 const { buildMeetingScheduledTemplate } = require('./templates/meetingScheduled');
 const { buildDemoScheduleStudentTemplate } = require('./templates/demoScheduleStudent');
 const { buildDemoScheduleTeacherTemplate } = require('./templates/demoScheduleTeacher');
+const { buildDemoAvailabilityRequestTemplate } = require('./templates/demoAvailabilityRequest');
+const { buildPublicMeetingInviteTemplate } = require('./templates/publicMeetingInvite');
 const { buildCompanyInviteTemplate, buildCompanyExpiryTemplate } = require('./templates/companyAccount');
 const { buildPromotionRegistrationTemplate } = require('./templates/promotionRegistration');
 
@@ -195,6 +197,28 @@ async function sendDemoScheduleNotificationToTeacher({
     return sendEmail({ from: getFromEmail(), to, subject, html, text });
 }
 
+async function sendDemoAvailabilityRequest({
+    to, recipientName, adminName, proposedStartDate, proposedEndDate,
+    proposedTimeStart, proposedTimeEnd, proposedTimezone, adminNote, availabilityUrl, expiresAt, supportEmail,
+}) {
+    const { subject, html, text } = buildDemoAvailabilityRequestTemplate({
+        recipientName, adminName, proposedStartDate, proposedEndDate,
+        proposedTimeStart, proposedTimeEnd, proposedTimezone, adminNote, availabilityUrl, expiresAt, supportEmail,
+    });
+    return sendEmail({ from: getFromEmail(), to, subject, html, text });
+}
+
+async function sendPublicMeetingInvite({
+    to, recipientName, title, description, hostName, scheduledStart, scheduledEnd,
+    recipientTimezone, meetingUrl, meetingCode, passcode, requireApproval, isDemo, notes, supportEmail,
+}) {
+    const { subject, html, text } = buildPublicMeetingInviteTemplate({
+        recipientName, title, description, hostName, scheduledStart, scheduledEnd,
+        recipientTimezone, meetingUrl, meetingCode, passcode, requireApproval, isDemo, notes, supportEmail,
+    });
+    return sendEmail({ from: getFromEmail(), to, subject, html, text });
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Company spaces (in the company's language, with its logo)
 // ─────────────────────────────────────────────────────────────────────────
@@ -261,5 +285,7 @@ module.exports = {
     sendMeetingCancellation,
     sendDemoScheduleNotificationToStudent,
     sendDemoScheduleNotificationToTeacher,
+    sendDemoAvailabilityRequest,
+    sendPublicMeetingInvite,
     sendAccessCodeEmail,
 };

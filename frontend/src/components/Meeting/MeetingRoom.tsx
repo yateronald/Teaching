@@ -44,7 +44,7 @@ type MyRole = 'host' | 'admin' | 'teacher' | 'member' | 'guest' | 'outsider' | '
 type Panel = 'people' | 'chat' | 'polls';
 type Menu = 'mic' | 'cam' | 'more' | 'reactions' | 'leave';
 
-interface MeetingData {
+export interface MeetingData {
   id: number;
   code: string;
   room_name: string;
@@ -52,6 +52,9 @@ interface MeetingData {
   teacher_id: number;
   status: string;
   is_locked: boolean;
+  is_public?: boolean;
+  require_approval?: boolean;
+  invitees?: { email: string; name?: string | null; notified_at?: string | null }[];
   teacher_first_name: string;
   teacher_last_name: string;
   batch_name?: string | null;
@@ -62,7 +65,18 @@ interface MeetingData {
   waiting?: boolean;
   verified?: boolean;
 }
-interface AdmissionRequest { userId: number; userName: string; role?: string; requestedAt?: string }
+export interface AdmissionRequest {
+  key?: string;
+  userId?: number | null;
+  guestId?: string | null;
+  isGuest?: boolean;
+  email?: string | null;
+  userName: string;
+  role?: string;
+  requestedAt?: string;
+}
+const admKeyOf = (a: AdmissionRequest): string =>
+  a.key || (a.guestId ? `guest:${a.guestId}` : String(a.userId ?? ''));
 const ROLE_TAG: Record<string, string> = { host: 'Host', teacher: 'Teacher', admin: 'Admin', guest: 'Guest' };
 const roleOf = (p: Participant) => { try { return JSON.parse(p.metadata || '{}').role as string | undefined; } catch { return undefined; } };
 const cleanPass = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -135,7 +149,7 @@ const DeviceMenu: React.FC<{ kind: MediaDeviceKind; title: string; storeKey: key
 };
 
 /* ── Status screens around the call ── */
-const StatusScreen: React.FC<{
+export const StatusScreen: React.FC<{
   tone: string;
   badge?: string;
   icon: React.ReactNode;
@@ -212,7 +226,7 @@ const MeetingPage: React.FC = () => {
 
   const meetingId = meeting?.id;
   const key = meeting?.code || ref || '';
-  const isHost = meeting?.my_role === 'host';
+  const isHost = meeting?.my_role === 'host' || (meeting?.my_role === 'admin' && !!meeting?.is_public);
   const isGuest = !!meeting && !INSIDERS.includes(meeting.my_role);
 
   // The passcode must not linger in the address bar (screenshots, screen sharing).
@@ -671,9 +685,10 @@ const MeetingPage: React.FC = () => {
 // ════════════════════════════════════════════════════════════
 // MEETING ROOM (inside the LiveKit room context)
 // ════════════════════════════════════════════════════════════
-interface RoomUIProps {
+export interface RoomUIProps {
   meeting: MeetingData;
   isHost: boolean;
+  guestMode?: boolean;
   apiCall: (endpoint: string, options?: RequestInit) => Promise<Response>;
   socket: Socket | null;
   onLeave: () => Promise<void>;
@@ -681,7 +696,7 @@ interface RoomUIProps {
   onPasscodeChange: (passcode: string) => void;
 }
 
-const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket, onLeave, onEnd, onPasscodeChange }) => {
+export const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, guestMode = false, apiCall, socket, onLeave, onEnd, onPasscodeChange }) => {
   const { message, modal } = App.useApp();
   const r = useResponsive();
   const mobile = r.isMobile;
@@ -691,7 +706,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
   const me = lp.localParticipant;
   const myIdentity = me.identity;
   const myName = me.name || 'You';
-  const myId = parseInt(myIdentity);
+  const myId = myIdentity.startsWith('guest:') ? myIdentity : (parseInt(myIdentity) || myIdentity);
   const { quality } = useConnectionQualityIndicator({ participant: me });
   const connState = String(useConnectionState()).toLowerCase();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -718,7 +733,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
 
   const [admissions, setAdmissions] = useState<AdmissionRequest[]>([]);
   const [peopleQuery, setPeopleQuery] = useState('');
-  const [raisedHands, setRaisedHands] = useState<{ userId: number; userName: string }[]>([]);
+  const [raisedHands, setRaisedHands] = useState<{ userId: string | number; userName: string }[]>([]);
   const [handRaised, setHandRaised] = useState(false);
 
   const [announcement, setAnnouncement] = useState<string | null>(null);
@@ -806,7 +821,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
 
   /* ── Late joiners: pick up the poll that is already open ── */
   useEffect(() => {
-    if (isHost) return;
+    if (isHost || guestMode) return;
     let cancelled = false;
     apiCall(`/meetings/${meeting.id}/polls`)
       .then(r => (r.ok ? r.json() : []))
@@ -818,7 +833,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
       })
       .catch(() => { });
     return () => { cancelled = true; };
-  }, [isHost, apiCall, meeting.id]);
+  }, [isHost, guestMode, apiCall, meeting.id]);
 
   /* ── Socket events ── */
   useEffect(() => {
@@ -826,7 +841,8 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     const onLobby = (d: { meetingId: number; pending: AdmissionRequest[] }) => {
       if (!isHost || Number(d.meetingId) !== meeting.id) return;
       setAdmissions(prev => {
-        if (d.pending.some(p => !prev.some(a => a.userId === p.userId))) playNotificationSound();
+        const prevKeys = new Set(prev.map(admKeyOf));
+        if (d.pending.some(p => !prevKeys.has(admKeyOf(p)))) playNotificationSound();
         return d.pending;
       });
     };
@@ -847,13 +863,13 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
       }
     };
     const onAnnouncement = (d: { text: string }) => { setAnnouncement(d.text); playNotificationSound(); };
-    const onHandRaised = (d: { userId: number; userName: string }) => {
-      setRaisedHands(prev => (prev.some(h => h.userId === d.userId) ? prev : [...prev, d]));
+    const onHandRaised = (d: { userId: string | number; userName: string }) => {
+      setRaisedHands(prev => (prev.some(h => String(h.userId) === String(d.userId)) ? prev : [...prev, d]));
       playHandRaiseSound();
     };
-    const onHandLowered = (d: { userId: number }) => {
-      setRaisedHands(prev => prev.filter(h => h.userId !== d.userId));
-      if (d.userId === myId) setHandRaised(false);
+    const onHandLowered = (d: { userId: string | number }) => {
+      setRaisedHands(prev => prev.filter(h => String(h.userId) !== String(d.userId)));
+      if (String(d.userId) === String(myId)) setHandRaised(false);
     };
     const onReaction = (d: { emoji: string; senderName: string }) => {
       const eid = ++emojiId.current;
@@ -905,6 +921,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
 
   // Late joiners never saw "recording-started" — ask once.
   useEffect(() => {
+    if (guestMode) return;
     let cancelled = false;
     (async () => {
       try {
@@ -915,7 +932,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
       } catch { /* socket events still update it */ }
     })();
     return () => { cancelled = true; };
-  }, [apiCall, meeting.id]);
+  }, [apiCall, meeting.id, guestMode]);
 
   useEffect(() => {
     if (!announcement) return;
@@ -1030,7 +1047,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     else socket.emit('meeting:raise-hand', { meetingId: meeting.id });
     setHandRaised(!handRaised);
   };
-  const lowerHand = (userId: number) => socket?.emit('meeting:lower-hand', { meetingId: meeting.id, userId });
+  const lowerHand = (userId: string | number) => socket?.emit('meeting:lower-hand', { meetingId: meeting.id, userId });
   const lowerAll = () => { raisedHands.forEach(h => lowerHand(h.userId)); setRaisedHands([]); };
 
   const sendEmoji = (emoji: string) => {
@@ -1046,14 +1063,22 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
     setAnnounceOpen(false);
   };
 
-  const handleAdmit = async (userId: number) => {
-    setAdmissions(prev => prev.filter(a => a.userId !== userId));
-    const resp = await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => null);
+  const handleAdmit = async (reqItem: AdmissionRequest) => {
+    const k = admKeyOf(reqItem);
+    setAdmissions(prev => prev.filter(a => admKeyOf(a) !== k));
+    const body = reqItem.guestId
+      ? { guest_id: reqItem.guestId, participant_key: k }
+      : { user_id: reqItem.userId, participant_key: k };
+    const resp = await apiCall(`/meetings/${meeting.id}/admit`, { method: 'POST', body: JSON.stringify(body) }).catch(() => null);
     if (resp && !resp.ok) message.info('This person is no longer waiting.');
   };
-  const handleDecline = async (userId: number) => {
-    setAdmissions(prev => prev.filter(a => a.userId !== userId));
-    await apiCall(`/meetings/${meeting.id}/decline`, { method: 'POST', body: JSON.stringify({ user_id: userId }) }).catch(() => { });
+  const handleDecline = async (reqItem: AdmissionRequest) => {
+    const k = admKeyOf(reqItem);
+    setAdmissions(prev => prev.filter(a => admKeyOf(a) !== k));
+    const body = reqItem.guestId
+      ? { guest_id: reqItem.guestId, participant_key: k }
+      : { user_id: reqItem.userId, participant_key: k };
+    await apiCall(`/meetings/${meeting.id}/decline`, { method: 'POST', body: JSON.stringify(body) }).catch(() => { });
   };
   const admitAll = async () => {
     setAdmissions([]);
@@ -1063,13 +1088,17 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
   const toggleLock = async () => { await apiCall(`/meetings/${meeting.id}/lock`, { method: 'POST' }).catch(() => { }); };
 
   const kick = (p: Participant) => {
+    const isExtGuest = p.identity.startsWith('guest:');
     modal.confirm({
       title: `Remove ${p.name || 'this participant'}?`,
-      content: 'They will be disconnected and cannot rejoin this class.',
+      content: 'They will be disconnected and cannot rejoin this meeting.',
       okText: 'Remove',
       okButtonProps: { danger: true },
       centered: true,
-      onOk: () => apiCall(`/meetings/${meeting.id}/kick`, { method: 'POST', body: JSON.stringify({ user_id: parseInt(p.identity) }) }),
+      onOk: () => apiCall(`/meetings/${meeting.id}/kick`, {
+        method: 'POST',
+        body: JSON.stringify(isExtGuest ? { participant_key: p.identity } : { user_id: parseInt(p.identity) }),
+      }),
     });
   };
 
@@ -1167,7 +1196,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
 
   /* ── Derived ── */
   const handIds = useMemo(() => new Set(raisedHands.map(h => String(h.userId))), [raisedHands]);
-  const pollsVisible = isHost || !!activePoll;
+  const pollsVisible = !guestMode && (isHost || !!activePoll);
   const teacherIdentity = String(meeting.teacher_id);
   const reconnecting = connState.includes('reconnecting');
   const connecting = connState === 'connecting';
@@ -1225,19 +1254,23 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
             <span>Waiting to join <b>{admissions.length}</b></span>
             {admissions.length > 1 && <button type="button" className="mr-link" onClick={admitAll}>Admit all</button>}
           </div>
-          {admissions.map(a => (
-            <div key={a.userId} className="mr-person">
+          {admissions.map(a => {
+            const ak = admKeyOf(a);
+            return (
+            <div key={ak} className="mr-person">
               <span className="mr-person-avatar" style={{ background: colorFor(a.userName) }}>{initials(a.userName)}</span>
               <span className="mr-person-name">
                 {a.userName}
-                {a.role && <span className="mr-tag is-muted">{a.role === 'teacher' ? 'Teacher' : a.role === 'admin' ? 'Admin' : 'Student'}</span>}
+                {(a.isGuest || a.role === 'guest') && <span className="mr-tag is-guest">Guest</span>}
+                {!a.isGuest && a.role && a.role !== 'guest' && <span className="mr-tag is-muted">{a.role === 'teacher' ? 'Teacher' : a.role === 'admin' ? 'Admin' : 'Student'}</span>}
               </span>
               <div className="mr-person-actions is-visible">
-                <Button size="small" type="primary" onClick={() => handleAdmit(a.userId)}>Admit</Button>
-                <Button size="small" onClick={() => handleDecline(a.userId)}>Deny</Button>
+                <Button size="small" type="primary" onClick={() => handleAdmit(a)}>Admit</Button>
+                <Button size="small" onClick={() => handleDecline(a)}>Deny</Button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </section>
       )}
       {raisedHands.length > 0 && (
@@ -1247,7 +1280,7 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
             {isHost && <button type="button" className="mr-link" onClick={lowerAll}>Lower all</button>}
           </div>
           {raisedHands.map((h, i) => {
-            const self = h.userId === myId;
+            const self = String(h.userId) === String(myId);
             return (
               <div key={h.userId} className="mr-person">
                 <span className="mr-hand-order">{i + 1}</span>
@@ -1539,10 +1572,10 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
                   <span>wants to join{admissions.length > 1 ? ` · +${admissions.length - 1} more` : ''}</span>
                 </div>
                 <div className="mr-toast-actions">
-                  <Button size="small" onClick={() => (admissions.length > 1 ? openPanel('people', true) : handleDecline(admissions[0].userId))}>
+                  <Button size="small" onClick={() => (admissions.length > 1 ? openPanel('people', true) : handleDecline(admissions[0]))}>
                     {admissions.length > 1 ? 'View all' : 'Deny'}
                   </Button>
-                  <Button size="small" type="primary" onClick={() => handleAdmit(admissions[0].userId)}>Admit</Button>
+                  <Button size="small" type="primary" onClick={() => handleAdmit(admissions[0])}>Admit</Button>
                 </div>
               </div>
             )}
@@ -1793,6 +1826,9 @@ const MeetingRoomUI: React.FC<RoomUIProps> = ({ meeting, isHost, apiCall, socket
             passcode: isHost ? meeting.passcode : null,
             batch_name: meeting.batch_name,
             hostName: `${meeting.teacher_first_name || ''} ${meeting.teacher_last_name || ''}`.trim() || undefined,
+            is_public: meeting.is_public,
+            require_approval: meeting.require_approval,
+            invitees: meeting.invitees,
           }}
           apiCall={isHost ? apiCall : undefined}
           onPasscodeChange={onPasscodeChange}

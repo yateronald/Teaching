@@ -32,4 +32,16 @@ export function releaseSocket(): void {
   }
 }
 
+/**
+ * Dedicated Socket.IO connection for an unauthenticated external guest on `/meeting/:code`.
+ * Uses the scoped `meeting_guest` JWT directly and never touches portal `localStorage`.
+ */
+export function createGuestSocket(guestToken: string): Socket {
+  return io(getSocketUrl(), {
+    transports: ['websocket', 'polling'],
+    auth: { token: guestToken },
+    reconnectionDelayMax: 8000,
+  });
+}
+
 export type { Socket };

@@ -9,16 +9,18 @@ class AdminTab {
   static const onlineCourses = 3;
   static const batches = 4;
   static const demoRequests = 5;
-  static const marketing = 6;
-  static const emails = 7;
-  static const timetable = 8;
-  static const attendance = 9;
-  static const resources = 10;
-  static const examPrep = 11;
-  static const monitoring = 12;
-  static const aiEngine = 13;
-  static const settings = 14;
-  static const profile = 15;
+  static const meetings = 6;
+  static const calendar = 7;
+  static const marketing = 8;
+  static const emails = 9;
+  static const timetable = 10;
+  static const attendance = 11;
+  static const resources = 12;
+  static const examPrep = 13;
+  static const monitoring = 14;
+  static const aiEngine = 15;
+  static const settings = 16;
+  static const profile = 17;
 }
 
 /// Something another screen asked to open once its tab is shown, e.g. the

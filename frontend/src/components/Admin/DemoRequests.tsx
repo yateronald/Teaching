@@ -1,20 +1,22 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, ConfigProvider, DatePicker, Drawer, Dropdown, Form, Input, Modal, Select, Skeleton, Table, Tooltip, message } from 'antd';
+import { useNavigate } from 'react-router-dom';
+import { Button, ConfigProvider, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Modal, Radio, Segmented, Select, Skeleton, Table, Tag, TimePicker, Tooltip, message } from 'antd';
 import type { MenuProps } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import {
   CalendarOutlined, CheckCircleFilled, CheckOutlined, ClockCircleOutlined, CloseOutlined, CopyOutlined, DeleteOutlined,
   DownloadOutlined, EditOutlined, EnvironmentOutlined, ExclamationCircleFilled, LinkOutlined, MailOutlined, MoreOutlined,
-  PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
-  WhatsAppOutlined,
+  PhoneOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SendOutlined, StopOutlined, TeamOutlined, TrophyOutlined, UserOutlined,
+  VideoCameraOutlined, WhatsAppOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { useAuth } from '../../contexts/AuthContext';
 import useDemoAlerts from '../../hooks/useDemoAlerts';
 import useResponsive from '../../hooks/useResponsive';
+import { acquireSocket, releaseSocket } from '../../utils/realtime';
 import { headerHeight } from '../Layout/layoutMetrics';
-import { formatPlain, timezoneLabel } from '../../utils/timezone';
+import { COMMON_TIMEZONES, detectBrowserTimezone, formatPlain, timezoneLabel } from '../../utils/timezone';
 import './DemoRequests.css';
 
 /* ══════════════════════════════════════════
@@ -22,6 +24,41 @@ import './DemoRequests.css';
 ══════════════════════════════════════════ */
 
 type Status = 'new' | 'contacted' | 'demo_scheduled' | 'completed' | 'cancelled';
+
+interface AvailabilitySlot {
+  date: string;
+  start: string;
+  end: string;
+}
+
+interface AvailabilityRequest {
+  id: number;
+  status: 'pending' | 'submitted' | 'expired' | 'superseded';
+  proposed_timezone: string;
+  proposed_start_date: string;
+  proposed_end_date: string;
+  proposed_time_start: string;
+  proposed_time_end: string;
+  admin_note?: string | null;
+  expires_at?: string;
+  submitted_at?: string | null;
+  submitted_timezone?: string | null;
+  submitted_slots?: AvailabilitySlot[] | null;
+  submitted_note?: string | null;
+}
+
+interface LinkedMeeting {
+  id: number;
+  code: string;
+  title: string;
+  status: string;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  is_public?: boolean;
+  require_approval?: boolean;
+  passcode?: string | null;
+  public_link?: string | null;
+}
 
 interface DemoRequest {
   id: number;
@@ -45,6 +82,7 @@ interface DemoRequest {
   created_at: string;
   updated_at?: string | null;
   teacher_id?: number | null;
+  meeting_id?: number | null;
   meeting_link?: string | null;
   teacher_first_name?: string | null;
   teacher_last_name?: string | null;
@@ -56,6 +94,8 @@ interface DemoRequest {
   target_score?: string | null;
   /** The papers they want, as 'ce,co,ee,eo'. */
   skills?: string | null;
+  latest_availability?: AvailabilityRequest | null;
+  linked_meeting?: LinkedMeeting | null;
 }
 
 type Interest = 'classes' | 'exam';
@@ -83,7 +123,7 @@ interface Stats {
   /** Present once migration 023 has run. */
   exam_requests?: number; class_requests?: number; exam_new?: number;
 }
-interface Teacher { id: number; first_name: string; last_name: string; email: string; }
+interface Teacher { id: number; first_name: string; last_name: string; email: string; role?: string; }
 
 const STATUS: Record<Status, { label: string; stat: StatusCount }> = {
   new: { label: 'New', stat: 'new_requests' },
@@ -122,10 +162,12 @@ const n = (v: unknown) => Number(v) || 0;
 
 const DemoRequests: React.FC = () => {
   const { apiCall, user } = useAuth();
+  const navigate = useNavigate();
   const r = useResponsive();
   const [msg, msgHolder] = message.useMessage();
   const [modal, modalHolder] = Modal.useModal();
   const [scheduleForm] = Form.useForm();
+  const [availForm] = Form.useForm();
   const tz = user?.timezone;
 
   const [items, setItems] = useState<DemoRequest[]>([]);
@@ -145,12 +187,16 @@ const DemoRequests: React.FC = () => {
   const [debounced, setDebounced] = useState({ search: '', country: '' });
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [hosts, setHosts] = useState<Teacher[]>([]);
 
   const [drawer, setDrawer] = useState<DemoRequest | null>(null);
   const [notesDraft, setNotesDraft] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [scheduleFor, setScheduleFor] = useState<DemoRequest | null>(null);
+  const [scheduleMode, setScheduleMode] = useState<'platform' | 'external'>('platform');
   const [scheduling, setScheduling] = useState(false);
+  const [availFor, setAvailFor] = useState<DemoRequest | null>(null);
+  const [sendingAvail, setSendingAvail] = useState(false);
   const [statusFor, setStatusFor] = useState<DemoRequest | null>(null);
   const [statusChoice, setStatusChoice] = useState<Status>('new');
   const [statusNotes, setStatusNotes] = useState('');
@@ -193,8 +239,8 @@ const DemoRequests: React.FC = () => {
       });
       setDrawer(cur => (cur ? list.find(x => x.id === cur.id) || cur : cur));
       setError(null);
-    } catch (e: any) {
-      setError(e?.message || 'Could not load demo requests.');
+    } catch (e: unknown) {
+      setError(e instanceof Error && e.message ? e.message : 'Could not load demo requests.');
     } finally {
       setLoading(false);
       setFetching(false);
@@ -203,12 +249,30 @@ const DemoRequests: React.FC = () => {
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
-  // A request submitted while this page is open appears without a refresh.
+  // A request or availability submitted while this page is open appears without a refresh.
   const alerts = useDemoAlerts(true, () => { fetchList(); });
 
   useEffect(() => {
+    const s = acquireSocket();
+    const onAvail = (p: { fullName?: string }) => {
+      msg.info(`${p?.fullName || 'A prospect'} submitted their availability!`);
+      fetchList();
+    };
+    s.on('demo:availability-submitted', onAvail);
+    return () => { s.off('demo:availability-submitted', onAvail); releaseSocket(); };
+  }, [fetchList, msg]);
+
+  useEffect(() => {
     apiCall('/users/role/teachers').then(res => (res.ok ? res.json() : [])).then(d => setTeachers(Array.isArray(d) ? d : [])).catch(() => setTeachers([]));
-  }, [apiCall]);
+    apiCall('/users?limit=200').then(res => (res.ok ? res.json() : [])).then(d => {
+      const list = Array.isArray(d) ? d : (d?.users || d?.data || []);
+      const filtered = list.filter((u: Teacher) => u.role === 'admin' || u.role === 'teacher');
+      if (user?.id && !filtered.some((u: Teacher) => u.id === user.id)) {
+        filtered.unshift({ id: user.id, first_name: user.first_name, last_name: user.last_name, email: user.email, role: 'admin' });
+      }
+      setHosts(filtered);
+    }).catch(() => {});
+  }, [apiCall, user]);
   useEffect(() => { setNotesDraft(drawer?.notes || ''); }, [drawer?.id, drawer?.notes]);
 
   /* ═══════════ ACTIONS ═══════════ */
@@ -246,26 +310,143 @@ const DemoRequests: React.FC = () => {
     if (ok) msg.success('Notes saved');
   };
 
-  const openSchedule = (req: DemoRequest) => {
+  const openAskAvailability = (req: DemoRequest) => {
+    setAvailFor(req);
+    availForm.resetFields();
+    availForm.setFieldsValue({
+      dateRange: [dayjs().add(1, 'day'), dayjs().add(7, 'day')],
+      timeStart: dayjs('09:00', 'HH:mm'),
+      timeEnd: dayjs('18:00', 'HH:mm'),
+      proposed_timezone: tz || detectBrowserTimezone(),
+      admin_note: '',
+    });
+  };
+
+  const submitAskAvailability = async (values: {
+    dateRange: [Dayjs, Dayjs];
+    timeStart: Dayjs;
+    timeEnd: Dayjs;
+    proposed_timezone: string;
+    admin_note?: string;
+  }) => {
+    if (!availFor) return;
+    setSendingAvail(true);
+    try {
+      const res = await apiCall(`/demo-requests/${availFor.id}/request-availability`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          proposed_start_date: values.dateRange[0].format('YYYY-MM-DD'),
+          proposed_end_date: values.dateRange[1].format('YYYY-MM-DD'),
+          proposed_time_start: values.timeStart.format('HH:mm'),
+          proposed_time_end: values.timeEnd.format('HH:mm'),
+          proposed_timezone: values.proposed_timezone,
+          admin_note: values.admin_note?.trim() || undefined,
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        msg.error(d.message || 'Could not send availability request');
+        return;
+      }
+      msg.success(d.email_sent
+        ? `Availability link emailed to ${availFor.full_name}`
+        : 'Availability request saved (email delivery failed)');
+      setAvailFor(null);
+      fetchList();
+    } catch {
+      msg.error('Could not send availability request');
+    } finally {
+      setSendingAvail(false);
+    }
+  };
+
+  const slotToLocalDayjs = (slot: AvailabilitySlot, sourceTz?: string | null): Dayjs | null => {
+    try {
+      const target = `${slot.date}T${slot.start}:00`;
+      if (!sourceTz || sourceTz === 'UTC') return dayjs(target);
+      // Approximate conversion by finding UTC offset at that date in sourceTz
+      const approx = new Date(`${target}Z`);
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: sourceTz, year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).formatToParts(approx);
+      const get = (t: string) => Number(parts.find(p => p.type === t)?.value || 0);
+      const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'));
+      const offsetMs = asUtc - approx.getTime();
+      return dayjs(new Date(Date.parse(`${target}Z`) - offsetMs));
+    } catch {
+      return dayjs(`${slot.date}T${slot.start}`);
+    }
+  };
+
+  const openSchedule = (req: DemoRequest, prefillSlot?: AvailabilitySlot) => {
     setScheduleFor(req);
+    setScheduleMode('platform');
     scheduleForm.resetFields();
+    const firstSlot = prefillSlot || req.latest_availability?.submitted_slots?.[0];
+    const slotDt = firstSlot
+      ? slotToLocalDayjs(firstSlot, req.latest_availability?.submitted_timezone || req.timezone)
+      : null;
     scheduleForm.setFieldsValue({
-      demo_scheduled_at: req.demo_scheduled_at ? dayjs(req.demo_scheduled_at) : undefined,
+      demo_scheduled_at: slotDt || (req.demo_scheduled_at ? dayjs(req.demo_scheduled_at) : dayjs().add(1, 'day').hour(10).minute(0)),
+      duration_minutes: 30,
+      host_id: req.teacher_id || user?.id,
       teacher_id: req.teacher_id || undefined,
+      title: `French Demo — ${req.full_name}`,
+      require_approval: true,
       meeting_link: req.meeting_link || '',
       notes: req.notes || '',
     });
   };
-  const submitSchedule = async (values: { demo_scheduled_at: Dayjs; teacher_id: number; meeting_link: string; notes?: string }) => {
+
+  const submitSchedule = async (values: {
+    demo_scheduled_at: Dayjs;
+    duration_minutes?: number;
+    host_id?: number;
+    teacher_id?: number;
+    title?: string;
+    require_approval?: boolean;
+    meeting_link?: string;
+    notes?: string;
+  }) => {
     if (!scheduleFor) return;
     setScheduling(true);
     try {
+      if (scheduleMode === 'platform') {
+        const start = values.demo_scheduled_at.toDate();
+        const dur = Math.max(15, Number(values.duration_minutes) || 30);
+        const end = new Date(start.getTime() + dur * 60000);
+        const res = await apiCall(`/demo-requests/${scheduleFor.id}/schedule-meeting`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scheduled_start: start.toISOString(),
+            scheduled_end: end.toISOString(),
+            title: values.title?.trim() || undefined,
+            host_id: values.host_id || user?.id,
+            require_approval: values.require_approval !== false,
+            notes: values.notes || '',
+            host_timezone: tz || detectBrowserTimezone(),
+          }),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          msg.error(d.message || 'Could not schedule the demo meeting');
+          return;
+        }
+        msg.success(`Demo meeting scheduled & added to Admin calendar — ${scheduleFor.full_name} received the join link`);
+        setScheduleFor(null);
+        fetchList();
+        return;
+      }
+
       const res = await apiCall(`/demo-requests/${scheduleFor.id}/schedule`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           demo_scheduled_at: values.demo_scheduled_at.toISOString(),
           teacher_id: values.teacher_id,
-          meeting_link: values.meeting_link.trim(),
+          meeting_link: (values.meeting_link || '').trim(),
           notes: values.notes || '',
         }),
       });
@@ -352,15 +533,22 @@ const DemoRequests: React.FC = () => {
   const demoPassed = (x: DemoRequest) => !!x.demo_scheduled_at && new Date(x.demo_scheduled_at).getTime() < Date.now();
 
   const nextAction = (x: DemoRequest): { label: string; icon: React.ReactNode; run: () => void } | null => {
-    if (x.status === 'new') return { label: 'Mark contacted', icon: <CheckOutlined />, run: () => updateStatus(x, 'contacted') };
+    if (x.latest_availability?.status === 'submitted' && (x.status === 'new' || x.status === 'contacted')) {
+      return { label: 'Schedule', icon: <CalendarOutlined />, run: () => openSchedule(x) };
+    }
+    if (x.status === 'new') return { label: 'Ask availability', icon: <SendOutlined />, run: () => openAskAvailability(x) };
     if (x.status === 'contacted') return { label: 'Schedule demo', icon: <CalendarOutlined />, run: () => openSchedule(x) };
     if (x.status === 'demo_scheduled' && demoPassed(x)) return { label: 'Mark completed', icon: <CheckCircleFilled />, run: () => updateStatus(x, 'completed') };
+    if (x.status === 'demo_scheduled' && x.linked_meeting?.code) {
+      return { label: 'Open room', icon: <VideoCameraOutlined />, run: () => navigate(`/app/meeting/${x.linked_meeting!.code}`) };
+    }
     if (x.status === 'demo_scheduled' && x.meeting_link) return { label: 'Open link', icon: <LinkOutlined />, run: () => window.open(x.meeting_link as string, '_blank', 'noopener,noreferrer') };
     return null;
   };
 
   const actionsMenu = (x: DemoRequest): MenuProps['items'] => [
     { key: 'view', icon: <UserOutlined />, label: 'Open details', onClick: () => setDrawer(x) },
+    { key: 'ask_avail', icon: <SendOutlined />, label: x.latest_availability?.status === 'pending' ? 'Resend availability request' : 'Ask for availability', disabled: x.status === 'completed' || x.status === 'cancelled', onClick: () => openAskAvailability(x) },
     { key: 'mail', icon: <MailOutlined />, label: 'Send an email', onClick: () => { window.location.href = `mailto:${x.email}`; } },
     { type: 'divider' },
     { key: 'contacted', icon: <CheckOutlined />, label: 'Mark contacted', disabled: x.status !== 'new', onClick: () => updateStatus(x, 'contacted') },
@@ -372,6 +560,7 @@ const DemoRequests: React.FC = () => {
 
   const StatusCell: React.FC<{ x: DemoRequest }> = ({ x }) => {
     const waiting = daysAgo(x.created_at);
+    const av = x.latest_availability;
     const sub = x.status === 'new' ? `Waiting ${agoText(x.created_at).replace(' ago', '')}`
       : x.status === 'contacted' ? `Contacted ${agoText(x.contacted_at || x.updated_at)}`
         : x.status === 'demo_scheduled' ? (x.demo_scheduled_at ? `${demoPassed(x) ? 'Held' : 'Demo'} ${fmtDate(x.demo_scheduled_at, true)}` : 'Demo booked')
@@ -380,6 +569,16 @@ const DemoRequests: React.FC = () => {
       <div className="dr-status">
         <span className={`dr-pill is-${x.status}`}>{STATUS[x.status]?.label || x.status}</span>
         <span className={`dr-status-sub${x.status === 'new' && waiting >= 2 ? ' is-late' : ''}`}>{sub}</span>
+        {av?.status === 'submitted' && x.status !== 'demo_scheduled' && x.status !== 'completed' && (
+          <Tag color="green" style={{ marginTop: 4, width: 'fit-content', fontSize: 11 }}>
+            Availability received{av.submitted_slots?.[0] ? ` · ${av.submitted_slots[0].date}` : ''}
+          </Tag>
+        )}
+        {av?.status === 'pending' && x.status !== 'demo_scheduled' && x.status !== 'completed' && (
+          <Tag color="geekblue" style={{ marginTop: 4, width: 'fit-content', fontSize: 11 }}>
+            Availability requested
+          </Tag>
+        )}
       </div>
     );
   };
@@ -633,9 +832,14 @@ const DemoRequests: React.FC = () => {
         {/* ── Details drawer ── */}
         <Drawer open={!!d} onClose={() => setDrawer(null)} width={r.isMobile ? '100%' : 480} closable={false} title={null} className="dr-drawer"
           footer={d && (
-            <div className="dr-dfoot">
+            <div className="dr-dfoot" style={{ flexWrap: 'wrap' }}>
               {dNext && <Button type="primary" icon={dNext.icon} loading={busyId === d.id} onClick={dNext.run}>{dNext.label}</Button>}
-              {d.status !== 'completed' && d.status !== 'cancelled' && d.status !== 'contacted' && (
+              {d.status !== 'completed' && d.status !== 'cancelled' && (
+                <Button icon={<SendOutlined />} onClick={() => openAskAvailability(d)}>
+                  {d.latest_availability?.status === 'pending' ? 'Resend availability' : 'Ask availability'}
+                </Button>
+              )}
+              {d.status !== 'completed' && d.status !== 'cancelled' && (
                 <Button icon={<CalendarOutlined />} onClick={() => openSchedule(d)}>{d.demo_scheduled_at ? 'Reschedule' : 'Schedule'}</Button>
               )}
               <Button icon={<EditOutlined />} onClick={() => openStatus(d)}>Status</Button>
@@ -683,15 +887,89 @@ const DemoRequests: React.FC = () => {
                     <strong>{formatPlain(d.demo_scheduled_at, tz, { weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true })} <small>{timezoneLabel(tz)}</small></strong>
                     {dTz && dTz !== tz && <em>Their time: {inTz(d.demo_scheduled_at, dTz, { weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true })} ({dTz.replace(/_/g, ' ')})</em>}
                     {teacherName(d) && <em><TeamOutlined /> {teacherName(d)}</em>}
+                    {d.linked_meeting?.code && (
+                      <em style={{ marginTop: 4 }}>
+                        ID: <code>{d.linked_meeting.code}</code>
+                        {d.linked_meeting.passcode ? <> · Pass: <code>{d.linked_meeting.passcode}</code></> : null}
+                      </em>
+                    )}
                   </div>
-                  {d.meeting_link && (
-                    <div className="dr-demo-actions">
-                      <Button size="small" icon={<LinkOutlined />} href={d.meeting_link} target="_blank" rel="noopener noreferrer">Open</Button>
-                      <Tooltip title="Copy link"><Button size="small" icon={<CopyOutlined />} onClick={() => copy(d.meeting_link as string, 'Link')} aria-label="Copy link" /></Tooltip>
+                  {(d.meeting_link || d.linked_meeting) && (
+                    <div className="dr-demo-actions" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {d.linked_meeting?.code && (
+                        <Button size="small" type="primary" icon={<VideoCameraOutlined />} onClick={() => navigate(`/app/meeting/${d.linked_meeting!.code}`)}>
+                          Open room
+                        </Button>
+                      )}
+                      {d.meeting_link && (
+                        <Tooltip title="Copy public meeting link"><Button size="small" icon={<CopyOutlined />} onClick={() => copy(d.meeting_link as string, 'Meeting link')} aria-label="Copy link" /></Tooltip>
+                      )}
                     </div>
                   )}
                 </div>
               )}
+
+              {/* ── Availability request / submitted slots ── */}
+              <section className="dr-sec">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <h4 style={{ margin: 0 }}>Availability workflow</h4>
+                  {d.status !== 'completed' && d.status !== 'cancelled' && (
+                    <Button size="small" icon={<SendOutlined />} onClick={() => openAskAvailability(d)}>
+                      {d.latest_availability ? 'Send new link' : 'Ask for availability'}
+                    </Button>
+                  )}
+                </div>
+                {!d.latest_availability ? (
+                  <p style={{ fontSize: 13, color: '#64748b', margin: 0 }}>
+                    No availability link sent yet. Click <strong>Ask for availability</strong> to send a one-time scheduling link.
+                  </p>
+                ) : d.latest_availability.status === 'submitted' ? (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#ecfdf5', border: '1px solid #a7f3d0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <Tag color="green" style={{ margin: 0 }}>Availability received</Tag>
+                      <span style={{ fontSize: 11.5, color: '#065f46' }}>
+                        {d.latest_availability.submitted_timezone}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {(d.latest_availability.submitted_slots || []).map((sl, i) => {
+                        const localDt = slotToLocalDayjs(sl, d.latest_availability?.submitted_timezone);
+                        return (
+                          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, background: '#ffffff', padding: '6px 10px', borderRadius: 8, border: '1px solid #d1fae5' }}>
+                            <div style={{ fontSize: 12.5 }}>
+                              <strong>{sl.date}</strong> · {sl.start} – {sl.end} ({d.latest_availability?.submitted_timezone})
+                              {localDt && (
+                                <div style={{ fontSize: 11.5, color: '#64748b' }}>
+                                  Your time: {localDt.format('ddd, MMM D · HH:mm')} ({timezoneLabel(tz)})
+                                </div>
+                              )}
+                            </div>
+                            {d.status !== 'completed' && d.status !== 'cancelled' && (
+                              <Button size="small" type="primary" onClick={() => openSchedule(d, sl)}>
+                                Schedule
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {d.latest_availability.submitted_note && (
+                      <div style={{ marginTop: 8, fontSize: 12.5, color: '#065f46' }}>
+                        <strong>Prospect note:</strong> {d.latest_availability.submitted_note}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ padding: 12, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0', fontSize: 12.5 }}>
+                    <Tag color={d.latest_availability.status === 'pending' ? 'geekblue' : 'orange'}>
+                      {d.latest_availability.status === 'pending' ? 'Waiting for prospect response' : d.latest_availability.status}
+                    </Tag>
+                    <div style={{ marginTop: 6, color: '#334155' }}>
+                      Proposed: <strong>{d.latest_availability.proposed_start_date} → {d.latest_availability.proposed_end_date}</strong> · {d.latest_availability.proposed_time_start}–{d.latest_availability.proposed_time_end} ({d.latest_availability.proposed_timezone})
+                    </div>
+                  </div>
+                )}
+              </section>
 
               <section className="dr-sec">
                 <h4>Contact</h4>
@@ -756,8 +1034,60 @@ const DemoRequests: React.FC = () => {
           )}
         </Drawer>
 
+        {/* ── Ask for availability ── */}
+        <Modal
+          open={!!availFor}
+          onCancel={() => !sendingAvail && setAvailFor(null)}
+          footer={null}
+          width={520}
+          centered
+          className="dr-modal"
+          maskClosable={!sendingAvail}
+          closable={!sendingAvail}
+        >
+          <div className="dr-md">
+            <header className="dr-md-head">
+              <span className="dr-md-ic"><SendOutlined /></span>
+              <div>
+                <h3>Ask for availability</h3>
+                <p>{availFor?.full_name} · {availFor?.email}</p>
+              </div>
+            </header>
+            <Form form={availForm} layout="vertical" requiredMark={false} onFinish={submitAskAvailability} className="dr-md-body">
+              <Form.Item name="dateRange" label="Proposed date range" rules={[{ required: true, message: 'Choose start and end dates' }]}>
+                <DatePicker.RangePicker style={{ width: '100%' }} disabledDate={dt => dt.isBefore(dayjs().startOf('day'))} />
+              </Form.Item>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item name="timeStart" label="Daily from" rules={[{ required: true, message: 'Start time required' }]}>
+                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                </Form.Item>
+                <Form.Item name="timeEnd" label="Daily until" rules={[{ required: true, message: 'End time required' }]}>
+                  <TimePicker format="HH:mm" minuteStep={15} style={{ width: '100%' }} />
+                </Form.Item>
+              </div>
+              <Form.Item name="proposed_timezone" label="Timezone" rules={[{ required: true, message: 'Select timezone' }]}>
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  options={COMMON_TIMEZONES.map(t => ({ value: t.value, label: t.label }))}
+                />
+              </Form.Item>
+              <Form.Item name="admin_note" label="Note for prospect (optional)">
+                <Input.TextArea rows={2} maxLength={800} placeholder="e.g. Let us know which 30-minute slot works best for your level assessment." />
+              </Form.Item>
+              <p className="dr-md-info"><MailOutlined /> {availFor?.full_name} will receive an email with a single-use link to pick their available time.</p>
+            </Form>
+            <footer className="dr-md-foot">
+              <Button onClick={() => setAvailFor(null)} disabled={sendingAvail}>Cancel</Button>
+              <Button type="primary" icon={<SendOutlined />} loading={sendingAvail} onClick={() => availForm.submit()}>
+                Send availability link
+              </Button>
+            </footer>
+          </div>
+        </Modal>
+
         {/* ── Schedule demo ── */}
-        <Modal open={!!scheduleFor} onCancel={() => !scheduling && setScheduleFor(null)} footer={null} width={520} centered className="dr-modal"
+        <Modal open={!!scheduleFor} onCancel={() => !scheduling && setScheduleFor(null)} footer={null} width={560} centered className="dr-modal"
           maskClosable={!scheduling} closable={!scheduling} forceRender>
           <div className="dr-md">
             <header className="dr-md-head">
@@ -767,32 +1097,92 @@ const DemoRequests: React.FC = () => {
                 <p>{scheduleFor?.full_name} · {scheduleFor?.current_level || '—'}{scheduleFor?.country ? ` · ${scheduleFor.country}` : ''}</p>
               </div>
             </header>
-            {scheduleFor?.preferred_schedule && (
+            {scheduleFor?.latest_availability?.status === 'submitted' && (scheduleFor.latest_availability.submitted_slots?.length || 0) > 0 && (
+              <div className="dr-md-pref" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+                <span><strong>Submitted availability</strong> ({scheduleFor.latest_availability.submitted_timezone}) — click a slot to pre-fill:</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {scheduleFor.latest_availability.submitted_slots!.map((sl, i) => (
+                    <Button
+                      key={i}
+                      size="small"
+                      onClick={() => {
+                        const dt = slotToLocalDayjs(sl, scheduleFor.latest_availability?.submitted_timezone);
+                        if (dt) scheduleForm.setFieldValue('demo_scheduled_at', dt);
+                      }}
+                    >
+                      {sl.date} {sl.start}–{sl.end}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {scheduleFor?.preferred_schedule && !scheduleFor?.latest_availability?.submitted_slots?.length && (
               <div className="dr-md-pref"><ClockCircleOutlined /><span><strong>Their availability</strong>{scheduleFor.preferred_schedule}{scheduleFor.timezone ? ` · ${scheduleFor.timezone.replace(/_/g, ' ')}` : ''}</span></div>
             )}
+            <div style={{ padding: '12px 24px 0' }}>
+              <Segmented
+                block
+                value={scheduleMode}
+                onChange={v => setScheduleMode(v as 'platform' | 'external')}
+                options={[
+                  { value: 'platform', label: 'Create live meeting (auto link & Calendar)' },
+                  { value: 'external', label: 'Use external URL' },
+                ]}
+              />
+            </div>
             <Form form={scheduleForm} layout="vertical" requiredMark={false} onFinish={submitSchedule} className="dr-md-body">
               <Form.Item name="demo_scheduled_at" label="Date and time" rules={[{ required: true, message: 'Pick the date and time' }]}
                 extra={pickedDate && sTz && sTz !== tz ? `Their local time: ${inTz(pickedDate.toDate(), sTz, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}` : `Your time (${timezoneLabel(tz)})`}>
                 <DatePicker showTime={{ format: 'HH:mm', minuteStep: 15 }} format="ddd, MMM D YYYY · HH:mm" style={{ width: '100%' }}
                   disabledDate={dt => dt.isBefore(dayjs().startOf('day'))} />
               </Form.Item>
-              <Form.Item name="teacher_id" label="Teacher" rules={[{ required: true, message: 'Choose a teacher' }]}>
-                <Select showSearch optionFilterProp="label" placeholder="Search a teacher"
-                  options={teachers.map(t => ({ value: t.id, label: `${t.first_name} ${t.last_name} · ${t.email}` }))} />
-              </Form.Item>
-              <Form.Item name="meeting_link" label="Meeting link"
-                rules={[{ required: true, message: 'Add the meeting link' }, { type: 'url', message: 'Enter a full link, e.g. https://meet.google.com/…' }]}>
-                <Input prefix={<LinkOutlined />} placeholder="https://meet.google.com/abc-defg-hij" />
-              </Form.Item>
-              <Form.Item name="notes" label="Note for the teacher and student">
+              {scheduleMode === 'platform' ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 140px', gap: 12 }}>
+                    <Form.Item name="title" label="Meeting title">
+                      <Input maxLength={160} placeholder="French Demo Session" />
+                    </Form.Item>
+                    <Form.Item name="duration_minutes" label="Duration (min)">
+                      <InputNumber min={15} max={180} step={15} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </div>
+                  <Form.Item name="host_id" label="Host (Admin or Teacher)">
+                    <Select showSearch optionFilterProp="label" placeholder="Select host"
+                      options={hosts.map(h => ({ value: h.id, label: `${h.first_name} ${h.last_name} (${h.role}) · ${h.email}` }))} />
+                  </Form.Item>
+                  <Form.Item name="require_approval" label="Guest joining policy">
+                    <Radio.Group style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <Radio value={true}><strong>Require host approval</strong> — prospect waits in lobby</Radio>
+                      <Radio value={false}><strong>Direct entry</strong> — prospect joins immediately once live</Radio>
+                    </Radio.Group>
+                  </Form.Item>
+                </>
+              ) : (
+                <>
+                  <Form.Item name="teacher_id" label="Teacher" rules={[{ required: true, message: 'Choose a teacher' }]}>
+                    <Select showSearch optionFilterProp="label" placeholder="Search a teacher"
+                      options={teachers.map(t => ({ value: t.id, label: `${t.first_name} ${t.last_name} · ${t.email}` }))} />
+                  </Form.Item>
+                  <Form.Item name="meeting_link" label="Meeting link"
+                    rules={[{ required: true, message: 'Add the meeting link' }, { type: 'url', message: 'Enter a full link, e.g. https://meet.google.com/…' }]}>
+                    <Input prefix={<LinkOutlined />} placeholder="https://meet.google.com/abc-defg-hij" />
+                  </Form.Item>
+                </>
+              )}
+              <Form.Item name="notes" label="Note for the participant">
                 <Input.TextArea autoSize={{ minRows: 2, maxRows: 5 }} placeholder="Anything they should prepare…" maxLength={1000} />
               </Form.Item>
-              <p className="dr-md-info"><MailOutlined /> A confirmation email goes to the student and the teacher.</p>
+              <p className="dr-md-info">
+                <MailOutlined />{' '}
+                {scheduleMode === 'platform'
+                  ? 'Creates the meeting, adds it to Admin Calendar, and automatically emails the join link, ID & passcode.'
+                  : 'A confirmation email goes to the student and the teacher.'}
+              </p>
             </Form>
             <footer className="dr-md-foot">
               <Button onClick={() => setScheduleFor(null)} disabled={scheduling}>Cancel</Button>
               <Button type="primary" icon={<CalendarOutlined />} loading={scheduling} onClick={() => scheduleForm.submit()}>
-                {scheduleFor?.demo_scheduled_at ? 'Save & notify' : 'Schedule & notify'}
+                {scheduleMode === 'platform' ? 'Schedule & email link' : (scheduleFor?.demo_scheduled_at ? 'Save & notify' : 'Schedule & notify')}
               </Button>
             </footer>
           </div>

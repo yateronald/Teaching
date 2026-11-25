@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -452,6 +455,31 @@ class _NoSession extends TokenStorage {
   Future<void> clearSession() async {}
 }
 
+class _CompanyLogoPicker extends FilePicker {
+  PlatformFile? file;
+
+  @override
+  Future<FilePickerResult?> pickFiles({
+    String? dialogTitle,
+    String? initialDirectory,
+    FileType type = FileType.any,
+    List<String>? allowedExtensions,
+    Function(FilePickerStatus)? onFileLoading,
+    bool allowCompression = true,
+    int compressionQuality = 30,
+    bool allowMultiple = false,
+    bool withData = false,
+    bool withReadStream = false,
+    bool lockParentWindow = false,
+    bool readSequential = false,
+  }) async {
+    expect(type, FileType.custom);
+    expect(allowedExtensions, ['png', 'jpg', 'jpeg', 'webp']);
+    final selected = file;
+    return selected == null ? null : FilePickerResult([selected]);
+  }
+}
+
 const _phone = Size(360, 740);
 const _tablet = Size(1024, 768);
 
@@ -561,7 +589,7 @@ void main() {
   });
 
   testWidgets('a new company needs a package, exams and a manager', (tester) async {
-    final api = await _show(tester, const _Opener(CompanyEditorPanel()), size: const Size(1024, 1400));
+    final api = await _show(tester, const _Opener(CompanyEditorPanel()), size: const Size(1024, 1600));
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextFormField, 'Company name'), 'Transports du Littoral');
@@ -601,6 +629,67 @@ void main() {
     ]);
     expect(body['manager'], {'first_name': 'Mariam', 'last_name': 'Kouassi', 'email': 'mariam@sgtl.example'});
     expect(DateTime.parse(body['access_ends_at'] as String).isAfter(DateTime.parse(body['access_starts_at'] as String)), isTrue);
+  });
+
+  testWidgets('a new company previews its logo and sends it with the creation request', (tester) async {
+    final picker = _CompanyLogoPicker();
+    FilePicker.platform = picker;
+    addTearDown(FilePickerIO.registerWith);
+    final png = base64Decode('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAAQSURBVBhXY3DMfPifARkAACYUAoufMrgtAAAAAElFTkSuQmCC');
+
+    final api = await _show(tester, const _Opener(CompanyEditorPanel()), size: const Size(360, 1500));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    picker.file = PlatformFile(name: 'oversize.jpg', size: 1024 * 1024 + 1);
+    await tester.tap(find.text('Add a logo'));
+    await tester.pumpAndSettle();
+    expect(find.text('The logo must be 1 MB or less.'), findsOneWidget);
+    expect(find.text('Remove logo'), findsNothing);
+
+    picker.file = PlatformFile(name: 'first.png', size: png.length, bytes: png);
+    await tester.tap(find.text('Add a logo'));
+    await tester.pumpAndSettle();
+    expect(find.text('first.png'), findsOneWidget);
+    expect(find.byType(Image), findsOneWidget);
+    await tester.tap(find.text('Remove logo'));
+    await tester.pumpAndSettle();
+    expect(find.text('first.png'), findsNothing);
+
+    picker.file = PlatformFile(name: 'company.png', size: png.length, bytes: png);
+    await tester.tap(find.text('Add a logo'));
+    await tester.pumpAndSettle();
+    picker.file = null;
+    await tester.tap(find.text('Change logo'));
+    await tester.pumpAndSettle();
+    expect(find.text('company.png'), findsOneWidget);
+    expect(api.sent['/admin/organizations'], isNull);
+
+    await tester.enterText(find.widgetWithText(TextFormField, 'Company name'), 'Data Formation');
+    await tester.tap(find.byKey(const Key('company-pick-content')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('company-content-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    final firstName = find.widgetWithText(TextFormField, 'First name');
+    final formScroll = find.byWidgetPredicate((widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down);
+    await tester.scrollUntilVisible(firstName, 240, scrollable: formScroll);
+    await tester.enterText(firstName, 'Mariam');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Last name'), 'Kouassi');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Email address'), 'mariam@example.com');
+    await tester.tap(find.byKey(const Key('company-save')));
+    await tester.pumpAndSettle();
+
+    final form = api.sent['/admin/organizations'] as FormData;
+    final payload = jsonDecode(form.fields.single.value) as Map<String, dynamic>;
+    expect(form.fields.single.key, 'payload');
+    expect(payload['name'], 'Data Formation');
+    expect(payload['manager']['email'], 'mariam@example.com');
+    expect(payload['content'], isNotEmpty);
+    final file = form.files.single;
+    expect(file.key, 'logo');
+    expect(file.value.filename, 'company.png');
+    expect(file.value.length, png.length);
   });
 
   testWidgets('a company page shows its package, people and history', (tester) async {

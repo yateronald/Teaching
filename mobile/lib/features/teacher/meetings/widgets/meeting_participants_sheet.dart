@@ -7,8 +7,8 @@ class MeetingParticipantsSheet extends StatefulWidget {
   final List<Participant> participants;
   final String? localParticipantIdentity;
   final List<Map<String, dynamic>> admissions;
-  final Function(int userId) onAdmit;
-  final Function(int userId) onDecline;
+  final Function(String participantKey) onAdmit;
+  final Function(String participantKey) onDecline;
   final VoidCallback? onAdmitAll;
   final bool isHost;
   final Set<String> raisedHands;
@@ -292,7 +292,10 @@ class _MeetingParticipantsSheetState extends State<MeetingParticipantsSheet> {
           const SizedBox(height: 8),
           ...widget.admissions.map((adm) {
             final userName = (adm['userName'] ?? adm['user_name'] ?? 'Participant').toString();
-            final userId = (adm['userId'] ?? adm['user_id'] as num?)?.toInt() ?? 0;
+            final isGuest = adm['isGuest'] == true || adm['role'] == 'guest';
+            final participantKey = (adm['key'] ??
+                    (adm['guestId'] != null ? 'guest:${adm['guestId']}' : '${adm['userId'] ?? adm['user_id'] ?? ''}'))
+                .toString();
             return Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Row(
@@ -308,14 +311,29 @@ class _MeetingParticipantsSheetState extends State<MeetingParticipantsSheet> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      userName,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? const Color(0xFFE7EAEE) : AppColors.ink,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          userName,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: isDark ? const Color(0xFFE7EAEE) : AppColors.ink,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (isGuest)
+                          Text(
+                            isFr ? 'Invité externe' : 'External guest',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              color: isDark ? const Color(0xFFFCD34D) : AppColors.warn,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   TextButton(
@@ -324,7 +342,7 @@ class _MeetingParticipantsSheetState extends State<MeetingParticipantsSheet> {
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
-                    onPressed: () => widget.onDecline(userId),
+                    onPressed: () => widget.onDecline(participantKey),
                     child: Text(isFr ? 'Refuser' : 'Decline', style: const TextStyle(fontSize: 12)),
                   ),
                   const SizedBox(width: 4),
@@ -336,7 +354,7 @@ class _MeetingParticipantsSheetState extends State<MeetingParticipantsSheet> {
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                     ),
-                    onPressed: () => widget.onAdmit(userId),
+                    onPressed: () => widget.onAdmit(participantKey),
                     child: Text(isFr ? 'Admettre' : 'Admit', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   ),
                 ],

@@ -805,29 +805,47 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
     } catch (_) {}
   }
 
-  Future<void> _admitUser(int userId) async {
+  String _admKey(Map<String, dynamic> a) {
+    final k = a['key']?.toString();
+    if (k != null && k.isNotEmpty) return k;
+    final gid = a['guestId'] ?? a['guest_id'];
+    if (gid != null && gid.toString().isNotEmpty) return 'guest:$gid';
+    return '${a['userId'] ?? a['user_id'] ?? ''}';
+  }
+
+  Map<String, dynamic> _moderationBody(String key) {
+    if (key.startsWith('guest:')) {
+      return {'guest_id': key.substring('guest:'.length), 'participant_key': key};
+    }
+    if (key.startsWith('g_')) {
+      return {'guest_id': key, 'participant_key': 'guest:$key'};
+    }
+    return {'user_id': int.tryParse(key) ?? 0, 'participant_key': key};
+  }
+
+  Future<void> _admitUser(String participantKey) async {
     setState(() {
-      _admissions.removeWhere((a) => (a['userId'] ?? a['user_id']) == userId);
+      _admissions.removeWhere((a) => _admKey(a) == participantKey);
     });
     try {
       final client = ref.read(apiClientProvider);
       await client.post(
         '/meetings/$_meetingIdInt/admit',
-        data: {'user_id': userId},
+        data: _moderationBody(participantKey),
       );
     } catch (_) {}
     _pollLobby();
   }
 
-  Future<void> _declineUser(int userId) async {
+  Future<void> _declineUser(String participantKey) async {
     setState(() {
-      _admissions.removeWhere((a) => (a['userId'] ?? a['user_id']) == userId);
+      _admissions.removeWhere((a) => _admKey(a) == participantKey);
     });
     try {
       final client = ref.read(apiClientProvider);
       await client.post(
         '/meetings/$_meetingIdInt/decline',
-        data: {'user_id': userId},
+        data: _moderationBody(participantKey),
       );
     } catch (_) {}
     _pollLobby();
@@ -1957,7 +1975,9 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
         final client = ref.read(apiClientProvider);
         await client.post(
           '/meetings/$_meetingIdInt/kick',
-          data: {'user_id': int.tryParse(identity) ?? 0},
+          data: identity.startsWith('guest:')
+              ? {'participant_key': identity}
+              : {'user_id': int.tryParse(identity) ?? 0},
         );
       } catch (_) {}
     }
@@ -3271,8 +3291,7 @@ class _MeetingRoomScreenState extends ConsumerState<MeetingRoomScreen>
     final userName =
         (first['userName'] ?? first['user_name'] ?? 'Un participant')
             .toString();
-    final firstUserId =
-        (first['userId'] ?? first['user_id'] as num?)?.toInt() ?? 0;
+    final firstUserId = _admKey(first);
     final extraCount = _admissions.length - 1;
     final isFr = context.isFrench;
 

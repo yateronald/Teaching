@@ -58,6 +58,10 @@ const MeetingList = lazy(() => import('./components/Meeting/MeetingList'));
 const MeetingPage = lazy(() => import('./components/Meeting/MeetingRoom'));
 const MeetingAttendance = lazy(() => import('./components/Meeting/MeetingAttendance'));
 const MeetingJoinLink = lazy(() => import('./components/Meeting/MeetingJoinLink'));
+const PublicMeetingEntry = lazy(() => import('./components/Meeting/PublicMeetingEntry'));
+const PublicMeetingRoom = lazy(() => import('./components/Meeting/PublicMeetingRoom'));
+const DemoAvailabilityPage = lazy(() => import('./components/Landing/DemoAvailabilityPage'));
+const AdminCalendar = lazy(() => import('./components/Admin/AdminCalendar'));
 const ForcePasswordChange = lazy(() => import('./components/Auth/ForcePasswordChange'));
 const MonitoringPage = lazy(() => import('./components/Admin/Monitoring/MonitoringPage'));
 const CandidateDashboard = lazy(() => import('./components/Candidate/CandidateDashboard'));
@@ -121,6 +125,13 @@ export function SiteRoutes() {
                 <Route key={p.path} path={p.path} element={<EmailFormPage lang={p.lang} />} />
               ))}
 
+              {/* Unlisted public meeting & single-use availability routes (not linked in public landing nav) */}
+              <Route element={<Suspense fallback={loading}><AppShell /></Suspense>}>
+                <Route path="/meeting" element={<PublicMeetingEntry />} />
+                <Route path="/meeting/:code" element={<PublicMeetingRoom />} />
+                <Route path="/demo-availability/:token" element={<DemoAvailabilityPage />} />
+              </Route>
+
               {/* The signed-in app. */}
               <Route element={<Suspense fallback={loading}><AppShell /></Suspense>}>
               <Route path="/login" element={<Login />} />
@@ -179,6 +190,11 @@ export function SiteRoutes() {
                 <Route path="demo-requests" element={
                   <ProtectedRoute requiredRole="admin">
                     <DemoRequests />
+                  </ProtectedRoute>
+                } />
+                <Route path="admin-calendar" element={
+                  <ProtectedRoute requiredRole="admin">
+                    <AdminCalendar />
                   </ProtectedRoute>
                 } />
                 <Route path="timetable" element={

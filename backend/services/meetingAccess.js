@@ -1,24 +1,27 @@
 /**
- * Meeting access — identifiers, passcodes, who may enter, the lobby.
+ * Meeting access — identifiers, passcodes, who may enter, the lobby, and public guests.
  *
  *  • Meeting code  : Google Meet style "abc-defg-hij" (25^10 ≈ 9.5e13 codes,
  *                    crypto random). It is also the LiveKit room name and the
- *                    public reference in every link: /app/meeting/abc-defg-hij.
+ *                    reference in invite links (/app/meeting/... or /meeting/...).
  *  • Passcode      : 6 characters, no look-alikes (0/O, 1/I/L). Stored
  *                    AES-256-GCM encrypted in meetings.password so only the
- *                    host can read it back; compared in constant time.
+ *                    host / admin can read it back; compared in constant time.
  *  • Direct entry  : host, admins, students of the meeting's batch, the batch's
  *                    teacher and guests the host already admitted
- *                    (meetings.trusted_user_ids).
- *  • Everyone else : meeting code + passcode, then the lobby until the host
- *                    admits or denies them.
- *
- * The lobby is live presence (like Teams / Meet): it lives in memory and a
- * request disappears when the person stops waiting. Admissions persist in
- * trusted_user_ids, removals in kicked_user_ids.
+ *                    (meetings.trusted_user_ids, or meeting_guests with status='admitted').
+ *  • Public rooms  : when meetings.is_public = TRUE, unauthenticated external
+ *                    guests join via /meeting with a scoped guest JWT
+ *                    (aud: 'meeting_guest') and are stored in `meeting_guests`.
+ *                    If require_approval = TRUE (default), they wait in lobby;
+ *                    if require_approval = FALSE, anyone with the link/credentials
+ *                    enters directly once the host starts the meeting.
  */
 const crypto = require('crypto');
+const jwt = require('jsonwebtoken');
 const { AccessToken, RoomServiceClient } = require('livekit-server-sdk');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_key';
 
 // ─────────────────────────────── Identifiers ───────────────────────────────
 const CODE_LETTERS = 'abcdefghijkmnopqrstuvwxyz'; // no "l" (reads as 1 / I)
@@ -49,6 +52,86 @@ function normalizeRef(input) {
 }
 const isNumericRef = ref => /^\d{1,10}$/.test(String(ref));
 const normalizePasscode = input => String(input ?? '').toUpperCase().replace(/[\s-]/g, '').slice(0, 32);
+
+function passcodeFromInput(input) {
+    const raw = String(input ?? '').trim();
+    const m = raw.match(/#(?:[^&]*&)?pwd=([A-Za-z0-9]+)/i);
+    return m ? normalizePasscode(m[1]) : '';
+}
+
+function frontendBase() {
+    return (process.env.FRONTEND_URL || 'https://www.learnfrenchwithnatives.com').replace(/\/$/, '');
+}
+
+function publicMeetingUrl(code, passcode = null) {
+    if (!code) return '';
+    return `${frontendBase()}/meeting/${code}${passcode ? `#pwd=${passcode}` : ''}`;
+}
+
+function isGuestKey(keyOrId) {
+    return typeof keyOrId === 'string' && keyOrId.startsWith('guest:');
+}
+function guestIdFromKey(key) {
+    return isGuestKey(key) ? key.slice('guest:'.length) : String(key ?? '');
+}
+function lobbyKeyFor(keyOrUserId) {
+    if (isGuestKey(keyOrUserId)) return keyOrUserId;
+    if (typeof keyOrUserId === 'string' && keyOrUserId.startsWith('g_')) return `guest:${keyOrUserId}`;
+    return String(Number(keyOrUserId));
+}
+
+function sanitizeDisplayName(raw) {
+    const cleaned = String(raw ?? '')
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 80);
+    return cleaned;
+}
+
+// ───────────────────────────── Guest Meeting JWT ─────────────────────────────
+// Distinct audience (`meeting_guest`) and NO `id` claim so `middleware/auth.js`
+// strictly rejects it on all portal `/api/*` routes.
+function newGuestId() {
+    return `g_${crypto.randomBytes(12).toString('hex')}`;
+}
+
+function signGuestToken({ guestId, meetingId, displayName }) {
+    return jwt.sign(
+        {
+            aud: 'meeting_guest',
+            guestId: String(guestId),
+            meetingId: Number(meetingId),
+            displayName: sanitizeDisplayName(displayName) || 'Guest',
+        },
+        JWT_SECRET,
+        { expiresIn: '6h' }
+    );
+}
+
+function verifyGuestToken(token) {
+    if (!token || typeof token !== 'string') return null;
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (
+            decoded &&
+            decoded.aud === 'meeting_guest' &&
+            typeof decoded.guestId === 'string' &&
+            /^g_[a-f0-9]{16,48}$/.test(decoded.guestId) &&
+            Number.isInteger(Number(decoded.meetingId)) &&
+            Number(decoded.meetingId) > 0
+        ) {
+            return {
+                guestId: decoded.guestId,
+                meetingId: Number(decoded.meetingId),
+                displayName: sanitizeDisplayName(decoded.displayName) || 'Guest',
+            };
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
 
 // ───────────────────────────── Passcode storage ─────────────────────────────
 let cachedKey = null;
@@ -112,7 +195,7 @@ async function uniqueMeetingCode(db) {
 
 // ────────────────────────────────── Lookup ──────────────────────────────────
 const MEETING_SELECT = `
-    SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name,
+    SELECT m.*, u.first_name AS teacher_first_name, u.last_name AS teacher_last_name, u.role AS teacher_role,
            b.name AS batch_name, b.teacher_id AS batch_teacher_id
     FROM meetings m
     LEFT JOIN users u ON u.id = m.teacher_id
@@ -128,6 +211,13 @@ async function findMeeting(db, ref) {
 // ────────────────────────────────── Access ──────────────────────────────────
 const ids = list => (Array.isArray(list) ? list.map(Number) : []);
 
+/** True when the authenticated user is the meeting creator/host OR an admin on a public/admin/demo meeting. */
+function isHostOrAdmin(meeting, user) {
+    if (!meeting || !user) return false;
+    if (Number(meeting.teacher_id) === Number(user.id)) return true;
+    return user.role === 'admin' && (!!meeting.is_public || (meeting.meeting_kind && meeting.meeting_kind !== 'class'));
+}
+
 /**
  * role: host | admin | teacher (batch teacher) | member (batch student)
  *       | guest (admitted earlier) | outsider | kicked
@@ -138,7 +228,12 @@ async function resolveAccess(db, meeting, user) {
     const uid = Number(user.id);
     if (Number(meeting.teacher_id) === uid) return { role: 'host', direct: true };
     if (ids(meeting.kicked_user_ids).includes(uid)) return { role: 'kicked', direct: false };
-    if (user.role === 'admin') return { role: 'admin', direct: true };
+    if (user.role === 'admin') {
+        if (meeting.is_public || (meeting.meeting_kind && meeting.meeting_kind !== 'class')) {
+            return { role: 'host', direct: true };
+        }
+        return { role: 'admin', direct: true };
+    }
     if (meeting.batch_id) {
         if (user.role === 'teacher') {
             let batchTeacher = meeting.batch_teacher_id;
@@ -155,9 +250,9 @@ async function resolveAccess(db, meeting, user) {
     return { role: 'outsider', direct: false };
 }
 
-const isModerator = access => access.role === 'host';
+const isModerator = access => access.role === 'host' || access.role === 'admin';
 
-/** What a caller may see about a meeting. The passcode only ever goes to the host. */
+/** What a caller may see about a meeting. The passcode only ever goes to the host / admin. */
 function meetingView(meeting, access, extra = {}) {
     const insider = access.direct;
     const view = {
@@ -168,6 +263,11 @@ function meetingView(meeting, access, extra = {}) {
         status: meeting.status,
         is_locked: !!meeting.is_locked,
         is_recording: !!meeting.is_recording,
+        is_public: !!meeting.is_public,
+        require_approval: meeting.require_approval !== false,
+        meeting_kind: meeting.meeting_kind || 'class',
+        demo_request_id: meeting.demo_request_id || null,
+        host_timezone: meeting.host_timezone || null,
         teacher_id: meeting.teacher_id,
         teacher_first_name: meeting.teacher_first_name,
         teacher_last_name: meeting.teacher_last_name,
@@ -200,15 +300,15 @@ function allowHit(key, max, windowMs) {
 
 const PASS_MAX_FAILS = 5;
 const PASS_LOCK_MS = 15 * 60 * 1000;
-const passFails = new Map(); // `${meetingId}:${userId}` → { fails, lockedUntil }
+const passFails = new Map(); // `${meetingId}:${actorKey}` → { fails, lockedUntil }
 
-function passcodeLock(meetingId, userId) {
-    const f = passFails.get(`${meetingId}:${userId}`);
+function passcodeLock(meetingId, actorKey) {
+    const f = passFails.get(`${meetingId}:${actorKey}`);
     if (f && f.lockedUntil > Date.now()) return Math.ceil((f.lockedUntil - Date.now()) / 1000);
     return 0;
 }
-function passcodeFailed(meetingId, userId) {
-    const key = `${meetingId}:${userId}`;
+function passcodeFailed(meetingId, actorKey) {
+    const key = `${meetingId}:${actorKey}`;
     const f = passFails.get(key) || { fails: 0, lockedUntil: 0 };
     if (f.lockedUntil && f.lockedUntil <= Date.now()) { f.fails = 0; f.lockedUntil = 0; }
     f.fails += 1;
@@ -216,10 +316,16 @@ function passcodeFailed(meetingId, userId) {
     passFails.set(key, f);
     return Math.max(0, PASS_MAX_FAILS - f.fails);
 }
-const passcodeOk = (meetingId, userId) => passFails.delete(`${meetingId}:${userId}`);
+const passcodeOk = (meetingId, actorKey) => passFails.delete(`${meetingId}:${actorKey}`);
+
+const isPublicPassLocked = (meetingId, ip) => passcodeLock(meetingId, `ip:${ip || 'unknown'}`);
+const recordPublicPassFail = (meetingId, ip) => passcodeFailed(meetingId, `ip:${ip || 'unknown'}`);
+const resetPublicPassFail = (meetingId, ip) => passcodeOk(meetingId, `ip:${ip || 'unknown'}`);
 
 // ──────────────────────────────────── Lobby ────────────────────────────────────
-const lobbies = new Map();   // meetingId → Map(userId → request)
+// Keyed uniformly by participant string key: String(userId) for portal users,
+// and `guest:${guestId}` for external public guests.
+const lobbies = new Map();   // meetingId → Map(key → request)
 const verified = new Map();  // `${meetingId}:${userId}` → expiry (passcode accepted, may wait for the start)
 const denials = new Map();   // `${meetingId}:${userId}` → { count, until }
 const VERIFIED_MS = 6 * 60 * 60 * 1000;
@@ -234,46 +340,74 @@ function lobbyOf(meetingId) {
 function lobbyList(meetingId) {
     return [...(lobbies.get(Number(meetingId))?.values() || [])].sort((a, b) => a.requestedAt.localeCompare(b.requestedAt));
 }
-function lobbyHas(meetingId, userId) { return !!lobbies.get(Number(meetingId))?.has(Number(userId)); }
+function lobbyHas(meetingId, keyOrUserId) {
+    return !!lobbies.get(Number(meetingId))?.has(lobbyKeyFor(keyOrUserId));
+}
 function lobbyAdd(meetingId, user, via) {
     const lobby = lobbyOf(meetingId);
     const uid = Number(user.id);
-    cancelDrop(meetingId, uid);
-    if (lobby.has(uid)) return { request: lobby.get(uid), isNew: false };
+    const key = String(uid);
+    cancelDrop(meetingId, key);
+    if (lobby.has(key)) return { request: lobby.get(key), isNew: false };
     const request = {
+        key,
         userId: uid,
+        guestId: null,
+        isGuest: false,
         userName: `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Participant',
+        email: user.email || null,
         role: user.role,
         via,
         requestedAt: new Date().toISOString(),
     };
-    lobby.set(uid, request);
+    lobby.set(key, request);
     return { request, isNew: true };
 }
-function lobbyRemove(meetingId, userId) {
-    cancelDrop(meetingId, userId);
+function lobbyAddGuest(meetingId, { guestId, displayName, email = null }) {
+    const lobby = lobbyOf(meetingId);
+    const key = `guest:${guestId}`;
+    cancelDrop(meetingId, key);
+    if (lobby.has(key)) return { request: lobby.get(key), isNew: false };
+    const request = {
+        key,
+        userId: null,
+        guestId,
+        isGuest: true,
+        userName: sanitizeDisplayName(displayName) || 'External Guest',
+        email: email || null,
+        role: 'guest',
+        via: 'public_link',
+        requestedAt: new Date().toISOString(),
+    };
+    lobby.set(key, request);
+    return { request, isNew: true };
+}
+function lobbyRemove(meetingId, keyOrUserId) {
+    const key = lobbyKeyFor(keyOrUserId);
+    cancelDrop(meetingId, key);
     const lobby = lobbies.get(Number(meetingId));
-    const removed = !!lobby?.delete(Number(userId));
+    const removed = !!lobby?.delete(key);
     if (lobby && lobby.size === 0) lobbies.delete(Number(meetingId));
     return removed;
 }
 function lobbyClear(meetingId) {
-    for (const r of lobbyList(meetingId)) cancelDrop(meetingId, r.userId);
+    for (const r of lobbyList(meetingId)) cancelDrop(meetingId, r.key);
     lobbies.delete(Number(meetingId));
     for (const key of [...verified.keys()]) if (key.startsWith(`${meetingId}:`)) verified.delete(key);
 }
-function cancelDrop(meetingId, userId) {
-    const key = `${meetingId}:${userId}`;
-    clearTimeout(dropTimers.get(key));
-    dropTimers.delete(key);
+function cancelDrop(meetingId, keyOrUserId) {
+    const k = `${meetingId}:${lobbyKeyFor(keyOrUserId)}`;
+    clearTimeout(dropTimers.get(k));
+    dropTimers.delete(k);
 }
 /** The person stopped waiting (closed the tab, lost the network): drop the request after a grace period. */
-function scheduleDrop(meetingId, userId, onDropped) {
-    cancelDrop(meetingId, userId);
-    const key = `${meetingId}:${userId}`;
-    dropTimers.set(key, setTimeout(() => {
-        dropTimers.delete(key);
-        if (lobbyRemove(meetingId, userId)) onDropped?.();
+function scheduleDrop(meetingId, keyOrUserId, onDropped) {
+    const pKey = lobbyKeyFor(keyOrUserId);
+    cancelDrop(meetingId, pKey);
+    const k = `${meetingId}:${pKey}`;
+    dropTimers.set(k, setTimeout(() => {
+        dropTimers.delete(k);
+        if (lobbyRemove(meetingId, pKey)) onDropped?.();
     }, LOBBY_GRACE_MS));
 }
 
@@ -316,13 +450,19 @@ const rooms = {
     hosts: id => `meeting-host:${id}`,
     lobby: id => `meeting-lobby:${id}`,
     user: id => `user:${id}`,
+    guest: guestId => `guest:${guestId}`,
+    role: roleName => `role:${roleName}`,
 };
 
 /** Keeps every host screen (in the room or anywhere in the app) in sync with the lobby. */
 function publishLobby(io, meeting) {
     if (!io || !meeting) return;
     const payload = { meetingId: meeting.id, pending: lobbyList(meeting.id) };
-    io.to(rooms.hosts(meeting.id)).to(rooms.user(meeting.teacher_id)).emit('meeting:lobby-updated', payload);
+    let target = io.to(rooms.hosts(meeting.id)).to(rooms.user(meeting.teacher_id));
+    if (meeting.is_public || (meeting.meeting_kind && meeting.meeting_kind !== 'class')) {
+        target = target.to(rooms.role('admin'));
+    }
+    target.emit('meeting:lobby-updated', payload);
 }
 
 // ─────────────────────── Host notifications (bell) ───────────────────────
@@ -349,6 +489,28 @@ async function notifyJoinRequest(db, meeting, user) {
         });
     } catch (e) {
         console.warn('[meetings] join-request notification failed:', e.message);
+    }
+}
+
+/** Notify host (and admins if public/demo) when an external guest knocks in the lobby. */
+async function notifyGuestJoinRequest(db, meeting, guestName) {
+    try {
+        const { createBulkNotifications } = require('./notificationService');
+        const recipientIds = new Set([Number(meeting.teacher_id)]);
+        if (meeting.is_public || (meeting.meeting_kind && meeting.meeting_kind !== 'class')) {
+            const admins = await db.all("SELECT id FROM users WHERE role = 'admin' AND is_active = true");
+            for (const a of admins) recipientIds.add(Number(a.id));
+        }
+        await createBulkNotifications(db, [...recipientIds].filter(Boolean), {
+            type: 'meeting_join_request',
+            title: `${guestName} is waiting to join`,
+            message: `External guest in “${meeting.title}” — open the meeting to admit or deny.`,
+            link: `/app/meeting/${meeting.room_name}`,
+            entity_type: 'meeting',
+            entity_id: meeting.id,
+        });
+    } catch (e) {
+        console.warn('[meetings] guest join-request notification failed:', e.message);
     }
 }
 
@@ -401,11 +563,32 @@ function liveKitToken(meeting, user, access) {
     return at.toJwt();
 }
 
+/** Strictly non-admin LiveKit token for unauthenticated external guests. Identity is `guest:<guestId>`. */
+function issueGuestLiveKitToken(meeting, { guestId, displayName }) {
+    const safeName = sanitizeDisplayName(displayName) || 'Guest';
+    const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
+        identity: `guest:${guestId}`,
+        name: safeName,
+        metadata: JSON.stringify({ role: 'guest', isPublicGuest: true }),
+        ttl: '4h',
+    });
+    at.addGrant({
+        roomJoin: true,
+        room: meeting.room_name,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: true,
+        canUpdateOwnMetadata: false,
+        roomAdmin: false,
+    });
+    return at.toJwt();
+}
+
 /** Server-side removal: a removed participant is disconnected even if their app ignores the event. */
-async function removeFromLiveKit(meeting, userId) {
+async function removeFromLiveKit(meeting, participantIdentity) {
     const svc = roomService();
     if (!svc) return;
-    try { await svc.removeParticipant(meeting.room_name, String(userId)); } catch { /* not in the room */ }
+    try { await svc.removeParticipant(meeting.room_name, String(participantIdentity)); } catch { /* not in the room */ }
 }
 async function closeLiveKitRoom(meeting) {
     const svc = roomService();
@@ -416,11 +599,15 @@ async function closeLiveKitRoom(meeting) {
 module.exports = {
     CODE_RE, PASSCODE_LENGTH,
     generateMeetingCode, generatePasscode, uniqueMeetingCode, normalizeRef, isNumericRef, normalizePasscode,
+    passcodeFromInput, frontendBase, publicMeetingUrl,
+    isGuestKey, guestIdFromKey, lobbyKeyFor, sanitizeDisplayName,
+    newGuestId, signGuestToken, verifyGuestToken,
     sealPasscode, openPasscode, passcodeMatches, ensurePasscode,
-    findMeeting, resolveAccess, isModerator, meetingView,
+    findMeeting, resolveAccess, isHostOrAdmin, isModerator, meetingView,
     allowHit, passcodeLock, passcodeFailed, passcodeOk,
-    lobbyList, lobbyHas, lobbyAdd, lobbyRemove, lobbyClear, scheduleDrop, cancelDrop,
+    isPublicPassLocked, recordPublicPassFail, resetPublicPassFail,
+    lobbyList, lobbyHas, lobbyAdd, lobbyAddGuest, lobbyRemove, lobbyClear, scheduleDrop, cancelDrop,
     markVerified, isVerified, denialWait, recordDenial, clearDenials,
-    rooms, publishLobby, notifyJoinRequest, settleJoinRequests,
-    liveKitUrl, liveKitToken, removeFromLiveKit, closeLiveKitRoom, roomService,
+    rooms, publishLobby, notifyJoinRequest, notifyGuestJoinRequest, settleJoinRequests,
+    liveKitUrl, liveKitToken, issueGuestLiveKitToken, removeFromLiveKit, closeLiveKitRoom, roomService,
 };

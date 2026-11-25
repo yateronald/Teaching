@@ -141,6 +141,10 @@ app.use('/api/public/promotions', (err, _req, res, next) => {
     return next();
 });
 
+// Public meetings & single-use demo availability links: strictly small JSON payloads.
+app.use('/api/public/meetings', express.json({ limit: '16kb' }));
+app.use('/api/public/demo-availability', express.json({ limit: '16kb' }));
+
 // Paystack's payment notifications are signed over their exact bytes: that one
 // route keeps the raw body (read before the JSON parser below).
 app.use('/api/learn/billing/webhook', express.raw({ type: '*/*', limit: '256kb' }));
@@ -250,6 +254,8 @@ app.use('/api/exam-space', require('./routes/examSpace'));
 
 const meetingRoutes = require('./routes/meetings');
 app.use('/api/meetings', meetingRoutes);
+app.use('/api/public/meetings', require('./routes/publicMeetings'));
+app.use('/api/public/demo-availability', require('./routes/demoAvailabilityPublic'));
 
 // LiveKit webhooks (PUBLIC — verified by LiveKit signature, NOT JWT-authed).
 // req.db and req.io are already attached by the global middleware above.

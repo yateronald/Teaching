@@ -1166,7 +1166,7 @@ const DemoRequestModal: React.FC<DemoRequestModalProps> = ({ isOpen, onClose, in
             <div className="success-content">
               <CheckCircleOutlined className="success-icon" />
               <p className="status-lead">Thank you for your interest in learning French with us.</p>
-              <p>We have received your request and <strong>an administrator will contact you soon on WhatsApp</strong> to schedule your session.</p>
+              <p>We have received your request. <strong>An administrator will send you an email shortly to request your availability</strong> for scheduling your demo meeting, and may also contact you on WhatsApp. Please check your inbox (and spam folder) for your availability link.</p>
               <p>Please check your WhatsApp messages and email for confirmation details.</p>
             </div>
           </div>
